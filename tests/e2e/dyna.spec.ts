@@ -20,8 +20,8 @@ test("renders the fixed executive catalog without external requests", async ({ p
   await expect(page.getByText("Immediate next steps", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Review in Codex" })).toBeVisible();
   await expect(page.getByText("Browser fixture schedule", { exact: true })).toBeVisible();
-  await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "fullscreen");
-  await expect(page.getByRole("button", { name: "Expand dashboard" })).toBeHidden();
+  await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "inline");
+  await expect(page.getByRole("button", { name: "Expand dashboard" })).toBeVisible();
   await expect(page.locator("html")).toHaveAttribute(
     "data-dyna-advertised-display-modes",
     '["inline","fullscreen"]',
@@ -40,6 +40,7 @@ test("renders the fixed executive catalog without external requests", async ({ p
       ),
     ),
   ).not.toBe("");
+  await expect(page.locator("html")).not.toHaveAttribute("data-dyna-display-mode-request-count");
 
   const accessibility = await new AxeBuilder({ page }).analyze();
   expect(accessibility.violations).toEqual([]);
@@ -128,8 +129,26 @@ test("adds, searches, reprioritizes, and sequences queue items", async ({ page }
   const search = page.getByRole("searchbox", { name: "Search dashboard" });
   await search.fill("github avery");
   await expect(page.locator('.dyna-card[data-presentation="queue"]')).toHaveCount(1);
+  await expect(page.locator('.dyna-visually-hidden[role="status"]')).toHaveText("1 matching item.");
+  const filteredCriticalCard = page
+    .locator('.dyna-card[data-presentation="queue"]')
+    .filter({ hasText: "Review the release merge request" });
+  await filteredCriticalCard.getByRole("button", { name: "Lower" }).click();
+  await expect(filteredCriticalCard.getByText("high", { exact: true })).toBeVisible();
+  await filteredCriticalCard.getByRole("button", { name: "Bump" }).click();
+  await expect(filteredCriticalCard.getByText("critical", { exact: true })).toBeVisible();
+  await search.fill("Additional priority 1");
+  const filteredSequenceCard = page
+    .locator('.dyna-card[data-presentation="queue"]')
+    .filter({ hasText: "Additional priority 1" });
+  await expect(filteredSequenceCard).toBeVisible();
+  await filteredSequenceCard.getByRole("button", { name: "Later" }).click();
+  await expect(filteredSequenceCard.getByRole("button", { name: "Later" })).toBeDisabled();
   await search.fill("definitely absent signal");
   await expect(page.getByText(/No dashboard items match/)).toBeVisible();
+  await expect(page.locator('.dyna-visually-hidden[role="status"]')).toHaveText(
+    "No matching items.",
+  );
   await search.fill("");
 
   await page.getByRole("button", { name: "Add to-do" }).click();
@@ -204,6 +223,7 @@ test("projects the same items through the Codex progress pipeline and creates fo
 
 test("reflows at 320 CSS pixels without horizontal overflow", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 720 });
+  await page.goto("/dyna?pipeline=1&long-content=1");
   await expect(page.getByRole("heading", { name: "Executive brief" })).toBeVisible();
   const dimensions = await page.evaluate(() => ({
     clientWidth: document.documentElement.clientWidth,
@@ -216,20 +236,18 @@ test("reflows at 320 CSS pixels without horizontal overflow", async ({ page }) =
 });
 
 test("requests the expanded Codex work surface when the host supports it", async ({ page }) => {
+  await page.getByRole("button", { name: "Expand dashboard" }).click();
   await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "fullscreen");
   await expect(page.getByRole("button", { name: "Expand dashboard" })).toBeHidden();
   await expect(page.locator("html")).toHaveAttribute("data-dyna-display-mode-request-count", "1");
 });
 
-test("does not expose a duplicate expand action while initial negotiation is pending", async ({
-  page,
-}) => {
+test("keeps the host-selected panel presentation after connection", async ({ page }) => {
   await page.goto("/dyna?display-mode-delay=1");
   await expect(page.getByRole("heading", { name: "Executive brief" })).toBeVisible();
-  expect(await page.locator(".dyna").getAttribute("data-display-mode")).toBe("inline");
-  await expect(page.getByRole("button", { name: "Expand dashboard" })).toBeHidden();
-  await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "fullscreen");
-  await expect(page.locator("html")).toHaveAttribute("data-dyna-display-mode-request-count", "1");
+  await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "inline");
+  await expect(page.getByRole("button", { name: "Expand dashboard" })).toBeVisible();
+  await expect(page.locator("html")).not.toHaveAttribute("data-dyna-display-mode-request-count");
 });
 
 test("keeps inline content visible when the host cannot expand", async ({ page }) => {
@@ -255,7 +273,9 @@ test("keeps a complete manual fallback when an expanded presentation request fai
   await expect(page.getByRole("button", { name: "Expand dashboard" })).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
   await page.getByRole("button", { name: "Expand dashboard" }).click();
-  await expect(page.getByRole("status")).toContainText("complete current view remains available");
+  await expect(page.locator(".dyna-toast")).toContainText(
+    "complete current view remains available",
+  );
   await expect(page.getByRole("button", { name: "Expand dashboard" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Expand dashboard" })).toBeFocused();
   expect(pageErrors).toEqual([]);
@@ -270,9 +290,21 @@ test("keeps a complete manual fallback when the host resolves expansion as inlin
   await expect(page.locator(".dyna-card")).toHaveCount(4);
   const expand = page.getByRole("button", { name: "Expand dashboard" });
   await expand.click();
-  await expect(page.getByRole("status")).toContainText("complete current view remains available");
+  await expect(page.locator(".dyna-toast")).toContainText(
+    "complete current view remains available",
+  );
   await expect(expand).toBeFocused();
-  await expect(page.locator("html")).toHaveAttribute("data-dyna-display-mode-request-count", "2");
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-display-mode-request-count", "1");
+});
+
+test("keeps authoritative server matches that fall outside the local search preview", async ({
+  page,
+}) => {
+  await page.goto("/dyna?older-match=1");
+  const search = page.getByRole("searchbox", { name: "Search dashboard" });
+  await search.fill("buriedneedle");
+  await expect(page.getByText("Review the release merge request")).toBeVisible();
+  await expect(page.locator('.dyna-visually-hidden[role="status"]')).toHaveText("1 matching item.");
 });
 
 test("retries an uncertain delivery with the same idempotent request", async ({ page }) => {

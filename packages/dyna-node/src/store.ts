@@ -31,7 +31,6 @@ import {
   type DynaTaskStatus,
   type DynaTodoInput,
 } from "@flowzone/dyna-contracts";
-import { compareDynaCards } from "@flowzone/dyna-core";
 import type { z } from "zod";
 
 type DynaActionKind = z.infer<typeof DynaActionKindSchema>;
@@ -41,6 +40,94 @@ const VIEW_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
 const ACTION_TTL_MS = 10 * 60 * 1_000;
 const CLAIM_LEASE_MS = 5 * 60 * 1_000;
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1_000;
+const LEGACY_COMPLETION_OUTCOME =
+  "Completed before outcome tracking; refresh this task for details.";
+
+const DYNA_ELIGIBLE_CTE = `
+  WITH eligible AS (
+    SELECT DISTINCT i.*,
+      CASE WHEN e.base_fingerprint = i.fingerprint THEN e.summary END AS enrichment_summary,
+      CASE WHEN e.base_fingerprint = i.fingerprint THEN e.priority END AS enrichment_priority,
+      CASE WHEN e.base_fingerprint = i.fingerprint THEN e.priority_reason END AS enrichment_priority_reason,
+      CASE WHEN e.base_fingerprint = i.fingerprint THEN e.due_at END AS enrichment_due_at,
+      CASE WHEN e.base_fingerprint = i.fingerprint THEN e.due_at_set END AS enrichment_due_at_set,
+      CASE WHEN e.base_fingerprint = i.fingerprint THEN e.labels END AS enrichment_labels,
+      CASE WHEN e.base_fingerprint = i.fingerprint THEN e.people END AS enrichment_people,
+      CASE WHEN e.base_fingerprint = i.fingerprint THEN e.attention END AS enrichment_attention,
+      CASE WHEN e.base_fingerprint = i.fingerprint THEN e.plan END AS enrichment_plan,
+      CASE WHEN e.base_fingerprint = i.fingerprint THEN e.next_steps END AS enrichment_next_steps,
+      e.base_fingerprint AS enrichment_base_fingerprint,
+      e.base_source_updated_at AS enrichment_base_source_updated_at,
+      e.applied_at AS enrichment_applied_at,
+      e.provenance AS enrichment_provenance,
+      e.version AS enrichment_version,
+      p.priority_override AS preference_priority,
+      p.sequence AS preference_sequence,
+      CASE
+        WHEN p.priority_override IS NOT NULL THEN p.priority_override
+        WHEN e.base_fingerprint = i.fingerprint AND e.leadership_score >= 75
+          AND COALESCE(e.priority, i.priority) = 'normal' THEN 'high'
+        WHEN e.base_fingerprint = i.fingerprint AND e.leadership_score >= 55
+          AND COALESCE(e.priority, i.priority) = 'low' THEN 'normal'
+        ELSE COALESCE(
+          CASE WHEN e.base_fingerprint = i.fingerprint THEN e.priority END,
+          i.priority
+        )
+      END AS effective_priority,
+      CASE WHEN e.base_fingerprint = i.fingerprint
+        THEN e.leadership_score ELSE i.leadership_score END AS effective_leadership_score,
+      CASE
+        WHEN NOT EXISTS (SELECT 1 FROM task_bindings t WHERE t.item_id = i.id) THEN 'todo'
+        WHEN EXISTS (
+          SELECT 1 FROM task_bindings t
+          WHERE t.item_id = i.id AND t.state IN ('failed', 'unknown')
+        ) THEN 'attention'
+        WHEN EXISTS (
+          SELECT 1 FROM task_bindings t
+          WHERE t.item_id = i.id AND t.state = 'waiting'
+        ) THEN 'paused'
+        WHEN EXISTS (
+          SELECT 1 FROM task_bindings t
+          WHERE t.item_id = i.id AND t.state IN ('queued', 'running')
+        ) THEN 'executing'
+        WHEN NOT EXISTS (
+          SELECT 1 FROM task_bindings t
+          WHERE t.item_id = i.id AND t.state <> 'succeeded'
+        ) THEN 'completed'
+        ELSE 'attention'
+      END AS workflow_state
+    FROM items i
+    JOIN publisher_items pi ON pi.item_id = i.id AND pi.active = 1
+    JOIN dashboard_publishers dp ON dp.publisher_id = pi.publisher_id
+    LEFT JOIN item_enrichments e ON e.item_id = i.id
+    LEFT JOIN item_preferences p ON p.item_id = i.id AND p.dashboard_id = dp.dashboard_id
+    WHERE dp.dashboard_id = ?
+  ), ranked AS (
+    SELECT *, ROW_NUMBER() OVER (
+      PARTITION BY identity_key ORDER BY source_updated_ms DESC, updated_at DESC, id
+    ) AS identity_rank
+    FROM eligible
+  ), deduplicated AS (
+    SELECT * FROM ranked WHERE identity_rank = 1
+  ), positioned AS (
+    SELECT *,
+      CASE WHEN workflow_state = 'completed' THEN 1 ELSE 0 END AS completed_group,
+      ROW_NUMBER() OVER (
+        PARTITION BY effective_priority,
+          CASE WHEN workflow_state = 'completed' THEN 1 ELSE 0 END
+        ORDER BY COALESCE(preference_sequence, 2147483647),
+          effective_leadership_score DESC,
+          CASE WHEN enrichment_due_at_set = 1
+            THEN COALESCE(enrichment_due_at, '9999') ELSE COALESCE(due_at, '9999') END,
+          source_updated_ms DESC, id
+      ) AS priority_position,
+      COUNT(*) OVER (
+        PARTITION BY effective_priority,
+          CASE WHEN workflow_state = 'completed' THEN 1 ELSE 0 END
+      ) AS priority_count
+    FROM deduplicated
+  )
+`;
 
 export interface DynaPublishResult {
   readonly accepted: number;
@@ -191,7 +278,7 @@ export class DynaStore {
         schedule_id TEXT, schedule_title TEXT, schedule_state TEXT NOT NULL DEFAULT 'unknown',
         stale_after_minutes INTEGER NOT NULL DEFAULT 1440,
         last_run_status TEXT NOT NULL DEFAULT 'never', last_run_at TEXT, last_run_completed_ms INTEGER,
-        last_run_error TEXT,
+        last_run_error TEXT, revoked_at TEXT,
         created_at TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS dashboard_publishers (
@@ -234,7 +321,7 @@ export class DynaStore {
         labels TEXT, people TEXT, leadership_score INTEGER NOT NULL DEFAULT 0,
         attention TEXT, plan TEXT, next_steps TEXT,
         base_fingerprint TEXT NOT NULL, base_source_updated_at TEXT NOT NULL,
-        applied_at TEXT NOT NULL, provenance TEXT NOT NULL
+        applied_at TEXT NOT NULL, provenance TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1
       );
       CREATE TABLE IF NOT EXISTS item_preferences (
         dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
@@ -300,6 +387,7 @@ export class DynaStore {
         last_run_at: "TEXT",
         last_run_completed_ms: "INTEGER",
         last_run_error: "TEXT",
+        revoked_at: "TEXT",
       },
       publisher_runs: {
         source_completed_at: "TEXT",
@@ -323,6 +411,7 @@ export class DynaStore {
         plan: "TEXT",
         next_steps: "TEXT",
         leadership_score: "INTEGER NOT NULL DEFAULT 0",
+        version: "INTEGER NOT NULL DEFAULT 1",
       },
       task_bindings: { outcome: "TEXT" },
       action_requests: {
@@ -437,6 +526,11 @@ export class DynaStore {
             AND items.publisher_id <> publisher_items.publisher_id
         )
       `);
+      this.#database
+        .prepare(
+          "UPDATE task_bindings SET outcome = ? WHERE state = 'succeeded' AND (outcome IS NULL OR trim(outcome) = '')",
+        )
+        .run(LEGACY_COMPLETION_OUTCOME);
       this.#database.exec(
         "CREATE INDEX IF NOT EXISTS idx_dyna_items_identity ON items(identity_key); CREATE UNIQUE INDEX IF NOT EXISTS idx_dyna_action_idempotency ON action_requests(dashboard_id, idempotency_key) WHERE idempotency_key IS NOT NULL;",
       );
@@ -520,6 +614,26 @@ export class DynaStore {
     return updated;
   }
 
+  purgeDashboard(id: string, confirmation: string): void {
+    if (confirmation !== id) throw new Error("Dashboard purge confirmation did not match.");
+    this.#transaction(() => {
+      this.getDashboard(id);
+      const manual = this.#one(
+        this.#database.prepare(
+          "SELECT publisher_id FROM dashboard_manual_publishers WHERE dashboard_id = ?",
+        ),
+        id,
+      );
+      this.#database.prepare("DELETE FROM dashboards WHERE id = ?").run(id);
+      if (manual) {
+        this.#database
+          .prepare("DELETE FROM publishers WHERE id = ?")
+          .run(requiredString(manual, "publisher_id"));
+      }
+      this.#audit("dashboard.purged", id);
+    });
+  }
+
   listDashboards(): DynaDashboard[] {
     return (
       this.#database
@@ -593,6 +707,44 @@ export class DynaStore {
     return { publisher, secret };
   }
 
+  rotatePublisherSecret(publisherId: string): string {
+    const secret = token();
+    this.#transaction(() => {
+      const changed = this.#database
+        .prepare("UPDATE publishers SET token_hash = ? WHERE id = ? AND revoked_at IS NULL")
+        .run(tokenHash(secret), publisherId).changes;
+      if (changed !== 1) throw new Error("Active Dyna publisher was not found.");
+      this.#audit("publisher.rotated", publisherId);
+    });
+    return secret;
+  }
+
+  revokePublisher(publisherId: string, purgePublishedData: boolean): void {
+    this.#transaction(() => {
+      const dashboardIds = (
+        this.#database
+          .prepare("SELECT dashboard_id FROM dashboard_publishers WHERE publisher_id = ?")
+          .all(publisherId) as SqlRow[]
+      ).map((row) => requiredString(row, "dashboard_id"));
+      const publisher = this.#one(
+        this.#database.prepare("SELECT id FROM publishers WHERE id = ?"),
+        publisherId,
+      );
+      if (!publisher) throw new Error("Dyna publisher was not found.");
+      if (purgePublishedData) {
+        this.#database.prepare("DELETE FROM publishers WHERE id = ?").run(publisherId);
+      } else {
+        this.#database
+          .prepare(
+            "UPDATE publishers SET revoked_at = COALESCE(revoked_at, ?), schedule_state = 'paused' WHERE id = ?",
+          )
+          .run(this.#now(), publisherId);
+      }
+      this.#touchDashboards(dashboardIds);
+      this.#audit(purgePublishedData ? "publisher.purged" : "publisher.revoked", publisherId);
+    });
+  }
+
   bindSchedule(
     dashboardId: string,
     publisherId: string,
@@ -626,10 +778,13 @@ export class DynaStore {
           schedule.staleAfterMinutes,
         ).changes;
       const publisher = this.#one(
-        this.#database.prepare("SELECT 1 AS present FROM publishers WHERE id = ?"),
+        this.#database.prepare("SELECT revoked_at FROM publishers WHERE id = ?"),
         publisherId,
       );
       if (!publisher) throw new Error("Dyna publisher was not found.");
+      if (optionalString(publisher, "revoked_at")) {
+        throw new Error("A revoked Dyna publisher cannot be bound to a schedule.");
+      }
       const bound = this.#database
         .prepare(
           "INSERT OR IGNORE INTO dashboard_publishers (dashboard_id, publisher_id) VALUES (?, ?)",
@@ -638,6 +793,19 @@ export class DynaStore {
       if (updated === 1) this.#touchDashboardsForPublisher(publisherId, instant);
       else if (bound === 1) this.#touchDashboards([dashboardId], instant);
       this.#audit("schedule.bound", publisherId, instant);
+    });
+  }
+
+  unbindSchedule(dashboardId: string, publisherId: string): void {
+    this.#transaction(() => {
+      this.getDashboard(dashboardId);
+      const changed = this.#database
+        .prepare("DELETE FROM dashboard_publishers WHERE dashboard_id = ? AND publisher_id = ?")
+        .run(dashboardId, publisherId).changes;
+      if (changed === 1) {
+        this.#touchDashboards([dashboardId]);
+        this.#audit("schedule.unbound", publisherId);
+      }
     });
   }
 
@@ -718,6 +886,9 @@ export class DynaStore {
       ...(optionalString(row, "last_run_error")
         ? { lastRunError: optionalString(row, "last_run_error") }
         : {}),
+      ...(optionalString(row, "revoked_at")
+        ? { revokedAt: optionalString(row, "revoked_at") }
+        : {}),
       createdAt: requiredString(row, "created_at"),
     });
   }
@@ -728,13 +899,6 @@ export class DynaStore {
     items: readonly DynaPublishedItem[],
     options: DynaPublishOptions,
   ): DynaPublishResult {
-    const publisher = this.#one(
-      this.#database.prepare("SELECT token_hash FROM publishers WHERE id = ?"),
-      publisherId,
-    );
-    if (!publisher || !hashesMatch(secret, publisher["token_hash"])) {
-      throw new Error("Dyna publisher credentials are invalid.");
-    }
     if (options.status === "failed" && (items.length > 0 || !options.failureMessage)) {
       throw new Error("A failed Dyna run requires an error and cannot publish a partial snapshot.");
     }
@@ -755,6 +919,17 @@ export class DynaStore {
     );
     const instant = this.#now();
     return this.#transaction(() => {
+      const publisher = this.#one(
+        this.#database.prepare("SELECT token_hash, revoked_at FROM publishers WHERE id = ?"),
+        publisherId,
+      );
+      if (
+        !publisher ||
+        optionalString(publisher, "revoked_at") ||
+        !hashesMatch(secret, publisher["token_hash"])
+      ) {
+        throw new Error("Dyna publisher credentials are invalid.");
+      }
       const previous = this.#one(
         this.#database.prepare(
           "SELECT status, item_count, promoted, request_hash FROM publisher_runs WHERE publisher_id = ? AND run_id = ?",
@@ -1132,9 +1307,6 @@ export class DynaStore {
     expectedFingerprint: string,
   ): { readonly changed: boolean } {
     const dashboardId = this.authorizeView(viewToken, itemId);
-    const snapshot = this.snapshot(dashboardId);
-    const card = snapshot.cards.find((candidate) => candidate.id === itemId);
-    if (!card) throw new Error("The Dyna item is no longer active.");
     const instant = this.#now();
     return this.#transaction(() => {
       const revisionRow = this.#one(
@@ -1149,15 +1321,34 @@ export class DynaStore {
       ) {
         throw new Error("The Dyna dashboard changed; refresh before reprioritizing this item.");
       }
+      const group = this.#database
+        .prepare(
+          `${DYNA_ELIGIBLE_CTE}
+          SELECT id, effective_priority, priority_position FROM positioned
+          WHERE effective_priority = (
+            SELECT effective_priority FROM positioned WHERE id = ?
+          )
+          AND completed_group = (
+            SELECT completed_group FROM positioned WHERE id = ?
+          )
+          ORDER BY priority_position`,
+        )
+        .all(dashboardId, itemId, itemId) as SqlRow[];
+      const index = group.findIndex((candidate) => requiredString(candidate, "id") === itemId);
+      const target = group[index];
+      if (!target) throw new Error("The Dyna item is no longer active.");
+      const currentPriority = DynaPrioritySchema.parse(
+        requiredString(target, "effective_priority"),
+      );
       if (action === "bump" || action === "lower") {
         const priorities = ["critical", "high", "normal", "low"] as const;
-        const currentIndex = priorities.indexOf(card.priority);
+        const currentIndex = priorities.indexOf(currentPriority);
         const targetIndex = Math.max(
           0,
           Math.min(priorities.length - 1, currentIndex + (action === "bump" ? -1 : 1)),
         );
-        const targetPriority = priorities[targetIndex] ?? card.priority;
-        if (targetPriority === card.priority) return { changed: false };
+        const targetPriority = priorities[targetIndex] ?? currentPriority;
+        if (targetPriority === currentPriority) return { changed: false };
         this.#database
           .prepare(
             `INSERT INTO item_preferences (
@@ -1169,16 +1360,13 @@ export class DynaStore {
           )
           .run(dashboardId, itemId, targetPriority, instant);
       } else {
-        const group = snapshot.cards
-          .filter((candidate) => candidate.priority === card.priority)
-          .sort(compareDynaCards);
-        const index = group.findIndex((candidate) => candidate.id === itemId);
         const otherIndex = action === "earlier" ? index - 1 : index + 1;
         if (index < 0 || otherIndex < 0 || otherIndex >= group.length) return { changed: false };
-        const currentCard = group[index];
-        const otherCard = group[otherIndex];
-        if (!currentCard || !otherCard) return { changed: false };
-        [group[index], group[otherIndex]] = [otherCard, currentCard];
+        const current = group[index];
+        const other = group[otherIndex];
+        if (!current || !other) return { changed: false };
+        group[index] = other;
+        group[otherIndex] = current;
         const updateSequence = this.#database.prepare(
           `INSERT INTO item_preferences (dashboard_id, item_id, sequence, updated_at)
            VALUES (?, ?, ?, ?)
@@ -1186,7 +1374,7 @@ export class DynaStore {
              updated_at = excluded.updated_at`,
         );
         group.forEach((candidate, position) => {
-          updateSequence.run(dashboardId, candidate.id, position * 100, instant);
+          updateSequence.run(dashboardId, requiredString(candidate, "id"), position * 100, instant);
         });
       }
       this.#touchDashboards([dashboardId], instant);
@@ -1208,6 +1396,7 @@ export class DynaStore {
       readonly plan?: readonly string[];
       readonly nextSteps?: DynaPublishedItem["nextSteps"];
       readonly expectedFingerprint: string;
+      readonly expectedEnrichmentVersion: number;
       readonly provenance: string;
     },
   ): void {
@@ -1219,6 +1408,16 @@ export class DynaStore {
       if (requiredString(base, "fingerprint") !== values.expectedFingerprint) {
         throw new Error("The Dyna item changed; retrieve its latest context before enrichment.");
       }
+      const existing = this.#one(
+        this.#database.prepare("SELECT version FROM item_enrichments WHERE item_id = ?"),
+        itemId,
+      );
+      const currentVersion = existing ? requiredNumber(existing, "version") : 0;
+      if (currentVersion !== values.expectedEnrichmentVersion) {
+        throw new Error(
+          "The Dyna enrichment changed; retrieve its latest context before replacing it.",
+        );
+      }
       this.#database
         .prepare(
           `
@@ -1226,8 +1425,8 @@ export class DynaStore {
             item_id, summary, priority, priority_reason, due_at, due_at_set, labels, people,
             leadership_score,
             attention, plan, next_steps,
-            base_fingerprint, base_source_updated_at, applied_at, provenance
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            base_fingerprint, base_source_updated_at, applied_at, provenance, version
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
           ON CONFLICT(item_id) DO UPDATE SET summary = excluded.summary,
             priority = excluded.priority, priority_reason = excluded.priority_reason,
             due_at = excluded.due_at, due_at_set = excluded.due_at_set, labels = excluded.labels,
@@ -1236,7 +1435,8 @@ export class DynaStore {
             next_steps = excluded.next_steps,
             base_fingerprint = excluded.base_fingerprint,
             base_source_updated_at = excluded.base_source_updated_at,
-            applied_at = excluded.applied_at, provenance = excluded.provenance
+            applied_at = excluded.applied_at, provenance = excluded.provenance,
+            version = item_enrichments.version + 1
         `,
         )
         .run(
@@ -1326,11 +1526,11 @@ export class DynaStore {
             ), ?) > 0
             OR EXISTS (
               SELECT 1 FROM annotations a
-              WHERE a.item_id = ranked.id AND instr(lower(a.body), ?) > 0
+              WHERE a.item_id = positioned.id AND instr(lower(a.body), ?) > 0
             )
             OR EXISTS (
               SELECT 1 FROM task_bindings t
-              WHERE t.item_id = ranked.id AND instr(lower(
+              WHERE t.item_id = positioned.id AND instr(lower(
                 t.title || ' ' || t.state || ' ' || COALESCE(t.outcome, '')
               ), ?) > 0
             )
@@ -1343,74 +1543,26 @@ export class DynaStore {
         this.#database.prepare("SELECT revision FROM dashboards WHERE id = ?"),
         dashboardId,
       );
-      const eligibleCte = `
-        WITH eligible AS (
-          SELECT DISTINCT i.*,
-            CASE WHEN e.base_fingerprint = i.fingerprint THEN e.summary END AS enrichment_summary,
-            CASE WHEN e.base_fingerprint = i.fingerprint THEN e.priority END AS enrichment_priority,
-            CASE WHEN e.base_fingerprint = i.fingerprint THEN e.priority_reason END AS enrichment_priority_reason,
-            CASE WHEN e.base_fingerprint = i.fingerprint THEN e.due_at END AS enrichment_due_at,
-            CASE WHEN e.base_fingerprint = i.fingerprint THEN e.due_at_set END AS enrichment_due_at_set,
-            CASE WHEN e.base_fingerprint = i.fingerprint THEN e.labels END AS enrichment_labels,
-            CASE WHEN e.base_fingerprint = i.fingerprint THEN e.people END AS enrichment_people,
-            CASE WHEN e.base_fingerprint = i.fingerprint THEN e.attention END AS enrichment_attention,
-            CASE WHEN e.base_fingerprint = i.fingerprint THEN e.plan END AS enrichment_plan,
-            CASE WHEN e.base_fingerprint = i.fingerprint THEN e.next_steps END AS enrichment_next_steps,
-            e.base_fingerprint AS enrichment_base_fingerprint,
-            e.base_source_updated_at AS enrichment_base_source_updated_at,
-            e.applied_at AS enrichment_applied_at,
-            e.provenance AS enrichment_provenance,
-            p.priority_override AS preference_priority,
-            p.sequence AS preference_sequence,
-            CASE
-              WHEN p.priority_override IS NOT NULL THEN p.priority_override
-              WHEN e.base_fingerprint = i.fingerprint AND e.leadership_score >= 75
-                AND COALESCE(e.priority, i.priority) = 'normal' THEN 'high'
-              WHEN e.base_fingerprint = i.fingerprint AND e.leadership_score >= 55
-                AND COALESCE(e.priority, i.priority) = 'low' THEN 'normal'
-              ELSE COALESCE(
-                CASE WHEN e.base_fingerprint = i.fingerprint THEN e.priority END,
-                i.priority
-              )
-            END AS effective_priority,
-            CASE WHEN e.base_fingerprint = i.fingerprint
-              THEN e.leadership_score ELSE i.leadership_score END AS effective_leadership_score
-          FROM items i
-          JOIN publisher_items pi ON pi.item_id = i.id AND pi.active = 1
-          JOIN dashboard_publishers dp ON dp.publisher_id = pi.publisher_id
-          LEFT JOIN item_enrichments e ON e.item_id = i.id
-          LEFT JOIN item_preferences p ON p.item_id = i.id AND p.dashboard_id = dp.dashboard_id
-          WHERE dp.dashboard_id = ?
-        ), ranked AS (
-          SELECT *, ROW_NUMBER() OVER (
-            PARTITION BY identity_key ORDER BY source_updated_ms DESC, updated_at DESC, id
-          ) AS identity_rank
-          FROM eligible
-        )
-      `;
       const countRow = this.#one(
-        this.#database.prepare(`${eligibleCte}
+        this.#database.prepare(`${DYNA_ELIGIBLE_CTE}
           SELECT COUNT(*) AS total,
-            COALESCE(SUM(CASE WHEN effective_priority = 'critical' THEN 1 ELSE 0 END), 0) AS critical,
-            COALESCE(SUM(CASE WHEN effective_priority = 'high' THEN 1 ELSE 0 END), 0) AS high,
+            COALESCE(SUM(CASE WHEN workflow_state <> 'completed' AND effective_priority = 'critical' THEN 1 ELSE 0 END), 0) AS critical,
+            COALESCE(SUM(CASE WHEN workflow_state <> 'completed' AND effective_priority = 'high' THEN 1 ELSE 0 END), 0) AS high,
             COALESCE(SUM(CASE WHEN effective_leadership_score > 0 THEN 1 ELSE 0 END), 0) AS leadership,
             MAX(source_updated_at) AS newest
-          FROM ranked WHERE identity_rank = 1 ${searchClause}`),
+          FROM positioned WHERE 1 = 1 ${searchClause}`),
         dashboardId,
         ...searchValues,
       );
       if (!countRow) throw new Error("Dyna could not count dashboard items.");
       const rows = this.#database
         .prepare(
-          `${eligibleCte}
-          SELECT * FROM ranked WHERE identity_rank = 1 ${searchClause}
+          `${DYNA_ELIGIBLE_CTE}
+          SELECT * FROM positioned WHERE 1 = 1 ${searchClause}
           ORDER BY
             CASE effective_priority
               WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END,
-            COALESCE(preference_sequence, 2147483647),
-            CASE WHEN enrichment_due_at_set = 1
-              THEN COALESCE(enrichment_due_at, '9999') ELSE COALESCE(due_at, '9999') END,
-            source_updated_ms DESC, id
+            priority_position
           LIMIT 200`,
         )
         .all(dashboardId, ...searchValues) as SqlRow[];
@@ -1446,7 +1598,7 @@ export class DynaStore {
                 ? "aging"
                 : "stale";
       return DynaDashboardSnapshotSchema.parse({
-        schema: "dyna/snapshot-v2",
+        schema: "dyna/snapshot-v3",
         dashboard,
         generatedAt: this.#now(),
         query,
@@ -2054,32 +2206,34 @@ export class DynaStore {
     if (!enrichment) {
       return { ...base, id: itemId, fingerprint: requiredString(row, "fingerprint") };
     }
-    const dueAtSet = requiredNumber(enrichment, "due_at_set") === 1;
+    const enrichmentActive =
+      requiredString(enrichment, "base_fingerprint") === requiredString(row, "fingerprint");
+    const dueAtSet = enrichmentActive && requiredNumber(enrichment, "due_at_set") === 1;
     const merged = DynaMaterializedItemSchema.parse({
       ...base,
-      ...(optionalString(enrichment, "summary")
+      ...(enrichmentActive && optionalString(enrichment, "summary")
         ? { summary: optionalString(enrichment, "summary") }
         : {}),
-      ...(optionalString(enrichment, "priority")
+      ...(enrichmentActive && optionalString(enrichment, "priority")
         ? { priority: optionalString(enrichment, "priority") }
         : {}),
-      ...(optionalString(enrichment, "priority_reason")
+      ...(enrichmentActive && optionalString(enrichment, "priority_reason")
         ? { priorityReason: optionalString(enrichment, "priority_reason") }
         : {}),
       ...(dueAtSet ? { dueAt: optionalString(enrichment, "due_at") } : {}),
-      ...(optionalString(enrichment, "labels")
+      ...(enrichmentActive && optionalString(enrichment, "labels")
         ? { labels: parseJson(requiredString(enrichment, "labels")) }
         : {}),
-      ...(optionalString(enrichment, "people")
+      ...(enrichmentActive && optionalString(enrichment, "people")
         ? { people: parseJson(requiredString(enrichment, "people")) }
         : {}),
-      ...(optionalString(enrichment, "attention")
+      ...(enrichmentActive && optionalString(enrichment, "attention")
         ? { attention: optionalString(enrichment, "attention") }
         : {}),
-      ...(optionalString(enrichment, "plan")
+      ...(enrichmentActive && optionalString(enrichment, "plan")
         ? { plan: parseJson(requiredString(enrichment, "plan")) }
         : {}),
-      ...(optionalString(enrichment, "next_steps")
+      ...(enrichmentActive && optionalString(enrichment, "next_steps")
         ? { nextSteps: parseJson(requiredString(enrichment, "next_steps")) }
         : {}),
     });
@@ -2088,13 +2242,11 @@ export class DynaStore {
       id: itemId,
       fingerprint: requiredString(row, "fingerprint"),
       enrichment: {
-        state:
-          requiredString(enrichment, "base_fingerprint") === requiredString(row, "fingerprint")
-            ? "active"
-            : "stale",
+        state: enrichmentActive ? "active" : "stale",
         appliedAt: requiredString(enrichment, "applied_at"),
         baseSourceUpdatedAt: requiredString(enrichment, "base_source_updated_at"),
         provenance: requiredString(enrichment, "provenance"),
+        version: requiredNumber(enrichment, "version"),
       },
     };
   }
@@ -2116,6 +2268,7 @@ export class DynaStore {
           base_source_updated_at: row["enrichment_base_source_updated_at"],
           applied_at: row["enrichment_applied_at"],
           provenance: row["enrichment_provenance"],
+          version: row["enrichment_version"],
         }
       : undefined;
     return this.#mergeItem(row, enrichment);
@@ -2202,10 +2355,10 @@ export class DynaStore {
       const workflowState =
         linkedTasks.length === 0
           ? ("todo" as const)
-          : linkedTasks.some((task) => task.state === "waiting")
-            ? ("paused" as const)
-            : linkedTasks.some((task) => task.state === "failed" || task.state === "unknown")
-              ? ("attention" as const)
+          : linkedTasks.some((task) => task.state === "failed" || task.state === "unknown")
+            ? ("attention" as const)
+            : linkedTasks.some((task) => task.state === "waiting")
+              ? ("paused" as const)
               : linkedTasks.some((task) => task.state === "queued" || task.state === "running")
                 ? ("executing" as const)
                 : linkedTasks.every((task) => task.state === "succeeded")
@@ -2242,6 +2395,9 @@ export class DynaStore {
               ? "enrichment"
               : "source",
         ...(typeof sequenceValue === "number" ? { sequence: sequenceValue } : {}),
+        canMoveEarlier: requiredNumber(row, "priority_position") > 1,
+        canMoveLater:
+          requiredNumber(row, "priority_position") < requiredNumber(row, "priority_count"),
         workflowState,
         ...(workflowState === "completed" && completedTask?.outcome
           ? { outcome: completedTask.outcome }

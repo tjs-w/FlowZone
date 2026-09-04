@@ -46,7 +46,7 @@ export function compileDashboard(snapshot: DynaDashboardSnapshot): DynaRenderSpe
     children: [],
   };
 
-  const addCard = (card: DynaCard, canMoveEarlier = false, canMoveLater = false): string => {
+  const addCard = (card: DynaCard): string => {
     const cardKey = `card-${card.id}`;
     if (elements[cardKey]) return cardKey;
     const taskChildren: string[] = [];
@@ -81,8 +81,8 @@ export function compileDashboard(snapshot: DynaDashboardSnapshot): DynaRenderSpe
         workflowState: card.workflowState,
         ...(card.outcome ? { outcome: card.outcome } : {}),
         ...(card.followUpOfItemId ? { followUpOfItemId: card.followUpOfItemId } : {}),
-        canMoveEarlier,
-        canMoveLater,
+        canMoveEarlier: card.canMoveEarlier,
+        canMoveLater: card.canMoveLater,
         searchText: [
           ...card.annotations.map((annotation) => annotation.body),
           ...card.linkedTasks.flatMap((task) => [task.title, task.state, task.outcome ?? ""]),
@@ -104,11 +104,11 @@ export function compileDashboard(snapshot: DynaDashboardSnapshot): DynaRenderSpe
 
   for (const priority of PRIORITY_ORDER) {
     const cards = snapshot.cards
-      .filter((card) => card.priority === priority)
+      .filter((card) => card.workflowState !== "completed" && card.priority === priority)
       .sort(compareDynaCards);
     if (cards.length === 0) continue;
     const sectionKey = `queue-section-${priority}`;
-    const children = cards.map((card, index) => addCard(card, index > 0, index < cards.length - 1));
+    const children = cards.map((card) => addCard(card));
     elements[sectionKey] = {
       type: "Section",
       props: {
@@ -125,6 +125,19 @@ export function compileDashboard(snapshot: DynaDashboardSnapshot): DynaRenderSpe
       children,
     };
     queueKeys.push(sectionKey);
+  }
+
+  if (
+    snapshot.query &&
+    snapshot.cards.length > 0 &&
+    snapshot.cards.every((card) => card.workflowState === "completed")
+  ) {
+    elements["completed-search-note"] = {
+      type: "EmptyState",
+      props: { message: "Matching completed work is available in the Progress pipeline." },
+      children: [],
+    };
+    queueKeys.push("completed-search-note");
   }
 
   if (snapshot.cards.length === 0) {

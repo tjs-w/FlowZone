@@ -7,7 +7,7 @@ import { compileDashboard } from "../src/index.js";
 function snapshot(): DynaDashboardSnapshot {
   const timestamp = "2026-09-03T01:00:00.000Z";
   return {
-    schema: "dyna/snapshot-v2",
+    schema: "dyna/snapshot-v3",
     dashboard: {
       id: "bd9a11b5-fbf8-495a-a116-d3429496969f",
       name: "Morning brief",
@@ -38,6 +38,8 @@ function snapshot(): DynaDashboardSnapshot {
         people: [],
         leadershipScore: 0,
         priorityMode: "source",
+        canMoveEarlier: false,
+        canMoveLater: true,
         workflowState: "todo",
         plan: [],
         nextSteps: [],
@@ -68,6 +70,8 @@ function snapshot(): DynaDashboardSnapshot {
         ],
         leadershipScore: 85,
         priorityMode: "source",
+        canMoveEarlier: true,
+        canMoveLater: false,
         workflowState: "todo",
         attention: "Approve or name a blocker.",
         plan: ["Review the current diff"],
@@ -93,5 +97,23 @@ describe("compileDashboard", () => {
     ).toHaveLength(2);
     expect(JSON.stringify(spec)).not.toContain("<script");
     expect(JSON.stringify(spec)).not.toContain("toolName");
+  });
+
+  test("keeps completed work in the pipeline and out of the active priority queue", () => {
+    const current = snapshot();
+    const completed = {
+      ...current,
+      counts: { ...current.counts, high: 0 },
+      cards: current.cards.map((card) =>
+        card.priority === "high"
+          ? { ...card, workflowState: "completed" as const, outcome: "Release decision recorded." }
+          : card,
+      ),
+    };
+    const spec = compileDashboard(completed);
+    expect(spec.elements["queue"]?.children).toEqual(["queue-section-normal"]);
+    expect(spec.elements["pipeline-completed"]?.children).toEqual([
+      "card-6d48a2b2-9e1c-41d4-9db1-a7bc34ff39d4",
+    ]);
   });
 });

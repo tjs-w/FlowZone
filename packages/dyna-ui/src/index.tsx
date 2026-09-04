@@ -39,6 +39,8 @@ button, textarea { font: inherit; }
 .dyna-section { display: grid; gap: 9px; margin: 0 0 20px; }
 .dyna-section h2 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--d-muted); }
 .dyna-card { position: relative; overflow: hidden; display: grid; gap: 10px; padding: 14px 14px 14px 18px; border: 1px solid var(--d-line); border-radius: 14px; background: var(--d-card); }
+.dyna-card > *, .dyna-task > *, .dyna-schedule > * { min-width: 0; }
+.dyna-card h3, .dyna-card p, .dyna-task, .dyna-schedule, .dyna-note-list { overflow-wrap: anywhere; }
 .dyna-card::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; background: var(--d-priority); }
 .dyna-card[data-priority="critical"] { --d-priority: var(--d-critical); }
 .dyna-card[data-priority="high"] { --d-priority: var(--d-high); }
@@ -62,7 +64,7 @@ button, textarea { font: inherit; }
 .dyna-sheet h2 { margin: 0; font-size: 18px; }
 .dyna-sheet-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .dyna-toast { position: fixed; right: max(14px, env(safe-area-inset-right), var(--d-safe-right, 0px)); bottom: max(14px, env(safe-area-inset-bottom), var(--d-safe-bottom, 0px)); z-index: 60; max-width: min(360px, calc(100vw - 28px)); padding: 10px 12px; border-radius: 10px; background: var(--d-text); color: var(--d-bg); font-size: 13px; }
-@media (max-width: 480px), (pointer: coarse) { .dyna { padding-top: max(10px, env(safe-area-inset-top), var(--d-safe-top, 0px)); padding-right: max(10px, env(safe-area-inset-right), var(--d-safe-right, 0px)); padding-bottom: max(10px, env(safe-area-inset-bottom), var(--d-safe-bottom, 0px)); padding-left: max(10px, env(safe-area-inset-left), var(--d-safe-left, 0px)); } .dyna-summary { gap: 6px; } .dyna-stat { padding: 9px; } .dyna-actions > * { flex: 1 1 auto; } .dyna-actions button, .dyna-task button, .dyna-header button, .dyna-sheet-actions button { min-height: 44px; } }
+@media (max-width: 480px), (pointer: coarse) { .dyna { padding-top: max(10px, env(safe-area-inset-top), var(--d-safe-top, 0px)); padding-right: max(10px, env(safe-area-inset-right), var(--d-safe-right, 0px)); padding-bottom: max(10px, env(safe-area-inset-bottom), var(--d-safe-bottom, 0px)); padding-left: max(10px, env(safe-area-inset-left), var(--d-safe-left, 0px)); } .dyna-summary { gap: 6px; } .dyna-stat { padding: 9px; } .dyna-actions > * { flex: 1 1 auto; } .dyna-task { display: grid; } .dyna-task-actions { justify-content: flex-start; } .dyna-actions button, .dyna-task button, .dyna-header button, .dyna-sheet-actions button { min-height: 44px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
 `;
 
@@ -229,6 +231,7 @@ interface DynaUiController {
   readonly initialExpansionPending: boolean;
   readonly locale: string;
   readonly query: string;
+  readonly serverQuery: string;
   readonly view: "queue" | "pipeline";
   setQuery(value: string): void;
   setView(value: "queue" | "pipeline"): void;
@@ -366,6 +369,7 @@ const { registry } = defineRegistry(dynaCatalog, {
                 <input
                   type="search"
                   value={controller.query}
+                  maxLength={500}
                   placeholder="Search signals, people, plans…"
                   onChange={(event) => {
                     controller.setQuery(event.currentTarget.value);
@@ -387,24 +391,37 @@ const { registry } = defineRegistry(dynaCatalog, {
         </main>
       );
     },
-    SummaryStrip: ({ props }) => (
-      <section className="dyna-summary" aria-label="Dashboard summary">
-        <div className="dyna-stat">
-          <strong>{props.focus}</strong>
-          <span>Need focus</span>
-        </div>
-        <div className="dyna-stat">
-          <strong>{props.leadership}</strong>
-          <span>Leadership signals</span>
-        </div>
-        <div className="dyna-stat">
-          <strong>
-            {props.shown < props.total ? `${props.shown} / ${props.total}` : props.total}
-          </strong>
-          <span>{props.shown < props.total ? "Shown / matching" : "Total"}</span>
-        </div>
-      </section>
-    ),
+    SummaryStrip: ({ props }) => {
+      const controller = useController();
+      const settled = controller.query.trim() === controller.serverQuery;
+      return (
+        <>
+          <section className="dyna-summary" aria-label="Dashboard summary">
+            <div className="dyna-stat">
+              <strong>{props.focus}</strong>
+              <span>Need focus</span>
+            </div>
+            <div className="dyna-stat">
+              <strong>{props.leadership}</strong>
+              <span>Leadership signals</span>
+            </div>
+            <div className="dyna-stat">
+              <strong>
+                {props.shown < props.total ? `${props.shown} / ${props.total}` : props.total}
+              </strong>
+              <span>{props.shown < props.total ? "Shown / matching" : "Total"}</span>
+            </div>
+          </section>
+          <div className="dyna-visually-hidden" role="status" aria-live="polite">
+            {settled && controller.query.trim()
+              ? props.total === 0
+                ? "No matching items."
+                : `${String(props.total)} matching ${props.total === 1 ? "item" : "items"}.`
+              : ""}
+          </div>
+        </>
+      );
+    },
     Section: ({ props, children }) => {
       const controller = useController();
       const allChildren = Children.toArray(children);
@@ -464,11 +481,10 @@ const { registry } = defineRegistry(dynaCatalog, {
     PriorityCard: ({ props, children }) => {
       const controller = useController();
       const presentation = controller.view;
-      const queryTerms = controller.query
-        .trim()
-        .toLocaleLowerCase(controller.locale)
-        .split(/\s+/u)
-        .filter(Boolean);
+      const localQueryPending = controller.query.trim() !== controller.serverQuery;
+      const queryTerms = localQueryPending
+        ? controller.query.trim().toLocaleLowerCase(controller.locale).split(/\s+/u).filter(Boolean)
+        : [];
       const searchable = [
         props.title,
         props.summary,
@@ -491,7 +507,7 @@ const { registry } = defineRegistry(dynaCatalog, {
       ]
         .join(" ")
         .toLocaleLowerCase(controller.locale);
-      if (queryTerms.some((term) => !searchable.includes(term))) return null;
+      if (localQueryPending && queryTerms.some((term) => !searchable.includes(term))) return null;
       return (
         <article
           className="dyna-card"
@@ -863,7 +879,6 @@ function DynaApp({ app }: { readonly app: App }) {
   const [connectionError, setConnectionError] = useState<string>();
   const [displayMode, setDisplayMode] = useState<"inline" | "fullscreen" | "pip">("inline");
   const [canExpand, setCanExpand] = useState(false);
-  const [expansionFailed, setExpansionFailed] = useState(false);
   const [initialExpansionPending, setInitialExpansionPending] = useState(true);
   const [locale, setLocale] = useState(navigator.language);
   const current = useRef<DynaUiPayload | undefined>(undefined);
@@ -947,7 +962,6 @@ function DynaApp({ app }: { readonly app: App }) {
     const result = await app.requestDisplayMode({ mode: "fullscreen" });
     hostContext.current = { ...hostContext.current, displayMode: result.mode };
     setDisplayMode(result.mode);
-    setExpansionFailed(result.mode !== "fullscreen");
     return result.mode === "fullscreen";
   }, [app]);
 
@@ -1001,7 +1015,6 @@ function DynaApp({ app }: { readonly app: App }) {
       };
       if (context.theme === "light" || context.theme === "dark") applyDocumentTheme(context.theme);
       setDisplayMode(context.displayMode ?? "inline");
-      if (context.displayMode === "fullscreen") setExpansionFailed(false);
       setCanExpand(context.availableDisplayModes?.includes("fullscreen") ?? false);
       if (context.locale) {
         document.documentElement.lang = context.locale;
@@ -1024,20 +1037,10 @@ function DynaApp({ app }: { readonly app: App }) {
     app.addEventListener("hostcontextchanged", applyContext);
     void app
       .connect()
-      .then(async () => {
+      .then(() => {
         const context = app.getHostContext();
         if (context) applyContext(context);
         setConnectionError(undefined);
-        if (
-          context?.availableDisplayModes?.includes("fullscreen") &&
-          context.displayMode !== "fullscreen"
-        ) {
-          try {
-            await requestExpandedPresentation();
-          } catch {
-            setExpansionFailed(true);
-          }
-        }
         setInitialExpansionPending(false);
       })
       .catch(() => {
@@ -1049,7 +1052,7 @@ function DynaApp({ app }: { readonly app: App }) {
     return () => {
       app.removeEventListener("hostcontextchanged", applyContext);
     };
-  }, [app, requestExpandedPresentation]);
+  }, [app]);
 
   useEffect(() => {
     if (!toast) return;
@@ -1160,10 +1163,11 @@ function DynaApp({ app }: { readonly app: App }) {
       busy,
       displayMode,
       canExpand,
-      condenseInline: canExpand && !initialExpansionPending && !expansionFailed,
+      condenseInline: false,
       initialExpansionPending,
       locale,
       query,
+      serverQuery: payload?.snapshot.query ?? "",
       view,
       setQuery,
       setView,
@@ -1238,7 +1242,6 @@ function DynaApp({ app }: { readonly app: App }) {
             );
           }
         } catch {
-          setExpansionFailed(true);
           setToast("Could not expand the dashboard. The complete current view remains available.");
         } finally {
           setBusy(false);
@@ -1368,9 +1371,9 @@ function DynaApp({ app }: { readonly app: App }) {
       canExpand,
       connectionError,
       displayMode,
-      expansionFailed,
       initialExpansionPending,
       locale,
+      payload?.snapshot.query,
       requestExpandedPresentation,
       query,
       refresh,

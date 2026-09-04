@@ -1,0 +1,28 @@
+# Dyna cross-functional review
+
+Review date: 2026-09-04
+
+This record keeps the material findings from the frontend, Codex app, product, and data-integrity reviews. Cosmetic preferences and speculative framework work are intentionally excluded.
+
+| Perspective    | Material finding                                                                                                                                                                                                  | Resolution                                                                                                                                                                                                                                                                  |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frontend       | Search-window items could disappear locally or receive incorrect movement controls; sequencing only considered a bounded snapshot.                                                                                | The server-filtered result is authoritative, movement flags come from the full priority group, and organization runs against that full group. Browser coverage includes filtered sequencing and a match outside the 5,000-character local preview.                          |
+| Frontend       | Automatic fullscreen conflicted with a side-panel-first experience; search changes were silent to assistive technology; long tokens could overflow Remote layouts.                                                | Dyna respects the host-selected presentation and exposes explicit expansion, announces settled search counts, and wraps unbroken content. The browser matrix covers expansion failure, inline-only hosts, assistive status text, and 320-pixel reflow.                      |
+| Product        | The main conversation could not discover item IDs, completed work remained in the active queue, failed plus waiting work appeared paused, and schedule bindings could not be retired.                             | `search-items` returns a bounded actionable brief with stable IDs. Completed work remains searchable in the pipeline but leaves the active queue/focus count. Failed or unknown task state wins over waiting. `unbind-schedule` retires a dashboard binding independently.  |
+| Codex app      | Hosts without component UI had no useful fallback, and exact left docking or mobile task navigation cannot be guaranteed by MCP Apps.                                                                             | `list-dashboards` plus `search-items` provide the bounded text workflow. Dyna uses capability detection and host-selected presentation; exact dock placement and physical Remote behavior remain explicit host acceptance gates.                                            |
+| Codex app      | Publisher credentials are model-visible and become durable when copied into scheduled-task instructions; publisher/dashboard lifecycle was incomplete.                                                            | The workflow is explicitly limited to trusted single-user local preview with non-production data until the host offers protected scheduled credentials. Rotation, revocation, optional publisher-data purge, schedule unbind, and exact-ID dashboard purge are implemented. |
+| Data integrity | Stale enrichment could still overlay direct item context or crash when nullable fields were read; concurrent replacements could lose data; legacy completed tasks could lack the newly required one-line outcome. | Overlay fields apply only when their source fingerprint is current, while stale provenance remains visible. Enrichment has a compare-and-increment version. Migration backfills a precise legacy placeholder and completed work is excluded from focus counts.              |
+| Data integrity | Publication validated a publisher credential before its write transaction, allowing a concurrent revoke or rotation to commit between validation and publication.                                                 | Publication now starts an immediate write transaction before credential validation. A deterministic two-connection test blocks publication behind uncommitted revoke and rotation writes and verifies that both publications fail after commit.                             |
+
+## Verification
+
+- Repository checks: formatting, lint, TypeScript, 224 tests with coverage gates, clean-build parity, skill validation, and plugin validation.
+- UI matrix: 165 passing Chromium, WebKit, mobile Chromium, and mobile WebKit journeys; three platform-inapplicable cases skipped.
+- Firefox: 50 passing journeys; one platform-inapplicable case skipped.
+- Codex internal browser: visually inspected the light priority queue, dark progress pipeline with task states, add-to-do dialog, and annotation dialog.
+
+## Approval loop
+
+- Frontend and product: **APPROVE**
+- Codex app and MCP Apps: **APPROVE**
+- Data integrity and security: **APPROVE** after the transactional credential-validation follow-up

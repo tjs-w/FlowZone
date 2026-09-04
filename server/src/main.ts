@@ -25,7 +25,7 @@ const server = createFlowZoneServer({
   uiResources: [
     {
       name: "FlowZone Dyna UI",
-      resourceUri: "ui://flowzone/dyna/v2.html",
+      resourceUri: "ui://flowzone/dyna/v3.html",
       assetLoader: dynaAssetLoader,
       description:
         "Dyna is a responsive executive dashboard for prioritized scheduled signals and Codex actions.",

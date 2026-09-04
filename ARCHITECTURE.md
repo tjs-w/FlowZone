@@ -16,7 +16,7 @@ static validated registry
         │
         ▼
 render_markdown_review ──────────────> ui://flowzone/v5.html
-render_dyna_dashboard ───────────────> ui://flowzone/dyna/v2.html
+render_dyna_dashboard ───────────────> ui://flowzone/dyna/v3.html
 
 plugin-owned typed helper tools       app-only
 ```
@@ -92,7 +92,7 @@ FlowZone retries only explicitly idempotent actions and only retryable failures,
 
 ## Presentation resources
 
-`ui://flowzone/v5.html` remains the Markdown Review output resource. `ui://flowzone/dyna/v2.html` is a separate, smaller Dyna resource with no inherited clipboard permission. Public model output stays small; private UI data uses a typed metadata envelope:
+`ui://flowzone/v5.html` remains the Markdown Review output resource. `ui://flowzone/dyna/v3.html` is a separate, smaller Dyna resource with no inherited clipboard permission. Public model output stays small; private UI data uses a typed metadata envelope:
 
 ```json
 {
@@ -108,7 +108,7 @@ Each presentation tool is bound to one fixed resource in the startup registry. U
 
 ## Dyna
 
-Dyna's scheduled jobs publish strict domain records, never a component tree. `@flowzone/dyna-core` deterministically compiles current records into the catalog declared by `@flowzone/dyna-contracts`, then validates the result with `json-render` before it reaches React. SQLite persistence supports many dashboards and native schedule bindings, source-completion-ordered atomic run slices, global source-reference deduplication, cadence-aware freshness, durable enrichment overlays, annotations, monotonic host-scoped task links, and a leased action-request state machine. Snapshot selection, ordering, and full counts happen in SQL before details for at most 200 cards are batch-loaded. The browser advertises and capability-detects the standard MCP Apps fullscreen mode, then requests it on connection so Codex can choose an expanded work surface; the protocol deliberately leaves left/right docking to the host and FlowZone retains a complete inline fallback. The browser can prepare a revision- and fingerprint-bound allowlisted request; the controller revalidates those preconditions at claim time, while native task creation, navigation, and status inspection remain in the current authenticated Codex task.
+Dyna's scheduled jobs publish strict domain records, never a component tree. `@flowzone/dyna-core` deterministically compiles current records into the catalog declared by `@flowzone/dyna-contracts`, then validates the result with `json-render` before it reaches React. SQLite persistence supports many dashboards and native schedule bindings, source-completion-ordered atomic run slices, publisher-scoped source-reference identity, cadence-aware freshness, versioned enrichment overlays, lifecycle controls, annotations, monotonic host-scoped task links, and a leased action-request state machine. Snapshot selection, full-group sequencing, ordering, and counts happen in SQL before details for at most 200 cards are batch-loaded. The browser advertises and capability-detects the standard MCP Apps fullscreen mode, respects the host-selected presentation, and offers explicit expansion; the protocol leaves left/right docking to the host and FlowZone retains a complete inline fallback. The browser can prepare a revision- and fingerprint-bound allowlisted request; the controller revalidates those preconditions at claim time, while native task creation, navigation, and status inspection remain in the current authenticated Codex task. A bounded model-visible `search-items` action supports headless hosts and discovery from the main conversation. Publisher credentials are model-visible at creation/rotation and durable when placed in scheduled prompts, so this path is a trusted local preview until the host provides protected scheduled-task credentials.
 
 See [docs/dyna.md](./docs/dyna.md) for the full boundary, implementation plan, and physical mobile Remote acceptance gate.
 

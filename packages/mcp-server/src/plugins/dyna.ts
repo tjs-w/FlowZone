@@ -10,6 +10,7 @@ import {
   DynaPrioritySchema,
   DynaPublishedItemSchema,
   DynaPublisherSchema,
+  DynaSourceRefSchema,
   DynaTaskStatusSchema,
   DynaTodoInputSchema,
   DynaUiPayloadSchema,
@@ -20,7 +21,7 @@ import { z } from "zod";
 import type { FlowZoneAppTool, FlowZonePlugin } from "../plugin.js";
 
 export const DYNA_PLUGIN_ID = "dyna";
-export const DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v2.html";
+export const DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v3.html";
 
 const DashboardIdSchema = z.object({ dashboardId: z.uuid() }).strict();
 const ViewTokenSchema = z
@@ -41,6 +42,32 @@ const ScheduleSchema = z
     scheduleTitle: z.string().trim().min(1).max(200),
     scheduleState: z.enum(["active", "paused", "unknown"]),
     staleAfterMinutes: z.number().int().min(5).max(43_200).default(1_440),
+  })
+  .strict();
+const SearchItemSchema = z
+  .object({
+    itemId: z.uuid(),
+    fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+    title: z.string().trim().min(1).max(200),
+    summary: z.string().trim().min(1).max(1_000),
+    sourceRef: DynaSourceRefSchema,
+    priority: DynaPrioritySchema,
+    priorityReason: z.string().trim().min(1).max(500),
+    sourceUpdatedAt: z.iso.datetime({ offset: true }),
+    dueAt: z.iso.datetime({ offset: true }).optional(),
+    workflowState: z.enum(["todo", "executing", "paused", "attention", "completed"]),
+    attention: z.string().trim().min(1).max(500).optional(),
+    plan: z.array(z.string().trim().min(1).max(200)).max(4),
+    nextSteps: z.array(DynaNextStepSchema).max(4),
+    outcome: z.string().trim().min(1).max(200).optional(),
+    linkedTasks: z.array(DynaTaskStatusSchema).max(8),
+  })
+  .strict();
+const PublisherSecretResultSchema = z
+  .object({
+    publisher: DynaPublisherSchema,
+    secret: z.string().min(32).max(128),
+    credentialHandling: z.literal("model-visible-trusted-local-preview-only"),
   })
   .strict();
 const CompletionInputSchema = z.discriminatedUnion("outcome", [
@@ -403,6 +430,26 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
         },
       },
       {
+        id: "purge-dashboard",
+        title: "Purge Dyna dashboard",
+        description:
+          "Permanently delete one dashboard and its dashboard-local data after exact ID confirmation.",
+        inputSchema: z.object({ dashboardId: z.uuid(), confirmDashboardId: z.uuid() }).strict(),
+        outputSchema: EmptyResultSchema,
+        risk: { readOnly: false, destructive: true, openWorld: false, idempotent: true },
+        executor: {
+          kind: "module",
+          execute(input) {
+            const parsed = z
+              .object({ dashboardId: z.uuid(), confirmDashboardId: z.uuid() })
+              .strict()
+              .parse(input);
+            service.store.purgeDashboard(parsed.dashboardId, parsed.confirmDashboardId);
+            return { result: { ok: true as const } };
+          },
+        },
+      },
+      {
         id: "list-dashboards",
         title: "List Dyna dashboards",
         description: "List persistent Dyna dashboards and their archive state.",
@@ -417,19 +464,74 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
         },
       },
       {
+        id: "search-items",
+        title: "Search Dyna items",
+        description:
+          "Return a bounded actionable dashboard brief and stable item IDs for enrichment, task attachment, or clients without component UI.",
+        inputSchema: z
+          .object({
+            dashboardId: z.uuid(),
+            query: z.string().trim().max(500).default(""),
+          })
+          .strict(),
+        outputSchema: z
+          .object({
+            dashboard: DynaDashboardSchema,
+            revision: z.number().int().nonnegative(),
+            freshness: z.enum(["fresh", "aging", "stale"]),
+            total: z.number().int().nonnegative(),
+            items: z.array(SearchItemSchema).max(20),
+          })
+          .strict(),
+        risk: { readOnly: true, destructive: false, openWorld: false, idempotent: true },
+        executor: {
+          kind: "module",
+          execute(input) {
+            const { dashboardId, query } = z
+              .object({ dashboardId: z.uuid(), query: z.string().trim().max(500).default("") })
+              .strict()
+              .parse(input);
+            const snapshot = service.store.snapshot(dashboardId, query);
+            return {
+              result: {
+                dashboard: snapshot.dashboard,
+                revision: snapshot.revision,
+                freshness: snapshot.freshness,
+                total: snapshot.counts.total,
+                items: snapshot.cards.slice(0, 20).map((card) => ({
+                  itemId: card.id,
+                  fingerprint: card.fingerprint,
+                  title: card.title,
+                  summary: card.summary,
+                  sourceRef: service.store.itemContext(card.id).sourceRef,
+                  priority: card.priority,
+                  priorityReason: card.priorityReason,
+                  sourceUpdatedAt: card.sourceUpdatedAt,
+                  ...(card.dueAt ? { dueAt: card.dueAt } : {}),
+                  workflowState: card.workflowState,
+                  ...(card.attention ? { attention: card.attention } : {}),
+                  plan: card.plan,
+                  nextSteps: card.nextSteps,
+                  ...(card.outcome ? { outcome: card.outcome } : {}),
+                  linkedTasks: card.linkedTasks,
+                })),
+              },
+            };
+          },
+        },
+      },
+      {
         id: "create-publisher",
         title: "Create Dyna schedule publisher",
         description:
-          "Create a publisher capability for one scheduled Codex job. The secret is returned once and must be protected.",
+          "Create a model-visible publisher credential for one trusted single-user local-preview schedule; production use requires a protected host credential channel.",
         inputSchema: z
           .object({
             name: z.string().trim().min(1).max(96),
             schedule: ScheduleSchema.optional(),
           })
           .strict(),
-        outputSchema: z
-          .object({ publisher: DynaPublisherSchema, secret: z.string().min(32).max(128) })
-          .strict(),
+        outputSchema: PublisherSecretResultSchema,
         risk: { readOnly: false, destructive: false, openWorld: false, idempotent: false },
         executor: {
           kind: "module",
@@ -441,23 +543,77 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
               })
               .strict()
               .parse(input);
+            const created = service.store.createPublisher(
+              name,
+              schedule
+                ? {
+                    id: schedule.scheduleId,
+                    title: schedule.scheduleTitle,
+                    state: schedule.scheduleState,
+                    staleAfterMinutes: schedule.staleAfterMinutes,
+                  }
+                : undefined,
+            );
             return {
-              result: service.store.createPublisher(
-                name,
-                schedule
-                  ? {
-                      id: schedule.scheduleId,
-                      title: schedule.scheduleTitle,
-                      state: schedule.scheduleState,
-                      staleAfterMinutes: schedule.staleAfterMinutes,
-                    }
-                  : undefined,
-              ),
+              result: {
+                ...created,
+                credentialHandling: "model-visible-trusted-local-preview-only" as const,
+              },
             };
           },
         },
         summarize() {
-          return "Created a Dyna schedule publisher. Treat its one-time secret as a credential.";
+          return "Created a Dyna publisher for trusted local preview. Its one-time credential is model-visible and must be rotated or revoked when exposure is uncertain.";
+        },
+      },
+      {
+        id: "rotate-publisher-secret",
+        title: "Rotate Dyna publisher credential",
+        description:
+          "Invalidate an active publisher credential and return one replacement for trusted local preview.",
+        inputSchema: z.object({ publisherId: z.uuid() }).strict(),
+        outputSchema: z
+          .object({
+            publisherId: z.uuid(),
+            secret: z.string().min(32).max(128),
+            credentialHandling: z.literal("model-visible-trusted-local-preview-only"),
+          })
+          .strict(),
+        risk: { readOnly: false, destructive: true, openWorld: false, idempotent: false },
+        executor: {
+          kind: "module",
+          execute(input) {
+            const { publisherId } = z.object({ publisherId: z.uuid() }).strict().parse(input);
+            return {
+              result: {
+                publisherId,
+                secret: service.store.rotatePublisherSecret(publisherId),
+                credentialHandling: "model-visible-trusted-local-preview-only" as const,
+              },
+            };
+          },
+        },
+      },
+      {
+        id: "revoke-publisher",
+        title: "Revoke Dyna publisher",
+        description:
+          "Stop a publisher from accepting runs, optionally purging its published records and bindings.",
+        inputSchema: z
+          .object({ publisherId: z.uuid(), purgePublishedData: z.boolean().default(false) })
+          .strict(),
+        outputSchema: EmptyResultSchema,
+        risk: { readOnly: false, destructive: true, openWorld: false, idempotent: true },
+        executor: {
+          kind: "module",
+          execute(input) {
+            const { publisherId, purgePublishedData } = z
+              .object({ publisherId: z.uuid(), purgePublishedData: z.boolean().default(false) })
+              .strict()
+              .parse(input);
+            service.store.revokePublisher(publisherId, purgePublishedData);
+            return { result: { ok: true as const } };
+          },
         },
       },
       {
@@ -485,6 +641,26 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
               state: parsed.scheduleState,
               staleAfterMinutes: parsed.staleAfterMinutes,
             });
+            return { result: { ok: true as const } };
+          },
+        },
+      },
+      {
+        id: "unbind-schedule",
+        title: "Unbind schedule from Dyna dashboard",
+        description:
+          "Remove one dashboard/publisher binding without changing the native schedule or its other dashboards.",
+        inputSchema: z.object({ dashboardId: z.uuid(), publisherId: z.uuid() }).strict(),
+        outputSchema: EmptyResultSchema,
+        risk: { readOnly: false, destructive: true, openWorld: false, idempotent: true },
+        executor: {
+          kind: "module",
+          execute(input) {
+            const { dashboardId, publisherId } = z
+              .object({ dashboardId: z.uuid(), publisherId: z.uuid() })
+              .strict()
+              .parse(input);
+            service.store.unbindSchedule(dashboardId, publisherId);
             return { result: { ok: true as const } };
           },
         },
@@ -607,6 +783,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
           .object({
             itemId: z.uuid(),
             expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+            expectedEnrichmentVersion: z.number().int().nonnegative(),
             summary: z.string().trim().min(1).max(1_000).optional(),
             priority: DynaPrioritySchema.optional(),
             priorityReason: z.string().trim().min(1).max(500).optional(),
@@ -628,6 +805,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
               .object({
                 itemId: z.uuid(),
                 expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+                expectedEnrichmentVersion: z.number().int().nonnegative(),
                 summary: z.string().trim().min(1).max(1_000).optional(),
                 priority: DynaPrioritySchema.optional(),
                 priorityReason: z.string().trim().min(1).max(500).optional(),
@@ -643,6 +821,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
               .parse(input);
             service.store.applyEnrichment(parsed.itemId, {
               expectedFingerprint: parsed.expectedFingerprint,
+              expectedEnrichmentVersion: parsed.expectedEnrichmentVersion,
               ...(parsed.summary !== undefined ? { summary: parsed.summary } : {}),
               ...(parsed.priority !== undefined ? { priority: parsed.priority } : {}),
               ...(parsed.priorityReason !== undefined

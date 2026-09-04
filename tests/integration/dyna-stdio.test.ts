@@ -40,13 +40,13 @@ describe("Dyna checked-in Node bundle", () => {
     try {
       const resources = await client.listResources();
       const dynaResource = resources.resources.find(
-        (resource) => resource.uri === "ui://flowzone/dyna/v2.html",
+        (resource) => resource.uri === "ui://flowzone/dyna/v3.html",
       );
       expect(dynaResource?._meta?.["ui"]).toEqual({
         prefersBorder: true,
         csp: { connectDomains: [], resourceDomains: [], frameDomains: [] },
       });
-      const dynaHtml = await client.readResource({ uri: "ui://flowzone/dyna/v2.html" });
+      const dynaHtml = await client.readResource({ uri: "ui://flowzone/dyna/v3.html" });
       const dynaContent = dynaHtml.contents[0];
       expect(dynaContent && "text" in dynaContent ? dynaContent.text : "").toContain(
         'id="dyna-root"',
@@ -133,6 +133,29 @@ describe("Dyna checked-in Node bundle", () => {
         },
       });
 
+      const searched = await client.callTool({
+        name: "flowzone",
+        arguments: {
+          plugin: "dyna",
+          action: "search-items",
+          input: { dashboardId, query: "release" },
+        },
+      });
+      const searchResult = record(record(searched.structuredContent)["result"]);
+      const searchItems = searchResult["items"];
+      if (!Array.isArray(searchItems) || searchItems.length !== 1) {
+        throw new Error("Dyna search did not return the published item");
+      }
+      const searchedItem = record(searchItems[0]);
+      const itemId = searchedItem["itemId"];
+      const initialItemFingerprint = searchedItem["fingerprint"];
+      expect(searchedItem["title"]).toBe("Review release MR");
+      expect(searchedItem["summary"]).toBe("The MR is ready for review.");
+      expect(searchedItem["workflowState"]).toBe("todo");
+      if (typeof itemId !== "string" || typeof initialItemFingerprint !== "string") {
+        throw new Error("Missing model-visible Dyna item identity");
+      }
+
       const rendered = await client.callTool({
         name: "render_dyna_dashboard",
         arguments: { dashboardId },
@@ -147,11 +170,7 @@ describe("Dyna checked-in Node bundle", () => {
       const cards = snapshot["cards"];
       if (typeof viewToken !== "string" || !Array.isArray(cards))
         throw new Error("Missing private Dyna payload");
-      const itemId = record(cards[0])["id"];
-      const initialItemFingerprint = record(cards[0])["fingerprint"];
-      if (typeof itemId !== "string" || typeof initialItemFingerprint !== "string") {
-        throw new Error("Missing Dyna item identity");
-      }
+      expect(record(cards[0])["id"]).toBe(itemId);
 
       await client.callTool({
         name: "dyna_add_annotation",
@@ -170,6 +189,7 @@ describe("Dyna checked-in Node bundle", () => {
           input: {
             itemId,
             expectedFingerprint: initialItemFingerprint,
+            expectedEnrichmentVersion: 0,
             summary: "Reviewers added security context.",
             priority: "critical",
             priorityReason: "A security decision now blocks release.",

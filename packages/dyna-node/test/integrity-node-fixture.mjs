@@ -86,6 +86,7 @@ try {
     () =>
       store.applyEnrichment(item.id, {
         expectedFingerprint: "0".repeat(64),
+        expectedEnrichmentVersion: 0,
         summary: "Stale analysis",
         provenance: "test",
       }),
@@ -93,6 +94,7 @@ try {
   );
   store.applyEnrichment(item.id, {
     expectedFingerprint: item.fingerprint,
+    expectedEnrichmentVersion: 0,
     people: [
       {
         displayName: "Verified VP",
@@ -109,8 +111,19 @@ try {
     store.snapshot(dashboardB.id).cards.find((card) => card.id === item.id)?.priority,
     "high",
   );
+  assert.throws(
+    () =>
+      store.applyEnrichment(item.id, {
+        expectedFingerprint: item.fingerprint,
+        expectedEnrichmentVersion: 0,
+        summary: "Conflicting replacement",
+        provenance: "stale-writer",
+      }),
+    /enrichment changed/,
+  );
   store.applyEnrichment(item.id, {
     expectedFingerprint: item.fingerprint,
+    expectedEnrichmentVersion: 1,
     summary: "Fresh replacement overlay",
     provenance: "replacement-analysis",
   });
@@ -161,8 +174,67 @@ try {
   });
   assert.equal(
     store.snapshot(dashboardA.id).cards.find((card) => card.id === item.id)?.workflowState,
+    "attention",
+  );
+  const secondItem = initialA.cards.find((card) => card.title === "Second signal");
+  assert.ok(secondItem);
+  store.upsertTaskStatus(secondItem.id, {
+    taskId: "waiting-only",
+    hostId: "local",
+    title: "Waiting-only session",
+    state: "waiting",
+    statusUpdatedAt: now,
+    observedAt: now,
+  });
+  assert.equal(
+    store.snapshot(dashboardA.id).cards.find((card) => card.id === secondItem.id)?.workflowState,
     "paused",
   );
+  const completedAt = "2026-09-03T20:00:01.000Z";
+  store.upsertTaskStatus(secondItem.id, {
+    taskId: "waiting-only",
+    hostId: "local",
+    title: "Waiting-only session",
+    state: "succeeded",
+    outcome: "The queued decision was completed.",
+    statusUpdatedAt: completedAt,
+    observedAt: completedAt,
+  });
+  const activeNormal = store.snapshot(dashboardB.id).cards.find((card) => card.id === item.id);
+  assert.equal(activeNormal?.canMoveEarlier, false);
+  assert.equal(activeNormal?.canMoveLater, false);
+
+  const nextSourceTime = "2026-09-03T20:00:02.000Z";
+  store.publish(
+    publisher.id,
+    secret,
+    [
+      {
+        externalId: "mr-7",
+        sourceRef,
+        sourceScope: "team/project",
+        title: "Original signal",
+        summary: "New source content must supersede stale enrichment.",
+        priority: "normal",
+        priorityReason: "Needs a fresh review.",
+        sourceUpdatedAt: nextSourceTime,
+        labels: [],
+      },
+    ],
+    {
+      runId: "shared-2",
+      sourceCompletedAt: nextSourceTime,
+      mode: "replace",
+      status: "succeeded",
+    },
+  );
+  const staleCard = store.snapshot(dashboardA.id).cards.find((card) => card.id === item.id);
+  assert.equal(staleCard?.summary, "New source content must supersede stale enrichment.");
+  assert.equal(staleCard?.enrichmentState, "stale");
+  const staleContext = store.itemContext(item.id);
+  assert.equal(staleContext.summary, "New source content must supersede stale enrichment.");
+  assert.equal(staleContext.enrichment?.state, "stale");
+  assert.equal(staleContext.enrichment?.version, 2);
 
   const second = store.createPublisher("Untrusted second publisher");
   store.bindSchedule(dashboardB.id, second.publisher.id, {
@@ -198,7 +270,40 @@ try {
     store.snapshot(dashboardA.id).cards.some((card) => card.title === "Spoofed replacement"),
     false,
   );
-  assert.equal(store.snapshot(dashboardB.id).cards.length, 3);
+  assert.equal(store.snapshot(dashboardB.id).cards.length, 2);
+  const beforeUnbind = store.snapshot(dashboardB.id).revision;
+  store.unbindSchedule(dashboardB.id, second.publisher.id);
+  assert.equal(store.snapshot(dashboardB.id).revision, beforeUnbind + 1);
+  assert.equal(
+    store.snapshot(dashboardB.id).cards.some((card) => card.title === "Spoofed replacement"),
+    false,
+  );
+  const rotatedSecret = store.rotatePublisherSecret(second.publisher.id);
+  assert.throws(
+    () =>
+      store.publish(second.publisher.id, second.secret, [], {
+        runId: "rejected-old-secret",
+        sourceCompletedAt: "2026-09-03T20:00:03.000Z",
+        mode: "upsert",
+        status: "succeeded",
+      }),
+    /credentials are invalid/,
+  );
+  store.revokePublisher(second.publisher.id, false);
+  assert.throws(
+    () =>
+      store.publish(second.publisher.id, rotatedSecret, [], {
+        runId: "rejected-revoked-publisher",
+        sourceCompletedAt: "2026-09-03T20:00:04.000Z",
+        mode: "upsert",
+        status: "succeeded",
+      }),
+    /credentials are invalid/,
+  );
+  const disposable = store.createDashboard("Disposable", "Purge test");
+  assert.throws(() => store.purgeDashboard(disposable.id, dashboardA.id), /confirmation/);
+  store.purgeDashboard(disposable.id, disposable.id);
+  assert.throws(() => store.getDashboard(disposable.id), /not found/);
 
   const searchDashboard = store.createDashboard("Search", "Bounded window");
   const bulk = store.createPublisher("Bulk");
@@ -242,15 +347,49 @@ try {
         sourceUpdatedAt: now,
         labels: [],
       },
+      {
+        externalId: "needle-beta",
+        sourceRef: { ...sourceRef, iid: 10_000 },
+        sourceScope: "team/project",
+        title: "Needle Beta",
+        summary: "A sequencing peer outside the default card window.",
+        priority: "normal",
+        priorityReason: "Test fixture.",
+        sourceUpdatedAt: now,
+        labels: [],
+      },
     ],
     { runId: "needle-1", sourceCompletedAt: now, mode: "replace", status: "succeeded" },
   );
   const bounded = store.snapshot(searchDashboard.id);
-  assert.equal(bounded.counts.total, 201);
+  assert.equal(bounded.counts.total, 202);
   assert.equal(bounded.cards.length, 200);
   const found = store.snapshot(searchDashboard.id, "needle alpha");
   assert.equal(found.counts.total, 1);
   assert.equal(found.cards[0]?.title, "Needle Alpha");
+  assert.equal(Boolean(found.cards[0]?.canMoveEarlier || found.cards[0]?.canMoveLater), true);
+  const searchView = store.createView(searchDashboard.id);
+  const needles = store.snapshot(searchDashboard.id, "needle");
+  const movable = needles.cards.find((card) => card.canMoveLater) ?? needles.cards[0];
+  assert.ok(movable);
+  assert.deepEqual(
+    store.organizeItem(
+      searchView,
+      movable.id,
+      movable.canMoveLater ? "later" : "earlier",
+      needles.revision,
+      movable.fingerprint,
+    ),
+    { changed: true },
+  );
+  const afterSequence = store.snapshot(searchDashboard.id, "needle alpha");
+  const alpha = afterSequence.cards[0];
+  assert.ok(alpha);
+  assert.deepEqual(
+    store.organizeItem(searchView, alpha.id, "bump", afterSequence.revision, alpha.fingerprint),
+    { changed: true },
+  );
+  assert.equal(store.snapshot(searchDashboard.id, "needle alpha").cards[0]?.priority, "high");
 
   globalThis.process.stdout.write(
     JSON.stringify({ isolated: true, idempotent: true, aggregate: true, search: true }),

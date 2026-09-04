@@ -24,4 +24,18 @@ describe("DynaStore lifecycle", () => {
       search: true,
     });
   });
+
+  test("migrates legacy completed tasks and excludes completed work from focus counts", () => {
+    const fixture = resolve(import.meta.dir, "migration-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ migrated: true, completedIsNotFocus: true });
+  });
+
+  test("serializes publication against publisher revocation and credential rotation", () => {
+    const fixture = resolve(import.meta.dir, "publisher-race-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ revokeRace: true, rotateRace: true });
+  });
 });

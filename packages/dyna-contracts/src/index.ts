@@ -288,6 +288,7 @@ export const DynaPublisherSchema = z
     lastRunStatus: z.enum(["never", "succeeded", "failed"]),
     lastRunAt: TimestampSchema.optional(),
     lastRunError: z.string().trim().min(1).max(500).optional(),
+    revokedAt: TimestampSchema.optional(),
     createdAt: TimestampSchema,
   })
   .strict();
@@ -350,6 +351,7 @@ export const DynaItemContextSchema = DynaMaterializedItemSchema.extend({
       appliedAt: TimestampSchema,
       baseSourceUpdatedAt: TimestampSchema,
       provenance: z.string().trim().min(1).max(128),
+      version: z.number().int().positive(),
     })
     .strict()
     .optional(),
@@ -417,6 +419,8 @@ export const DynaCardSchema = z
     leadershipScore: z.number().int().min(0).max(120),
     priorityMode: z.enum(["source", "enrichment", "leadership", "manual"]),
     sequence: z.number().int().nonnegative().optional(),
+    canMoveEarlier: z.boolean(),
+    canMoveLater: z.boolean(),
     workflowState: z.enum(["todo", "executing", "paused", "attention", "completed"]),
     outcome: z.string().trim().min(1).max(200).optional(),
     followUpOfItemId: z.uuid().optional(),
@@ -432,7 +436,7 @@ export type DynaCard = z.infer<typeof DynaCardSchema>;
 
 export const DynaDashboardSnapshotSchema = z
   .object({
-    schema: z.literal("dyna/snapshot-v2"),
+    schema: z.literal("dyna/snapshot-v3"),
     dashboard: DynaDashboardSchema,
     generatedAt: TimestampSchema,
     query: z.string().max(500),
@@ -454,7 +458,7 @@ export type DynaDashboardSnapshot = z.infer<typeof DynaDashboardSnapshotSchema>;
 
 export const DynaUiPayloadSchema = z
   .object({
-    schema: z.literal("dyna/ui-v2"),
+    schema: z.literal("dyna/ui-v3"),
     viewToken: z.string().min(32).max(128),
     snapshot: DynaDashboardSnapshotSchema,
     spec: z.unknown(),

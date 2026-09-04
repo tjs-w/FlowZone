@@ -78,12 +78,17 @@ function resultRecord(value: unknown): Readonly<Record<string, unknown>> {
   return value as Readonly<Record<string, unknown>>;
 }
 
-const dynaResource = await client.readResource({ uri: "ui://flowzone/dyna/v2.html" });
+const dynaResource = await client.readResource({ uri: "ui://flowzone/dyna/v3.html" });
 const dynaResourceContent = dynaResource.contents[0];
 if (!dynaResourceContent || !("text" in dynaResourceContent)) {
   throw new Error("The Dyna HTML resource was not returned");
 }
-async function createDynaFixture(itemCount = 1, includePipeline = false): Promise<unknown> {
+async function createDynaFixture(
+  itemCount = 1,
+  includePipeline = false,
+  longContent = false,
+  olderAnnotationMatch = false,
+): Promise<unknown> {
   const fixtureId = randomUUID();
   const now = new Date().toISOString();
   const sources = [
@@ -166,11 +171,15 @@ async function createDynaFixture(itemCount = 1, includePipeline = false): Promis
           sourceScope: "team/project",
           title:
             index === 0
-              ? "Review the release merge request"
+              ? longContent
+                ? `Review-${"x".repeat(193)}`
+                : "Review the release merge request"
               : `Additional priority ${String(index)}`,
           summary:
             index === 0
-              ? "The change is ready and waiting for an executive review."
+              ? longContent
+                ? `Context-${"y".repeat(992)}`
+                : "The change is ready and waiting for an executive review."
               : "A cross-functional signal needs a clear owner and a bounded next move.",
           priority: index === 0 ? "critical" : index === 3 ? "high" : "normal",
           priorityReason: "The release window closes today.",
@@ -239,6 +248,7 @@ async function createDynaFixture(itemCount = 1, includePipeline = false): Promis
           input: {
             itemId: leadershipItemId,
             expectedFingerprint: leadershipFingerprint,
+            expectedEnrichmentVersion: 0,
             people: [
               {
                 displayName: "Morgan Lee",
@@ -254,6 +264,40 @@ async function createDynaFixture(itemCount = 1, includePipeline = false): Promis
           },
         },
       });
+      openedDyna = await client.callTool({
+        name: "render_dyna_dashboard",
+        arguments: { dashboardId },
+      });
+    }
+  }
+  if (olderAnnotationMatch) {
+    const metadata = resultRecord(openedDyna._meta);
+    const payload = resultRecord(metadata["dynaDashboard"]);
+    const viewToken = payload["viewToken"];
+    const snapshot = resultRecord(payload["snapshot"]);
+    const cards = Array.isArray(snapshot["cards"]) ? snapshot["cards"] : [];
+    const firstCard = cards[0] ? resultRecord(cards[0]) : undefined;
+    const itemId = firstCard?.["id"];
+    if (typeof viewToken === "string" && typeof itemId === "string") {
+      await client.callTool({
+        name: "dyna_add_annotation",
+        arguments: {
+          viewToken,
+          itemId,
+          body: `buriedneedle ${"a".repeat(980)}`,
+        },
+      });
+      for (let index = 0; index < 6; index += 1) {
+        await new Promise((resolveDelay) => setTimeout(resolveDelay, 2));
+        await client.callTool({
+          name: "dyna_add_annotation",
+          arguments: {
+            viewToken,
+            itemId,
+            body: `newer-${String(index)}-${"b".repeat(980)}`,
+          },
+        });
+      }
       openedDyna = await client.callTool({
         name: "render_dyna_dashboard",
         arguments: { dashboardId },
@@ -654,6 +698,8 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
             ? 4
             : 1,
           requestUrl.searchParams.get("pipeline") === "1",
+          requestUrl.searchParams.get("long-content") === "1",
+          requestUrl.searchParams.get("older-match") === "1",
         ),
       ),
     );

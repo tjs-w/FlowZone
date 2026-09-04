@@ -29,7 +29,7 @@ export class DynaService {
   render(dashboardId: string): DynaUiPayload {
     const snapshot = this.store.snapshot(dashboardId);
     const payload = {
-      schema: "dyna/ui-v2" as const,
+      schema: "dyna/ui-v3" as const,
       viewToken: this.store.createView(dashboardId),
       snapshot,
       spec: compileDashboard(snapshot),
@@ -43,7 +43,7 @@ export class DynaService {
     if (!validated.success || !validated.data)
       throw new Error("Dyna could not compile its dashboard.");
     return DynaUiPayloadSchema.parse({
-      schema: "dyna/ui-v2",
+      schema: "dyna/ui-v3",
       viewToken,
       snapshot,
       spec: validated.data,

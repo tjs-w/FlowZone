@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Kept failed Dyna mutations visible through background snapshot refreshes, preserved rejected note and to-do drafts, and visibly disabled all server-backed controls while dashboard connectivity is unavailable.
 - Keep Dyna in the host-selected MCP Apps presentation with an explicit expansion action, while preserving complete inline and accessible fallbacks for Remote; exact left/right docking remains host-owned.
 - Incorporated cross-functional review feedback with bounded model-visible item search, completed-work queue semantics, full-group filtered reordering, conservative task-state precedence, versioned enrichment replacement, stale-overlay safety, publisher/binding/dashboard lifecycle controls, legacy outcome migration, and explicit trusted-local-preview credential limits.
 - Qualified both bundled workflows as `$flowzone:markdown-review` and `$flowzone:dyna`, updated component-generated handoffs to use those collision-safe names, and strengthened package validation so FlowZone cannot ship without both skills and its shared MCP server.

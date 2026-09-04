@@ -93,7 +93,37 @@ test("clears cancelled notes and keeps rejected annotations editable", async ({ 
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(rejected).toHaveValue("Keep this draft after a failed save");
   await expect(page.getByRole("alert")).toContainText("Could not save the note");
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(page.getByRole("alert")).toContainText("Could not save the note");
   await expect(page.getByText("Note added.")).toHaveCount(0);
+});
+
+test("keeps rejected to-dos editable through a successful background refresh", async ({ page }) => {
+  await page.goto("/dyna?tool-error=dyna_add_todo");
+  await page.getByRole("button", { name: "Add to-do" }).click();
+  const title = page.getByRole("textbox", { name: "To-do" });
+  const context = page.getByRole("textbox", { name: "Context" });
+  await title.fill("Keep this rejected to-do");
+  await context.fill("The draft must survive a failed save.");
+  await page.getByRole("dialog").getByRole("button", { name: "Add to-do" }).click();
+  await expect(page.getByRole("alert")).toContainText("Could not add the to-do");
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(page.getByRole("alert")).toContainText("Could not add the to-do");
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(title).toHaveValue("Keep this rejected to-do");
+  await expect(context).toHaveValue("The draft must survive a failed save.");
+});
+
+test("keeps failed reprioritization visible without mutating the item", async ({ page }) => {
+  await page.goto("/dyna?many-items=1&tool-error=dyna_organize_item");
+  const card = page
+    .locator('.dyna-card[data-presentation="queue"]')
+    .filter({ hasText: "Review the release merge request" });
+  await card.getByRole("button", { name: "Lower" }).click();
+  await expect(page.getByRole("alert")).toContainText("Could not reorganize the item");
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(page.getByRole("alert")).toContainText("Could not reorganize the item");
+  await expect(card.getByText("critical", { exact: true })).toBeVisible();
 });
 
 test("renders cross-tool signals and only promotes evidence-bearing leadership", async ({
@@ -307,10 +337,20 @@ test("keeps authoritative server matches that fall outside the local search prev
   await expect(page.locator('.dyna-visually-hidden[role="status"]')).toHaveText("1 matching item.");
 });
 
+test("pauses mutations when snapshot connectivity is lost", async ({ page }) => {
+  await page.goto("/dyna?tool-error=dyna_get_snapshot");
+  await page.getByRole("searchbox", { name: "Search dashboard" }).fill("github");
+  await expect(page.getByRole("alert")).toContainText("Dashboard updates are disconnected");
+  await expect(page.getByRole("button", { name: "Add to-do" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Review in Codex" })).toBeDisabled();
+});
+
 test("retries an uncertain delivery with the same idempotent request", async ({ page }) => {
   await page.goto("/dyna?action-error=1");
   await expect(page.getByRole("heading", { name: "Executive brief" })).toBeVisible();
   await page.getByRole("button", { name: "Review in Codex" }).click();
+  await expect(page.getByRole("alert")).toContainText("delivery is uncertain");
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect(page.getByRole("alert")).toContainText("delivery is uncertain");
   const messages = await page.evaluate(() => {
     const host = (window as typeof window & { __dynaHost?: { messages?: unknown[] } }).__dynaHost;

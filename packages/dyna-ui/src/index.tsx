@@ -225,6 +225,7 @@ interface DynaUiController {
     trigger?: HTMLElement,
   ): Promise<void>;
   readonly busy: boolean;
+  readonly blocked: boolean;
   readonly displayMode: "inline" | "fullscreen" | "pip";
   readonly canExpand: boolean;
   readonly condenseInline: boolean;
@@ -382,6 +383,7 @@ const { registry } = defineRegistry(dynaCatalog, {
                 onClick={(event) => {
                   controller.startTodo(event.currentTarget);
                 }}
+                disabled={controller.busy || controller.blocked}
               >
                 Add to-do
               </Button>
@@ -657,7 +659,7 @@ const { registry } = defineRegistry(dynaCatalog, {
                       event.currentTarget,
                     );
                 }}
-                disabled={controller.busy}
+                disabled={controller.busy || controller.blocked}
               >
                 {action.label}
               </Button>
@@ -680,6 +682,7 @@ const { registry } = defineRegistry(dynaCatalog, {
                     props.itemId,
                   );
                 }}
+                disabled={controller.busy || controller.blocked}
               >
                 Create follow-up
               </Button>
@@ -701,7 +704,7 @@ const { registry } = defineRegistry(dynaCatalog, {
                     event.currentTarget,
                   )
                 }
-                disabled={controller.busy || props.priority === "critical"}
+                disabled={controller.busy || controller.blocked || props.priority === "critical"}
               >
                 Bump
               </Button>
@@ -718,7 +721,7 @@ const { registry } = defineRegistry(dynaCatalog, {
                     event.currentTarget,
                   )
                 }
-                disabled={controller.busy || props.priority === "low"}
+                disabled={controller.busy || controller.blocked || props.priority === "low"}
               >
                 Lower
               </Button>
@@ -735,7 +738,7 @@ const { registry } = defineRegistry(dynaCatalog, {
                     event.currentTarget,
                   )
                 }
-                disabled={controller.busy || !props.canMoveEarlier}
+                disabled={controller.busy || controller.blocked || !props.canMoveEarlier}
               >
                 Earlier
               </Button>
@@ -752,7 +755,7 @@ const { registry } = defineRegistry(dynaCatalog, {
                     event.currentTarget,
                   )
                 }
-                disabled={controller.busy || !props.canMoveLater}
+                disabled={controller.busy || controller.blocked || !props.canMoveLater}
               >
                 Later
               </Button>
@@ -789,7 +792,7 @@ const { registry } = defineRegistry(dynaCatalog, {
                   event.currentTarget,
                 );
               }}
-              disabled={controller.busy}
+              disabled={controller.busy || controller.blocked}
             >
               Open task
             </Button>
@@ -808,7 +811,7 @@ const { registry } = defineRegistry(dynaCatalog, {
                   event.currentTarget,
                 );
               }}
-              disabled={controller.busy}
+              disabled={controller.busy || controller.blocked}
             >
               Refresh
             </Button>
@@ -877,6 +880,7 @@ function DynaApp({ app }: { readonly app: App }) {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string>();
   const [connectionError, setConnectionError] = useState<string>();
+  const [operationError, setOperationError] = useState<string>();
   const [displayMode, setDisplayMode] = useState<"inline" | "fullscreen" | "pip">("inline");
   const [canExpand, setCanExpand] = useState(false);
   const [initialExpansionPending, setInitialExpansionPending] = useState(true);
@@ -1161,6 +1165,7 @@ function DynaApp({ app }: { readonly app: App }) {
   const controller = useMemo<DynaUiController>(
     () => ({
       busy,
+      blocked: Boolean(connectionError),
       displayMode,
       canExpand,
       condenseInline: false,
@@ -1191,6 +1196,7 @@ function DynaApp({ app }: { readonly app: App }) {
           element: trigger,
           key: trigger.getAttribute("data-dyna-action") ?? `${itemId}:${action}`,
         };
+        setOperationError(undefined);
         setBusy(true);
         try {
           const result = await app.callServerTool({
@@ -1225,7 +1231,7 @@ function DynaApp({ app }: { readonly app: App }) {
           );
           setConnectionError(undefined);
         } catch {
-          setConnectionError("Could not reorganize the item. Refresh the dashboard and try again.");
+          setOperationError("Could not reorganize the item. Refresh the dashboard and try again.");
         } finally {
           setBusy(false);
         }
@@ -1256,6 +1262,7 @@ function DynaApp({ app }: { readonly app: App }) {
             key: trigger.getAttribute("data-dyna-action") ?? `${itemId}:${kind}`,
           };
         }
+        setOperationError(undefined);
         setBusy(true);
         const actionKey = [
           active.snapshot.dashboard.id,
@@ -1357,7 +1364,7 @@ function DynaApp({ app }: { readonly app: App }) {
           pendingActions.current.delete(actionKey);
           setConnectionError(undefined);
         } catch {
-          setConnectionError(
+          setOperationError(
             "Action delivery is uncertain. Reconnect, then retry; Dyna will reuse the same request.",
           );
         } finally {
@@ -1384,6 +1391,7 @@ function DynaApp({ app }: { readonly app: App }) {
   async function saveAnnotation(): Promise<void> {
     const active = current.current;
     if (!active || !annotationItem || !annotation.trim() || busy || connectionError) return;
+    setOperationError(undefined);
     setBusy(true);
     try {
       const result = await app.callServerTool({
@@ -1397,7 +1405,7 @@ function DynaApp({ app }: { readonly app: App }) {
       setToast("Note added.");
       await refresh(true);
     } catch {
-      setConnectionError("Could not save the note. Reconnect to the Remote host and try again.");
+      setOperationError("Could not save the note. Reconnect to the Remote host and try again.");
     } finally {
       setBusy(false);
     }
@@ -1406,6 +1414,7 @@ function DynaApp({ app }: { readonly app: App }) {
   async function saveTodo(): Promise<void> {
     const active = current.current;
     if (!active || !todoTitle.trim() || busy || connectionError) return;
+    setOperationError(undefined);
     setBusy(true);
     try {
       const result = await app.callServerTool({
@@ -1431,7 +1440,7 @@ function DynaApp({ app }: { readonly app: App }) {
       setToast("To-do added to the priority queue.");
       await refresh(true);
     } catch {
-      setConnectionError("Could not add the to-do. Reconnect to the Remote host and try again.");
+      setOperationError("Could not add the to-do. Reconnect to the Remote host and try again.");
     } finally {
       setBusy(false);
     }
@@ -1454,6 +1463,11 @@ function DynaApp({ app }: { readonly app: App }) {
       {connectionError ? (
         <div className="dyna-connection" role="alert">
           {connectionError}
+        </div>
+      ) : null}
+      {operationError ? (
+        <div className="dyna-connection" role="alert">
+          {operationError}
         </div>
       ) : null}
       <div

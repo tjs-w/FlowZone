@@ -40,13 +40,13 @@ describe("Dyna checked-in Node bundle", () => {
     try {
       const resources = await client.listResources();
       const dynaResource = resources.resources.find(
-        (resource) => resource.uri === "ui://flowzone/dyna/v1.html",
+        (resource) => resource.uri === "ui://flowzone/dyna/v2.html",
       );
       expect(dynaResource?._meta?.["ui"]).toEqual({
         prefersBorder: true,
         csp: { connectDomains: [], resourceDomains: [], frameDomains: [] },
       });
-      const dynaHtml = await client.readResource({ uri: "ui://flowzone/dyna/v1.html" });
+      const dynaHtml = await client.readResource({ uri: "ui://flowzone/dyna/v2.html" });
       const dynaContent = dynaHtml.contents[0];
       expect(dynaContent && "text" in dynaContent ? dynaContent.text : "").toContain(
         'id="dyna-root"',
@@ -148,7 +148,10 @@ describe("Dyna checked-in Node bundle", () => {
       if (typeof viewToken !== "string" || !Array.isArray(cards))
         throw new Error("Missing private Dyna payload");
       const itemId = record(cards[0])["id"];
-      if (typeof itemId !== "string") throw new Error("Missing Dyna item id");
+      const initialItemFingerprint = record(cards[0])["fingerprint"];
+      if (typeof itemId !== "string" || typeof initialItemFingerprint !== "string") {
+        throw new Error("Missing Dyna item identity");
+      }
 
       await client.callTool({
         name: "dyna_add_annotation",
@@ -166,6 +169,7 @@ describe("Dyna checked-in Node bundle", () => {
           action: "apply-enrichment",
           input: {
             itemId,
+            expectedFingerprint: initialItemFingerprint,
             summary: "Reviewers added security context.",
             priority: "critical",
             priorityReason: "A security decision now blocks release.",
@@ -244,10 +248,12 @@ describe("Dyna checked-in Node bundle", () => {
       expect(record(refreshedSnapshot["counts"])["critical"]).toBe(1);
       const refreshedCards = refreshedSnapshot["cards"];
       if (!Array.isArray(refreshedCards)) throw new Error("Missing refreshed Dyna cards");
-      expect(refreshedCards).toHaveLength(1);
-      const refreshedCard = record(refreshedCards[0]);
+      expect(refreshedCards).toHaveLength(2);
+      const refreshedCard = refreshedCards.map(record).find((card) => card["id"] === itemId);
+      if (!refreshedCard) throw new Error("The original publisher item was replaced");
       expect(refreshedCard["summary"]).toBe("Reviewers added security context.");
-      expect(refreshedCard["enrichmentState"]).toBe("stale");
+      expect(refreshedCard["enrichmentState"]).toBe("active");
+      expect(JSON.stringify(refreshedCards)).toContain("The source changed after enrichment.");
       const refreshedRevision = refreshedSnapshot["revision"];
       const itemFingerprint = refreshedCard["fingerprint"];
       if (typeof refreshedRevision !== "number" || typeof itemFingerprint !== "string") {
@@ -299,7 +305,7 @@ describe("Dyna checked-in Node bundle", () => {
       const afterDelayedCards = record(
         record(record(afterDelayedRun._meta)["dynaDashboard"])["snapshot"],
       )["cards"];
-      expect(afterDelayedCards).toHaveLength(1);
+      expect(afterDelayedCards).toHaveLength(2);
 
       const staleAction = await client.callTool({
         name: "dyna_prepare_action",
@@ -694,7 +700,7 @@ describe("Dyna checked-in Node bundle", () => {
         record(record(failedRunRefresh._meta)["dynaDashboard"])["snapshot"],
       );
       expect(failedRunSnapshot["freshness"]).toBe("stale");
-      expect(failedRunSnapshot["cards"]).toHaveLength(1);
+      expect(failedRunSnapshot["cards"]).toHaveLength(2);
 
       await client.callTool({
         name: "flowzone",

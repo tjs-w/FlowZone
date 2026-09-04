@@ -1,0 +1,7 @@
+@import "../../../node_modules/tailwindcss/index.css";
+@import "../../../node_modules/@openai/apps-sdk-ui/dist/es/styles/base.css";
+@import "../../../node_modules/@openai/apps-sdk-ui/dist/es/styles/variables-primitive.css";
+@import "../../../node_modules/@openai/apps-sdk-ui/dist/es/styles/variables-semantic.css";
+@import "../../../node_modules/@openai/apps-sdk-ui/dist/es/styles/variables-components.css";
+@import "../../../node_modules/@openai/apps-sdk-ui/dist/es/styles/globals.css";
+@source "../../../node_modules/@openai/apps-sdk-ui";

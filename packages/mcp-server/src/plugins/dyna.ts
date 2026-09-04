@@ -5,10 +5,13 @@ import {
   DynaActionStateSchema,
   DynaDashboardSchema,
   DynaItemContextSchema,
+  DynaNextStepSchema,
+  DynaPersonSignalSchema,
   DynaPrioritySchema,
   DynaPublishedItemSchema,
   DynaPublisherSchema,
   DynaTaskStatusSchema,
+  DynaTodoInputSchema,
   DynaUiPayloadSchema,
 } from "@flowzone/dyna-contracts";
 import { DynaService } from "@flowzone/dyna-node";
@@ -17,13 +20,14 @@ import { z } from "zod";
 import type { FlowZoneAppTool, FlowZonePlugin } from "../plugin.js";
 
 export const DYNA_PLUGIN_ID = "dyna";
-export const DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v1.html";
+export const DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v2.html";
 
 const DashboardIdSchema = z.object({ dashboardId: z.uuid() }).strict();
 const ViewTokenSchema = z
   .object({
     viewToken: z.string().min(32).max(128),
     currentRevision: z.number().int().nonnegative().optional(),
+    query: z.string().trim().max(500).optional(),
   })
   .strict();
 const EmptyResultSchema = z.object({ ok: z.literal(true) }).strict();
@@ -95,8 +99,8 @@ function appTools(service: DynaService): readonly FlowZoneAppTool[] {
         idempotentHint: true,
       },
       handler(input) {
-        const { viewToken, currentRevision } = ViewTokenSchema.parse(input);
-        const payload = service.refresh(viewToken);
+        const { viewToken, currentRevision, query } = ViewTokenSchema.parse(input);
+        const payload = service.refresh(viewToken, query);
         const changed = currentRevision !== payload.snapshot.revision;
         return {
           structuredContent: { revision: payload.snapshot.revision, changed },
@@ -138,6 +142,90 @@ function appTools(service: DynaService): readonly FlowZoneAppTool[] {
           parsed.body,
         );
         return { structuredContent: { annotationId: annotation.id }, content: [] };
+      },
+    },
+    {
+      name: "dyna_add_todo",
+      title: "Add Dyna to-do",
+      description: "Add a manual to-do to the priority queue in this capability-bound view.",
+      inputSchema: z
+        .object({
+          viewToken: z.string().min(32).max(128),
+          clientRequestId: z.uuid(),
+        })
+        .extend(DynaTodoInputSchema.shape)
+        .strict(),
+      outputSchema: z.object({ itemId: z.uuid() }).strict(),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+        idempotentHint: true,
+      },
+      handler(input) {
+        const parsed = z
+          .object({
+            viewToken: z.string().min(32).max(128),
+            clientRequestId: z.uuid(),
+          })
+          .extend(DynaTodoInputSchema.shape)
+          .strict()
+          .parse(input);
+        const itemId = service.store.addTodo(
+          parsed.viewToken,
+          {
+            title: parsed.title,
+            ...(parsed.summary ? { summary: parsed.summary } : {}),
+            priority: parsed.priority,
+            ...(parsed.attention ? { attention: parsed.attention } : {}),
+            labels: parsed.labels,
+            ...(parsed.followUpOfItemId ? { followUpOfItemId: parsed.followUpOfItemId } : {}),
+          },
+          parsed.clientRequestId,
+        );
+        return { structuredContent: { itemId }, content: [] };
+      },
+    },
+    {
+      name: "dyna_organize_item",
+      title: "Reprioritize Dyna item",
+      description:
+        "Apply a user-controlled priority or sequence change with revision and fingerprint preconditions.",
+      inputSchema: z
+        .object({
+          viewToken: z.string().min(32).max(128),
+          itemId: z.uuid(),
+          action: z.enum(["bump", "lower", "earlier", "later"]),
+          expectedRevision: z.number().int().nonnegative(),
+          expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+        })
+        .strict(),
+      outputSchema: z.object({ changed: z.boolean() }).strict(),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+        idempotentHint: false,
+      },
+      handler(input) {
+        const parsed = z
+          .object({
+            viewToken: z.string().min(32).max(128),
+            itemId: z.uuid(),
+            action: z.enum(["bump", "lower", "earlier", "later"]),
+            expectedRevision: z.number().int().nonnegative(),
+            expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+          })
+          .strict()
+          .parse(input);
+        const result = service.store.organizeItem(
+          parsed.viewToken,
+          parsed.itemId,
+          parsed.action,
+          parsed.expectedRevision,
+          parsed.expectedFingerprint,
+        );
+        return { structuredContent: result, content: [] };
       },
     },
     {
@@ -460,7 +548,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
         id: "publish-run",
         title: "Publish scheduled Dyna run",
         description:
-          "Validate and upsert bounded Slack, Outlook, GitLab, or Codex records from an authenticated scheduled run.",
+          "Validate and upsert bounded email, messaging, source-control, TWG, skill, or Codex records from an authenticated scheduled run.",
         inputSchema: z
           .object({
             publisherId: z.uuid(),
@@ -514,36 +602,47 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
         id: "apply-enrichment",
         title: "Enrich Dyna item",
         description:
-          "Merge additional bounded information into an existing item and increment every bound dashboard revision.",
+          "Replace the bounded enrichment overlay for the current item fingerprint and increment every bound dashboard revision.",
         inputSchema: z
           .object({
             itemId: z.uuid(),
+            expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
             summary: z.string().trim().min(1).max(1_000).optional(),
             priority: DynaPrioritySchema.optional(),
             priorityReason: z.string().trim().min(1).max(500).optional(),
             dueAt: z.iso.datetime({ offset: true }).nullable().optional(),
             labels: z.array(z.string().trim().min(1).max(64)).max(20).optional(),
+            people: z.array(DynaPersonSignalSchema).max(8).optional(),
+            attention: z.string().trim().min(1).max(500).optional(),
+            plan: z.array(z.string().trim().min(1).max(200)).max(4).optional(),
+            nextSteps: z.array(DynaNextStepSchema).max(4).optional(),
             provenance: z.string().trim().min(1).max(128).default("codex-main-chat"),
           })
           .strict(),
         outputSchema: EmptyResultSchema,
-        risk: { readOnly: false, destructive: false, openWorld: false, idempotent: true },
+        risk: { readOnly: false, destructive: false, openWorld: false, idempotent: false },
         executor: {
           kind: "module",
           execute(input) {
             const parsed = z
               .object({
                 itemId: z.uuid(),
+                expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
                 summary: z.string().trim().min(1).max(1_000).optional(),
                 priority: DynaPrioritySchema.optional(),
                 priorityReason: z.string().trim().min(1).max(500).optional(),
                 dueAt: z.iso.datetime({ offset: true }).nullable().optional(),
                 labels: z.array(z.string().trim().min(1).max(64)).max(20).optional(),
+                people: z.array(DynaPersonSignalSchema).max(8).optional(),
+                attention: z.string().trim().min(1).max(500).optional(),
+                plan: z.array(z.string().trim().min(1).max(200)).max(4).optional(),
+                nextSteps: z.array(DynaNextStepSchema).max(4).optional(),
                 provenance: z.string().trim().min(1).max(128).default("codex-main-chat"),
               })
               .strict()
               .parse(input);
             service.store.applyEnrichment(parsed.itemId, {
+              expectedFingerprint: parsed.expectedFingerprint,
               ...(parsed.summary !== undefined ? { summary: parsed.summary } : {}),
               ...(parsed.priority !== undefined ? { priority: parsed.priority } : {}),
               ...(parsed.priorityReason !== undefined
@@ -551,6 +650,10 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
                 : {}),
               ...(parsed.dueAt !== undefined ? { dueAt: parsed.dueAt } : {}),
               ...(parsed.labels !== undefined ? { labels: parsed.labels } : {}),
+              ...(parsed.people !== undefined ? { people: parsed.people } : {}),
+              ...(parsed.attention !== undefined ? { attention: parsed.attention } : {}),
+              ...(parsed.plan !== undefined ? { plan: parsed.plan } : {}),
+              ...(parsed.nextSteps !== undefined ? { nextSteps: parsed.nextSteps } : {}),
               provenance: parsed.provenance,
             });
             return { result: { ok: true as const } };

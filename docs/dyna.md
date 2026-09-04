@@ -6,10 +6,12 @@ Dyna turns bounded output from recurring Codex jobs into persistent, mobile-frie
 
 - One user can create many dashboards and many scheduled publishers.
 - The relationship is many-to-many: one scheduled publisher can feed several dashboards, and one dashboard can aggregate several publishers.
-- A job publishes normalized Slack, Outlook, GitLab, or Codex records. It cannot publish HTML, JSX, JavaScript, CSS, prompts, MCP tool names, or a render tree.
+- A job publishes normalized email, messaging, source-control, TWG, skill, or Codex records. It cannot publish HTML, JSX, JavaScript, CSS, prompts, MCP tool names, or a render tree.
 - FlowZone compiles those records into a fixed, validated `json-render` catalog backed by Apps SDK UI components.
-- New information can enrich an existing item through a separate overlay. The overlay survives later source runs, records its provenance and base source version, and is visibly marked stale when the source changes underneath it.
-- Users can add annotations and request a supported Codex action from a card.
+- New information can replace an existing item's separate enrichment overlay using an expected source fingerprint. The overlay records its provenance and base source version, and becomes visibly stale and inactive when the source changes underneath it.
+- Users can add annotations or new to-dos at any time, search the full bounded record text, override a priority band, sequence items inside a band, and request a supported Codex action from a card.
+- The priority queue and progress pipeline are two fixed projections of the same items. The pipeline groups unlinked items as **To do** and linked Codex tasks as **Executing**, **Paused for input**, **Needs attention**, or **Completed**, retaining every exact task link; every successful task requires a bounded one-line completion outcome.
+- Leadership context is explicit provenance, not inferred authority. Only credible sender, author, owner, or approver evidence can raise an item, by at most one band; `critical` remains source-defined urgency.
 - Task creation, attachment, navigation, and status inspection use the native Codex controller. Dyna stores the host/project identity and monotonic status observations only for explicitly linked tasks; it never scrapes or mirrors task transcripts.
 - The component must remain usable in the mobile app through a Codex Remote connection.
 
@@ -17,7 +19,7 @@ Dyna turns bounded output from recurring Codex jobs into persistent, mobile-frie
 
 ```text
 Codex scheduled tasks                Codex task controller
-  Slack / Outlook / GitLab              create / read / open task
+ email / chat / SCM / TWG / skills      create / read / open task
             │                                       ▲
             │ publish bounded records               │ opaque action request
             ▼                                       │
@@ -39,15 +41,15 @@ The packages divide responsibility as follows:
 | `@flowzone/dyna-ui`         | Responsive React renderer, Apps SDK UI controls, annotations, polling, and host messaging |
 | `@flowzone/mcp-server/dyna` | Model-visible actions, private app tools, and the dedicated presentation tool             |
 
-The dedicated `render_dyna_dashboard` tool renders `ui://flowzone/dyna/v1.html`. It is separate from Markdown Review so Dyna does not inherit Mermaid's bundle weight or clipboard permission. Its combined checked-in HTML, JavaScript, and CSS budget is 750 KiB.
+The dedicated `render_dyna_dashboard` tool renders `ui://flowzone/dyna/v2.html`. It is separate from Markdown Review so Dyna does not inherit Mermaid's bundle weight or clipboard permission. Its combined checked-in HTML, JavaScript, and CSS budget is 750 KiB.
 
 ## Persistence and refresh
 
 Dyna uses Node's built-in `node:sqlite` API and therefore requires Node 22.13 or newer. The database lives under the operating system's per-user application-data directory, or under `FLOWZONE_DATA_DIR` in tests and controlled deployments. The connection enables WAL, foreign keys, and a five-second busy timeout. Mutations use prepared statements and revision increments; publisher secrets, view capabilities, and completion capabilities are stored only as SHA-256 hashes.
 
-Each publisher is registered against its native Codex schedule ID, title, state, freshness SLA (`staleAfterMinutes`), and last-run result. A successful `replace` run is an atomic full snapshot: omitted publisher memberships become inactive. `upsert` is available for explicit deltas. Failed runs contain no partial items, preserve the last good slice, and make that source—and therefore the aggregate dashboard—visibly stale. Every publication supplies both a stable run ID and the schedule execution's `sourceCompletedAt`. The run ID and a canonical request digest deduplicate exact retries and reject conflicting reuse; the completion time prevents a delayed older execution from replacing a newer slice. Superseded runs are recorded but do not change the dashboard. Canonical source references deduplicate the same Slack message, Outlook message, GitLab entity, or Codex task across schedules.
+Each publisher is registered against its native Codex schedule ID, title, state, freshness SLA (`staleAfterMinutes`), and last-run result. A successful `replace` run is an atomic full snapshot: omitted publisher memberships become inactive. `upsert` is available for explicit deltas. Failed runs contain no partial items, preserve the last good slice, and make that source—and therefore the aggregate dashboard—visibly stale. Every publication supplies both a stable run ID and the schedule execution's `sourceCompletedAt`. The run ID and a canonical request digest deduplicate exact retries and reject conflicting reuse; the completion time prevents a delayed older execution from replacing a newer slice. Superseded runs are recorded but do not change the dashboard. Canonical identity is publisher-scoped so one scheduled authority cannot overwrite another. Scheduled records may carry bounded untrusted `people`, `attention`, `plan`, and `nextSteps` data, while only verified enrichment provenance can lift priority. Conversation-driven enrichment replaces those fields without mutating the source slice. User-created to-dos use dashboard-scoped request IDs for retry safety; priority/sequence choices are also dashboard-scoped, so both views update immediately without leaking preferences into another dashboard.
 
-An active visible component polls every 15 seconds and refreshes immediately when it returns to the foreground. Hidden or unfocused components back off to 60 seconds. Refresh responses include a new private snapshot even when the data revision is unchanged so relative times and freshness continue to age. Each active schedule is fresh until 75% of its configured SLA, aging until the SLA, and stale after it; a failed or never-run active schedule is immediately stale. Every snapshot is read atomically. SQL deduplicates and orders the full eligible set, computes full summary counts, then batch-loads details only for the highest-priority 200 cards. View capabilities use a sliding 30-day lifetime and fail with an explicit reopen instruction after expiry.
+An active visible component polls every 15 seconds and refreshes immediately when it returns to the foreground. Hidden or unfocused components back off to 60 seconds. Refresh responses include a new private snapshot even when the data revision is unchanged so relative times and freshness continue to age. Each active schedule is fresh until 75% of its configured SLA, aging until the SLA, and stale after it; a failed or never-run active schedule is immediately stale. Every snapshot is read atomically. SQL deduplicates and orders the full eligible set, computes full summary counts, then batch-loads details for the highest-priority 200 cards. The UI reports when this is a bounded window; tokenized server-side full-text search still retrieves matching records outside it. View capabilities use a sliding 30-day lifetime and fail with an explicit reopen instruction after expiry.
 
 ## Action protocol
 
@@ -67,7 +69,7 @@ Requests are bound to the dashboard revision, source fingerprint, item, task hos
 
 ## Mobile and Remote acceptance
 
-The Dyna surface is a single responsive column with 44-pixel mobile touch targets, no hover-only controls, no horizontal table, system typography, light/dark support, CSS and host-provided safe-area insets, and reduced-motion support. On connection it advertises and requests the standard MCP Apps `fullscreen` presentation so Codex can open an expanded dashboard work surface alongside the task. MCP Apps does not expose a left/right docking parameter: the Codex host owns that exact placement, and the requirement to dock on the left must be verified against the target Codex desktop build. Inline-only hosts retain the complete content; a rejected expansion also reveals all cards and leaves a manual **Expand dashboard** retry with accessible failure feedback. The annotation sheet traps focus, dismisses with Escape, restores the trigger after cancel or save, and has a programmatic label. The catalog intentionally limits cards to two actions.
+The Dyna surface uses a responsive focus runway for the priority queue and a two-column-to-single-column progress pipeline, with 44-pixel mobile touch targets, no hover-only controls, no horizontal table, system typography, light/dark support, CSS and host-provided safe-area insets, and reduced-motion support. Full-text filtering tokenizes terms locally for immediate feedback and refreshes a server-filtered snapshot so records outside the 200-card window remain discoverable. On connection it advertises and requests the standard MCP Apps `fullscreen` presentation so Codex can open an expanded dashboard work surface alongside the task. MCP Apps does not expose a left/right docking parameter: the Codex host owns that exact placement, and the requirement to dock on the left must be verified against the target Codex desktop build. Inline-only hosts retain the complete content; a rejected expansion also reveals all cards and leaves a manual **Expand dashboard** retry with accessible failure feedback. The annotation and to-do sheets trap focus, dismiss with Escape, restore their triggers, and retain drafts after rejected saves.
 
 A release is not considered mobile-ready from browser emulation alone. Acceptance requires the current iOS and Android ChatGPT mobile apps connected to a Codex Remote host:
 
@@ -75,12 +77,14 @@ A release is not considered mobile-ready from browser emulation alone. Acceptanc
 2. Background and foreground the app; verify the snapshot catches up without duplicate cards.
 3. Add an annotation with the software keyboard open.
 4. Create a Codex task from a card, verify exactly one task appears, and open it from the refreshed card.
-5. Interrupt connectivity during creation and verify the request becomes failed or needs reconciliation rather than silently succeeding.
-6. Verify light/dark themes, large text, screen-reader labels, and 320-pixel-wide layout.
+5. Add and reprioritize a to-do; verify it appears in both the queue and **To do** pipeline column.
+6. Move a linked task through running, waiting, and succeeded; verify the pipeline, task link, one-line outcome, and completed-to-follow-up path.
+7. Interrupt connectivity during creation and verify the request becomes failed or needs reconciliation rather than silently succeeding.
+8. Verify light/dark themes, large text, screen-reader labels, and 320-pixel-wide layout.
 
 ## Delivery plan
 
-The implemented vertical slice includes the contracts, compiler, SQLite store, native schedule inventory, atomic run slices, cross-schedule deduplication, durable enrichment overlays, annotations, the leased one-time action protocol, existing-task attachment, task-status links, the dedicated UI resource, integration tests against the checked-in Node bundle, and Dyna-specific accessibility/action/reflow journeys on Chromium, WebKit, mobile Chromium, and mobile WebKit.
+The implemented vertical slice includes the contracts, compiler, SQLite store, native schedule inventory, atomic publisher-isolated run slices, fingerprint-bound enrichment overlays, evidence-bound leadership ranking, retry-safe manual to-dos, dashboard-local priority and sequence preferences, server-backed full-text filtering, the priority queue and progress pipeline, annotations, the leased one-time action protocol, existing-task attachment, multi-session status aggregation and outcomes, completed follow-ups, the dedicated UI resource, integration tests against the checked-in Node bundle, and Dyna-specific accessibility/action/reflow journeys on Chromium, WebKit, mobile Chromium, and mobile WebKit.
 
 Before declaring the feature generally available:
 

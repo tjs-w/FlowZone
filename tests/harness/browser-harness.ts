@@ -78,13 +78,33 @@ function resultRecord(value: unknown): Readonly<Record<string, unknown>> {
   return value as Readonly<Record<string, unknown>>;
 }
 
-const dynaResource = await client.readResource({ uri: "ui://flowzone/dyna/v1.html" });
+const dynaResource = await client.readResource({ uri: "ui://flowzone/dyna/v2.html" });
 const dynaResourceContent = dynaResource.contents[0];
 if (!dynaResourceContent || !("text" in dynaResourceContent)) {
   throw new Error("The Dyna HTML resource was not returned");
 }
-async function createDynaFixture(itemCount = 1): Promise<unknown> {
+async function createDynaFixture(itemCount = 1, includePipeline = false): Promise<unknown> {
   const fixtureId = randomUUID();
+  const now = new Date().toISOString();
+  const sources = [
+    {
+      source: "scm",
+      provider: "GitHub",
+      instanceId: fixtureId,
+      repository: "team/project",
+      entityType: "pull_request",
+      entityId: "123",
+    },
+    { source: "outlook", accountId: fixtureId, messageId: "quarterly-plan" },
+    {
+      source: "messaging",
+      provider: "Discord",
+      workspaceId: fixtureId,
+      channelId: "architecture",
+      messageId: "decision-42",
+    },
+    { source: "twg", contextId: "splunk.atlassian.net", resultType: "work", recordId: "JIRA-4242" },
+  ] as const;
   const createdDashboard = await client.callTool({
     name: "flowzone",
     arguments: {
@@ -137,37 +157,146 @@ async function createDynaFixture(itemCount = 1): Promise<unknown> {
         publisherId,
         secret: publisherSecret,
         runId: "browser-fixture-run",
-        sourceCompletedAt: new Date().toISOString(),
+        sourceCompletedAt: now,
         mode: "replace",
         status: "succeeded",
         items: Array.from({ length: itemCount }, (_, index) => ({
-          externalId: `gitlab:team/project!${String(123 + index)}`,
-          sourceRef: {
-            source: "gitlab",
-            instanceId: fixtureId,
-            projectPath: "team/project",
-            iid: 123 + index,
-            entityType: "merge_request",
-          },
+          externalId: `fixture:${String(index)}`,
+          sourceRef: sources[index % sources.length],
           sourceScope: "team/project",
           title:
             index === 0
               ? "Review the release merge request"
               : `Additional priority ${String(index)}`,
-          summary: "The change is ready and waiting for an executive review.",
-          priority: index === 0 ? "critical" : "high",
+          summary:
+            index === 0
+              ? "The change is ready and waiting for an executive review."
+              : "A cross-functional signal needs a clear owner and a bounded next move.",
+          priority: index === 0 ? "critical" : index === 3 ? "high" : "normal",
           priorityReason: "The release window closes today.",
-          sourceUpdatedAt: new Date().toISOString(),
+          sourceUpdatedAt: now,
           labels: ["release", "decision"],
+          people:
+            index === 2
+              ? [
+                  {
+                    displayName: "Architecture council",
+                    leadershipLevel: "architect",
+                    relationship: "neighboring_org",
+                    involvement: "mentioned",
+                    provenance: "source_metadata",
+                    confidence: "medium",
+                  },
+                ]
+              : [
+                  {
+                    displayName: index === 0 ? "Avery Chen" : "Morgan Lee",
+                    title: index === 0 ? "Chief Technology Officer" : "Senior Director",
+                    leadershipLevel: index === 0 ? "cto" : "senior_director",
+                    relationship: index === 0 ? "management_chain" : "neighboring_org",
+                    involvement: index === 0 ? "approver" : "sender",
+                    provenance: "declared_source",
+                    confidence: "high",
+                  },
+                ],
+          attention:
+            index === 0
+              ? "Confirm the risk posture and either approve the release or name the blocker."
+              : "Turn this signal into an owned decision before it becomes follow-up debt.",
+          plan: ["Validate the latest context", "Resolve the decision owner"],
+          nextSteps: [
+            {
+              label: index === 0 ? "Review the release diff" : "Confirm the accountable owner",
+              owner: "You",
+            },
+            { label: "Record the decision in the source thread" },
+          ],
         })),
       },
     },
   });
-  const openedDyna = await client.callTool({
+  let openedDyna = await client.callTool({
     name: "render_dyna_dashboard",
     arguments: { dashboardId },
   });
   if (openedDyna.isError) throw new Error("Could not open the browser-harness Dyna fixture");
+  if (itemCount > 1) {
+    const metadata = resultRecord(openedDyna._meta);
+    const payload = resultRecord(metadata["dynaDashboard"]);
+    const snapshot = resultRecord(payload["snapshot"]);
+    const cards = Array.isArray(snapshot["cards"]) ? snapshot["cards"] : [];
+    const leadershipCard = cards
+      .map(resultRecord)
+      .find((card) => card["title"] === "Additional priority 1");
+    const leadershipItemId = leadershipCard?.["id"];
+    const leadershipFingerprint = leadershipCard?.["fingerprint"];
+    if (typeof leadershipItemId === "string" && typeof leadershipFingerprint === "string") {
+      await client.callTool({
+        name: "flowzone",
+        arguments: {
+          plugin: "dyna",
+          action: "apply-enrichment",
+          input: {
+            itemId: leadershipItemId,
+            expectedFingerprint: leadershipFingerprint,
+            people: [
+              {
+                displayName: "Morgan Lee",
+                title: "Senior Director",
+                leadershipLevel: "senior_director",
+                relationship: "neighboring_org",
+                involvement: "sender",
+                provenance: "twg_org_tree",
+                confidence: "high",
+              },
+            ],
+            provenance: "browser-fixture-twg-org-tree",
+          },
+        },
+      });
+      openedDyna = await client.callTool({
+        name: "render_dyna_dashboard",
+        arguments: { dashboardId },
+      });
+    }
+  }
+  if (includePipeline) {
+    const metadata = resultRecord(openedDyna._meta);
+    const payload = resultRecord(metadata["dynaDashboard"]);
+    const snapshot = resultRecord(payload["snapshot"]);
+    const cards = Array.isArray(snapshot["cards"]) ? snapshot["cards"] : [];
+    const taskStates = ["running", "waiting", "succeeded"] as const;
+    for (const [offset, state] of taskStates.entries()) {
+      const card = resultRecord(cards[offset + 1]);
+      const itemId = card["id"];
+      if (typeof itemId !== "string") continue;
+      await client.callTool({
+        name: "flowzone",
+        arguments: {
+          plugin: "dyna",
+          action: "attach-codex-task",
+          input: {
+            itemId,
+            task: {
+              taskId: `pipeline-task-${String(offset + 1)}`,
+              hostId: "local",
+              title: `Codex execution ${String(offset + 1)}`,
+              state,
+              statusUpdatedAt: now,
+              observedAt: now,
+              ...(state === "succeeded"
+                ? { outcome: "Approved the release path and documented the remaining risk." }
+                : {}),
+            },
+          },
+        },
+      });
+    }
+    openedDyna = await client.callTool({
+      name: "render_dyna_dashboard",
+      arguments: { dashboardId },
+    });
+  }
   return openedDyna;
 }
 
@@ -415,7 +544,7 @@ const dynaHostScript = (dynaResult: unknown) => `<script>
           hostInfo: { name: "flowzone-dyna-harness", version: "0.1.0" },
           hostCapabilities: { serverTools: {}, message: {} },
           hostContext: {
-            theme: "light",
+            theme: query.get("theme") === "dark" ? "dark" : "light",
             displayMode: "inline",
             availableDisplayModes,
             platform: "mobile",
@@ -427,16 +556,31 @@ const dynaHostScript = (dynaResult: unknown) => `<script>
         };
         respond(request.id, result);
         setTimeout(() => notify("ui/notifications/tool-result", initialResult), 0);
+        if (query.get("initial-view") === "pipeline") {
+          setTimeout(() => document.getElementById("dyna-tab-pipeline")?.click(), 300);
+        }
+        if (query.get("open-todo") === "1") {
+          setTimeout(() => {
+            const button = [...document.querySelectorAll("button")].find(
+              (candidate) => candidate.textContent?.trim() === "Add to-do",
+            );
+            button?.click();
+          }, 300);
+        }
         return;
       }
       if (request.method === "tools/call") {
         state.toolCalls.push(request.params);
-        const response = await fetch("/call", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(request.params)
-        });
-        result = await response.json();
+        if (query.get("tool-error") === request.params?.name) {
+          result = { isError: true, content: [{ type: "text", text: "fixture failure" }] };
+        } else {
+          const response = await fetch("/call", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(request.params)
+          });
+          result = await response.json();
+        }
       } else if (request.method === "ui/message") {
         state.messages.push(request.params);
         document.documentElement.dataset.dynaMessageCount = String(state.messages.length);
@@ -503,7 +647,15 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       "content-type": "text/html; charset=utf-8",
     });
     response.end(
-      dynaPage(await createDynaFixture(requestUrl.searchParams.get("many-items") === "1" ? 4 : 1)),
+      dynaPage(
+        await createDynaFixture(
+          requestUrl.searchParams.get("many-items") === "1" ||
+            requestUrl.searchParams.get("pipeline") === "1"
+            ? 4
+            : 1,
+          requestUrl.searchParams.get("pipeline") === "1",
+        ),
+      ),
     );
     return;
   }

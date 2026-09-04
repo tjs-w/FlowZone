@@ -1,9 +1,10 @@
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { build, type BuildOptions } from "esbuild";
+import { build, transform, type BuildOptions } from "esbuild";
+import { compile as compileTailwind } from "tailwindcss";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const checkOnly = process.argv.includes("--check");
@@ -38,7 +39,6 @@ const outputs = [
       format: "iife",
       target: "es2022",
       minify: true,
-      loader: { ".css": "text" },
     } satisfies BuildOptions,
   },
 ] as const;
@@ -57,6 +57,14 @@ async function compile(): Promise<void> {
       sourcemap: false,
     });
   }
+  const dynaStylesheetPath = resolve(temporaryRoot, "web/dist/dyna.css");
+  const dynaStylesheet = await readFile(dynaStylesheetPath, "utf8");
+  const compiledStylesheet = await compileTailwind(dynaStylesheet, { base: root });
+  const optimizedStylesheet = await transform(compiledStylesheet.build([]), {
+    loader: "css",
+    minify: true,
+  });
+  await writeFile(dynaStylesheetPath, optimizedStylesheet.code);
 }
 
 async function assertArtifactParity(): Promise<void> {

@@ -1,6 +1,6 @@
 # FlowZone
 
-FlowZone is a local-first MCP plugin host. It exposes one MCP server endpoint and statically composes independently registered plugins behind that connection. It bundles Markdown Review and Dyna, a persistent executive dashboard for scheduled Slack, Outlook, GitLab, and Codex signals.
+FlowZone is a local-first MCP plugin host. It exposes one MCP server endpoint and statically composes independently registered plugins behind that connection. It bundles Markdown Review and Dyna, a persistent executive priority queue and progress pipeline for scheduled email, messaging, source-control, TWG, skill, and Codex signals.
 
 Installing FlowZone installs the shared `flowzone` MCP server and both qualified skills. Invoke them explicitly as `$flowzone:markdown-review` and `$flowzone:dyna`; Codex renders their display names as **FlowZone**, **Markdown Review**, and **Dyna**.
 
@@ -10,11 +10,11 @@ Installing FlowZone installs the shared `flowzone` MCP server and both qualified
 
 - Multiple persistent dashboards and native Codex schedule identities with many-to-many bindings, cadence-aware freshness, ordered per-run promotion, retry deduplication, and full-snapshot retirement.
 - Strict source records compiled through a fixed `@json-render/core` catalog; scheduled jobs cannot supply arbitrary UI or code.
-- Accessible Apps SDK UI cards, badges, buttons, and annotation forms in a responsive executive view.
+- Accessible Apps SDK UI controls, full-text filtering, direct to-do capture, evidence-bound leadership ranking, manual priority/sequence controls, and light/dark responsive views.
 - An automatic MCP Apps fullscreen request when the host advertises it, with host-owned docking and a complete inline fallback.
-- Re-rendering after scheduled updates, durable conversation-driven enrichment overlays, annotations, and monotonic linked task-status changes.
+- Re-rendering after scheduled updates, durable conversation-driven enrichment overlays, annotations, and one shared item set projected as a priority queue or Codex progress pipeline with one-line outcomes and follow-ups.
 - Revision-bound, claim-revalidated, per-attempt idempotent action requests with expiring leases for native Codex task creation, existing-task attachment, navigation, and status inspection.
-- A dedicated `ui://flowzone/dyna/v1.html` resource below a 750 KiB payload budget with a closed network CSP and no clipboard permission.
+- A dedicated `ui://flowzone/dyna/v2.html` resource below a 750 KiB payload budget with a closed network CSP and no clipboard permission.
 
 See [Dyna executive dashboards](./docs/dyna.md) for requirements, architecture, action protocol, implementation status, and the mobile Remote acceptance matrix.
 
@@ -45,7 +45,7 @@ FlowZone McpServer
        │              └── markdown-review/open
        ├── typed app-only component tools
        ├── render_markdown_review → ui://flowzone/v5.html
-       └── render_dyna_dashboard → ui://flowzone/dyna/v1.html
+       └── render_dyna_dashboard → ui://flowzone/dyna/v2.html
 ```
 
 FlowZone exposes one model-visible `flowzone` data router plus a dedicated model-visible presentation tool for each rendered surface. The startup-built router union enumerates non-visual plugin/action/input combinations and validates both selected input and plugin-owned output. Dedicated presentation tools carry their own risk and MCP Apps resource metadata. Typed helpers used by a UI stay separate and are forcibly registered with `_meta.ui.visibility: ["app"]`.

@@ -104,6 +104,8 @@ describe("checked-in Node stdio bundle", () => {
         "load_markdown_review_image_chunk",
         "dyna_get_snapshot",
         "dyna_add_annotation",
+        "dyna_add_todo",
+        "dyna_organize_item",
         "dyna_prepare_action",
         "dyna_mark_action_delivered",
         "dyna_action_status",

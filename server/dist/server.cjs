@@ -54091,7 +54091,18 @@ var schema = defineSchema(
 // packages/dyna-contracts/src/index.ts
 var IdentifierSchema2 = external_exports.string().trim().min(1).max(256);
 var TimestampSchema2 = external_exports.iso.datetime({ offset: true });
-var DynaSourceSchema = external_exports.enum(["slack", "outlook", "gitlab", "codex"]);
+var DynaSourceSchema = external_exports.enum([
+  "slack",
+  "outlook",
+  "gitlab",
+  "codex",
+  "email",
+  "messaging",
+  "scm",
+  "twg",
+  "skill",
+  "manual"
+]);
 var DynaPrioritySchema = external_exports.enum(["critical", "high", "normal", "low"]);
 var DynaSourceRefSchema = external_exports.discriminatedUnion("source", [
   external_exports.object({
@@ -54116,8 +54127,150 @@ var DynaSourceRefSchema = external_exports.discriminatedUnion("source", [
   external_exports.object({
     source: external_exports.literal("codex"),
     taskId: IdentifierSchema2
+  }).strict(),
+  external_exports.object({
+    source: external_exports.literal("email"),
+    provider: external_exports.string().trim().min(1).max(64),
+    accountId: IdentifierSchema2,
+    messageId: IdentifierSchema2,
+    conversationId: IdentifierSchema2.optional()
+  }).strict(),
+  external_exports.object({
+    source: external_exports.literal("messaging"),
+    provider: external_exports.string().trim().min(1).max(64),
+    workspaceId: IdentifierSchema2,
+    channelId: IdentifierSchema2,
+    messageId: IdentifierSchema2
+  }).strict(),
+  external_exports.object({
+    source: external_exports.literal("scm"),
+    provider: external_exports.string().trim().min(1).max(64),
+    instanceId: IdentifierSchema2,
+    repository: external_exports.string().trim().min(1).max(512),
+    entityType: external_exports.enum(["pull_request", "merge_request", "issue", "pipeline", "commit"]),
+    entityId: IdentifierSchema2
+  }).strict(),
+  external_exports.object({
+    source: external_exports.literal("twg"),
+    contextId: IdentifierSchema2,
+    resultType: external_exports.enum(["jira", "confluence", "bitbucket", "org", "work", "other"]),
+    recordId: IdentifierSchema2
+  }).strict(),
+  external_exports.object({
+    source: external_exports.literal("skill"),
+    contextId: IdentifierSchema2,
+    skillName: external_exports.string().trim().min(1).max(128),
+    recordType: external_exports.string().trim().min(1).max(64),
+    recordId: IdentifierSchema2
+  }).strict(),
+  external_exports.object({
+    source: external_exports.literal("manual"),
+    todoId: external_exports.uuid()
   }).strict()
 ]);
+var DynaLeadershipLevelSchema = external_exports.enum([
+  "ceo",
+  "cto",
+  "gm",
+  "vp",
+  "senior_director",
+  "director",
+  "architect",
+  "vip",
+  "other"
+]);
+var DynaPersonSignalSchema = external_exports.object({
+  displayName: external_exports.string().trim().min(1).max(120),
+  title: external_exports.string().trim().min(1).max(160).optional(),
+  leadershipLevel: DynaLeadershipLevelSchema,
+  relationship: external_exports.enum(["management_chain", "my_org", "neighboring_org", "external", "unknown"]),
+  involvement: external_exports.enum([
+    "sender",
+    "author",
+    "declared_owner",
+    "operational_owner",
+    "approver",
+    "reviewer",
+    "expert",
+    "informed",
+    "mentioned"
+  ]),
+  provenance: external_exports.enum(["user_configured", "twg_org_tree", "declared_source", "source_metadata"]),
+  confidence: external_exports.enum(["high", "medium", "low"])
+}).strict();
+var DynaPublishedPersonSignalSchema = DynaPersonSignalSchema.refine(
+  (person) => person.provenance === "declared_source" || person.provenance === "source_metadata",
+  "Scheduled publishers cannot assert trusted leadership provenance."
+);
+var DynaNextStepSchema = external_exports.object({
+  label: external_exports.string().trim().min(1).max(200),
+  owner: external_exports.string().trim().min(1).max(120).optional(),
+  dueAt: TimestampSchema2.optional()
+}).strict();
+var LEADERSHIP_WEIGHTS = {
+  ceo: 100,
+  cto: 95,
+  gm: 85,
+  vp: 80,
+  senior_director: 70,
+  director: 60,
+  vip: 65,
+  architect: 55,
+  other: 0
+};
+var PRIORITY_BEARING_INVOLVEMENT = /* @__PURE__ */ new Set([
+  "sender",
+  "author",
+  "declared_owner",
+  "operational_owner",
+  "approver"
+]);
+function dynaLeadershipScore(people) {
+  return people.reduce((highest, person) => {
+    if (!PRIORITY_BEARING_INVOLVEMENT.has(person.involvement) || person.confidence === "low" || person.provenance !== "user_configured" && person.provenance !== "twg_org_tree") {
+      return highest;
+    }
+    const relationshipWeight = person.relationship === "management_chain" ? 10 : person.relationship === "my_org" || person.relationship === "neighboring_org" ? 5 : 0;
+    return Math.max(highest, LEADERSHIP_WEIGHTS[person.leadershipLevel] + relationshipWeight);
+  }, 0);
+}
+function effectiveDynaPriority(priority, people) {
+  const score = dynaLeadershipScore(people);
+  if (priority === "critical" || priority === "high") return priority;
+  if (priority === "normal" && score >= 75) return "high";
+  if (priority === "low" && score >= 55) return "normal";
+  return priority;
+}
+function dynaSourceLabel(sourceRef) {
+  switch (sourceRef.source) {
+    case "slack":
+      return "Slack";
+    case "outlook":
+      return "Outlook";
+    case "gitlab":
+      return "GitLab";
+    case "codex":
+      return "Codex";
+    case "email":
+    case "messaging":
+    case "scm":
+      return sourceRef.provider;
+    case "twg":
+      return "$twg";
+    case "skill":
+      return sourceRef.skillName;
+    case "manual":
+      return "To-do";
+  }
+}
+var DynaTodoInputSchema = external_exports.object({
+  title: external_exports.string().trim().min(1).max(200),
+  summary: external_exports.string().trim().min(1).max(1e3).optional(),
+  priority: DynaPrioritySchema.default("normal"),
+  attention: external_exports.string().trim().min(1).max(500).optional(),
+  labels: external_exports.array(external_exports.string().trim().min(1).max(64)).max(8).default([]),
+  followUpOfItemId: external_exports.uuid().optional()
+}).strict();
 var DynaPublishedItemSchema = external_exports.object({
   externalId: IdentifierSchema2,
   sourceRef: DynaSourceRefSchema,
@@ -54128,8 +54281,15 @@ var DynaPublishedItemSchema = external_exports.object({
   priorityReason: external_exports.string().trim().min(1).max(500),
   sourceUpdatedAt: TimestampSchema2,
   dueAt: TimestampSchema2.optional(),
-  labels: external_exports.array(external_exports.string().trim().min(1).max(64)).max(20).default([])
+  labels: external_exports.array(external_exports.string().trim().min(1).max(64)).max(20).default([]),
+  people: external_exports.array(DynaPublishedPersonSignalSchema).max(8).default([]),
+  attention: external_exports.string().trim().min(1).max(500).optional(),
+  plan: external_exports.array(external_exports.string().trim().min(1).max(200)).max(4).default([]),
+  nextSteps: external_exports.array(DynaNextStepSchema).max(4).default([])
 }).strict();
+var DynaMaterializedItemSchema = DynaPublishedItemSchema.extend({
+  people: external_exports.array(DynaPersonSignalSchema).max(8).default([])
+});
 var DynaDashboardSchema = external_exports.object({
   id: external_exports.uuid(),
   name: external_exports.string().trim().min(1).max(96),
@@ -54158,22 +54318,32 @@ var DynaTaskStateSchema = external_exports.enum([
   "failed",
   "unknown"
 ]);
-var DynaTaskStatusSchema = external_exports.object({
+var DynaTaskStatusBaseSchema = external_exports.object({
   taskId: IdentifierSchema2,
   hostId: IdentifierSchema2,
   projectId: IdentifierSchema2.optional(),
   title: external_exports.string().trim().min(1).max(200),
-  state: DynaTaskStateSchema,
   statusUpdatedAt: TimestampSchema2,
   observedAt: TimestampSchema2
 }).strict();
+var DynaOneLineOutcomeSchema = external_exports.string().trim().min(1).max(200).regex(/^[^\r\n]+$/, "A Codex task outcome must be exactly one line.");
+var DynaTaskStatusSchema = external_exports.discriminatedUnion("state", [
+  DynaTaskStatusBaseSchema.extend({
+    state: external_exports.literal("succeeded"),
+    outcome: DynaOneLineOutcomeSchema
+  }).strict(),
+  DynaTaskStatusBaseSchema.extend({
+    state: external_exports.enum(["queued", "running", "waiting", "failed", "unknown"]),
+    outcome: DynaOneLineOutcomeSchema.optional()
+  }).strict()
+]);
 var DynaAnnotationSchema = external_exports.object({
   id: external_exports.uuid(),
   itemId: external_exports.uuid(),
   body: external_exports.string().trim().min(1).max(1e3),
   createdAt: TimestampSchema2
 }).strict();
-var DynaItemContextSchema = DynaPublishedItemSchema.extend({
+var DynaItemContextSchema = DynaMaterializedItemSchema.extend({
   id: external_exports.uuid(),
   fingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
   enrichment: external_exports.object({
@@ -54222,33 +54392,47 @@ var DynaCardSchema = external_exports.object({
   id: external_exports.uuid(),
   fingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
   source: DynaSourceSchema,
+  sourceLabel: external_exports.string().trim().min(1).max(128),
   title: external_exports.string().max(200),
   summary: external_exports.string().max(1e3),
+  sourcePriority: DynaPrioritySchema,
   priority: DynaPrioritySchema,
   priorityReason: external_exports.string().max(500),
   sourceUpdatedAt: TimestampSchema2,
   dueAt: TimestampSchema2.optional(),
   labels: external_exports.array(external_exports.string().max(64)).max(20),
+  people: external_exports.array(DynaPersonSignalSchema).max(8),
+  leadershipScore: external_exports.number().int().min(0).max(120),
+  priorityMode: external_exports.enum(["source", "enrichment", "leadership", "manual"]),
+  sequence: external_exports.number().int().nonnegative().optional(),
+  workflowState: external_exports.enum(["todo", "executing", "paused", "attention", "completed"]),
+  outcome: external_exports.string().trim().min(1).max(200).optional(),
+  followUpOfItemId: external_exports.uuid().optional(),
+  attention: external_exports.string().trim().min(1).max(500).optional(),
+  plan: external_exports.array(external_exports.string().trim().min(1).max(200)).max(4),
+  nextSteps: external_exports.array(DynaNextStepSchema).max(4),
   enrichmentState: external_exports.enum(["active", "stale"]).optional(),
   annotations: external_exports.array(DynaAnnotationSchema).max(20),
   linkedTasks: external_exports.array(DynaTaskStatusSchema).max(8)
 }).strict();
 var DynaDashboardSnapshotSchema = external_exports.object({
-  schema: external_exports.literal("dyna/snapshot-v1"),
+  schema: external_exports.literal("dyna/snapshot-v2"),
   dashboard: DynaDashboardSchema,
   generatedAt: TimestampSchema2,
+  query: external_exports.string().max(500),
   revision: external_exports.number().int().nonnegative(),
   freshness: external_exports.enum(["fresh", "aging", "stale"]),
   counts: external_exports.object({
     critical: external_exports.number().int().nonnegative(),
     high: external_exports.number().int().nonnegative(),
+    leadership: external_exports.number().int().nonnegative(),
     total: external_exports.number().int().nonnegative()
   }).strict(),
   schedules: external_exports.array(DynaPublisherSchema).max(50),
   cards: external_exports.array(DynaCardSchema).max(200)
 }).strict();
 var DynaUiPayloadSchema = external_exports.object({
-  schema: external_exports.literal("dyna/ui-v1"),
+  schema: external_exports.literal("dyna/ui-v2"),
   viewToken: external_exports.string().min(32).max(128),
   snapshot: DynaDashboardSnapshotSchema,
   spec: external_exports.unknown()
@@ -54259,6 +54443,20 @@ var ActionDescriptorSchema = external_exports.object({
   taskId: IdentifierSchema2.optional(),
   taskHostId: IdentifierSchema2.optional()
 }).strict();
+var DynaTaskStatusPropsSchema = external_exports.discriminatedUnion("state", [
+  DynaTaskStatusBaseSchema.extend({
+    state: external_exports.literal("succeeded"),
+    outcome: DynaOneLineOutcomeSchema,
+    itemId: external_exports.uuid(),
+    itemFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/)
+  }).strict(),
+  DynaTaskStatusBaseSchema.extend({
+    state: external_exports.enum(["queued", "running", "waiting", "failed", "unknown"]),
+    outcome: DynaOneLineOutcomeSchema.optional(),
+    itemId: external_exports.uuid(),
+    itemFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/)
+  }).strict()
+]);
 var dynaCatalog = schema.createCatalog({
   components: {
     Dashboard: {
@@ -54275,8 +54473,9 @@ var dynaCatalog = schema.createCatalog({
     },
     SummaryStrip: {
       props: external_exports.object({
-        critical: external_exports.number().int().nonnegative(),
-        high: external_exports.number().int().nonnegative(),
+        focus: external_exports.number().int().nonnegative(),
+        leadership: external_exports.number().int().nonnegative(),
+        shown: external_exports.number().int().nonnegative(),
         total: external_exports.number().int().nonnegative()
       }).strict(),
       slots: [],
@@ -54287,18 +54486,52 @@ var dynaCatalog = schema.createCatalog({
       slots: ["default"],
       description: "A priority group in the dashboard."
     },
+    QueueView: {
+      props: external_exports.object({}).strict(),
+      slots: ["default"],
+      description: "Priority queue view with schedule context."
+    },
+    PipelineView: {
+      props: external_exports.object({}).strict(),
+      slots: ["default"],
+      description: "Progress pipeline projected from the same Dyna items."
+    },
+    PipelineColumn: {
+      props: external_exports.object({
+        state: external_exports.enum(["todo", "executing", "paused", "attention", "completed"]),
+        title: external_exports.string().trim().min(1).max(64),
+        count: external_exports.number().int().nonnegative()
+      }).strict(),
+      slots: ["default"],
+      description: "One fixed workflow column in the Dyna progress pipeline."
+    },
     PriorityCard: {
       props: external_exports.object({
         itemId: external_exports.uuid(),
         fingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
         source: DynaSourceSchema,
+        sourceLabel: external_exports.string().trim().min(1).max(128),
         title: external_exports.string().max(200),
         summary: external_exports.string().max(1e3),
+        sourcePriority: DynaPrioritySchema,
         priority: DynaPrioritySchema,
         priorityReason: external_exports.string().max(500),
         sourceUpdatedAt: TimestampSchema2,
         dueAt: TimestampSchema2.optional(),
         labels: external_exports.array(external_exports.string().max(64)).max(20),
+        people: external_exports.array(DynaPersonSignalSchema).max(8),
+        leadershipScore: external_exports.number().int().min(0).max(120),
+        priorityMode: external_exports.enum(["source", "enrichment", "leadership", "manual"]),
+        sequence: external_exports.number().int().nonnegative().optional(),
+        workflowState: external_exports.enum(["todo", "executing", "paused", "attention", "completed"]),
+        outcome: external_exports.string().trim().min(1).max(200).optional(),
+        followUpOfItemId: external_exports.uuid().optional(),
+        canMoveEarlier: external_exports.boolean(),
+        canMoveLater: external_exports.boolean(),
+        searchText: external_exports.string().max(5e3),
+        attention: external_exports.string().trim().min(1).max(500).optional(),
+        plan: external_exports.array(external_exports.string().trim().min(1).max(200)).max(4),
+        nextSteps: external_exports.array(DynaNextStepSchema).max(4),
         enrichmentState: external_exports.enum(["active", "stale"]).optional(),
         annotationCount: external_exports.number().int().nonnegative(),
         annotationPreview: external_exports.array(external_exports.string().trim().min(1).max(1e3)).max(3),
@@ -54308,10 +54541,7 @@ var dynaCatalog = schema.createCatalog({
       description: "One bounded actionable signal from an approved source."
     },
     TaskStatus: {
-      props: DynaTaskStatusSchema.extend({
-        itemId: external_exports.uuid(),
-        itemFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/)
-      }).strict(),
+      props: DynaTaskStatusPropsSchema,
       slots: [],
       description: "Controller-reported metadata for an explicitly linked Codex task."
     },
@@ -54331,38 +54561,117 @@ var dynaCatalog = schema.createCatalog({
 
 // packages/dyna-core/src/index.ts
 var PRIORITY_ORDER = ["critical", "high", "normal", "low"];
-function compareCards(left, right) {
+function compareDynaCards(left, right) {
   const byPriority = PRIORITY_ORDER.indexOf(left.priority) - PRIORITY_ORDER.indexOf(right.priority);
   if (byPriority !== 0) return byPriority;
+  const bySequence = (left.sequence ?? Number.MAX_SAFE_INTEGER) - (right.sequence ?? Number.MAX_SAFE_INTEGER);
+  if (bySequence !== 0) return bySequence;
+  const byLeadership = right.leadershipScore - left.leadershipScore;
+  if (byLeadership !== 0) return byLeadership;
   const leftDue = left.dueAt ?? "9999";
   const rightDue = right.dueAt ?? "9999";
   const byDue = leftDue.localeCompare(rightDue);
   if (byDue !== 0) return byDue;
-  return right.sourceUpdatedAt.localeCompare(left.sourceUpdatedAt);
+  const byUpdatedAt = right.sourceUpdatedAt.localeCompare(left.sourceUpdatedAt);
+  return byUpdatedAt !== 0 ? byUpdatedAt : left.id.localeCompare(right.id);
 }
 function cardActions(card) {
-  const linkedTask = card.linkedTasks[0];
-  return linkedTask ? [
-    { name: "annotate", label: "Add note" },
-    {
-      name: "open_codex_task",
-      label: "Open task",
-      taskId: linkedTask.taskId,
-      taskHostId: linkedTask.hostId
-    }
-  ] : [
+  return card.linkedTasks.length > 0 ? [{ name: "annotate", label: "Add note" }] : [
     { name: "annotate", label: "Add note" },
     { name: "create_codex_task", label: "Review in Codex" }
   ];
 }
 function compileDashboard(snapshot) {
   const elements = {};
-  const sectionKeys = [];
+  const queueKeys = [];
   elements["summary"] = {
     type: "SummaryStrip",
-    props: snapshot.counts,
+    props: {
+      focus: snapshot.counts.critical + snapshot.counts.high,
+      leadership: snapshot.counts.leadership,
+      shown: snapshot.cards.length,
+      total: snapshot.counts.total
+    },
     children: []
   };
+  const addCard = (card, canMoveEarlier = false, canMoveLater = false) => {
+    const cardKey = `card-${card.id}`;
+    if (elements[cardKey]) return cardKey;
+    const taskChildren = [];
+    for (const task of card.linkedTasks) {
+      const taskKey = `${cardKey}-task-${task.hostId}-${task.taskId}`;
+      elements[taskKey] = {
+        type: "TaskStatus",
+        props: { ...task, itemId: card.id, itemFingerprint: card.fingerprint },
+        children: []
+      };
+      taskChildren.push(taskKey);
+    }
+    elements[cardKey] = {
+      type: "PriorityCard",
+      props: {
+        itemId: card.id,
+        fingerprint: card.fingerprint,
+        source: card.source,
+        sourceLabel: card.sourceLabel,
+        title: card.title,
+        summary: card.summary,
+        sourcePriority: card.sourcePriority,
+        priority: card.priority,
+        priorityReason: card.priorityReason,
+        sourceUpdatedAt: card.sourceUpdatedAt,
+        ...card.dueAt ? { dueAt: card.dueAt } : {},
+        labels: card.labels,
+        people: card.people,
+        leadershipScore: card.leadershipScore,
+        priorityMode: card.priorityMode,
+        ...card.sequence !== void 0 ? { sequence: card.sequence } : {},
+        workflowState: card.workflowState,
+        ...card.outcome ? { outcome: card.outcome } : {},
+        ...card.followUpOfItemId ? { followUpOfItemId: card.followUpOfItemId } : {},
+        canMoveEarlier,
+        canMoveLater,
+        searchText: [
+          ...card.annotations.map((annotation) => annotation.body),
+          ...card.linkedTasks.flatMap((task) => [task.title, task.state, task.outcome ?? ""])
+        ].join(" ").slice(0, 5e3),
+        ...card.attention ? { attention: card.attention } : {},
+        plan: card.plan,
+        nextSteps: card.nextSteps,
+        ...card.enrichmentState ? { enrichmentState: card.enrichmentState } : {},
+        annotationCount: card.annotations.length,
+        annotationPreview: card.annotations.slice(0, 3).map((annotation) => annotation.body),
+        actions: cardActions(card)
+      },
+      children: taskChildren
+    };
+    return cardKey;
+  };
+  for (const priority of PRIORITY_ORDER) {
+    const cards = snapshot.cards.filter((card) => card.priority === priority).sort(compareDynaCards);
+    if (cards.length === 0) continue;
+    const sectionKey = `queue-section-${priority}`;
+    const children = cards.map((card, index) => addCard(card, index > 0, index < cards.length - 1));
+    elements[sectionKey] = {
+      type: "Section",
+      props: {
+        title: priority === "normal" ? "Keep moving" : priority === "critical" ? "Act now" : priority === "high" ? "Needs your attention" : "On the radar",
+        emptyMessage: "Nothing in this section."
+      },
+      children
+    };
+    queueKeys.push(sectionKey);
+  }
+  if (snapshot.cards.length === 0) {
+    elements["empty"] = {
+      type: "EmptyState",
+      props: {
+        message: snapshot.query ? `No dashboard items match “${snapshot.query}”.` : "No signals have been published to this dashboard yet."
+      },
+      children: []
+    };
+    queueKeys.push("empty");
+  }
   if (snapshot.schedules.length > 0) {
     const scheduleChildren = [];
     for (const schedule of snapshot.schedules) {
@@ -54372,68 +54681,31 @@ function compileDashboard(snapshot) {
     }
     elements["section-schedules"] = {
       type: "Section",
-      props: { title: "Scheduled sources", emptyMessage: "No schedules are attached." },
+      props: { title: "Signal runs", emptyMessage: "No schedules are attached." },
       children: scheduleChildren
     };
-    sectionKeys.push("section-schedules");
+    queueKeys.push("section-schedules");
   }
-  for (const priority of PRIORITY_ORDER) {
-    const cards = snapshot.cards.filter((card) => card.priority === priority).sort(compareCards);
-    if (cards.length === 0) continue;
-    const sectionKey = `section-${priority}`;
-    const children = [];
-    for (const card of cards) {
-      const cardKey = `card-${card.id}`;
-      const taskChildren = [];
-      for (const task of card.linkedTasks) {
-        const taskKey = `${cardKey}-task-${task.hostId}-${task.taskId}`;
-        elements[taskKey] = {
-          type: "TaskStatus",
-          props: { ...task, itemId: card.id, itemFingerprint: card.fingerprint },
-          children: []
-        };
-        taskChildren.push(taskKey);
-      }
-      elements[cardKey] = {
-        type: "PriorityCard",
-        props: {
-          itemId: card.id,
-          fingerprint: card.fingerprint,
-          source: card.source,
-          title: card.title,
-          summary: card.summary,
-          priority: card.priority,
-          priorityReason: card.priorityReason,
-          sourceUpdatedAt: card.sourceUpdatedAt,
-          ...card.dueAt ? { dueAt: card.dueAt } : {},
-          labels: card.labels,
-          ...card.enrichmentState ? { enrichmentState: card.enrichmentState } : {},
-          annotationCount: card.annotations.length,
-          annotationPreview: card.annotations.slice(0, 3).map((annotation) => annotation.body),
-          actions: cardActions(card)
-        },
-        children: taskChildren
-      };
-      children.push(cardKey);
-    }
-    elements[sectionKey] = {
-      type: "Section",
-      props: {
-        title: priority === "normal" ? "For your attention" : `${priority[0]?.toUpperCase() ?? ""}${priority.slice(1)} priority`,
-        emptyMessage: "Nothing in this section."
-      },
-      children
+  elements["queue"] = { type: "QueueView", props: {}, children: queueKeys };
+  const pipelineKeys = [];
+  const pipelineStates = [
+    ["todo", "To do"],
+    ["executing", "Executing in Codex"],
+    ["paused", "Paused for input"],
+    ["attention", "Needs attention"],
+    ["completed", "Completed"]
+  ];
+  for (const [state, title] of pipelineStates) {
+    const cards = snapshot.cards.filter((card) => card.workflowState === state).sort(compareDynaCards);
+    const key = `pipeline-${state}`;
+    elements[key] = {
+      type: "PipelineColumn",
+      props: { state, title, count: cards.length },
+      children: cards.map((card) => addCard(card))
     };
-    sectionKeys.push(sectionKey);
+    pipelineKeys.push(key);
   }
-  if (snapshot.cards.length === 0) {
-    elements["empty"] = {
-      type: "EmptyState",
-      props: { message: "No signals have been published to this dashboard yet." },
-      children: []
-    };
-    sectionKeys.push("empty");
-  }
+  elements["pipeline"] = { type: "PipelineView", props: {}, children: pipelineKeys };
   elements["root"] = {
     type: "Dashboard",
     props: {
@@ -54444,7 +54716,7 @@ function compileDashboard(snapshot) {
       generatedAt: snapshot.generatedAt,
       revision: snapshot.revision
     },
-    children: ["summary", ...sectionKeys]
+    children: ["summary", "queue", "pipeline"]
   };
   const spec = { root: "root", elements };
   const validated = dynaCatalog.validate(spec);
@@ -54508,8 +54780,8 @@ function normalizeTimestamp(value, rejectFuture = false) {
   }
   return { iso: new Date(epoch).toISOString(), epoch };
 }
-function identityKey(sourceRef) {
-  return sha256(JSON.stringify(DynaSourceRefSchema.parse(sourceRef)));
+function identityKey(publisherId, sourceRef) {
+  return sha256(JSON.stringify([publisherId, DynaSourceRefSchema.parse(sourceRef)]));
 }
 function normalizedPublishedItem(item) {
   const parsed = DynaPublishedItemSchema.parse(item);
@@ -54579,12 +54851,20 @@ var DynaStore = class {
         publisher_id TEXT NOT NULL REFERENCES publishers(id) ON DELETE CASCADE,
         PRIMARY KEY (dashboard_id, publisher_id)
       );
+      CREATE TABLE IF NOT EXISTS dashboard_manual_publishers (
+        dashboard_id TEXT PRIMARY KEY REFERENCES dashboards(id) ON DELETE CASCADE,
+        publisher_id TEXT NOT NULL UNIQUE REFERENCES publishers(id) ON DELETE CASCADE
+      );
       CREATE TABLE IF NOT EXISTS items (
         id TEXT PRIMARY KEY, publisher_id TEXT NOT NULL REFERENCES publishers(id) ON DELETE CASCADE,
         external_id TEXT NOT NULL, identity_key TEXT, source TEXT NOT NULL, source_ref TEXT NOT NULL,
         source_scope TEXT NOT NULL, title TEXT NOT NULL, summary TEXT NOT NULL,
         priority TEXT NOT NULL, priority_reason TEXT NOT NULL, source_updated_at TEXT NOT NULL,
-        source_updated_ms INTEGER, due_at TEXT, labels TEXT NOT NULL, fingerprint TEXT NOT NULL,
+        source_updated_ms INTEGER, due_at TEXT, labels TEXT NOT NULL, people TEXT NOT NULL DEFAULT '[]',
+        leadership_score INTEGER NOT NULL DEFAULT 0,
+        attention TEXT, plan TEXT NOT NULL DEFAULT '[]', next_steps TEXT NOT NULL DEFAULT '[]',
+        follow_up_of_item_id TEXT REFERENCES items(id) ON DELETE SET NULL,
+        fingerprint TEXT NOT NULL,
         updated_at TEXT NOT NULL, UNIQUE (publisher_id, external_id)
       );
       CREATE TABLE IF NOT EXISTS publisher_items (
@@ -54603,8 +54883,22 @@ var DynaStore = class {
       CREATE TABLE IF NOT EXISTS item_enrichments (
         item_id TEXT PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
         summary TEXT, priority TEXT, priority_reason TEXT, due_at TEXT, due_at_set INTEGER NOT NULL,
-        labels TEXT, base_fingerprint TEXT NOT NULL, base_source_updated_at TEXT NOT NULL,
+        labels TEXT, people TEXT, leadership_score INTEGER NOT NULL DEFAULT 0,
+        attention TEXT, plan TEXT, next_steps TEXT,
+        base_fingerprint TEXT NOT NULL, base_source_updated_at TEXT NOT NULL,
         applied_at TEXT NOT NULL, provenance TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS item_preferences (
+        dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
+        item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        priority_override TEXT, sequence INTEGER, updated_at TEXT NOT NULL,
+        PRIMARY KEY (dashboard_id, item_id)
+      );
+      CREATE TABLE IF NOT EXISTS todo_requests (
+        dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
+        client_request_id TEXT NOT NULL, request_hash TEXT NOT NULL,
+        item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        PRIMARY KEY (dashboard_id, client_request_id)
       );
       CREATE TABLE IF NOT EXISTS annotations (
         id TEXT PRIMARY KEY, item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
@@ -54615,6 +54909,7 @@ var DynaStore = class {
         task_id TEXT NOT NULL, host_id TEXT NOT NULL, project_id TEXT,
         title TEXT NOT NULL, state TEXT NOT NULL, status_updated_at TEXT NOT NULL,
         status_updated_ms INTEGER NOT NULL, observed_at TEXT NOT NULL, observed_ms INTEGER NOT NULL,
+        outcome TEXT,
         PRIMARY KEY (item_id, task_id, host_id)
       );
       CREATE TABLE IF NOT EXISTS view_sessions (
@@ -54662,7 +54957,24 @@ var DynaStore = class {
         request_hash: "TEXT",
         promoted: "INTEGER NOT NULL DEFAULT 1"
       },
-      items: { identity_key: "TEXT", source_updated_ms: "INTEGER" },
+      items: {
+        identity_key: "TEXT",
+        source_updated_ms: "INTEGER",
+        people: "TEXT NOT NULL DEFAULT '[]'",
+        attention: "TEXT",
+        plan: "TEXT NOT NULL DEFAULT '[]'",
+        next_steps: "TEXT NOT NULL DEFAULT '[]'",
+        leadership_score: "INTEGER NOT NULL DEFAULT 0",
+        follow_up_of_item_id: "TEXT REFERENCES items(id) ON DELETE SET NULL"
+      },
+      item_enrichments: {
+        people: "TEXT",
+        attention: "TEXT",
+        plan: "TEXT",
+        next_steps: "TEXT",
+        leadership_score: "INTEGER NOT NULL DEFAULT 0"
+      },
+      task_bindings: { outcome: "TEXT" },
       action_requests: {
         dashboard_id: "TEXT",
         item_fingerprint: "TEXT",
@@ -54673,19 +54985,44 @@ var DynaStore = class {
         uncertain_effect: "INTEGER NOT NULL DEFAULT 0"
       }
     };
-    for (const [table, columns] of Object.entries(additions)) {
-      const existing = new Set(
-        this.#database.prepare(`PRAGMA table_info(${table})`).all().map(
+    this.#transaction(() => {
+      for (const [table, columns] of Object.entries(additions)) {
+        const existing = new Set(
+          this.#database.prepare(`PRAGMA table_info(${table})`).all().map(
+            (row) => requiredString(row, "name")
+          )
+        );
+        for (const [column, definition] of Object.entries(columns)) {
+          if (!existing.has(column)) {
+            this.#database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+          }
+        }
+      }
+      const preferenceColumns = new Set(
+        this.#database.prepare("PRAGMA table_info(item_preferences)").all().map(
           (row) => requiredString(row, "name")
         )
       );
-      for (const [column, definition] of Object.entries(columns)) {
-        if (!existing.has(column)) {
-          this.#database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
-        }
+      if (!preferenceColumns.has("dashboard_id")) {
+        this.#database.exec(`
+          ALTER TABLE item_preferences RENAME TO item_preferences_legacy;
+          CREATE TABLE item_preferences (
+            dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
+            item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+            priority_override TEXT, sequence INTEGER, updated_at TEXT NOT NULL,
+            PRIMARY KEY (dashboard_id, item_id)
+          );
+          INSERT INTO item_preferences (
+            dashboard_id, item_id, priority_override, sequence, updated_at
+          )
+          SELECT DISTINCT dp.dashboard_id, legacy.item_id, legacy.priority_override,
+            legacy.sequence, legacy.updated_at
+          FROM item_preferences_legacy legacy
+          JOIN publisher_items pi ON pi.item_id = legacy.item_id AND pi.active = 1
+          JOIN dashboard_publishers dp ON dp.publisher_id = pi.publisher_id;
+          DROP TABLE item_preferences_legacy;
+        `);
       }
-    }
-    this.#transaction(() => {
       const legacyRuns = this.#database.prepare(
         "SELECT publisher_id, run_id, completed_at FROM publisher_runs WHERE source_completed_ms IS NULL"
       ).all();
@@ -54722,7 +55059,10 @@ var DynaStore = class {
       );
       for (const row of rows) {
         update.run(
-          identityKey(parseJson(requiredString(row, "source_ref"))),
+          identityKey(
+            requiredString(row, "publisher_id"),
+            parseJson(requiredString(row, "source_ref"))
+          ),
           normalizeTimestamp(requiredString(row, "source_updated_at")).epoch,
           requiredString(row, "id")
         );
@@ -54732,10 +55072,19 @@ var DynaStore = class {
           requiredString(row, "id")
         );
       }
+      this.#database.exec(`
+        UPDATE publisher_items
+        SET active = 0
+        WHERE EXISTS (
+          SELECT 1 FROM items
+          WHERE items.id = publisher_items.item_id
+            AND items.publisher_id <> publisher_items.publisher_id
+        )
+      `);
+      this.#database.exec(
+        "CREATE INDEX IF NOT EXISTS idx_dyna_items_identity ON items(identity_key); CREATE UNIQUE INDEX IF NOT EXISTS idx_dyna_action_idempotency ON action_requests(dashboard_id, idempotency_key) WHERE idempotency_key IS NOT NULL;"
+      );
     });
-    this.#database.exec(
-      "CREATE INDEX IF NOT EXISTS idx_dyna_items_identity ON items(identity_key); CREATE UNIQUE INDEX IF NOT EXISTS idx_dyna_action_idempotency ON action_requests(dashboard_id, idempotency_key) WHERE idempotency_key IS NOT NULL;"
-    );
   }
   #transaction(operation) {
     this.#database.exec("BEGIN IMMEDIATE");
@@ -54916,9 +55265,14 @@ var DynaStore = class {
       `
             SELECT p.* FROM publishers p
             JOIN dashboard_publishers dp ON dp.publisher_id = p.id
-            WHERE dp.dashboard_id = ? ORDER BY p.name, p.id
+            LEFT JOIN dashboard_manual_publishers mp ON mp.publisher_id = p.id
+            WHERE dp.dashboard_id = ? AND mp.publisher_id IS NULL ORDER BY p.name, p.id
           `
-    ).all(dashboardId) : this.#database.prepare("SELECT * FROM publishers ORDER BY name, id").all();
+    ).all(dashboardId) : this.#database.prepare(
+      `SELECT p.* FROM publishers p
+             LEFT JOIN dashboard_manual_publishers mp ON mp.publisher_id = p.id
+             WHERE mp.publisher_id IS NULL ORDER BY p.name, p.id`
+    ).all();
     return rows.map((row) => this.#publisherFromRow(row));
   }
   #publisherFromRow(row) {
@@ -55026,13 +55380,19 @@ var DynaStore = class {
           INSERT INTO items (
             id, publisher_id, external_id, identity_key, source, source_ref, source_scope, title,
             summary, priority, priority_reason, source_updated_at, source_updated_ms, due_at,
-            labels, fingerprint, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            labels, people, leadership_score, attention, plan, next_steps, follow_up_of_item_id,
+            fingerprint, updated_at
+          ) VALUES (
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+            NULL, ?, ?
+          )
         `);
         const updateItem = this.#database.prepare(`
           UPDATE items SET source = ?, source_ref = ?, source_scope = ?, title = ?, summary = ?,
             priority = ?, priority_reason = ?, source_updated_at = ?, source_updated_ms = ?,
-            due_at = ?, labels = ?, fingerprint = ?, updated_at = ? WHERE id = ?
+            due_at = ?, labels = ?, people = ?, leadership_score = ?, attention = ?, plan = ?, next_steps = ?,
+            fingerprint = ?, updated_at = ? WHERE id = ?
         `);
         const upsertMembership = this.#database.prepare(`
           INSERT INTO publisher_items (publisher_id, external_id, item_id, active, last_seen_run_id)
@@ -55043,7 +55403,7 @@ var DynaStore = class {
         for (const item of parsedItems) {
           const canonical = JSON.stringify(item);
           const fingerprint = sha256(canonical);
-          const identity = identityKey(item.sourceRef);
+          const identity = identityKey(publisherId, item.sourceRef);
           const sourceMs = normalizeTimestamp(item.sourceUpdatedAt).epoch;
           let existing = this.#one(
             this.#database.prepare(
@@ -55069,6 +55429,11 @@ var DynaStore = class {
               sourceMs,
               item.dueAt ?? null,
               JSON.stringify(item.labels),
+              JSON.stringify(item.people),
+              dynaLeadershipScore(item.people),
+              item.attention ?? null,
+              JSON.stringify(item.plan),
+              JSON.stringify(item.nextSteps),
               fingerprint,
               instant
             );
@@ -55094,6 +55459,11 @@ var DynaStore = class {
                 sourceMs,
                 item.dueAt ?? null,
                 JSON.stringify(item.labels),
+                JSON.stringify(item.people),
+                dynaLeadershipScore(item.people),
+                item.attention ?? null,
+                JSON.stringify(item.plan),
+                JSON.stringify(item.nextSteps),
                 fingerprint,
                 instant,
                 requiredString(existing, "id")
@@ -55167,37 +55537,213 @@ var DynaStore = class {
       return annotation;
     });
   }
+  addTodo(viewToken, input, clientRequestId) {
+    const dashboardId = this.authorizeView(viewToken);
+    const parsed = DynaTodoInputSchema.parse(input);
+    const requestHash = sha256(JSON.stringify(parsed));
+    const instant = this.#now();
+    return this.#transaction(() => {
+      const previous = this.#one(
+        this.#database.prepare(
+          "SELECT request_hash, item_id FROM todo_requests WHERE dashboard_id = ? AND client_request_id = ?"
+        ),
+        dashboardId,
+        clientRequestId
+      );
+      if (previous) {
+        if (requiredString(previous, "request_hash") !== requestHash) {
+          throw new Error("Dyna rejected a to-do request ID reused with different content.");
+        }
+        return requiredString(previous, "item_id");
+      }
+      let mapping = this.#one(
+        this.#database.prepare(
+          "SELECT publisher_id FROM dashboard_manual_publishers WHERE dashboard_id = ?"
+        ),
+        dashboardId
+      );
+      if (!mapping) {
+        const publisherId2 = (0, import_node_crypto5.randomUUID)();
+        this.#database.prepare(
+          `INSERT INTO publishers (
+              id, name, token_hash, schedule_state, stale_after_minutes, last_run_status, created_at
+            ) VALUES (?, ?, ?, 'unknown', 43200, 'never', ?)`
+        ).run(publisherId2, "Dyna to-dos", tokenHash(token()), instant);
+        this.#database.prepare("INSERT INTO dashboard_publishers (dashboard_id, publisher_id) VALUES (?, ?)").run(dashboardId, publisherId2);
+        this.#database.prepare(
+          "INSERT INTO dashboard_manual_publishers (dashboard_id, publisher_id) VALUES (?, ?)"
+        ).run(dashboardId, publisherId2);
+        mapping = { publisher_id: publisherId2 };
+      }
+      if (parsed.followUpOfItemId) {
+        const parent = this.#one(
+          this.#database.prepare(`
+            SELECT 1 AS present FROM publisher_items pi
+            JOIN dashboard_publishers dp ON dp.publisher_id = pi.publisher_id
+            WHERE dp.dashboard_id = ? AND pi.item_id = ? AND pi.active = 1
+          `),
+          dashboardId,
+          parsed.followUpOfItemId
+        );
+        if (!parent) throw new Error("The follow-up source is outside this dashboard view.");
+      }
+      const publisherId = requiredString(mapping, "publisher_id");
+      const todoId = (0, import_node_crypto5.randomUUID)();
+      const item = normalizedPublishedItem({
+        externalId: todoId,
+        sourceRef: { source: "manual", todoId },
+        sourceScope: `manual:${dashboardId}`,
+        title: parsed.title,
+        summary: parsed.summary ?? "Added from Dyna and ready to prioritize.",
+        priority: parsed.priority,
+        priorityReason: "Manually added to your priority queue.",
+        sourceUpdatedAt: instant,
+        labels: parsed.labels,
+        people: [],
+        ...parsed.attention ? { attention: parsed.attention } : {},
+        plan: [],
+        nextSteps: []
+      });
+      const itemId = (0, import_node_crypto5.randomUUID)();
+      this.#database.prepare(
+        `INSERT INTO items (
+            id, publisher_id, external_id, identity_key, source, source_ref, source_scope, title,
+            summary, priority, priority_reason, source_updated_at, source_updated_ms, due_at,
+            labels, people, leadership_score, attention, plan, next_steps, follow_up_of_item_id,
+            fingerprint, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, 0, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        itemId,
+        publisherId,
+        item.externalId,
+        identityKey(publisherId, item.sourceRef),
+        item.sourceRef.source,
+        JSON.stringify(item.sourceRef),
+        item.sourceScope,
+        item.title,
+        item.summary,
+        item.priority,
+        item.priorityReason,
+        item.sourceUpdatedAt,
+        normalizeTimestamp(item.sourceUpdatedAt).epoch,
+        JSON.stringify(item.labels),
+        JSON.stringify(item.people),
+        item.attention ?? null,
+        JSON.stringify(item.plan),
+        JSON.stringify(item.nextSteps),
+        parsed.followUpOfItemId ?? null,
+        sha256(JSON.stringify(item)),
+        instant
+      );
+      this.#database.prepare(
+        `INSERT INTO publisher_items (
+            publisher_id, external_id, item_id, active, last_seen_run_id
+          ) VALUES (?, ?, ?, 1, ?)`
+      ).run(publisherId, item.externalId, itemId, `manual:${todoId}`);
+      this.#database.prepare(
+        "INSERT INTO todo_requests (dashboard_id, client_request_id, request_hash, item_id) VALUES (?, ?, ?, ?)"
+      ).run(dashboardId, clientRequestId, requestHash, itemId);
+      this.#touchDashboards([dashboardId], instant);
+      this.#audit("todo.created", itemId, instant);
+      return itemId;
+    });
+  }
+  organizeItem(viewToken, itemId, action, expectedRevision, expectedFingerprint) {
+    const dashboardId = this.authorizeView(viewToken, itemId);
+    const snapshot = this.snapshot(dashboardId);
+    const card = snapshot.cards.find((candidate) => candidate.id === itemId);
+    if (!card) throw new Error("The Dyna item is no longer active.");
+    const instant = this.#now();
+    return this.#transaction(() => {
+      const revisionRow = this.#one(
+        this.#database.prepare("SELECT revision FROM dashboards WHERE id = ?"),
+        dashboardId
+      );
+      const itemRow = this.#itemBaseRow(itemId);
+      if (!revisionRow || requiredNumber(revisionRow, "revision") !== expectedRevision || requiredString(itemRow, "fingerprint") !== expectedFingerprint) {
+        throw new Error("The Dyna dashboard changed; refresh before reprioritizing this item.");
+      }
+      if (action === "bump" || action === "lower") {
+        const priorities = ["critical", "high", "normal", "low"];
+        const currentIndex = priorities.indexOf(card.priority);
+        const targetIndex = Math.max(
+          0,
+          Math.min(priorities.length - 1, currentIndex + (action === "bump" ? -1 : 1))
+        );
+        const targetPriority = priorities[targetIndex] ?? card.priority;
+        if (targetPriority === card.priority) return { changed: false };
+        this.#database.prepare(
+          `INSERT INTO item_preferences (
+               dashboard_id, item_id, priority_override, sequence, updated_at
+             ) VALUES (?, ?, ?, NULL, ?)
+             ON CONFLICT(dashboard_id, item_id) DO UPDATE SET
+               priority_override = excluded.priority_override,
+               sequence = NULL, updated_at = excluded.updated_at`
+        ).run(dashboardId, itemId, targetPriority, instant);
+      } else {
+        const group = snapshot.cards.filter((candidate) => candidate.priority === card.priority).sort(compareDynaCards);
+        const index = group.findIndex((candidate) => candidate.id === itemId);
+        const otherIndex = action === "earlier" ? index - 1 : index + 1;
+        if (index < 0 || otherIndex < 0 || otherIndex >= group.length) return { changed: false };
+        const currentCard = group[index];
+        const otherCard = group[otherIndex];
+        if (!currentCard || !otherCard) return { changed: false };
+        [group[index], group[otherIndex]] = [otherCard, currentCard];
+        const updateSequence = this.#database.prepare(
+          `INSERT INTO item_preferences (dashboard_id, item_id, sequence, updated_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(dashboard_id, item_id) DO UPDATE SET sequence = excluded.sequence,
+             updated_at = excluded.updated_at`
+        );
+        group.forEach((candidate, position) => {
+          updateSequence.run(dashboardId, candidate.id, position * 100, instant);
+        });
+      }
+      this.#touchDashboards([dashboardId], instant);
+      this.#audit(`item.organized.${action}`, itemId, instant);
+      return { changed: true };
+    });
+  }
   applyEnrichment(itemId, values) {
-    const base = this.#itemBaseRow(itemId);
-    const current = this.#one(
-      this.#database.prepare("SELECT * FROM item_enrichments WHERE item_id = ?"),
-      itemId
-    );
-    const dueAt = values.dueAt === void 0 ? optionalString(current ?? {}, "due_at") : values.dueAt === null ? void 0 : normalizeTimestamp(values.dueAt).iso;
-    const dueAtSet = values.dueAt !== void 0 ? 1 : current ? requiredNumber(current, "due_at_set") : 0;
+    const dueAt = values.dueAt ? normalizeTimestamp(values.dueAt).iso : void 0;
+    const dueAtSet = values.dueAt !== void 0 ? 1 : 0;
     const instant = this.#now();
     this.#transaction(() => {
+      const base = this.#itemBaseRow(itemId);
+      if (requiredString(base, "fingerprint") !== values.expectedFingerprint) {
+        throw new Error("The Dyna item changed; retrieve its latest context before enrichment.");
+      }
       this.#database.prepare(
         `
           INSERT INTO item_enrichments (
-            item_id, summary, priority, priority_reason, due_at, due_at_set, labels,
+            item_id, summary, priority, priority_reason, due_at, due_at_set, labels, people,
+            leadership_score,
+            attention, plan, next_steps,
             base_fingerprint, base_source_updated_at, applied_at, provenance
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(item_id) DO UPDATE SET summary = excluded.summary,
             priority = excluded.priority, priority_reason = excluded.priority_reason,
             due_at = excluded.due_at, due_at_set = excluded.due_at_set, labels = excluded.labels,
+            people = excluded.people, leadership_score = excluded.leadership_score,
+            attention = excluded.attention, plan = excluded.plan,
+            next_steps = excluded.next_steps,
             base_fingerprint = excluded.base_fingerprint,
             base_source_updated_at = excluded.base_source_updated_at,
             applied_at = excluded.applied_at, provenance = excluded.provenance
         `
       ).run(
         itemId,
-        values.summary ?? optionalString(current ?? {}, "summary") ?? null,
-        values.priority ?? optionalString(current ?? {}, "priority") ?? null,
-        values.priorityReason ?? optionalString(current ?? {}, "priority_reason") ?? null,
+        values.summary ?? null,
+        values.priority ?? null,
+        values.priorityReason ?? null,
         dueAt ?? null,
         dueAtSet,
-        values.labels !== void 0 ? JSON.stringify(values.labels) : optionalString(current ?? {}, "labels") ?? null,
+        values.labels !== void 0 ? JSON.stringify(values.labels) : null,
+        values.people !== void 0 ? JSON.stringify(values.people) : null,
+        dynaLeadershipScore(values.people ?? []),
+        values.attention ?? null,
+        values.plan !== void 0 ? JSON.stringify(values.plan) : null,
+        values.nextSteps !== void 0 ? JSON.stringify(values.nextSteps) : null,
         requiredString(base, "fingerprint"),
         requiredString(base, "source_updated_at"),
         instant,
@@ -55242,8 +55788,39 @@ var DynaStore = class {
     this.#database.prepare("UPDATE view_sessions SET expires_at = ? WHERE token_hash = ?").run(new Date(this.#nowMs() + VIEW_TTL_MS).toISOString(), hash2);
     return dashboardId;
   }
-  snapshot(dashboardId) {
+  snapshot(dashboardId, searchQuery = "") {
     return this.#readTransaction(() => {
+      const query = searchQuery.trim().slice(0, 500);
+      const terms = [...new Set(query.toLocaleLowerCase().split(/\s+/u).filter(Boolean))].slice(
+        0,
+        12
+      );
+      const searchClause = terms.map(
+        () => `AND (
+            instr(lower(
+              COALESCE(title, '') || ' ' || COALESCE(summary, '') || ' ' ||
+              COALESCE(source_ref, '') || ' ' || COALESCE(source_scope, '') || ' ' ||
+              COALESCE(labels, '') || ' ' || COALESCE(people, '') || ' ' ||
+              COALESCE(attention, '') || ' ' || COALESCE(plan, '') || ' ' ||
+              COALESCE(next_steps, '') || ' ' || COALESCE(enrichment_summary, '') || ' ' ||
+              COALESCE(enrichment_priority_reason, '') || ' ' ||
+              COALESCE(enrichment_labels, '') || ' ' || COALESCE(enrichment_people, '') || ' ' ||
+              COALESCE(enrichment_attention, '') || ' ' || COALESCE(enrichment_plan, '') || ' ' ||
+              COALESCE(enrichment_next_steps, '')
+            ), ?) > 0
+            OR EXISTS (
+              SELECT 1 FROM annotations a
+              WHERE a.item_id = ranked.id AND instr(lower(a.body), ?) > 0
+            )
+            OR EXISTS (
+              SELECT 1 FROM task_bindings t
+              WHERE t.item_id = ranked.id AND instr(lower(
+                t.title || ' ' || t.state || ' ' || COALESCE(t.outcome, '')
+              ), ?) > 0
+            )
+          )`
+      ).join("\n");
+      const searchValues = terms.flatMap((term) => [term, term, term]);
       const dashboard = this.getDashboard(dashboardId);
       const revisionRow = this.#one(
         this.#database.prepare("SELECT revision FROM dashboards WHERE id = ?"),
@@ -55252,20 +55829,40 @@ var DynaStore = class {
       const eligibleCte = `
         WITH eligible AS (
           SELECT DISTINCT i.*,
-            e.summary AS enrichment_summary,
-            e.priority AS enrichment_priority,
-            e.priority_reason AS enrichment_priority_reason,
-            e.due_at AS enrichment_due_at,
-            e.due_at_set AS enrichment_due_at_set,
-            e.labels AS enrichment_labels,
+            CASE WHEN e.base_fingerprint = i.fingerprint THEN e.summary END AS enrichment_summary,
+            CASE WHEN e.base_fingerprint = i.fingerprint THEN e.priority END AS enrichment_priority,
+            CASE WHEN e.base_fingerprint = i.fingerprint THEN e.priority_reason END AS enrichment_priority_reason,
+            CASE WHEN e.base_fingerprint = i.fingerprint THEN e.due_at END AS enrichment_due_at,
+            CASE WHEN e.base_fingerprint = i.fingerprint THEN e.due_at_set END AS enrichment_due_at_set,
+            CASE WHEN e.base_fingerprint = i.fingerprint THEN e.labels END AS enrichment_labels,
+            CASE WHEN e.base_fingerprint = i.fingerprint THEN e.people END AS enrichment_people,
+            CASE WHEN e.base_fingerprint = i.fingerprint THEN e.attention END AS enrichment_attention,
+            CASE WHEN e.base_fingerprint = i.fingerprint THEN e.plan END AS enrichment_plan,
+            CASE WHEN e.base_fingerprint = i.fingerprint THEN e.next_steps END AS enrichment_next_steps,
             e.base_fingerprint AS enrichment_base_fingerprint,
             e.base_source_updated_at AS enrichment_base_source_updated_at,
             e.applied_at AS enrichment_applied_at,
-            e.provenance AS enrichment_provenance
+            e.provenance AS enrichment_provenance,
+            p.priority_override AS preference_priority,
+            p.sequence AS preference_sequence,
+            CASE
+              WHEN p.priority_override IS NOT NULL THEN p.priority_override
+              WHEN e.base_fingerprint = i.fingerprint AND e.leadership_score >= 75
+                AND COALESCE(e.priority, i.priority) = 'normal' THEN 'high'
+              WHEN e.base_fingerprint = i.fingerprint AND e.leadership_score >= 55
+                AND COALESCE(e.priority, i.priority) = 'low' THEN 'normal'
+              ELSE COALESCE(
+                CASE WHEN e.base_fingerprint = i.fingerprint THEN e.priority END,
+                i.priority
+              )
+            END AS effective_priority,
+            CASE WHEN e.base_fingerprint = i.fingerprint
+              THEN e.leadership_score ELSE i.leadership_score END AS effective_leadership_score
           FROM items i
           JOIN publisher_items pi ON pi.item_id = i.id AND pi.active = 1
           JOIN dashboard_publishers dp ON dp.publisher_id = pi.publisher_id
           LEFT JOIN item_enrichments e ON e.item_id = i.id
+          LEFT JOIN item_preferences p ON p.item_id = i.id AND p.dashboard_id = dp.dashboard_id
           WHERE dp.dashboard_id = ?
         ), ranked AS (
           SELECT *, ROW_NUMBER() OVER (
@@ -55277,25 +55874,31 @@ var DynaStore = class {
       const countRow = this.#one(
         this.#database.prepare(`${eligibleCte}
           SELECT COUNT(*) AS total,
-            COALESCE(SUM(CASE WHEN COALESCE(enrichment_priority, priority) = 'critical' THEN 1 ELSE 0 END), 0) AS critical,
-            COALESCE(SUM(CASE WHEN COALESCE(enrichment_priority, priority) = 'high' THEN 1 ELSE 0 END), 0) AS high,
+            COALESCE(SUM(CASE WHEN effective_priority = 'critical' THEN 1 ELSE 0 END), 0) AS critical,
+            COALESCE(SUM(CASE WHEN effective_priority = 'high' THEN 1 ELSE 0 END), 0) AS high,
+            COALESCE(SUM(CASE WHEN effective_leadership_score > 0 THEN 1 ELSE 0 END), 0) AS leadership,
             MAX(source_updated_at) AS newest
-          FROM ranked WHERE identity_rank = 1`),
-        dashboardId
+          FROM ranked WHERE identity_rank = 1 ${searchClause}`),
+        dashboardId,
+        ...searchValues
       );
       if (!countRow) throw new Error("Dyna could not count dashboard items.");
       const rows = this.#database.prepare(
         `${eligibleCte}
-          SELECT * FROM ranked WHERE identity_rank = 1
+          SELECT * FROM ranked WHERE identity_rank = 1 ${searchClause}
           ORDER BY
-            CASE COALESCE(enrichment_priority, priority)
+            CASE effective_priority
               WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END,
+            COALESCE(preference_sequence, 2147483647),
             CASE WHEN enrichment_due_at_set = 1
               THEN COALESCE(enrichment_due_at, '9999') ELSE COALESCE(due_at, '9999') END,
             source_updated_ms DESC, id
           LIMIT 200`
-      ).all(dashboardId);
+      ).all(dashboardId, ...searchValues);
       const cards = this.#cardsFromSnapshotRows(rows);
+      const criticalCount = requiredNumber(countRow, "critical");
+      const highCount = requiredNumber(countRow, "high");
+      const leadershipCount = requiredNumber(countRow, "leadership");
       const newest = optionalString(countRow, "newest");
       const schedules = this.listPublishers(dashboardId);
       const activeSchedules = schedules.filter((schedule) => schedule.scheduleState === "active");
@@ -55308,14 +55911,16 @@ var DynaStore = class {
       const unscheduledAge = newest ? Math.max(0, this.#nowMs() - Date.parse(newest)) : Number.POSITIVE_INFINITY;
       const freshness = scheduleFreshness.includes("stale") ? "stale" : scheduleFreshness.includes("aging") ? "aging" : scheduleFreshness.length > 0 ? "fresh" : unscheduledAge <= 15 * 6e4 ? "fresh" : unscheduledAge <= 60 * 6e4 ? "aging" : "stale";
       return DynaDashboardSnapshotSchema.parse({
-        schema: "dyna/snapshot-v1",
+        schema: "dyna/snapshot-v2",
         dashboard,
         generatedAt: this.#now(),
+        query,
         revision: revisionRow ? requiredNumber(revisionRow, "revision") : 0,
         freshness,
         counts: {
-          critical: requiredNumber(countRow, "critical"),
-          high: requiredNumber(countRow, "high"),
+          critical: criticalCount,
+          high: highCount,
+          leadership: leadershipCount,
           total: requiredNumber(countRow, "total")
         },
         schedules,
@@ -55323,8 +55928,8 @@ var DynaStore = class {
       });
     });
   }
-  snapshotForView(viewToken) {
-    return this.snapshot(this.authorizeView(viewToken));
+  snapshotForView(viewToken, query = "") {
+    return this.snapshot(this.authorizeView(viewToken), query);
   }
   itemContext(itemId) {
     return DynaItemContextSchema.parse({
@@ -55714,26 +56319,27 @@ var DynaStore = class {
     const observedTime = normalizeTimestamp(parsed.observedAt, true);
     const existing = this.#one(
       this.#database.prepare(
-        "SELECT title, state, status_updated_ms, observed_ms FROM task_bindings WHERE item_id = ? AND task_id = ? AND host_id = ?"
+        "SELECT title, state, outcome, status_updated_ms, observed_ms FROM task_bindings WHERE item_id = ? AND task_id = ? AND host_id = ?"
       ),
       itemId,
       parsed.taskId,
       parsed.hostId
     );
-    if (existing && observedTime.epoch > requiredNumber(existing, "observed_ms") && statusTime.epoch === requiredNumber(existing, "status_updated_ms") && (parsed.state !== requiredString(existing, "state") || parsed.title !== requiredString(existing, "title"))) {
+    if (existing && observedTime.epoch > requiredNumber(existing, "observed_ms") && statusTime.epoch === requiredNumber(existing, "status_updated_ms") && (parsed.state !== requiredString(existing, "state") || parsed.title !== requiredString(existing, "title") || parsed.outcome !== optionalString(existing, "outcome"))) {
       throw new Error("Dyna rejected conflicting Codex task data at the same status timestamp.");
     }
     const changed = this.#database.prepare(
       `
         INSERT INTO task_bindings (
           item_id, task_id, host_id, project_id, title, state,
-          status_updated_at, status_updated_ms, observed_at, observed_ms
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          status_updated_at, status_updated_ms, observed_at, observed_ms, outcome
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(item_id, task_id, host_id) DO UPDATE SET
           project_id = excluded.project_id, title = excluded.title, state = excluded.state,
           status_updated_at = excluded.status_updated_at,
           status_updated_ms = excluded.status_updated_ms,
-          observed_at = excluded.observed_at, observed_ms = excluded.observed_ms
+          observed_at = excluded.observed_at, observed_ms = excluded.observed_ms,
+          outcome = excluded.outcome
         WHERE excluded.observed_ms > task_bindings.observed_ms
           AND excluded.status_updated_ms >= task_bindings.status_updated_ms
       `
@@ -55747,7 +56353,8 @@ var DynaStore = class {
       statusTime.iso,
       statusTime.epoch,
       observedTime.iso,
-      observedTime.epoch
+      observedTime.epoch,
+      parsed.outcome ?? null
     ).changes;
     if (changed === 1) this.#touchDashboardsForItem(itemId);
   }
@@ -55769,7 +56376,7 @@ var DynaStore = class {
     return row;
   }
   #baseItem(row) {
-    return DynaPublishedItemSchema.parse({
+    return DynaMaterializedItemSchema.parse({
       externalId: requiredString(row, "external_id"),
       sourceRef: DynaSourceRefSchema.parse(parseJson(requiredString(row, "source_ref"))),
       sourceScope: requiredString(row, "source_scope"),
@@ -55779,7 +56386,11 @@ var DynaStore = class {
       priorityReason: requiredString(row, "priority_reason"),
       sourceUpdatedAt: requiredString(row, "source_updated_at"),
       ...optionalString(row, "due_at") ? { dueAt: optionalString(row, "due_at") } : {},
-      labels: parseJson(requiredString(row, "labels"))
+      labels: parseJson(requiredString(row, "labels")),
+      people: parseJson(requiredString(row, "people")),
+      ...optionalString(row, "attention") ? { attention: optionalString(row, "attention") } : {},
+      plan: parseJson(requiredString(row, "plan")),
+      nextSteps: parseJson(requiredString(row, "next_steps"))
     });
   }
   #item(itemId) {
@@ -55797,13 +56408,17 @@ var DynaStore = class {
       return { ...base, id: itemId, fingerprint: requiredString(row, "fingerprint") };
     }
     const dueAtSet = requiredNumber(enrichment, "due_at_set") === 1;
-    const merged = DynaPublishedItemSchema.parse({
+    const merged = DynaMaterializedItemSchema.parse({
       ...base,
       ...optionalString(enrichment, "summary") ? { summary: optionalString(enrichment, "summary") } : {},
       ...optionalString(enrichment, "priority") ? { priority: optionalString(enrichment, "priority") } : {},
       ...optionalString(enrichment, "priority_reason") ? { priorityReason: optionalString(enrichment, "priority_reason") } : {},
       ...dueAtSet ? { dueAt: optionalString(enrichment, "due_at") } : {},
-      ...optionalString(enrichment, "labels") ? { labels: parseJson(requiredString(enrichment, "labels")) } : {}
+      ...optionalString(enrichment, "labels") ? { labels: parseJson(requiredString(enrichment, "labels")) } : {},
+      ...optionalString(enrichment, "people") ? { people: parseJson(requiredString(enrichment, "people")) } : {},
+      ...optionalString(enrichment, "attention") ? { attention: optionalString(enrichment, "attention") } : {},
+      ...optionalString(enrichment, "plan") ? { plan: parseJson(requiredString(enrichment, "plan")) } : {},
+      ...optionalString(enrichment, "next_steps") ? { nextSteps: parseJson(requiredString(enrichment, "next_steps")) } : {}
     });
     return {
       ...merged,
@@ -55825,6 +56440,10 @@ var DynaStore = class {
       due_at: row["enrichment_due_at"],
       due_at_set: row["enrichment_due_at_set"],
       labels: row["enrichment_labels"],
+      people: row["enrichment_people"],
+      attention: row["enrichment_attention"],
+      plan: row["enrichment_plan"],
+      next_steps: row["enrichment_next_steps"],
       base_fingerprint: row["enrichment_base_fingerprint"],
       base_source_updated_at: row["enrichment_base_source_updated_at"],
       applied_at: row["enrichment_applied_at"],
@@ -55897,20 +56516,41 @@ var DynaStore = class {
     return rows.map((row) => {
       const id = requiredString(row, "id");
       const item = this.#itemFromSnapshotRow(row);
+      const sourcePriority = DynaPrioritySchema.parse(requiredString(row, "priority"));
+      const leadershipScore = dynaLeadershipScore(item.people);
+      const linkedTasks = tasks.get(id) ?? [];
+      const workflowState = linkedTasks.length === 0 ? "todo" : linkedTasks.some((task) => task.state === "waiting") ? "paused" : linkedTasks.some((task) => task.state === "failed" || task.state === "unknown") ? "attention" : linkedTasks.some((task) => task.state === "queued" || task.state === "running") ? "executing" : linkedTasks.every((task) => task.state === "succeeded") ? "completed" : "attention";
+      const completedTask = workflowState === "completed" ? linkedTasks.find((task) => task.state === "succeeded") : void 0;
+      const leadershipPriority = effectiveDynaPriority(item.priority, item.people);
+      const storedPriority = optionalString(row, "preference_priority");
+      const manualPriority = storedPriority ? DynaPrioritySchema.parse(storedPriority) : void 0;
+      const sequenceValue = row["preference_sequence"];
       return {
         id,
         fingerprint: item.fingerprint,
         source: item.sourceRef.source,
+        sourceLabel: dynaSourceLabel(item.sourceRef),
         title: item.title,
         summary: item.summary,
-        priority: item.priority,
+        sourcePriority,
+        priority: manualPriority ?? leadershipPriority,
         priorityReason: item.priorityReason,
         sourceUpdatedAt: item.sourceUpdatedAt,
         ...item.dueAt ? { dueAt: item.dueAt } : {},
         labels: item.labels,
+        people: item.people,
+        leadershipScore,
+        priorityMode: manualPriority ? "manual" : leadershipPriority !== item.priority ? "leadership" : item.priority !== sourcePriority ? "enrichment" : "source",
+        ...typeof sequenceValue === "number" ? { sequence: sequenceValue } : {},
+        workflowState,
+        ...workflowState === "completed" && completedTask?.outcome ? { outcome: completedTask.outcome } : {},
+        ...optionalString(row, "follow_up_of_item_id") ? { followUpOfItemId: optionalString(row, "follow_up_of_item_id") } : {},
+        ...item.attention ? { attention: item.attention } : {},
+        plan: item.plan,
+        nextSteps: item.nextSteps,
         ...item.enrichment ? { enrichmentState: item.enrichment.state } : {},
         annotations: annotations.get(id) ?? [],
-        linkedTasks: tasks.get(id) ?? []
+        linkedTasks
       };
     });
   }
@@ -55922,7 +56562,8 @@ var DynaStore = class {
       title: requiredString(row, "title"),
       state: requiredString(row, "state"),
       statusUpdatedAt: requiredString(row, "status_updated_at"),
-      observedAt: requiredString(row, "observed_at")
+      observedAt: requiredString(row, "observed_at"),
+      ...optionalString(row, "outcome") ? { outcome: optionalString(row, "outcome") } : {}
     });
   }
   #touchDashboardsForPublisher(publisherId, instant) {
@@ -55960,20 +56601,20 @@ var DynaService = class {
   render(dashboardId) {
     const snapshot = this.store.snapshot(dashboardId);
     const payload = {
-      schema: "dyna/ui-v1",
+      schema: "dyna/ui-v2",
       viewToken: this.store.createView(dashboardId),
       snapshot,
       spec: compileDashboard(snapshot)
     };
     return DynaUiPayloadSchema.parse(payload);
   }
-  refresh(viewToken) {
-    const snapshot = this.store.snapshotForView(viewToken);
+  refresh(viewToken, query = "") {
+    const snapshot = this.store.snapshotForView(viewToken, query);
     const validated = dynaCatalog.validate(compileDashboard(snapshot));
     if (!validated.success || !validated.data)
       throw new Error("Dyna could not compile its dashboard.");
     return DynaUiPayloadSchema.parse({
-      schema: "dyna/ui-v1",
+      schema: "dyna/ui-v2",
       viewToken,
       snapshot,
       spec: validated.data
@@ -55992,11 +56633,12 @@ var DynaService = class {
 
 // packages/mcp-server/src/plugins/dyna.ts
 var DYNA_PLUGIN_ID = "dyna";
-var DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v1.html";
+var DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v2.html";
 var DashboardIdSchema = external_exports.object({ dashboardId: external_exports.uuid() }).strict();
 var ViewTokenSchema = external_exports.object({
   viewToken: external_exports.string().min(32).max(128),
-  currentRevision: external_exports.number().int().nonnegative().optional()
+  currentRevision: external_exports.number().int().nonnegative().optional(),
+  query: external_exports.string().trim().max(500).optional()
 }).strict();
 var EmptyResultSchema2 = external_exports.object({ ok: external_exports.literal(true) }).strict();
 var DashboardListSchema = external_exports.object({ dashboards: external_exports.array(DynaDashboardSchema).max(100) }).strict();
@@ -56048,8 +56690,8 @@ function appTools(service) {
         idempotentHint: true
       },
       handler(input) {
-        const { viewToken, currentRevision } = ViewTokenSchema.parse(input);
-        const payload = service.refresh(viewToken);
+        const { viewToken, currentRevision, query } = ViewTokenSchema.parse(input);
+        const payload = service.refresh(viewToken, query);
         const changed = currentRevision !== payload.snapshot.revision;
         return {
           structuredContent: { revision: payload.snapshot.revision, changed },
@@ -56086,6 +56728,77 @@ function appTools(service) {
           parsed.body
         );
         return { structuredContent: { annotationId: annotation.id }, content: [] };
+      }
+    },
+    {
+      name: "dyna_add_todo",
+      title: "Add Dyna to-do",
+      description: "Add a manual to-do to the priority queue in this capability-bound view.",
+      inputSchema: external_exports.object({
+        viewToken: external_exports.string().min(32).max(128),
+        clientRequestId: external_exports.uuid()
+      }).extend(DynaTodoInputSchema.shape).strict(),
+      outputSchema: external_exports.object({ itemId: external_exports.uuid() }).strict(),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+        idempotentHint: true
+      },
+      handler(input) {
+        const parsed = external_exports.object({
+          viewToken: external_exports.string().min(32).max(128),
+          clientRequestId: external_exports.uuid()
+        }).extend(DynaTodoInputSchema.shape).strict().parse(input);
+        const itemId = service.store.addTodo(
+          parsed.viewToken,
+          {
+            title: parsed.title,
+            ...parsed.summary ? { summary: parsed.summary } : {},
+            priority: parsed.priority,
+            ...parsed.attention ? { attention: parsed.attention } : {},
+            labels: parsed.labels,
+            ...parsed.followUpOfItemId ? { followUpOfItemId: parsed.followUpOfItemId } : {}
+          },
+          parsed.clientRequestId
+        );
+        return { structuredContent: { itemId }, content: [] };
+      }
+    },
+    {
+      name: "dyna_organize_item",
+      title: "Reprioritize Dyna item",
+      description: "Apply a user-controlled priority or sequence change with revision and fingerprint preconditions.",
+      inputSchema: external_exports.object({
+        viewToken: external_exports.string().min(32).max(128),
+        itemId: external_exports.uuid(),
+        action: external_exports.enum(["bump", "lower", "earlier", "later"]),
+        expectedRevision: external_exports.number().int().nonnegative(),
+        expectedFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/)
+      }).strict(),
+      outputSchema: external_exports.object({ changed: external_exports.boolean() }).strict(),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+        idempotentHint: false
+      },
+      handler(input) {
+        const parsed = external_exports.object({
+          viewToken: external_exports.string().min(32).max(128),
+          itemId: external_exports.uuid(),
+          action: external_exports.enum(["bump", "lower", "earlier", "later"]),
+          expectedRevision: external_exports.number().int().nonnegative(),
+          expectedFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/)
+        }).strict().parse(input);
+        const result = service.store.organizeItem(
+          parsed.viewToken,
+          parsed.itemId,
+          parsed.action,
+          parsed.expectedRevision,
+          parsed.expectedFingerprint
+        );
+        return { structuredContent: result, content: [] };
       }
     },
     {
@@ -56348,7 +57061,7 @@ function createDynaPlugin(options = {}) {
       {
         id: "publish-run",
         title: "Publish scheduled Dyna run",
-        description: "Validate and upsert bounded Slack, Outlook, GitLab, or Codex records from an authenticated scheduled run.",
+        description: "Validate and upsert bounded email, messaging, source-control, TWG, skill, or Codex records from an authenticated scheduled run.",
         inputSchema: external_exports.object({
           publisherId: external_exports.uuid(),
           secret: external_exports.string().min(32).max(128),
@@ -56394,36 +57107,51 @@ function createDynaPlugin(options = {}) {
       {
         id: "apply-enrichment",
         title: "Enrich Dyna item",
-        description: "Merge additional bounded information into an existing item and increment every bound dashboard revision.",
+        description: "Replace the bounded enrichment overlay for the current item fingerprint and increment every bound dashboard revision.",
         inputSchema: external_exports.object({
           itemId: external_exports.uuid(),
+          expectedFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
           summary: external_exports.string().trim().min(1).max(1e3).optional(),
           priority: DynaPrioritySchema.optional(),
           priorityReason: external_exports.string().trim().min(1).max(500).optional(),
           dueAt: external_exports.iso.datetime({ offset: true }).nullable().optional(),
           labels: external_exports.array(external_exports.string().trim().min(1).max(64)).max(20).optional(),
+          people: external_exports.array(DynaPersonSignalSchema).max(8).optional(),
+          attention: external_exports.string().trim().min(1).max(500).optional(),
+          plan: external_exports.array(external_exports.string().trim().min(1).max(200)).max(4).optional(),
+          nextSteps: external_exports.array(DynaNextStepSchema).max(4).optional(),
           provenance: external_exports.string().trim().min(1).max(128).default("codex-main-chat")
         }).strict(),
         outputSchema: EmptyResultSchema2,
-        risk: { readOnly: false, destructive: false, openWorld: false, idempotent: true },
+        risk: { readOnly: false, destructive: false, openWorld: false, idempotent: false },
         executor: {
           kind: "module",
           execute(input) {
             const parsed = external_exports.object({
               itemId: external_exports.uuid(),
+              expectedFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
               summary: external_exports.string().trim().min(1).max(1e3).optional(),
               priority: DynaPrioritySchema.optional(),
               priorityReason: external_exports.string().trim().min(1).max(500).optional(),
               dueAt: external_exports.iso.datetime({ offset: true }).nullable().optional(),
               labels: external_exports.array(external_exports.string().trim().min(1).max(64)).max(20).optional(),
+              people: external_exports.array(DynaPersonSignalSchema).max(8).optional(),
+              attention: external_exports.string().trim().min(1).max(500).optional(),
+              plan: external_exports.array(external_exports.string().trim().min(1).max(200)).max(4).optional(),
+              nextSteps: external_exports.array(DynaNextStepSchema).max(4).optional(),
               provenance: external_exports.string().trim().min(1).max(128).default("codex-main-chat")
             }).strict().parse(input);
             service.store.applyEnrichment(parsed.itemId, {
+              expectedFingerprint: parsed.expectedFingerprint,
               ...parsed.summary !== void 0 ? { summary: parsed.summary } : {},
               ...parsed.priority !== void 0 ? { priority: parsed.priority } : {},
               ...parsed.priorityReason !== void 0 ? { priorityReason: parsed.priorityReason } : {},
               ...parsed.dueAt !== void 0 ? { dueAt: parsed.dueAt } : {},
               ...parsed.labels !== void 0 ? { labels: parsed.labels } : {},
+              ...parsed.people !== void 0 ? { people: parsed.people } : {},
+              ...parsed.attention !== void 0 ? { attention: parsed.attention } : {},
+              ...parsed.plan !== void 0 ? { plan: parsed.plan } : {},
+              ...parsed.nextSteps !== void 0 ? { nextSteps: parsed.nextSteps } : {},
               provenance: parsed.provenance
             });
             return { result: { ok: true } };
@@ -56690,7 +57418,7 @@ var server = createFlowZoneServer({
   uiResources: [
     {
       name: "FlowZone Dyna UI",
-      resourceUri: "ui://flowzone/dyna/v1.html",
+      resourceUri: "ui://flowzone/dyna/v2.html",
       assetLoader: dynaAssetLoader,
       description: "Dyna is a responsive executive dashboard for prioritized scheduled signals and Codex actions."
     }

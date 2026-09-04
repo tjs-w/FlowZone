@@ -12,4 +12,16 @@ describe("DynaStore lifecycle", () => {
       freshness: "stale",
     });
   });
+
+  test("isolates dashboard preferences and publisher identities with retry-safe mutations", () => {
+    const fixture = resolve(import.meta.dir, "integrity-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      isolated: true,
+      idempotent: true,
+      aggregate: true,
+      search: true,
+    });
+  });
 });

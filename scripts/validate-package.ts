@@ -1,4 +1,4 @@
-import { access, readFile } from "node:fs/promises";
+import { access, constants, readFile, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -89,12 +89,24 @@ async function validatePlugin(): Promise<void> {
     throw new Error("FlowZone must expose exactly one MCP server endpoint");
   }
   const server = asRecord(servers["flowzone"], "flowzone MCP server");
-  if (server["command"] !== "node") throw new Error("The shipped MCP server must use Node");
+  if (server["command"] !== "./bin/flowzone-mcp") {
+    throw new Error("The shipped MCP server must use its plugin-root-relative launcher");
+  }
   const args = server["args"];
-  if (!Array.isArray(args) || args[0] !== "./server/dist/server.cjs") {
-    throw new Error("The MCP server must launch the checked-in Node bundle");
+  if (args !== undefined) {
+    throw new Error("The MCP launcher must resolve its checked-in Node bundle internally");
+  }
+  const launcherPath = resolve(root, "bin/flowzone-mcp");
+  const launcher = await readFile(launcherPath, "utf8");
+  if (!launcher.includes("server/dist/server.cjs")) {
+    throw new Error("The MCP launcher must resolve the checked-in Node bundle");
+  }
+  await access(launcherPath, constants.X_OK);
+  if (!(await stat(launcherPath)).isFile()) {
+    throw new Error("The MCP launcher must be a regular executable file");
   }
   await Promise.all([
+    access(launcherPath),
     access(resolve(root, "server/dist/server.cjs")),
     access(resolve(root, "web/flowzone.html")),
     access(resolve(root, "web/dist/flowzone.js")),

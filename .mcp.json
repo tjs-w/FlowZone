@@ -1,8 +1,7 @@
 {
   "mcpServers": {
     "flowzone": {
-      "command": "node",
-      "args": ["./server/dist/server.cjs"],
+      "command": "./bin/flowzone-mcp",
       "cwd": ".",
       "startup_timeout_sec": 10,
       "tool_timeout_sec": 30

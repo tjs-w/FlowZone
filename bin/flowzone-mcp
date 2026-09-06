@@ -1,0 +1,37 @@
+#!/bin/sh
+
+set -eu
+
+FLOWZONE_LAUNCHER_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
+FLOWZONE_SERVER_PATH="$FLOWZONE_LAUNCHER_DIR/../server/dist/server.cjs"
+
+if [ ! -f "$FLOWZONE_SERVER_PATH" ]; then
+  echo "FlowZone MCP startup failed: missing bundled server at $FLOWZONE_SERVER_PATH" >&2
+  exit 127
+fi
+
+if [ -n "${FLOWZONE_NODE_PATH:-}" ]; then
+  if [ ! -x "$FLOWZONE_NODE_PATH" ]; then
+    echo "FlowZone MCP startup failed: FLOWZONE_NODE_PATH is not executable" >&2
+    exit 127
+  fi
+  exec "$FLOWZONE_NODE_PATH" "$FLOWZONE_SERVER_PATH"
+fi
+
+for FLOWZONE_NODE_CANDIDATE in \
+  "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node" \
+  "/opt/homebrew/bin/node" \
+  "/usr/local/bin/node" \
+  "/usr/bin/node"
+do
+  if [ -x "$FLOWZONE_NODE_CANDIDATE" ]; then
+    exec "$FLOWZONE_NODE_CANDIDATE" "$FLOWZONE_SERVER_PATH"
+  fi
+done
+
+if command -v node >/dev/null 2>&1; then
+  exec node "$FLOWZONE_SERVER_PATH"
+fi
+
+echo "FlowZone MCP startup failed: Node.js is unavailable; set FLOWZONE_NODE_PATH to a trusted Node.js executable" >&2
+exit 127

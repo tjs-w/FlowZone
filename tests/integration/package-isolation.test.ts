@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -10,9 +10,12 @@ const sourceRoot = resolve(import.meta.dir, "../..");
 const temporaryDirectories: string[] = [];
 
 async function installShippingArtifacts(pluginRoot: string): Promise<void> {
+  await mkdir(join(pluginRoot, "bin"), { recursive: true });
   await mkdir(join(pluginRoot, "server", "dist"), { recursive: true });
   await mkdir(join(pluginRoot, "web", "dist"), { recursive: true });
   await Promise.all([
+    copyFile(join(sourceRoot, ".mcp.json"), join(pluginRoot, ".mcp.json")),
+    copyFile(join(sourceRoot, "bin", "flowzone-mcp"), join(pluginRoot, "bin", "flowzone-mcp")),
     copyFile(
       join(sourceRoot, "server", "dist", "server.cjs"),
       join(pluginRoot, "server", "dist", "server.cjs"),
@@ -32,6 +35,35 @@ async function installShippingArtifacts(pluginRoot: string): Promise<void> {
       join(pluginRoot, "web", "dist", "dyna.css"),
     ),
   ]);
+  await chmod(join(pluginRoot, "bin", "flowzone-mcp"), 0o755);
+}
+
+async function createShippingTransport(
+  pluginRoot: string,
+  dataDirectory: string,
+): Promise<StdioClientTransport> {
+  const manifest = JSON.parse(await readFile(join(pluginRoot, ".mcp.json"), "utf8")) as {
+    mcpServers: {
+      flowzone: { command: string; args?: string[]; cwd?: string };
+    };
+  };
+  const definition = manifest.mcpServers.flowzone;
+  const command = definition.command.startsWith("./")
+    ? resolve(pluginRoot, definition.command)
+    : definition.command;
+  const cwd = definition.cwd ? resolve(pluginRoot, definition.cwd) : pluginRoot;
+  return new StdioClientTransport({
+    command,
+    args: definition.args ?? [],
+    cwd,
+    env: {
+      FLOWZONE_DATA_DIR: dataDirectory,
+      // Match the desktop host's restricted PATH. The launcher must not depend on Homebrew
+      // being inherited by the Codex process.
+      PATH: "/usr/bin:/bin",
+    },
+    stderr: "pipe",
+  });
 }
 
 afterEach(async () => {
@@ -52,13 +84,7 @@ describe("isolated shipping package", () => {
     await writeFile(markdownPath, "# Isolated package\n");
 
     const client = new Client({ name: "isolated-package-test", version: "0.1.0" });
-    const transport = new StdioClientTransport({
-      command: "node",
-      args: [join(pluginRoot, "server", "dist", "server.cjs")],
-      cwd: pluginRoot,
-      env: { FLOWZONE_DATA_DIR: temporaryRoot, PATH: process.env["PATH"] ?? "" },
-      stderr: "pipe",
-    });
+    const transport = await createShippingTransport(pluginRoot, temporaryRoot);
     await client.connect(transport);
     try {
       expect(client.getServerVersion()?.name).toBe("flowzone");
@@ -97,13 +123,7 @@ describe("isolated shipping package", () => {
     await installShippingArtifacts(pluginRoot);
 
     const client = new Client({ name: "upgrade-package-test", version: "0.1.0" });
-    const transport = new StdioClientTransport({
-      command: "node",
-      args: [join(pluginRoot, "server", "dist", "server.cjs")],
-      cwd: pluginRoot,
-      env: { FLOWZONE_DATA_DIR: temporaryRoot, PATH: process.env["PATH"] ?? "" },
-      stderr: "pipe",
-    });
+    const transport = await createShippingTransport(pluginRoot, temporaryRoot);
     await client.connect(transport);
     try {
       const resource = await client.readResource({ uri: "ui://flowzone/v5.html" });

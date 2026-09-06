@@ -130,4 +130,33 @@ describe("compileDashboard", () => {
       "card-6d48a2b2-9e1c-41d4-9db1-a7bc34ff39d4",
     ]);
   });
+
+  test("offers only actions that can succeed for a Dyna-created to-do", () => {
+    const current = snapshot();
+    const base = current.cards[0];
+    if (!base) throw new Error("Expected the dashboard fixture to contain a card.");
+    const manualId = "91c6e620-0128-4f45-aad1-2b77d59535da";
+    const manual = {
+      ...base,
+      id: manualId,
+      fingerprint: "c".repeat(64),
+      source: "manual" as const,
+      sourceRef: { source: "manual" as const, todoId: "a88e554f-1f6c-4cf1-826d-f37e37c0bc9a" },
+      sourceLabel: "Todo",
+      title: "Prepare staff meeting decisions",
+    };
+    const spec = compileDashboard({ ...current, cards: [manual] });
+    const card = spec.elements[`card-${manualId}`];
+
+    expect(card).toMatchObject({
+      type: "PriorityCard",
+      props: {
+        actions: [
+          { name: "annotate", label: "Add note" },
+          { name: "create_codex_task", label: "Create Codex task" },
+        ],
+      },
+    });
+    expect(JSON.stringify(card)).not.toContain('"open_source"');
+  });
 });

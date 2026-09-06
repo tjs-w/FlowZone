@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  DynaPublishSourceSlicesSchema,
   DynaUiPayloadSchema,
   DynaPublishedItemSchema,
   DynaTaskStatusSchema,
@@ -82,6 +83,20 @@ describe("Dyna executive signal contracts", () => {
         ...item,
         people: [executive],
       }).success,
+    ).toBe(false);
+  });
+
+  test("accepts unique scheduled source slices and rejects manual or duplicate slices", () => {
+    const slices = [
+      { source: "gitlab", sourceScope: "gitlab:corp/team/project", status: "succeeded" },
+      { source: "outlook", sourceScope: "outlook:executive@example.com", status: "failed" },
+    ] as const;
+    expect(DynaPublishSourceSlicesSchema.safeParse(slices).success).toBe(true);
+    expect(DynaPublishSourceSlicesSchema.safeParse([...slices, slices[0]]).success).toBe(false);
+    expect(
+      DynaPublishSourceSlicesSchema.safeParse([
+        { source: "manual", sourceScope: "manual:dashboard", status: "succeeded" },
+      ]).success,
     ).toBe(false);
   });
 

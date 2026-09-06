@@ -21,9 +21,11 @@ export function compareDynaCards(left: DynaCard, right: DynaCard): number {
 
 function cardActions(card: DynaCard) {
   const linkedTask = card.linkedTasks[0];
+  const sourceActions =
+    card.source === "manual" ? [] : [{ name: "open_source" as const, label: "Open source" }];
   return linkedTask
     ? [
-        { name: "open_source" as const, label: "Open source" },
+        ...sourceActions,
         {
           name: "open_codex_task" as const,
           label: "Open Codex",
@@ -33,9 +35,9 @@ function cardActions(card: DynaCard) {
         { name: "annotate" as const, label: "Add note" },
       ]
     : [
-        { name: "open_source" as const, label: "Open source" },
+        ...sourceActions,
         { name: "annotate" as const, label: "Add note" },
-        { name: "create_codex_task" as const, label: "Review in Codex" },
+        { name: "create_codex_task" as const, label: "Create Codex task" },
       ];
 }
 

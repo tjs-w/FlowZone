@@ -17,6 +17,19 @@ export const DynaSourceSchema = z.enum([
 ]);
 export type DynaSource = z.infer<typeof DynaSourceSchema>;
 
+export const DynaScheduledSourceSchema = z.enum([
+  "slack",
+  "outlook",
+  "gitlab",
+  "codex",
+  "email",
+  "messaging",
+  "scm",
+  "twg",
+  "skill",
+]);
+export type DynaScheduledSource = z.infer<typeof DynaScheduledSourceSchema>;
+
 export const DynaPrioritySchema = z.enum(["critical", "high", "normal", "low"]);
 export type DynaPriority = z.infer<typeof DynaPrioritySchema>;
 
@@ -259,6 +272,34 @@ export const DynaPublishedItemSchema = z
   })
   .strict();
 export type DynaPublishedItem = z.infer<typeof DynaPublishedItemSchema>;
+
+export const DynaPublishSourceSliceSchema = z
+  .object({
+    source: DynaScheduledSourceSchema,
+    sourceScope: z.string().trim().min(1).max(128),
+    status: z.enum(["succeeded", "failed"]),
+  })
+  .strict();
+export type DynaPublishSourceSlice = z.infer<typeof DynaPublishSourceSliceSchema>;
+
+export const DynaPublishSourceSlicesSchema = z
+  .array(DynaPublishSourceSliceSchema)
+  .min(1)
+  .max(50)
+  .superRefine((slices, context) => {
+    const seen = new Set<string>();
+    for (const [index, slice] of slices.entries()) {
+      const key = JSON.stringify([slice.source, slice.sourceScope]);
+      if (seen.has(key)) {
+        context.addIssue({
+          code: "custom",
+          message: "A Dyna publish run cannot declare the same source slice twice.",
+          path: [index],
+        });
+      }
+      seen.add(key);
+    }
+  });
 
 export const DynaMaterializedItemSchema = DynaPublishedItemSchema.extend({
   people: z.array(DynaPersonSignalSchema).max(8).default([]),

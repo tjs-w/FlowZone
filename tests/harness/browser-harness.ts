@@ -395,8 +395,8 @@ async function createDynaFixture(
     const cards = Array.isArray(snapshot["cards"]) ? snapshot["cards"] : [];
     const taskStates = [
       { title: "Additional priority 1", state: "running" },
-      { title: "Additional priority 3", state: "waiting" },
-      { title: "Additional priority 2", state: "succeeded" },
+      { title: "Additional priority 2", state: "waiting" },
+      { title: "Additional priority 3", state: "succeeded" },
     ] as const;
     for (const [offset, target] of taskStates.entries()) {
       const matchingCard = cards.map(resultRecord).find((card) => card["title"] === target.title);
@@ -691,7 +691,12 @@ const dynaHostScript = (dynaResult: unknown) => `<script>
         result = {
           protocolVersion: "2026-01-26",
           hostInfo: { name: "flowzone-dyna-harness", version: "0.1.0" },
-          hostCapabilities: { serverTools: {}, message: {} },
+          hostCapabilities: {
+            ...(query.get("no-server-tools") === "1" ? {} : { serverTools: {} }),
+            ...(query.get("no-message") === "1"
+              ? {}
+              : { message: query.get("no-text-message") === "1" ? { image: {} } : { text: {} } })
+          },
           hostContext: {
             theme: query.get("theme") === "dark" ? "dark" : "light",
             displayMode: "inline",

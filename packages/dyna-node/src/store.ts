@@ -22,6 +22,7 @@ import {
   DynaItemContextSchema,
   DynaMaterializedItemSchema,
   DynaPrioritySchema,
+  DynaPublishSourceSlicesSchema,
   DynaPublishedItemSchema,
   DynaPublisherSchema,
   DynaSourceRefSchema,
@@ -35,6 +36,7 @@ import {
   type DynaDashboardSnapshot,
   type DynaItemContext,
   type DynaPublishedItem,
+  type DynaPublishSourceSlice,
   type DynaPublisher,
   type DynaTaskStatus,
   type DynaTodoInput,
@@ -158,6 +160,7 @@ export interface DynaPublishOptions {
   readonly mode: "replace" | "upsert";
   readonly status: "succeeded" | "partial" | "failed";
   readonly failureMessage?: string;
+  readonly sourceSlices?: readonly DynaPublishSourceSlice[];
 }
 
 function token(): string {
@@ -309,6 +312,10 @@ function normalizedPublishedItem(item: DynaPublishedItem): DynaPublishedItem {
     sourceUpdatedAt: normalizeTimestamp(parsed.sourceUpdatedAt, true).iso,
     ...(parsed.dueAt ? { dueAt: normalizeTimestamp(parsed.dueAt).iso } : {}),
   });
+}
+
+function publishSourceSliceKey(source: string, sourceScope: string): string {
+  return JSON.stringify([source, sourceScope]);
 }
 
 export function defaultDynaDatabasePath(environment: NodeJS.ProcessEnv = process.env): string {
@@ -1282,21 +1289,54 @@ export class DynaStore {
       options.failureMessage === undefined
         ? undefined
         : sanitizePublicFailureMessage(options.failureMessage);
-    if (options.status === "failed" && (items.length > 0 || !failureMessage)) {
+    const parsedItems = items.map(normalizedPublishedItem);
+    const sourceSlices = options.sourceSlices
+      ? DynaPublishSourceSlicesSchema.parse(options.sourceSlices)
+      : undefined;
+    if (options.status === "failed" && (parsedItems.length > 0 || !failureMessage)) {
       throw new Error("A failed Dyna run requires an error and cannot publish a partial snapshot.");
     }
     if (options.status === "succeeded" && failureMessage) {
       throw new Error("A successful Dyna run cannot include an error.");
     }
+    if (options.status === "partial" && !failureMessage) {
+      throw new Error("A partial Dyna run requires a bounded error.");
+    }
     if (
       options.status === "partial" &&
-      (options.mode !== "upsert" || items.length === 0 || !failureMessage)
+      !sourceSlices &&
+      (options.mode !== "upsert" || parsedItems.length === 0)
     ) {
       throw new Error(
         "A partial Dyna run requires upsert mode, at least one item, and a bounded error.",
       );
     }
-    const parsedItems = items.map(normalizedPublishedItem);
+    if (sourceSlices) {
+      if (options.mode !== "replace") {
+        throw new Error("A source-sliced Dyna run requires replace mode.");
+      }
+      const succeededSlices = new Set(
+        sourceSlices
+          .filter((slice) => slice.status === "succeeded")
+          .map((slice) => publishSourceSliceKey(slice.source, slice.sourceScope)),
+      );
+      const failedSliceCount = sourceSlices.length - succeededSlices.size;
+      const derivedStatus =
+        succeededSlices.size === 0 ? "failed" : failedSliceCount === 0 ? "succeeded" : "partial";
+      if (options.status !== derivedStatus) {
+        throw new Error(
+          `A source-sliced Dyna run with these slice results must have status ${derivedStatus}.`,
+        );
+      }
+      for (const item of parsedItems) {
+        const key = publishSourceSliceKey(item.sourceRef.source, item.sourceScope);
+        if (!succeededSlices.has(key)) {
+          throw new Error(
+            "A source-sliced Dyna run can publish items only for a declared successful slice.",
+          );
+        }
+      }
+    }
     const sourceCompletion = normalizeTimestamp(options.sourceCompletedAt, true);
     const requestHash = sha256(
       JSON.stringify({
@@ -1305,6 +1345,7 @@ export class DynaStore {
         mode: options.mode,
         status: options.status,
         failureMessage: failureMessage ?? null,
+        sourceSlices: sourceSlices ?? null,
         items: parsedItems,
       }),
     );
@@ -1386,9 +1427,25 @@ export class DynaStore {
       );
       if (options.status !== "failed") {
         if (options.mode === "replace") {
-          this.#database
-            .prepare("UPDATE publisher_items SET active = 0 WHERE publisher_id = ?")
-            .run(publisherId);
+          if (sourceSlices) {
+            const deactivateSlice = this.#database.prepare(`
+              UPDATE publisher_items SET active = 0
+              WHERE publisher_id = ? AND EXISTS (
+                SELECT 1 FROM items
+                WHERE items.id = publisher_items.item_id
+                  AND items.source = ? AND items.source_scope = ?
+              )
+            `);
+            for (const slice of sourceSlices) {
+              if (slice.status === "succeeded") {
+                deactivateSlice.run(publisherId, slice.source, slice.sourceScope);
+              }
+            }
+          } else {
+            this.#database
+              .prepare("UPDATE publisher_items SET active = 0 WHERE publisher_id = ?")
+              .run(publisherId);
+          }
         }
         const insertItem = this.#database.prepare(`
           INSERT INTO items (
@@ -1425,6 +1482,36 @@ export class DynaStore {
             ),
             identity,
           );
+          if (
+            sourceSlices &&
+            existing &&
+            (requiredString(existing, "source") !== item.sourceRef.source ||
+              requiredString(existing, "source_scope") !== item.sourceScope)
+          ) {
+            throw new Error(
+              "A source-sliced Dyna run cannot move an existing source reference between slices.",
+            );
+          }
+          if (sourceSlices) {
+            const existingMembership = this.#one(
+              this.#database.prepare(`
+                SELECT i.source, i.source_scope FROM publisher_items pi
+                JOIN items i ON i.id = pi.item_id
+                WHERE pi.publisher_id = ? AND pi.external_id = ?
+              `),
+              publisherId,
+              item.externalId,
+            );
+            if (
+              existingMembership &&
+              (requiredString(existingMembership, "source") !== item.sourceRef.source ||
+                requiredString(existingMembership, "source_scope") !== item.sourceScope)
+            ) {
+              throw new Error(
+                "A source-sliced Dyna run cannot move an external ID between source slices.",
+              );
+            }
+          }
           if (!existing) {
             const id = randomUUID();
             insertItem.run(
@@ -2105,6 +2192,9 @@ export class DynaStore {
       const item = this.#itemBaseRow(values.itemId);
       if (requiredString(item, "fingerprint") !== values.expectedFingerprint) {
         throw new Error("The Dyna item changed; refresh before taking action.");
+      }
+      if (kind === "open_source" && requiredString(item, "source") === "manual") {
+        throw new Error("This Dyna to-do has no originating source to open.");
       }
       if (kind === "open_codex_task" || kind === "refresh_codex_status") {
         if (!values.taskId || !values.taskHostId) {

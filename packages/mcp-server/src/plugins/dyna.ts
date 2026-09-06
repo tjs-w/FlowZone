@@ -8,6 +8,7 @@ import {
   DynaNextStepSchema,
   DynaPersonSignalSchema,
   DynaPrioritySchema,
+  DynaPublishSourceSlicesSchema,
   DynaPublishedItemSchema,
   DynaPublisherSchema,
   DynaSourceRefSchema,
@@ -720,7 +721,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
         id: "publish-run",
         title: "Publish scheduled Dyna run",
         description:
-          "Validate and upsert bounded email, messaging, source-control, TWG, skill, or Codex records from an authenticated scheduled run.",
+          "Validate and publish bounded email, messaging, source-control, TWG, skill, or Codex records from an authenticated scheduled run.",
         inputSchema: z
           .object({
             publisherId: z.uuid(),
@@ -730,6 +731,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
             mode: z.enum(["replace", "upsert"]).default("replace"),
             status: z.enum(["succeeded", "partial", "failed"]).default("succeeded"),
             failureMessage: z.string().trim().min(1).max(500).optional(),
+            sourceSlices: DynaPublishSourceSlicesSchema.optional(),
             items: z.array(DynaPublishedItemSchema).max(200),
           })
           .strict(),
@@ -754,6 +756,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
                 mode: z.enum(["replace", "upsert"]).default("replace"),
                 status: z.enum(["succeeded", "partial", "failed"]).default("succeeded"),
                 failureMessage: z.string().trim().min(1).max(500).optional(),
+                sourceSlices: DynaPublishSourceSlicesSchema.optional(),
                 items: z.array(DynaPublishedItemSchema).max(200),
               })
               .strict()
@@ -765,6 +768,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
                 mode: parsed.mode,
                 status: parsed.status,
                 ...(parsed.failureMessage ? { failureMessage: parsed.failureMessage } : {}),
+                ...(parsed.sourceSlices ? { sourceSlices: parsed.sourceSlices } : {}),
               }),
             };
           },

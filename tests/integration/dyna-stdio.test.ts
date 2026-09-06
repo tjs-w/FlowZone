@@ -870,9 +870,13 @@ describe("Dyna checked-in Node bundle", () => {
             secret: secondSecret,
             runId: "run-partial",
             sourceCompletedAt: new Date(Date.parse(sourceUpdatedAt) + 1_500).toISOString(),
-            mode: "upsert",
+            mode: "replace",
             status: "partial",
             failureMessage: "Outlook was unavailable; GitLab results are current.",
+            sourceSlices: [
+              { source: "gitlab", sourceScope: "group/project", status: "succeeded" },
+              { source: "outlook", sourceScope: "executive@example.com", status: "failed" },
+            ],
             items: [
               {
                 externalId: "same-mr-from-another-job",

@@ -14,7 +14,12 @@ import {
 import { Input } from "@openai/apps-sdk-ui/components/Input";
 import { Textarea } from "@openai/apps-sdk-ui/components/Textarea";
 import { applyDocumentTheme } from "@openai/apps-sdk-ui/theme";
-import { App, type AppEventMap, type McpUiHostContext } from "@modelcontextprotocol/ext-apps";
+import {
+  App,
+  type AppEventMap,
+  type McpUiHostCapabilities,
+  type McpUiHostContext,
+} from "@modelcontextprotocol/ext-apps";
 import { DynaUiPayloadSchema, type DynaUiPayload } from "@flowzone/dyna-contracts";
 import {
   createContext,
@@ -36,6 +41,8 @@ type TodoPriority = "critical" | "high" | "normal" | "low";
 type WorkflowState = "todo" | "executing" | "paused" | "attention" | "completed";
 type PriorityFilter = TodoPriority | "all";
 type WorkflowFilter = WorkflowState | "all";
+
+const INLINE_SUMMARY_MAX_LENGTH = 240;
 
 type DynaHostContext = McpUiHostContext & {
   readonly locale?: string;
@@ -72,6 +79,9 @@ interface DynaUiController {
   ): Promise<void>;
   readonly busy: boolean;
   readonly blocked: boolean;
+  readonly codexActionsBlocked: boolean;
+  readonly readOnly: boolean;
+  readonly messageUnavailable: boolean;
   readonly displayMode: "inline" | "fullscreen" | "pip";
   readonly inspectorPresentation: "route" | "split";
   readonly modalOpen: boolean;
@@ -329,11 +339,13 @@ const fixedComponents: FixedComponents = {
       Number(controller.sourceFilter !== "all") +
       Number(controller.workflowFilter !== "all") +
       Number(controller.leadershipOnly);
-    const health = controller.blocked
-      ? { color: "danger" as const, label: "Offline" }
-      : props.freshness === "fresh"
-        ? { color: "success" as const, label: "Live" }
-        : { color: "warning" as const, label: "Delayed" };
+    const health = controller.readOnly
+      ? { color: "warning" as const, label: "Read only" }
+      : controller.blocked
+        ? { color: "danger" as const, label: "Offline" }
+        : props.freshness === "fresh"
+          ? { color: "success" as const, label: "Live" }
+          : { color: "warning" as const, label: "Delayed" };
     return (
       <main
         className="dyna"
@@ -730,6 +742,7 @@ const fixedComponents: FixedComponents = {
     const inspectorTitleId = `dyna-inspector-title-${props.itemId}`;
     const lead = props.people[0];
     const detailLabel = `Open details for ${props.title}`;
+    const summaryNeedsDisclosure = props.summary.length > INLINE_SUMMARY_MAX_LENGTH;
     const priorityColor =
       props.priority === "critical"
         ? "danger"
@@ -852,7 +865,9 @@ const fixedComponents: FixedComponents = {
                 </span>
                 <p>{props.attention ?? props.priorityReason}</p>
               </div>
-              <p className="dyna-inspector-summary">{props.summary}</p>
+              {summaryNeedsDisclosure ? null : (
+                <p className="dyna-inspector-summary">{props.summary}</p>
+              )}
               {props.people.length > 0 ? (
                 <section className="dyna-inspector-section">
                   <h3>People</h3>
@@ -895,6 +910,15 @@ const fixedComponents: FixedComponents = {
                   </ol>
                 </section>
               ) : null}
+              {summaryNeedsDisclosure ? (
+                <details className="dyna-context-details dyna-summary-details">
+                  <summary>
+                    <ChevronRight className="dyna-disclosure" aria-hidden="true" />
+                    Context
+                  </summary>
+                  <p className="dyna-inspector-summary">{props.summary}</p>
+                </details>
+              ) : null}
               {props.outcome ? (
                 <div className="dyna-outcome">
                   <span>Outcome</span>
@@ -926,7 +950,7 @@ const fixedComponents: FixedComponents = {
                       {props.priorityMode === "manual"
                         ? `Manually moved from ${props.sourcePriority}`
                         : props.priorityMode === "leadership"
-                          ? `Raised from ${props.sourcePriority} by verified leadership context`
+                          ? `Raised from ${props.sourcePriority} using leadership context`
                           : `Refined from ${props.sourcePriority} by later analysis`}
                     </span>
                   ) : null}
@@ -948,10 +972,15 @@ const fixedComponents: FixedComponents = {
                     </div>
                   ) : null}
                   <div className="dyna-origin">
-                    <strong>Originating record</strong>
-                    <code>{sourceReferenceLabel(props.sourceRef)}</code>
+                    <strong>
+                      {props.source === "manual" ? "Created in Dyna" : "Originating record"}
+                    </strong>
+                    {props.source === "manual" ? null : (
+                      <code>{sourceReferenceLabel(props.sourceRef)}</code>
+                    )}
                     <span className="dyna-meta">
-                      Updated {relativeTime(props.sourceUpdatedAt, controller.locale)}
+                      {props.source === "manual" ? "Added" : "Updated"}{" "}
+                      {relativeTime(props.sourceUpdatedAt, controller.locale)}
                     </span>
                   </div>
                 </div>
@@ -1002,7 +1031,12 @@ const fixedComponents: FixedComponents = {
                           event.currentTarget,
                         );
                     }}
-                    disabled={controller.busy || controller.blocked}
+                    disabled={
+                      controller.busy ||
+                      (action.name === "annotate"
+                        ? controller.blocked
+                        : controller.codexActionsBlocked)
+                    }
                   >
                     {action.name === "open_source" || action.name === "open_codex_task" ? (
                       <ExternalLink className="dyna-icon" aria-hidden="true" />
@@ -1168,7 +1202,7 @@ const fixedComponents: FixedComponents = {
                 event.currentTarget,
               );
             }}
-            disabled={controller.busy || controller.blocked}
+            disabled={controller.busy || controller.codexActionsBlocked}
           >
             <ExternalLink className="dyna-icon" aria-hidden="true" />
             Open task
@@ -1188,7 +1222,7 @@ const fixedComponents: FixedComponents = {
                 event.currentTarget,
               );
             }}
-            disabled={controller.busy || controller.blocked}
+            disabled={controller.busy || controller.codexActionsBlocked}
           >
             Refresh
           </Button>
@@ -1282,9 +1316,11 @@ function compareCards(left: DynaCard, right: DynaCard): number {
 
 function cardActions(card: DynaCard): readonly ActionDescriptor[] {
   const linkedTask = card.linkedTasks[0];
+  const sourceActions =
+    card.source === "manual" ? [] : [{ name: "open_source" as const, label: "Open source" }];
   return linkedTask
     ? [
-        { name: "open_source", label: "Open source" },
+        ...sourceActions,
         {
           name: "open_codex_task",
           label: "Open Codex",
@@ -1294,9 +1330,9 @@ function cardActions(card: DynaCard): readonly ActionDescriptor[] {
         { name: "annotate", label: "Add note" },
       ]
     : [
-        { name: "open_source", label: "Open source" },
+        ...sourceActions,
         { name: "annotate", label: "Add note" },
-        { name: "create_codex_task", label: "Review in Codex" },
+        { name: "create_codex_task", label: "Create Codex task" },
       ];
 }
 
@@ -1515,9 +1551,10 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
     >
       <SummaryStrip
         props={{
-          focus: cards.filter((card) => card.priority === "critical" || card.priority === "high")
-            .length,
-          leadership: cards.filter((card) => card.leadershipScore > 0).length,
+          focus: queueCards.filter(
+            (card) => card.priority === "critical" || card.priority === "high",
+          ).length,
+          leadership: queueCards.filter((card) => card.leadershipScore > 0).length,
           shown: cards.length,
           total: snapshot.counts.total,
         }}
@@ -1584,6 +1621,7 @@ function DynaApp({ app }: { readonly app: App }) {
   );
   const [canExpand, setCanExpand] = useState(false);
   const [initialExpansionPending, setInitialExpansionPending] = useState(true);
+  const [hostCapabilities, setHostCapabilities] = useState<McpUiHostCapabilities>();
   const [locale, setLocale] = useState(navigator.language);
   const current = useRef<DynaUiPayload | undefined>(undefined);
   const refreshInFlight = useRef(false);
@@ -1596,6 +1634,7 @@ function DynaApp({ app }: { readonly app: App }) {
   const todoRequestId = useRef(crypto.randomUUID());
   const createdTodoFocus = useRef<string | undefined>(undefined);
   const hostContext = useRef<DynaHostContext>({});
+  const hostCapabilitiesRef = useRef<McpUiHostCapabilities>({});
   const pendingActions = useRef(
     new Map<string, { readonly requestId: string; readonly idempotencyKey: string }>(),
   );
@@ -1670,7 +1709,13 @@ function DynaApp({ app }: { readonly app: App }) {
   const refresh = useCallback(
     async (force = false) => {
       const active = current.current;
-      if (!active || document.hidden || (!force && refreshInFlight.current)) return;
+      if (
+        !active ||
+        !hostCapabilitiesRef.current.serverTools ||
+        document.hidden ||
+        (!force && refreshInFlight.current)
+      )
+        return;
       const generation = ++refreshGeneration.current;
       const requestedQuery = queryRef.current.trim();
       refreshInFlight.current = true;
@@ -1811,6 +1856,9 @@ function DynaApp({ app }: { readonly app: App }) {
       .then(() => {
         const context = app.getHostContext();
         if (context) applyContext(context);
+        const capabilities = app.getHostCapabilities() ?? {};
+        hostCapabilitiesRef.current = capabilities;
+        setHostCapabilities(capabilities);
         setConnectionError(undefined);
         setInitialExpansionPending(false);
       })
@@ -2012,7 +2060,16 @@ function DynaApp({ app }: { readonly app: App }) {
   const controller = useMemo<DynaUiController>(
     () => ({
       busy,
-      blocked: Boolean(connectionError),
+      blocked: Boolean(connectionError) || !hostCapabilities?.serverTools,
+      codexActionsBlocked:
+        Boolean(connectionError) ||
+        !hostCapabilities?.serverTools ||
+        !hostCapabilities.message?.text,
+      readOnly: hostCapabilities !== undefined && !hostCapabilities.serverTools,
+      messageUnavailable:
+        hostCapabilities !== undefined &&
+        Boolean(hostCapabilities.serverTools) &&
+        !hostCapabilities.message?.text,
       displayMode,
       inspectorPresentation: wideLayout ? "split" : "route",
       modalOpen: annotationItem !== undefined || todoOpen,
@@ -2056,7 +2113,7 @@ function DynaApp({ app }: { readonly app: App }) {
       },
       async organize(itemId, fingerprint, action, trigger) {
         const active = current.current;
-        if (!active || busy || connectionError) return;
+        if (!active || busy || connectionError || !hostCapabilitiesRef.current.serverTools) return;
         actionTrigger.current = {
           element: trigger,
           key: trigger.getAttribute("data-dyna-action") ?? `${itemId}:${action}`,
@@ -2121,6 +2178,14 @@ function DynaApp({ app }: { readonly app: App }) {
       async request(itemId, fingerprint, kind, taskId, taskHostId, trigger) {
         const active = current.current;
         if (!active || busy || connectionError) return;
+        if (!hostCapabilitiesRef.current.serverTools) {
+          setOperationError("This host does not support dashboard actions.");
+          return;
+        }
+        if (!hostCapabilitiesRef.current.message?.text) {
+          setOperationError("This host cannot send Dyna actions to Codex.");
+          return;
+        }
         if (trigger) {
           actionTrigger.current = {
             element: trigger,
@@ -2138,8 +2203,10 @@ function DynaApp({ app }: { readonly app: App }) {
           taskId ?? "",
           taskHostId ?? "",
         ].join(":");
+        let preparationComplete = false;
         try {
           let pending = pendingActions.current.get(actionKey);
+          preparationComplete = Boolean(pending);
           if (!pending) {
             const idempotencyKey = `${actionKey}:${crypto.randomUUID()}`;
             const prepared = await app.callServerTool({
@@ -2161,6 +2228,7 @@ function DynaApp({ app }: { readonly app: App }) {
             if (typeof preparedId !== "string") throw new Error("No action request was prepared.");
             pending = { requestId: preparedId, idempotencyKey };
             pendingActions.current.set(actionKey, pending);
+            preparationComplete = true;
           }
           const requestId = pending.requestId;
           const delivery = await app.callServerTool({
@@ -2230,7 +2298,9 @@ function DynaApp({ app }: { readonly app: App }) {
           setConnectionError(undefined);
         } catch {
           setOperationError(
-            "Action delivery is uncertain. Reconnect, then retry; Dyna will reuse the same request.",
+            preparationComplete
+              ? "Action delivery is uncertain. Reconnect, then retry; Dyna will reuse the same request."
+              : "Request was not sent. Refresh the dashboard and try again.",
           );
         } finally {
           setBusy(false);
@@ -2243,6 +2313,7 @@ function DynaApp({ app }: { readonly app: App }) {
       busy,
       canExpand,
       connectionError,
+      hostCapabilities,
       displayMode,
       desktopInlineLayout,
       clearFilters,
@@ -2275,7 +2346,15 @@ function DynaApp({ app }: { readonly app: App }) {
 
   async function saveAnnotation(): Promise<void> {
     const active = current.current;
-    if (!active || !annotationItem || !annotation.trim() || busy || connectionError) return;
+    if (
+      !active ||
+      !annotationItem ||
+      !annotation.trim() ||
+      busy ||
+      connectionError ||
+      !hostCapabilitiesRef.current.serverTools
+    )
+      return;
     setOperationError(undefined);
     setBusy(true);
     try {
@@ -2304,7 +2383,14 @@ function DynaApp({ app }: { readonly app: App }) {
 
   async function saveTodo(): Promise<void> {
     const active = current.current;
-    if (!active || !todoTitle.trim() || busy || connectionError) return;
+    if (
+      !active ||
+      !todoTitle.trim() ||
+      busy ||
+      connectionError ||
+      !hostCapabilitiesRef.current.serverTools
+    )
+      return;
     setOperationError(undefined);
     setBusy(true);
     try {
@@ -2371,6 +2457,28 @@ function DynaApp({ app }: { readonly app: App }) {
           title="Offline"
           description={connectionError}
         />
+      ) : null}
+      {!connectionError && controller.readOnly ? (
+        <div role="status" aria-label="Read-only host notice">
+          <Alert
+            className="dyna-alert"
+            color="warning"
+            variant="soft"
+            title="Dashboard is read-only"
+            description="This host does not support app-to-server tools. Viewing and local filtering remain available."
+          />
+        </div>
+      ) : null}
+      {!connectionError && controller.messageUnavailable ? (
+        <div role="status" aria-label="Codex action capability notice">
+          <Alert
+            className="dyna-alert"
+            color="warning"
+            variant="soft"
+            title="Codex actions unavailable"
+            description="This host cannot send Dyna actions to Codex. Notes, to-dos, and prioritization remain available."
+          />
+        </div>
       ) : null}
       {operationError ? (
         <Alert

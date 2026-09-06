@@ -12,7 +12,7 @@ The universal UI declares an empty network/resource/frame CSP allowlist and only
 
 ## Dyna boundaries
 
-Dyna publishers submit bounded domain records, never components, HTML, code, prompts, or tool names. Server-side catalog validation is a release gate; the browser receives only a versioned snapshot and scoped view capability. Source identity is publisher-scoped, public failure text is normalized, redacted, and bounded before persistence, and only verified leadership enrichment can raise priority.
+Dyna publishers submit bounded domain records, never components, HTML, code, prompts, or tool names. Server-side catalog validation is a release gate; the browser receives only a versioned snapshot and scoped view capability. Source identity is publisher-scoped, public failure text is normalized, redacted, and bounded before persistence, and publisher-supplied people cannot raise priority. Leadership enrichment submitted through the separate control path may raise priority; its provenance is a caller assertion until a host-controlled identity or evidence adapter is available.
 
 The SQLite store rejects unknown future schemas and rolls back migrations that fail integrity or foreign-key checks. Dashboard schedule and item task-link cardinality are capped, including reservations for task creations whose external effect may already exist. Backups use a private same-directory staging file, integrity verification, restrictive permissions, and no-overwrite publication; backup and offline restore remain trusted operator operations rather than model-visible tools.
 

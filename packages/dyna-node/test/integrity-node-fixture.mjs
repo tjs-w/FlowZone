@@ -81,6 +81,19 @@ try {
     () => store.addTodo(viewA, { ...todoInput, title: "Different" }, todoRequestId),
     /reused with different content/,
   );
+  const afterTodo = store.snapshot(dashboardA.id);
+  const manualTodo = afterTodo.cards.find((card) => card.id === firstTodo);
+  assert.ok(manualTodo);
+  assert.throws(
+    () =>
+      store.prepareAction(viewA, "open_source", {
+        itemId: manualTodo.id,
+        expectedRevision: afterTodo.revision,
+        expectedFingerprint: manualTodo.fingerprint,
+        idempotencyKey: "e713c319-a25a-4aab-b0d7-481591dd99dc",
+      }),
+    /no originating source to open/,
+  );
 
   assert.throws(
     () =>

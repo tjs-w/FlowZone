@@ -311,6 +311,7 @@ interface DynaComponentCatalog {
       readonly generatedAt: string;
       readonly revision: number;
       readonly sourceOptions: readonly string[];
+      readonly sourceAttention: boolean;
     }>,
   ) => ReactNode;
   readonly SummaryStrip: (
@@ -364,7 +365,7 @@ const dynaComponents: DynaComponentCatalog = {
       ? { color: "warning" as const, label: "Read only" }
       : controller.blocked
         ? { color: "danger" as const, label: "Offline" }
-        : props.freshness === "fresh"
+        : !props.sourceAttention && props.freshness === "fresh"
           ? { color: "success" as const, label: "Live" }
           : { color: "warning" as const, label: "Delayed" };
     return (
@@ -1257,6 +1258,7 @@ const dynaComponents: DynaComponentCatalog = {
   },
   ScheduleStatus: ({ props }) => {
     const controller = useController();
+    const revoked = Boolean(props.revokedAt);
     const slices = props.lastSourceSlices ?? [];
     const unhealthySlices = slices.filter(
       (slice) => slice.status === "failed" || slice.freshness !== "fresh",
@@ -1267,7 +1269,7 @@ const dynaComponents: DynaComponentCatalog = {
         <strong>{props.scheduleTitle ?? props.name}</strong>
         <Badge
           color={
-            props.lastRunStatus === "failed"
+            revoked || props.lastRunStatus === "failed"
               ? "danger"
               : props.lastRunStatus === "partial"
                 ? "warning"
@@ -1277,13 +1279,12 @@ const dynaComponents: DynaComponentCatalog = {
           }
           variant="soft"
         >
-          {props.lastRunStatus}
+          {revoked ? "revoked" : props.lastRunStatus}
         </Badge>
         <span className="dyna-meta">
-          {props.scheduleState}
-          {props.lastRunAt
-            ? ` · last run ${relativeTime(props.lastRunAt, controller.locale)}`
-            : " · not run yet"}
+          {revoked
+            ? `Publisher revoked${props.lastRunAt ? ` · last run ${props.lastRunStatus} ${relativeTime(props.lastRunAt, controller.locale)}` : " · not run yet"}`
+            : `${props.scheduleState}${props.lastRunAt ? ` · last run ${relativeTime(props.lastRunAt, controller.locale)}` : " · not run yet"}`}
         </span>
         {props.lastRunError ? <span className="dyna-meta">{props.lastRunError}</span> : null}
         {slices.length > 0 ? (
@@ -1522,6 +1523,8 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
     : queueCards.slice(0, controller.inlineCardLimit);
   const unhealthySchedules = snapshot.schedules.filter(
     (schedule) =>
+      Boolean(schedule.revokedAt) ||
+      schedule.lastRunStatus === "never" ||
       schedule.lastRunStatus === "failed" ||
       schedule.lastRunStatus === "partial" ||
       schedule.scheduleState !== "active" ||
@@ -1617,6 +1620,7 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
         generatedAt: snapshot.generatedAt,
         revision: snapshot.revision,
         sourceOptions,
+        sourceAttention: unhealthySchedules.length > 0,
       }}
     >
       <SummaryStrip

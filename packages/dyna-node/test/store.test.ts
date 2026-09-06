@@ -13,6 +13,9 @@ describe("DynaStore lifecycle", () => {
       manualOverridePreserved: true,
       disabledModeEnforced: true,
       localPreviewOperational: true,
+      neverRunVisibleAsStale: true,
+      revokedStatusImmutable: true,
+      revokedDataVisibleAsStale: true,
     });
   });
 

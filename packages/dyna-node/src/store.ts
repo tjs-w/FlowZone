@@ -1406,11 +1406,14 @@ export class DynaStore {
     this.#transaction(() => {
       const row = this.#one(
         this.#database.prepare(
-          "SELECT schedule_title, schedule_state, stale_after_minutes, credential_mode, required_source_slices FROM publishers WHERE id = ?",
+          "SELECT schedule_title, schedule_state, stale_after_minutes, credential_mode, required_source_slices, revoked_at FROM publishers WHERE id = ?",
         ),
         publisherId,
       );
       if (!row) throw new Error("Dyna publisher was not found.");
+      if (optionalString(row, "revoked_at")) {
+        throw new Error("A revoked Dyna publisher's schedule status cannot be updated.");
+      }
       if (schedule.state === "active" && requiredString(row, "credential_mode") === "disabled") {
         throw new Error("A disabled Dyna publisher cannot use an active schedule.");
       }
@@ -1488,15 +1491,17 @@ export class DynaStore {
     const lastRunError = optionalString(row, "last_run_error");
     const requiredSourceSlices = requiredSourceSlicesFromRow(row);
     const lastRunAt = optionalString(row, "last_run_at");
+    const revokedAt = optionalString(row, "revoked_at");
     const staleAfterMinutes = requiredNumber(row, "stale_after_minutes");
     const publishSourceSlices = publishSourceSlicesFromRow(row);
-    const successfulSliceFreshness = lastRunAt
-      ? (() => {
-          const age = Math.max(0, this.#nowMs() - Date.parse(lastRunAt));
-          const staleAfter = staleAfterMinutes * 60_000;
-          return age > staleAfter ? "stale" : age > staleAfter * 0.75 ? "aging" : "fresh";
-        })()
-      : "stale";
+    const successfulSliceFreshness =
+      lastRunAt && !revokedAt
+        ? (() => {
+            const age = Math.max(0, this.#nowMs() - Date.parse(lastRunAt));
+            const staleAfter = staleAfterMinutes * 60_000;
+            return age > staleAfter ? "stale" : age > staleAfter * 0.75 ? "aging" : "fresh";
+          })()
+        : "stale";
     return DynaPublisherSchema.parse({
       id: requiredString(row, "id"),
       name: requiredString(row, "name"),
@@ -1521,9 +1526,7 @@ export class DynaStore {
             })),
           }
         : {}),
-      ...(optionalString(row, "revoked_at")
-        ? { revokedAt: optionalString(row, "revoked_at") }
-        : {}),
+      ...(revokedAt ? { revokedAt } : {}),
       createdAt: requiredString(row, "created_at"),
     });
   }
@@ -2372,9 +2375,16 @@ export class DynaStore {
       const leadershipCount = requiredNumber(countRow, "leadership");
       const newest = optionalString(countRow, "newest");
       const schedules = this.listPublishers(dashboardId);
-      const activeSchedules = schedules.filter((schedule) => schedule.scheduleState === "active");
-      const scheduleFreshness = activeSchedules.map((schedule) => {
+      const freshnessRelevantSchedules = schedules.filter(
+        (schedule) =>
+          schedule.scheduleState === "active" ||
+          schedule.lastRunStatus === "never" ||
+          Boolean(schedule.revokedAt),
+      );
+      const scheduleFreshness = freshnessRelevantSchedules.map((schedule) => {
         if (
+          schedule.revokedAt ||
+          schedule.lastRunStatus === "never" ||
           schedule.lastRunStatus === "failed" ||
           schedule.lastRunStatus === "partial" ||
           !schedule.lastRunAt

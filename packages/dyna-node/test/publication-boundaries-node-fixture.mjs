@@ -200,6 +200,56 @@ try {
     provenance: "test-enrichment",
   });
 
+  const neverRunSnapshot = store.snapshot(dashboard.id);
+  assert.equal(neverRunSnapshot.freshness, "stale");
+  assert.equal(
+    neverRunSnapshot.schedules.find((schedule) => schedule.id === disabled.publisher.id)
+      ?.lastRunStatus,
+    "never",
+  );
+
+  store.unbindSchedule(dashboard.id, disabled.publisher.id);
+  const revocable = store.createPublisher(
+    "Revocable source-sliced publisher",
+    undefined,
+    [{ source: "codex", sourceScope: "codex:local" }],
+    "local_preview",
+  );
+  assert.ok(revocable.secret);
+  store.bindSchedule(dashboard.id, revocable.publisher.id, {
+    id: "revocable-source-sliced-schedule",
+    title: "Revocable source-sliced schedule",
+    state: "active",
+    staleAfterMinutes: 60,
+  });
+  store.publish(
+    revocable.publisher.id,
+    revocable.secret,
+    [publishedItem("revocable-source", "normal")],
+    {
+      runId: "revocable-source-run",
+      sourceCompletedAt: new Date(clockMs).toISOString(),
+      mode: "replace",
+      status: "succeeded",
+      sourceSlices: [{ source: "codex", sourceScope: "codex:local", status: "succeeded" }],
+    },
+  );
+  assert.equal(store.snapshot(dashboard.id).freshness, "fresh");
+  store.revokePublisher(revocable.publisher.id, false);
+  assert.throws(
+    () => store.updateScheduleStatus(revocable.publisher.id, { state: "active" }),
+    /revoked Dyna publisher's schedule status cannot be updated/,
+  );
+  const revokedSnapshot = store.snapshot(dashboard.id);
+  const revokedSchedule = revokedSnapshot.schedules.find(
+    (schedule) => schedule.id === revocable.publisher.id,
+  );
+  assert.equal(revokedSnapshot.freshness, "stale");
+  assert.equal(revokedSchedule?.scheduleState, "unknown");
+  assert.ok(revokedSchedule?.revokedAt);
+  assert.equal(revokedSchedule?.lastRunStatus, "succeeded");
+  assert.ok(revokedSchedule?.lastSourceSlices?.every((slice) => slice.freshness === "stale"));
+
   globalThis.process.stdout.write(
     JSON.stringify({
       scheduledManualRejected: true,
@@ -207,6 +257,9 @@ try {
       manualOverridePreserved: true,
       disabledModeEnforced: true,
       localPreviewOperational: true,
+      neverRunVisibleAsStale: true,
+      revokedStatusImmutable: true,
+      revokedDataVisibleAsStale: true,
     }),
   );
 } finally {

@@ -1074,6 +1074,34 @@ test("keeps a failed scheduled source readable at desktop and mobile widths", as
   expect(mobile.pageScrollWidth).toBeLessThanOrEqual(mobile.pageClientWidth);
 });
 
+test("never presents a revoked scheduled source as live", async ({ page }) => {
+  await page.goto("/dyna?many-items=1&revoked-schedule=1");
+  await expect(page.locator(".dyna-health-badge")).toHaveText("Delayed");
+  await expect(page.getByText("Source refresh needs attention", { exact: true })).toBeVisible();
+  await openFullDashboard(page);
+
+  const revoked = page.locator(".dyna-schedule", { hasText: "Browser fixture schedule" });
+  await expect(revoked.getByText("revoked", { exact: true })).toBeVisible();
+  await expect(revoked.locator(":scope > .dyna-meta").first()).toContainText(
+    "Publisher revoked · last run succeeded",
+  );
+  await expect(
+    revoked.getByRole("listitem", { name: "Source control team/project: stale" }),
+  ).toBeVisible();
+  await expect(page.locator(".dyna-health-badge")).not.toHaveText("Live");
+});
+
+test("never presents an active never-run scheduled source as live", async ({ page }) => {
+  await page.goto("/dyna?many-items=1&never-run-schedule=1");
+  await expect(page.locator(".dyna-health-badge")).toHaveText("Delayed");
+  await expect(page.getByText("Source refresh needs attention", { exact: true })).toBeVisible();
+  await openFullDashboard(page);
+  const neverRun = page.locator(".dyna-schedule", { hasText: "Never-run fixture schedule" });
+  await expect(neverRun.getByText("never", { exact: true })).toBeVisible();
+  await expect(neverRun.locator(":scope > .dyna-meta").first()).toHaveText("active · not run yet");
+  await expect(page.locator(".dyna-health-badge")).not.toHaveText("Live");
+});
+
 test("requests the expanded Codex work surface when the host supports it", async ({ page }) => {
   await page.getByRole("button", { name: "Open full dashboard" }).click();
   await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "fullscreen");

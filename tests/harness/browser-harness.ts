@@ -140,6 +140,8 @@ async function createDynaFixture(
   longContent = false,
   olderAnnotationMatch = false,
   failedSchedule = false,
+  neverRunSchedule = false,
+  revokedSchedule = false,
 ): Promise<unknown> {
   const fixtureId = randomUUID();
   const now = new Date().toISOString();
@@ -320,6 +322,54 @@ async function createDynaFixture(
     },
   });
   if (publication.isError) throw new Error("Could not publish the Dyna browser fixture");
+  if (neverRunSchedule) {
+    const createdNeverRunPublisher = await client.callTool({
+      name: "flowzone",
+      arguments: {
+        plugin: "dyna",
+        action: "create-publisher",
+        input: {
+          name: "Never-run fixture schedule",
+          requiredSourceSlices: [{ source: "codex", sourceScope: "codex:never-run" }],
+          credentialMode: "local_preview",
+        },
+      },
+    });
+    const neverRunResult = resultRecord(
+      resultRecord(createdNeverRunPublisher.structuredContent)["result"],
+    );
+    const neverRunPublisher = resultRecord(neverRunResult["publisher"]);
+    const neverRunPublisherId = neverRunPublisher["id"];
+    if (typeof neverRunPublisherId !== "string") {
+      throw new Error("Could not create the never-run Dyna browser fixture");
+    }
+    const neverRunBinding = await client.callTool({
+      name: "flowzone",
+      arguments: {
+        plugin: "dyna",
+        action: "bind-schedule",
+        input: {
+          dashboardId,
+          publisherId: neverRunPublisherId,
+          scheduleId: `never-run-fixture-schedule-${fixtureId}`,
+          scheduleTitle: "Never-run fixture schedule",
+          scheduleState: "active",
+        },
+      },
+    });
+    if (neverRunBinding.isError) throw new Error("Could not bind the never-run Dyna fixture");
+  }
+  if (revokedSchedule) {
+    const revocation = await client.callTool({
+      name: "flowzone",
+      arguments: {
+        plugin: "dyna",
+        action: "revoke-publisher",
+        input: { publisherId, purgePublishedData: false },
+      },
+    });
+    if (revocation.isError) throw new Error("Could not revoke the Dyna browser fixture");
+  }
   let openedDyna = await client.callTool({
     name: "render_dyna_dashboard",
     arguments: { dashboardId },
@@ -832,6 +882,8 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       requestUrl.searchParams.get("long-content") === "1",
       requestUrl.searchParams.get("older-match") === "1",
       requestUrl.searchParams.get("failed-schedule") === "1",
+      requestUrl.searchParams.get("never-run-schedule") === "1",
+      requestUrl.searchParams.get("revoked-schedule") === "1",
     );
     response.writeHead(200, {
       "cache-control": "no-store",

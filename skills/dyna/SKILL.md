@@ -1,11 +1,23 @@
 ---
 name: dyna
-description: Create and operate persistent executive dashboards and progress pipelines from scheduled email, messaging, source-control, TWG, skill, and Codex signals; publish or enrich bounded records; and safely handle linked Codex tasks. Use for Dyna dashboards, scheduled executive briefs, priority queues, progress pipelines, annotations, or Dyna action requests.
+description: Find, name, and operate persistent executive dashboards and their scheduled jobs; publish or enrich bounded email, messaging, source-control, TWG, skill, and Codex records; and safely handle linked Codex tasks. Use for Dyna dashboards, schedule inventory, executive briefs, priority queues, progress pipelines, annotations, or Dyna action requests.
 ---
 
 # Dyna
 
 Dyna is the executive-dashboard plugin bundled with FlowZone. It stores source records and annotations; it never accepts generated JSX, HTML, JavaScript, CSS, prompts, tool names, or arbitrary component trees. FlowZone deterministically compiles records into its fixed `json-render` catalog.
+
+## Find schedules and open named dashboards
+
+Use dashboard names in conversation and stable IDs at tool boundaries:
+
+1. Call `list-dashboards` before acting on a dashboard mentioned by name. Resolve an exact ID first, then a case-insensitive exact name, then a unique case-insensitive partial name. Prefer active dashboards unless the user mentions an archived one. If there is no unique match, show the matching dashboard names and ask which one; never choose by recency.
+2. To open the resolved dashboard, call `render_dyna_dashboard` with its `dashboardId`. State the returned dashboard name so the user can confirm which dashboard opened.
+3. To list all scheduled jobs registered with Dyna, call `list-publishers` without a dashboard ID. To list jobs for a mentioned dashboard, resolve its name first and pass that dashboard ID to `list-publishers`.
+4. Report each scheduled job using its `scheduleTitle` (falling back to the publisher name), `scheduleId`, state, last-run status/time, and the names of the dashboards it feeds. When dashboard membership matters, correlate publisher IDs by calling `list-publishers` for the relevant dashboards; a publisher can feed more than one dashboard. Distinguish publishers without a `scheduleId` and revoked publishers from active scheduled jobs.
+5. Dyna's stored schedule state is a cached binding. If the user asks whether native Codex jobs currently exist or requests reconciliation, inspect native scheduled tasks and match only by exact `scheduleId`; do not match by title alone.
+
+Give every new dashboard a concise, distinctive name based on the user's scope. Before creating or renaming one, use `list-dashboards` to avoid a case-insensitive duplicate among active dashboards. For an explicit rename request, resolve the dashboard as above, call `update-dashboard` with the new `name`, and confirm the returned name. Do not rename a dashboard merely because the user referred to it with different wording.
 
 ## Create dashboards and schedules
 
@@ -14,7 +26,7 @@ Dyna is the executive-dashboard plugin bundled with FlowZone. It stores source r
 3. Create or update the actual recurring job with Codex's native scheduled-task capability. For the trusted local preview, give that job the publisher ID and secret while recognizing the limitation above. Production use requires a host-provided protected credential channel that scheduled tasks can consume without exposing the value to the model or prompt.
 4. Call `bind-schedule` once per dashboard/publisher pair with the exact native schedule ID, title, current state, and a `staleAfterMinutes` SLA appropriate to its recurrence (the default is 1,440 minutes). A publisher can feed multiple dashboards, and a dashboard can receive multiple publishers. Use `update-schedule-status` after pausing, resuming, renaming, or changing the SLA, `unbind-schedule` to retire one dashboard binding, and `list-publishers` to reconcile inventory.
 5. The job gathers source data with the authorized email, messaging, source-control, TWG, skill, or Codex capabilities, then calls `publish-run` with no more than 200 bounded records.
-6. Open the result with `render_dyna_dashboard` and `{ "dashboardId": "..." }`.
+6. Open the result using the named-dashboard workflow above.
 
 When modifying schedules, inspect existing scheduled tasks first and update a matching task instead of duplicating it. Dyna owns dashboard bindings and published state; Codex owns schedule timing, execution, and notifications.
 

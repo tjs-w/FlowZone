@@ -97,6 +97,72 @@ describe("Dyna checked-in Node bundle", () => {
           },
         },
       });
+
+      const listedDashboards = await client.callTool({
+        name: "flowzone",
+        arguments: { plugin: "dyna", action: "list-dashboards", input: {} },
+      });
+      const dashboards = record(record(listedDashboards.structuredContent)["result"])["dashboards"];
+      if (!Array.isArray(dashboards)) throw new Error("Missing Dyna dashboard inventory");
+      const namedDashboard = dashboards
+        .map(record)
+        .find((candidate) => String(candidate["name"]).toLocaleLowerCase() === "executive brief");
+      const namedDashboardId = namedDashboard?.["id"];
+      if (typeof namedDashboardId !== "string") {
+        throw new Error("Dyna dashboard name did not resolve to an ID");
+      }
+      expect(namedDashboardId).toBe(dashboardId);
+
+      const globalScheduleInventory = await client.callTool({
+        name: "flowzone",
+        arguments: { plugin: "dyna", action: "list-publishers", input: {} },
+      });
+      const globalPublishers = record(record(globalScheduleInventory.structuredContent)["result"])[
+        "publishers"
+      ];
+      if (!Array.isArray(globalPublishers)) throw new Error("Missing Dyna schedule inventory");
+      const globalPublisher = globalPublishers
+        .map(record)
+        .find((candidate) => candidate["id"] === publisherId);
+      expect(globalPublisher).toMatchObject({
+        id: publisherId,
+        scheduleId: "automation-morning",
+        scheduleTitle: "Morning schedule",
+        scheduleState: "active",
+      });
+
+      const dashboardScheduleInventory = await client.callTool({
+        name: "flowzone",
+        arguments: {
+          plugin: "dyna",
+          action: "list-publishers",
+          input: { dashboardId: namedDashboardId },
+        },
+      });
+      const dashboardPublishers = record(
+        record(dashboardScheduleInventory.structuredContent)["result"],
+      )["publishers"];
+      if (!Array.isArray(dashboardPublishers)) {
+        throw new Error("Missing dashboard-scoped schedule inventory");
+      }
+      const dashboardPublisher = dashboardPublishers
+        .map(record)
+        .find((candidate) => candidate["id"] === publisherId);
+      expect(dashboardPublisher).toMatchObject({
+        id: publisherId,
+        scheduleId: "automation-morning",
+      });
+
+      const namedRender = await client.callTool({
+        name: "render_dyna_dashboard",
+        arguments: { dashboardId: namedDashboardId },
+      });
+      const renderedDashboard = record(
+        record(record(namedRender.structuredContent)["result"])["dashboard"],
+      );
+      expect(renderedDashboard["id"]).toBe(dashboardId);
+      expect(renderedDashboard["name"]).toBe("Executive brief");
+
       const sourceUpdatedAt = new Date().toISOString();
       await client.callTool({
         name: "flowzone",

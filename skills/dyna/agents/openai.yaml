@@ -1,8 +1,8 @@
 interface:
   display_name: "Dyna"
-  short_description: "Run scheduled executive dashboards and Codex actions"
+  short_description: "List schedules and open named executive dashboards"
   brand_color: "#2563EB"
-  default_prompt: "Use $flowzone:dyna to create or open my executive signal dashboard."
+  default_prompt: "Use $flowzone:dyna to list my scheduled jobs and open the named dashboard."
 
 policy:
   allow_implicit_invocation: true

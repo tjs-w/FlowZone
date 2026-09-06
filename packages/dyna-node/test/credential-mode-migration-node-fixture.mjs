@@ -107,7 +107,7 @@ try {
   );
   assert.throws(
     () => migrated.rotatePublisherSecret(legacy.publisher.id),
-    /disabled Dyna publisher cannot rotate credentials/,
+    /Only a local-preview Dyna publisher can rotate credentials/,
   );
   assert.throws(
     () => migrated.updateScheduleStatus(legacy.publisher.id, { state: "active" }),
@@ -116,7 +116,7 @@ try {
   migrated.close();
 
   const verified = new DatabaseSync(databasePath, { readOnly: true });
-  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 3);
+  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 4);
   assert.equal(
     verified
       .prepare(

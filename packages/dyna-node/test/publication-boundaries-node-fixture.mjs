@@ -67,7 +67,7 @@ try {
   );
   assert.throws(
     () => store.rotatePublisherSecret(disabled.publisher.id),
-    /disabled Dyna publisher cannot rotate credentials/,
+    /Only a local-preview Dyna publisher can rotate credentials/,
   );
   assert.throws(
     () =>

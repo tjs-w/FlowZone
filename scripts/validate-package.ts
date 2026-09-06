@@ -97,17 +97,28 @@ async function validatePlugin(): Promise<void> {
     throw new Error("The MCP launcher must resolve its checked-in Node bundle internally");
   }
   const launcherPath = resolve(root, "bin/flowzone-mcp");
+  const publisherLauncherPath = resolve(root, "bin/flowzone-publish");
   const launcher = await readFile(launcherPath, "utf8");
   if (!launcher.includes("server/dist/server.cjs")) {
     throw new Error("The MCP launcher must resolve the checked-in Node bundle");
   }
   await access(launcherPath, constants.X_OK);
+  const publisherLauncher = await readFile(publisherLauncherPath, "utf8");
+  if (!publisherLauncher.includes("server/dist/flowzone-publish.cjs")) {
+    throw new Error("The publisher launcher must resolve the checked-in Node bundle");
+  }
+  await access(publisherLauncherPath, constants.X_OK);
   if (!(await stat(launcherPath)).isFile()) {
     throw new Error("The MCP launcher must be a regular executable file");
   }
+  if (!(await stat(publisherLauncherPath)).isFile()) {
+    throw new Error("The publisher launcher must be a regular executable file");
+  }
   await Promise.all([
     access(launcherPath),
+    access(publisherLauncherPath),
     access(resolve(root, "server/dist/server.cjs")),
+    access(resolve(root, "server/dist/flowzone-publish.cjs")),
     access(resolve(root, "web/flowzone.html")),
     access(resolve(root, "web/dist/flowzone.js")),
     access(resolve(root, "web/dyna.html")),

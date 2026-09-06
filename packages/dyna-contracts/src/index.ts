@@ -340,7 +340,7 @@ export const DynaMaterializedItemSchema = DynaPublishedItemSchema.extend({
   people: z.array(DynaPersonSignalSchema).max(8).default([]),
 });
 
-export const DynaCredentialModeSchema = z.enum(["disabled", "local_preview"]);
+export const DynaCredentialModeSchema = z.enum(["disabled", "local_preview", "local_cli"]);
 export type DynaCredentialMode = z.infer<typeof DynaCredentialModeSchema>;
 
 export const DynaPublisherSourceSliceSchema = DynaPublishSourceSliceSchema.extend({

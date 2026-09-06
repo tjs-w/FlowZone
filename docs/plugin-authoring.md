@@ -26,4 +26,4 @@ Use app-only helpers for interactive refresh, pagination, binary chunks, and vie
 
 ## Registration and release
 
-Add the plugin factory to `server/src/main.ts`; there is no dynamic discovery. Test duplicate identifiers, malformed input/output, size boundaries, cancellation, private/public separation, executor tampering, and a real stdio call. Update documentation and skill guidance, rotate the manifest cachebuster, rebuild `server/dist/server.cjs` and `web/dist/flowzone.js`, then run the complete verification suite.
+Add the plugin factory to `server/src/runtime.ts`; there is no dynamic discovery. Test duplicate identifiers, malformed input/output, size boundaries, cancellation, private/public separation, and executor tampering. Update documentation and skill guidance, rotate the manifest cachebuster, rebuild the checked-in server and relevant web bundles, then run the complete verification suite.

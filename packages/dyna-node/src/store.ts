@@ -55,7 +55,7 @@ const VIEW_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
 const ACTION_TTL_MS = 10 * 60 * 1_000;
 const CLAIM_LEASE_MS = 5 * 60 * 1_000;
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1_000;
-const DYNA_SCHEMA_VERSION = 3;
+const DYNA_SCHEMA_VERSION = 4;
 const MAX_DASHBOARDS = 100;
 const MAX_PUBLISHERS = 100;
 const MAX_SCHEDULES_PER_DASHBOARD = 50;
@@ -219,6 +219,11 @@ function requiredNumber(row: SqlRow, key: string): number {
   const value = row[key];
   if (typeof value !== "number") throw new Error(`Dyna database column ${key} is invalid.`);
   return value;
+}
+
+function publisherCredentialModeFromRow(row: SqlRow): DynaCredentialMode {
+  if (requiredNumber(row, "local_cli_enabled") === 1) return "local_cli";
+  return DynaCredentialModeSchema.parse(requiredString(row, "credential_mode"));
 }
 
 function requiredWorkflowState(row: SqlRow): DynaCard["workflowState"] {
@@ -505,6 +510,7 @@ export class DynaStore {
         stale_after_minutes INTEGER NOT NULL DEFAULT 1440,
         credential_mode TEXT NOT NULL DEFAULT 'disabled'
           CHECK (credential_mode IN ('disabled', 'local_preview')),
+        local_cli_enabled INTEGER NOT NULL DEFAULT 0 CHECK (local_cli_enabled IN (0, 1)),
         required_source_slices TEXT,
         last_run_status TEXT NOT NULL DEFAULT 'never', last_run_at TEXT, last_run_completed_ms INTEGER,
         last_run_error TEXT, revoked_at TEXT,
@@ -678,12 +684,63 @@ export class DynaStore {
         this.#assertDatabaseIntegrity();
         this.#database.exec("PRAGMA user_version = 2;");
       });
-    } else if (startingVersion !== 2) {
+    } else if (startingVersion !== 2 && startingVersion !== 3) {
       throw new Error("The Dyna database schema version is unsupported.");
     }
 
     const versionTwoRow = this.#one(this.#database.prepare("PRAGMA user_version"));
-    if (!versionTwoRow || requiredNumber(versionTwoRow, "user_version") !== 2) {
+    if (!versionTwoRow) {
+      throw new Error("Dyna could not complete its database schema migration.");
+    }
+    if (requiredNumber(versionTwoRow, "user_version") === 2)
+      this.#transaction(() => {
+        const publisherColumns = new Set(
+          (this.#database.prepare("PRAGMA table_info(publishers)").all() as SqlRow[]).map((row) =>
+            requiredString(row, "name"),
+          ),
+        );
+        if (!publisherColumns.has("credential_mode")) {
+          this.#database.exec(
+            "ALTER TABLE publishers ADD COLUMN credential_mode TEXT NOT NULL DEFAULT 'disabled' CHECK (credential_mode IN ('disabled', 'local_preview'))",
+          );
+        }
+        const publisherRunColumns = new Set(
+          (this.#database.prepare("PRAGMA table_info(publisher_runs)").all() as SqlRow[]).map(
+            (row) => requiredString(row, "name"),
+          ),
+        );
+        if (!publisherRunColumns.has("source_slices")) {
+          this.#database.exec("ALTER TABLE publisher_runs ADD COLUMN source_slices TEXT");
+        }
+        this.#database
+          .prepare(
+            `UPDATE publishers
+           SET credential_mode = 'disabled', schedule_state = 'unknown', token_hash = randomblob(32)
+           WHERE NOT EXISTS (
+             SELECT 1 FROM dashboard_manual_publishers mp WHERE mp.publisher_id = publishers.id
+           )`,
+          )
+          .run();
+        this.#database
+          .prepare(
+            `UPDATE publishers SET credential_mode = 'disabled'
+           WHERE id IN (SELECT publisher_id FROM dashboard_manual_publishers)`,
+          )
+          .run();
+        this.#database
+          .prepare(
+            `UPDATE item_enrichments SET priority = NULL, priority_reason = NULL
+           WHERE priority = 'critical' AND EXISTS (
+             SELECT 1 FROM items WHERE items.id = item_enrichments.item_id
+               AND items.priority <> 'critical'
+           )`,
+          )
+          .run();
+        this.#assertDatabaseIntegrity();
+        this.#database.exec("PRAGMA user_version = 3;");
+      });
+    const versionThreeRow = this.#one(this.#database.prepare("PRAGMA user_version"));
+    if (!versionThreeRow || requiredNumber(versionThreeRow, "user_version") !== 3) {
       throw new Error("Dyna could not complete its database schema migration.");
     }
     this.#transaction(() => {
@@ -692,45 +749,13 @@ export class DynaStore {
           requiredString(row, "name"),
         ),
       );
-      if (!publisherColumns.has("credential_mode")) {
+      if (!publisherColumns.has("local_cli_enabled")) {
         this.#database.exec(
-          "ALTER TABLE publishers ADD COLUMN credential_mode TEXT NOT NULL DEFAULT 'disabled' CHECK (credential_mode IN ('disabled', 'local_preview'))",
+          "ALTER TABLE publishers ADD COLUMN local_cli_enabled INTEGER NOT NULL DEFAULT 0 CHECK (local_cli_enabled IN (0, 1))",
         );
       }
-      const publisherRunColumns = new Set(
-        (this.#database.prepare("PRAGMA table_info(publisher_runs)").all() as SqlRow[]).map((row) =>
-          requiredString(row, "name"),
-        ),
-      );
-      if (!publisherRunColumns.has("source_slices")) {
-        this.#database.exec("ALTER TABLE publisher_runs ADD COLUMN source_slices TEXT");
-      }
-      this.#database
-        .prepare(
-          `UPDATE publishers
-           SET credential_mode = 'disabled', schedule_state = 'unknown', token_hash = randomblob(32)
-           WHERE NOT EXISTS (
-             SELECT 1 FROM dashboard_manual_publishers mp WHERE mp.publisher_id = publishers.id
-           )`,
-        )
-        .run();
-      this.#database
-        .prepare(
-          `UPDATE publishers SET credential_mode = 'disabled'
-           WHERE id IN (SELECT publisher_id FROM dashboard_manual_publishers)`,
-        )
-        .run();
-      this.#database
-        .prepare(
-          `UPDATE item_enrichments SET priority = NULL, priority_reason = NULL
-           WHERE priority = 'critical' AND EXISTS (
-             SELECT 1 FROM items WHERE items.id = item_enrichments.item_id
-               AND items.priority <> 'critical'
-           )`,
-        )
-        .run();
       this.#assertDatabaseIntegrity();
-      this.#database.exec("PRAGMA user_version = 3;");
+      this.#database.exec("PRAGMA user_version = 4;");
     });
     const migratedVersion = this.#one(this.#database.prepare("PRAGMA user_version"));
     if (
@@ -750,6 +775,7 @@ export class DynaStore {
         stale_after_minutes: "INTEGER NOT NULL DEFAULT 1440",
         credential_mode:
           "TEXT NOT NULL DEFAULT 'disabled' CHECK (credential_mode IN ('disabled', 'local_preview'))",
+        local_cli_enabled: "INTEGER NOT NULL DEFAULT 0 CHECK (local_cli_enabled IN (0, 1))",
         required_source_slices: "TEXT",
         last_run_status: "TEXT NOT NULL DEFAULT 'never'",
         last_run_at: "TEXT",
@@ -1165,6 +1191,9 @@ export class DynaStore {
     const normalizedRequiredSlices = requiredSourceSlices
       ? normalizedRequiredSourceSlices(requiredSourceSlices)
       : undefined;
+    if (normalizedCredentialMode === "local_cli" && !normalizedRequiredSlices) {
+      throw new Error("A local CLI Dyna publisher requires an immutable source manifest.");
+    }
     const publisher = DynaPublisherSchema.parse({
       id: randomUUID(),
       name,
@@ -1183,8 +1212,9 @@ export class DynaStore {
           `
           INSERT INTO publishers (
             id, name, token_hash, schedule_id, schedule_title, schedule_state,
-            stale_after_minutes, credential_mode, required_source_slices, last_run_status, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'never', ?)
+            stale_after_minutes, credential_mode, local_cli_enabled,
+            required_source_slices, last_run_status, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'never', ?)
         `,
         )
         .run(
@@ -1195,7 +1225,8 @@ export class DynaStore {
           publisher.scheduleTitle ?? null,
           publisher.scheduleState,
           publisher.staleAfterMinutes,
-          publisher.credentialMode,
+          normalizedCredentialMode === "local_cli" ? "disabled" : normalizedCredentialMode,
+          normalizedCredentialMode === "local_cli" ? 1 : 0,
           publisher.requiredSourceSlices ? JSON.stringify(publisher.requiredSourceSlices) : null,
           publisher.createdAt,
         );
@@ -1207,14 +1238,19 @@ export class DynaStore {
     const secret = token();
     this.#transaction(() => {
       const publisher = this.#one(
-        this.#database.prepare("SELECT credential_mode, revoked_at FROM publishers WHERE id = ?"),
+        this.#database.prepare(
+          "SELECT credential_mode, local_cli_enabled, revoked_at FROM publishers WHERE id = ?",
+        ),
         publisherId,
       );
       if (!publisher || optionalString(publisher, "revoked_at")) {
         throw new Error("Active Dyna publisher was not found.");
       }
-      if (requiredString(publisher, "credential_mode") !== "local_preview") {
-        throw new Error("A disabled Dyna publisher cannot rotate credentials.");
+      if (
+        requiredString(publisher, "credential_mode") !== "local_preview" ||
+        requiredNumber(publisher, "local_cli_enabled") === 1
+      ) {
+        throw new Error("Only a local-preview Dyna publisher can rotate credentials.");
       }
       const changed = this.#database
         .prepare("UPDATE publishers SET token_hash = ? WHERE id = ? AND revoked_at IS NULL")
@@ -1223,6 +1259,35 @@ export class DynaStore {
       this.#audit("publisher.rotated", publisherId);
     });
     return secret;
+  }
+
+  enableLocalCliPublisher(publisherId: string): void {
+    this.#transaction(() => {
+      const publisher = this.#one(
+        this.#database.prepare(
+          "SELECT credential_mode, local_cli_enabled, required_source_slices, revoked_at FROM publishers WHERE id = ?",
+        ),
+        publisherId,
+      );
+      if (!publisher || optionalString(publisher, "revoked_at")) {
+        throw new Error("Active Dyna publisher was not found.");
+      }
+      if (requiredNumber(publisher, "local_cli_enabled") === 1) return;
+      if (requiredString(publisher, "credential_mode") !== "disabled") {
+        throw new Error("Only a disabled Dyna publisher can enable local CLI publication.");
+      }
+      if (!requiredSourceSlicesFromRow(publisher)) {
+        throw new Error("A local CLI Dyna publisher requires an immutable source manifest.");
+      }
+      const changed = this.#database
+        .prepare(
+          "UPDATE publishers SET local_cli_enabled = 1, token_hash = randomblob(32) WHERE id = ? AND credential_mode = 'disabled' AND local_cli_enabled = 0 AND revoked_at IS NULL",
+        )
+        .run(publisherId).changes;
+      if (changed !== 1) throw new Error("Active disabled Dyna publisher was not found.");
+      this.#touchDashboardsForPublisher(publisherId);
+      this.#audit("publisher.local_cli_enabled", publisherId);
+    });
   }
 
   revokePublisher(publisherId: string, purgePublishedData: boolean): void {
@@ -1242,7 +1307,7 @@ export class DynaStore {
       } else {
         this.#database
           .prepare(
-            "UPDATE publishers SET revoked_at = COALESCE(revoked_at, ?), schedule_state = 'unknown' WHERE id = ?",
+            "UPDATE publishers SET revoked_at = COALESCE(revoked_at, ?), schedule_state = 'unknown', local_cli_enabled = 0, token_hash = randomblob(32) WHERE id = ?",
           )
           .run(this.#now(), publisherId);
       }
@@ -1282,7 +1347,7 @@ export class DynaStore {
     this.#transaction(() => {
       const publisher = this.#one(
         this.#database.prepare(
-          "SELECT schedule_id, credential_mode, required_source_slices, revoked_at FROM publishers WHERE id = ?",
+          "SELECT schedule_id, credential_mode, local_cli_enabled, required_source_slices, revoked_at FROM publishers WHERE id = ?",
         ),
         publisherId,
       );
@@ -1290,10 +1355,7 @@ export class DynaStore {
       if (optionalString(publisher, "revoked_at")) {
         throw new Error("A revoked Dyna publisher cannot be bound to a schedule.");
       }
-      if (
-        schedule.state === "active" &&
-        requiredString(publisher, "credential_mode") === "disabled"
-      ) {
+      if (schedule.state === "active" && publisherCredentialModeFromRow(publisher) === "disabled") {
         throw new Error("A disabled Dyna publisher cannot use an active schedule.");
       }
       const currentScheduleId = optionalString(publisher, "schedule_id");
@@ -1406,7 +1468,7 @@ export class DynaStore {
     this.#transaction(() => {
       const row = this.#one(
         this.#database.prepare(
-          "SELECT schedule_title, schedule_state, stale_after_minutes, credential_mode, required_source_slices, revoked_at FROM publishers WHERE id = ?",
+          "SELECT schedule_title, schedule_state, stale_after_minutes, credential_mode, local_cli_enabled, required_source_slices, revoked_at FROM publishers WHERE id = ?",
         ),
         publisherId,
       );
@@ -1414,7 +1476,7 @@ export class DynaStore {
       if (optionalString(row, "revoked_at")) {
         throw new Error("A revoked Dyna publisher's schedule status cannot be updated.");
       }
-      if (schedule.state === "active" && requiredString(row, "credential_mode") === "disabled") {
+      if (schedule.state === "active" && publisherCredentialModeFromRow(row) === "disabled") {
         throw new Error("A disabled Dyna publisher cannot use an active schedule.");
       }
       const title = schedule.title ?? optionalString(row, "schedule_title");
@@ -1513,7 +1575,7 @@ export class DynaStore {
         : {}),
       scheduleState: requiredString(row, "schedule_state"),
       staleAfterMinutes,
-      credentialMode: requiredString(row, "credential_mode"),
+      credentialMode: publisherCredentialModeFromRow(row),
       ...(requiredSourceSlices ? { requiredSourceSlices } : {}),
       lastRunStatus: requiredString(row, "last_run_status"),
       ...(lastRunAt ? { lastRunAt } : {}),
@@ -1534,6 +1596,23 @@ export class DynaStore {
   publish(
     publisherId: string,
     secret: string,
+    items: readonly DynaPublishedItem[],
+    options: DynaPublishOptions,
+  ): DynaPublishResult {
+    return this.#publishAuthorized(publisherId, secret, items, options);
+  }
+
+  publishLocal(
+    publisherId: string,
+    items: readonly DynaPublishedItem[],
+    options: DynaPublishOptions,
+  ): DynaPublishResult {
+    return this.#publishAuthorized(publisherId, undefined, items, options);
+  }
+
+  #publishAuthorized(
+    publisherId: string,
+    secret: string | undefined,
     items: readonly DynaPublishedItem[],
     options: DynaPublishOptions,
   ): DynaPublishResult {
@@ -1608,19 +1687,24 @@ export class DynaStore {
     return this.#transaction(() => {
       const publisher = this.#one(
         this.#database.prepare(
-          "SELECT token_hash, credential_mode, required_source_slices, revoked_at FROM publishers WHERE id = ?",
+          "SELECT token_hash, credential_mode, local_cli_enabled, required_source_slices, revoked_at FROM publishers WHERE id = ?",
         ),
         publisherId,
       );
-      if (
-        !publisher ||
-        optionalString(publisher, "revoked_at") ||
-        requiredString(publisher, "credential_mode") !== "local_preview" ||
-        !hashesMatch(secret, publisher["token_hash"])
-      ) {
+      const credentialMatches = publisher
+        ? secret === undefined
+          ? requiredNumber(publisher, "local_cli_enabled") === 1
+          : requiredString(publisher, "credential_mode") === "local_preview" &&
+            requiredNumber(publisher, "local_cli_enabled") === 0 &&
+            hashesMatch(secret, publisher["token_hash"])
+        : false;
+      if (!publisher || optionalString(publisher, "revoked_at") || !credentialMatches) {
         throw new Error("Dyna publisher credentials are invalid.");
       }
       const requiredSourceSlices = requiredSourceSlicesFromRow(publisher);
+      if (secret === undefined && !requiredSourceSlices) {
+        throw new Error("A local CLI Dyna publisher requires an immutable source manifest.");
+      }
       if (requiredSourceSlices) {
         if (!sourceSlices) {
           throw new Error(

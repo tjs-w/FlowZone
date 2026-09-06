@@ -101,7 +101,7 @@ try {
   migrated.close();
 
   const versioned = new DatabaseSync(databasePath, { readOnly: true });
-  assert.equal(versioned.prepare("PRAGMA user_version").get().user_version, 3);
+  assert.equal(versioned.prepare("PRAGMA user_version").get().user_version, 4);
   assert.notDeepEqual(
     versioned.prepare("SELECT token_hash FROM publishers WHERE id = ?").get(publisher.publisher.id)
       .token_hash,

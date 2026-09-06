@@ -1,0 +1,47 @@
+#!/bin/sh
+
+set -eu
+
+# Codex scheduled jobs feed the normalized run through a PTY so they can close
+# stdin with EOF. Disable terminal echo before the job writes the payload; the
+# source records must never be copied into terminal/tool output.
+if [ -t 0 ]; then
+  if ! stty -echo -echonl 2>/dev/null; then
+    echo "FlowZone publish failed: unable to disable terminal input echo" >&2
+    exit 126
+  fi
+fi
+
+FLOWZONE_LAUNCHER_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
+FLOWZONE_PUBLISHER_PATH="$FLOWZONE_LAUNCHER_DIR/../server/dist/flowzone-publish.cjs"
+
+if [ ! -f "$FLOWZONE_PUBLISHER_PATH" ]; then
+  echo "FlowZone publish failed: missing bundled publisher at $FLOWZONE_PUBLISHER_PATH" >&2
+  exit 127
+fi
+
+if [ -n "${FLOWZONE_NODE_PATH:-}" ]; then
+  if [ ! -x "$FLOWZONE_NODE_PATH" ]; then
+    echo "FlowZone publish failed: FLOWZONE_NODE_PATH is not executable" >&2
+    exit 127
+  fi
+  exec "$FLOWZONE_NODE_PATH" "$FLOWZONE_PUBLISHER_PATH" "$@"
+fi
+
+for FLOWZONE_NODE_CANDIDATE in \
+  "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node" \
+  "/opt/homebrew/bin/node" \
+  "/usr/local/bin/node" \
+  "/usr/bin/node"
+do
+  if [ -x "$FLOWZONE_NODE_CANDIDATE" ]; then
+    exec "$FLOWZONE_NODE_CANDIDATE" "$FLOWZONE_PUBLISHER_PATH" "$@"
+  fi
+done
+
+if command -v node >/dev/null 2>&1; then
+  exec node "$FLOWZONE_PUBLISHER_PATH" "$@"
+fi
+
+echo "FlowZone publish failed: Node.js is unavailable; set FLOWZONE_NODE_PATH to a trusted Node.js executable" >&2
+exit 127

@@ -3,6 +3,19 @@ import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 
 describe("DynaStore lifecycle", () => {
+  test("publishes through the same-user local CLI boundary without prompt secrets", () => {
+    const fixture = resolve(import.meta.dir, "local-cli-publisher-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      disabledRejected: true,
+      disabledEnabled: true,
+      localCliPublished: true,
+      localPreviewSeparated: true,
+      revokedRejected: true,
+    });
+  });
+
   test("enforces scheduled-source, critical-priority, and publisher credential boundaries", () => {
     const fixture = resolve(import.meta.dir, "publication-boundaries-node-fixture.mjs");
     const result = spawnSync("node", [fixture], { encoding: "utf8" });

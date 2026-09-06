@@ -1,10 +1,10 @@
 # FlowZone architecture
 
-FlowZone is one MCP server process with one transport, one model-visible data router, and dedicated model-visible presentation tools. A fixed startup registry dispatches actions to independently owned plugins. Markdown Review and the Dyna executive dashboard are bundled.
+FlowZone is one MCP server process with one selected transport, one model-visible data router, and dedicated model-visible presentation tools. A fixed startup registry dispatches actions to independently owned plugins. Markdown Review and the Dyna executive dashboard are bundled.
 
 ```text
 Codex / MCP client
-        │ one local stdio transport
+        │ local stdio
         ▼
 flowzone(plugin, action, input)        model-visible data actions
         │
@@ -21,7 +21,7 @@ render_dyna_dashboard ───────────────> ui://flowzo
 plugin-owned typed helper tools       app-only
 ```
 
-The shipped transport is local stdio. A remote transport is not implied by this design; it would require an explicit identity, authentication, authorization, TLS, origin, CSRF, rate-limit, request-size, and audit model before release.
+The plugin transport is local stdio. Scheduled jobs publish separately through the installed plugin's absolute `<plugin-root>/bin/flowzone-publish --publisher <uuid>` launcher, which accepts one bounded JSON document on stdin and writes through the same validated Dyna store. The CLI relies on the current OS-user boundary; it does not add OAuth, Keychain, a network listener, or a model-visible secret.
 
 ## Public MCP surface
 
@@ -74,7 +74,7 @@ Skills are model workflow guidance only. A skill may explain which `plugin` and 
 
 ### In-process modules
 
-An in-process executor is a trusted bundled function. It receives validated input plus request ID, cancellation signal, and bounded progress reporting. It still must enforce plugin-domain policy such as Markdown canonical paths, file limits, or tenant authorization.
+An in-process executor is a trusted bundled function. It receives validated input plus request ID, cancellation signal, and bounded progress reporting. The executor still must enforce plugin-domain policy such as Markdown canonical paths, file limits, publisher identity, or tenant authorization.
 
 ### Allowlisted CLI/scripts
 
@@ -88,7 +88,7 @@ This is process hardening, not an OS sandbox. The child inherits FlowZone's OS i
 
 HTTP configuration uses a fixed credential-free HTTPS URL with no query, fragment, or redirect following. Headers are validated; sensitive headers come from a runtime credential provider. Requests and streamed JSON responses are bounded, timeout/cancellation-aware, and validated against the same result envelope as CLI adapters. Error bodies, credentials, raw stderr, and untrusted exception details never enter model-visible errors.
 
-FlowZone retries only explicitly idempotent actions and only retryable failures, with a small bounded backoff. Per-action concurrency and circuit-breaker limits contain repeated backend failure.
+FlowZone retries only explicitly idempotent actions and only retryable failures, with a small bounded backoff. Per-action concurrency and circuit-breaker limits contain repeated backend failure. The public HTTP MCP route additionally has a fixed process-local request limit; multi-instance deployments require an external shared limiter at the tunnel or reverse-proxy boundary.
 
 ## Presentation resources
 
@@ -108,7 +108,7 @@ Each presentation tool is bound to one fixed resource in the startup registry. U
 
 ## Dyna
 
-Dyna's scheduled jobs publish strict domain records, never a component tree. The incompatible `dyna/ui-v6` wire sends React only a Zod-validated, versioned snapshot and a view capability. A closed typed React catalog deterministically projects that snapshot; scheduled output cannot choose components or actions. React uses Apps SDK UI buttons, badges, inputs, text areas, alerts, icons, and theme tokens; native semantic controls cover simple filters and disclosure, while small Dyna-owned structures provide the product-specific attention ledger, five-stage rail, and responsive inspector. SQLite persistence supports many dashboards and native schedule bindings, source-completion-ordered atomic run slices, non-destructive partial upserts, publisher-scoped source-reference identity, cadence-aware freshness, versioned enrichment overlays, lifecycle controls, retry-safe annotations, monotonic host-scoped task links, and a leased action-request state machine. Schema-version and integrity checks are transactional; limits cap the inventory at 100 dashboards and 100 publishers, each dashboard at 50 schedules, and each item at eight task bindings, with in-flight task creation reserving capacity. Verified private point-in-time backups are store-only. Snapshot selection, full-group sequencing, ordering, and counts happen in SQL before details for at most 200 cards are batch-loaded. The browser advertises and capability-detects the standard MCP Apps fullscreen mode, respects the host-selected presentation, and offers explicit expansion; the protocol leaves left/right docking to the host. FlowZone retains a five-row inline brief on fine-pointer desktops, a four-row touch/mobile brief, and detail access through a wide side inspector or narrow focused route. The browser can prepare a revision- and fingerprint-bound allowlisted request; the controller revalidates those preconditions at claim time, while native task creation, navigation, and status inspection remain in the current authenticated Codex task. A bounded model-visible `search-items` action supports headless hosts and discovery from the main conversation. Publisher creation is secret-free and disabled by default; local-preview credential issuance is explicit and production scheduling remains paused until the host supplies protected schedule-bound authentication.
+Dyna's scheduled jobs publish strict domain records, never a component tree. The incompatible `dyna/ui-v6` wire sends React only a Zod-validated, versioned snapshot and a view capability. A closed typed React catalog deterministically projects that snapshot; scheduled output cannot choose components or actions. React uses Apps SDK UI buttons, badges, inputs, text areas, alerts, icons, and theme tokens; native semantic controls cover simple filters and disclosure, while small Dyna-owned structures provide the product-specific attention ledger, five-stage rail, and responsive inspector. SQLite persistence supports many dashboards and native schedule bindings, source-completion-ordered atomic run slices, non-destructive partial upserts, publisher-scoped source-reference identity, cadence-aware freshness, versioned enrichment overlays, lifecycle controls, retry-safe annotations, monotonic host-scoped task links, and a leased action-request state machine. Schema-version and integrity checks are transactional; limits cap the inventory at 100 dashboards and 100 publishers, each dashboard at 50 schedules, and each item at eight task bindings, with in-flight task creation reserving capacity. Verified private point-in-time backups are store-only. Snapshot selection, full-group sequencing, ordering, and counts happen in SQL before details for at most 200 cards are batch-loaded. The browser advertises and capability-detects the standard MCP Apps fullscreen mode, respects the host-selected presentation, and offers explicit expansion; the protocol leaves left/right docking to the host. FlowZone retains a five-row inline brief on fine-pointer desktops, a four-row touch/mobile brief, and detail access through a wide side inspector or narrow focused route. The browser can prepare a revision- and fingerprint-bound allowlisted request; the controller revalidates those preconditions at claim time, while native task creation, navigation, and status inspection remain in the current authenticated Codex task. A bounded model-visible `search-items` action supports headless hosts and discovery from the main conversation. Local scheduled publishers use the installed fixed-ID CLI and the accepted same-user trust boundary; local-preview credential issuance remains explicit and non-production.
 
 See [docs/dyna.md](./docs/dyna.md) for the full boundary, implementation plan, and physical mobile Remote acceptance gate.
 
@@ -123,7 +123,7 @@ The Markdown source remains canonical. Existing review submission schemas, state
 1. Implement a plugin-owned factory and schemas without importing another plugin's internal modules.
 2. Select one executor type and document its trust boundary. For CLI or HTTP, keep every destination and command field in static registration code.
 3. Register a dedicated presentation tool/resource for any UI view and keep helper tools typed and app-only.
-4. Add the factory to the fixed `plugins` array in `server/src/main.ts`.
+4. Add the factory to the fixed `plugins` array in `server/src/runtime.ts`.
 5. Add schema, error, cancellation, size, privacy, and integration tests through the public `flowzone` call.
 6. Update the skill only for invocation guidance, rotate the plugin cachebuster, rebuild checked-in artifacts, and run `bun run verify` plus Firefox acceptance.
 

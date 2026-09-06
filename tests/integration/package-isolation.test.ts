@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -17,8 +19,16 @@ async function installShippingArtifacts(pluginRoot: string): Promise<void> {
     copyFile(join(sourceRoot, ".mcp.json"), join(pluginRoot, ".mcp.json")),
     copyFile(join(sourceRoot, "bin", "flowzone-mcp"), join(pluginRoot, "bin", "flowzone-mcp")),
     copyFile(
+      join(sourceRoot, "bin", "flowzone-publish"),
+      join(pluginRoot, "bin", "flowzone-publish"),
+    ),
+    copyFile(
       join(sourceRoot, "server", "dist", "server.cjs"),
       join(pluginRoot, "server", "dist", "server.cjs"),
+    ),
+    copyFile(
+      join(sourceRoot, "server", "dist", "flowzone-publish.cjs"),
+      join(pluginRoot, "server", "dist", "flowzone-publish.cjs"),
     ),
     copyFile(join(sourceRoot, "web", "flowzone.html"), join(pluginRoot, "web", "flowzone.html")),
     copyFile(
@@ -36,6 +46,7 @@ async function installShippingArtifacts(pluginRoot: string): Promise<void> {
     ),
   ]);
   await chmod(join(pluginRoot, "bin", "flowzone-mcp"), 0o755);
+  await chmod(join(pluginRoot, "bin", "flowzone-publish"), 0o755);
 }
 
 async function createShippingTransport(
@@ -82,6 +93,25 @@ describe("isolated shipping package", () => {
     await installShippingArtifacts(pluginRoot);
     const markdownPath = join(temporaryRoot, "review.md");
     await writeFile(markdownPath, "# Isolated package\n");
+    const nodePath = spawnSync("node", ["-p", "process.execPath"], {
+      encoding: "utf8",
+    }).stdout.trim();
+
+    const publish = spawnSync(
+      join(pluginRoot, "bin", "flowzone-publish"),
+      ["--publisher", randomUUID()],
+      {
+        encoding: "utf8",
+        env: {
+          FLOWZONE_DATA_DIR: temporaryRoot,
+          FLOWZONE_NODE_PATH: nodePath,
+          PATH: "/usr/bin:/bin",
+        },
+        input: "{}",
+      },
+    );
+    expect(publish.status).toBe(1);
+    expect(publish.stderr).toContain("schema-valid JSON run");
 
     const client = new Client({ name: "isolated-package-test", version: "0.1.0" });
     const transport = await createShippingTransport(pluginRoot, temporaryRoot);
@@ -113,6 +143,10 @@ describe("isolated shipping package", () => {
     await mkdir(join(pluginRoot, "web", "dist"), { recursive: true });
     await Promise.all([
       writeFile(join(pluginRoot, "server", "dist", "server.cjs"), "throw new Error('old');\n"),
+      writeFile(
+        join(pluginRoot, "server", "dist", "flowzone-publish.cjs"),
+        "throw new Error('old');\n",
+      ),
       writeFile(join(pluginRoot, "web", "flowzone.html"), "<title>Old review</title>\n"),
       writeFile(join(pluginRoot, "web", "dist", "flowzone.js"), "old\n"),
       writeFile(join(pluginRoot, "web", "dyna.html"), "<title>Old Dyna</title>\n"),
@@ -121,6 +155,9 @@ describe("isolated shipping package", () => {
     ]);
 
     await installShippingArtifacts(pluginRoot);
+    expect(
+      await readFile(join(pluginRoot, "server", "dist", "flowzone-publish.cjs"), "utf8"),
+    ).toContain("flowzone-publish failed");
 
     const client = new Client({ name: "upgrade-package-test", version: "0.1.0" });
     const transport = await createShippingTransport(pluginRoot, temporaryRoot);

@@ -22,6 +22,16 @@ const outputs = [
     } satisfies BuildOptions,
   },
   {
+    source: resolve(root, "server/src/publish.ts"),
+    destination: "server/dist/flowzone-publish.cjs",
+    options: {
+      platform: "node",
+      format: "cjs",
+      target: "node22",
+      minify: true,
+    } satisfies BuildOptions,
+  },
+  {
     source: resolve(root, "packages/host-mcp-apps/src/browser-entry.ts"),
     destination: "web/dist/flowzone.js",
     options: {
@@ -56,6 +66,11 @@ async function compile(): Promise<void> {
       outfile: resolve(temporaryRoot, output.destination),
       sourcemap: false,
     });
+    if (output.destination === "server/dist/flowzone-publish.cjs") {
+      const publisherPath = resolve(temporaryRoot, output.destination);
+      const publisher = await readFile(publisherPath, "utf8");
+      await writeFile(publisherPath, publisher.replace(/[ \t]+$/gm, ""));
+    }
   }
   const dynaStylesheetPath = resolve(temporaryRoot, "web/dist/dyna.css");
   const dynaStylesheet = await readFile(dynaStylesheetPath, "utf8");
@@ -83,7 +98,10 @@ async function assertArtifactParity(): Promise<void> {
 }
 
 async function assertBudgets(): Promise<void> {
-  const serverBytes = (await stat(resolve(temporaryRoot, "server/dist/server.cjs"))).size;
+  const serverBytes = await Promise.all([
+    stat(resolve(temporaryRoot, "server/dist/server.cjs")),
+    stat(resolve(temporaryRoot, "server/dist/flowzone-publish.cjs")),
+  ]).then((values) => values.reduce((total, value) => total + value.size, 0));
   const browserBytes = await Promise.all([
     stat(resolve(root, "web/flowzone.html")),
     stat(resolve(temporaryRoot, "web/dist/flowzone.js")),
@@ -94,8 +112,8 @@ async function assertBudgets(): Promise<void> {
     stat(resolve(temporaryRoot, "web/dist/dyna.css")),
   ]).then((values) => values.reduce((total, value) => total + value.size, 0));
 
-  if (serverBytes > 2.5 * 1024 * 1024) {
-    throw new Error(`Server bundle is ${serverBytes} bytes; the limit is 2.5 MiB.`);
+  if (serverBytes > 5 * 1024 * 1024) {
+    throw new Error(`Server bundles are ${serverBytes} bytes; the combined limit is 5 MiB.`);
   }
   // Mermaid is bundled into the single offline MCP Apps resource so the strict CSP
   // never needs a script or module origin. Keep the resulting one-file payload bounded.

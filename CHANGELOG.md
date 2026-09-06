@@ -2,7 +2,10 @@
 
 ## Unreleased
 
-- Advanced Dyna to the incompatible `dyna/ui-v6` and `dyna/snapshot-v4` wires plus SQLite schema v3, persisting latest per-source run health for compact dashboard diagnosis while preserving failed slices during partial refreshes.
+- Advanced Dyna to the incompatible `dyna/ui-v6` and `dyna/snapshot-v4` wires plus SQLite schema v4, persisting latest per-source run health and local CLI publisher state while preserving failed slices during partial refreshes.
+- Added the bundled `flowzone-publish` CLI for schema-valid scheduled publication with a fixed publisher ID and no prompt secret, using the explicit same-user local trust boundary.
+- Disabled PTY input echo in `flowzone-publish` and added a real PTY regression test so scheduled source records never enter terminal output.
+- Added an idempotent transition that enables local CLI publication for an existing manifest-backed disabled publisher without changing its immutable schedule identity or dashboard bindings.
 - Made scheduled publishing fail closed: publishers are secret-free and disabled by default, disabled publishers cannot activate, publish, or rotate, scheduled records cannot impersonate manual to-dos, and enrichment cannot manufacture source-level critical urgency.
 - Revalidated Dyna's component stack against current json-render and Apps SDK UI contracts: retained host-themed Apps SDK UI atoms, native bounded controls, and product-specific ledger/rail/inspector structures, while removing a discard-only json-render projection that had drifted from the authoritative strict snapshot and typed React catalog.
 - Expanded the compact inline brief to five complete desktop rows while retaining four on touch/mobile, and opened details in a non-modal side inspector on every wide host—including inline-only Codex surfaces—without losing filters, selection, or scroll position.

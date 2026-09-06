@@ -14,7 +14,7 @@ Installing FlowZone installs the shared `flowzone` MCP server and both qualified
 - Host-selected MCP Apps presentation with an explicit fullscreen expansion action, host-owned docking, and a usable inline fallback with wide-screen detail inspection.
 - Re-rendering after scheduled updates, durable conversation-driven enrichment overlays, annotations, and one shared item set projected as a priority queue or Codex progress pipeline with one-line outcomes and follow-ups.
 - Revision-bound, claim-revalidated, per-attempt idempotent action requests with expiring leases for native Codex task creation, existing-task attachment, navigation, and status inspection.
-- Scheduled publishers are disabled and secret-free by default; model-visible credentials require an explicit trusted local-preview opt-in while protected host authentication remains a release gate.
+- Scheduled publishers can use the bundled `<plugin-root>/bin/flowzone-publish` CLI with a fixed publisher ID and schema-valid JSON stdin. It relies on the local macOS user boundary and stores no publisher secret in the prompt.
 - A dedicated `ui://flowzone/dyna/v6.html` resource below a 750 KiB payload budget with a closed network CSP and no clipboard permission.
 
 See [Dyna executive dashboards](./docs/dyna.md) for requirements, architecture, action protocol, implementation status, and the mobile Remote acceptance matrix.
@@ -38,7 +38,7 @@ The Markdown source is always canonical. The component is a read-only review sur
 
 ```text
 Codex / MCP host
-       │ one stdio transport
+       │ local stdio
        ▼
 FlowZone McpServer
        ├── flowzone(plugin, action, input) · data actions
@@ -148,7 +148,7 @@ bun install --frozen-lockfile
 bun run verify
 ```
 
-Development and CI use the pinned Bun 1.4 toolchain. `bun run security:audit` resolves that exact audit runtime through the public npm registry, so an older Bun earlier on a developer's `PATH` cannot misread the v1.4 lockfile. Installed plugins do not require Bun: the repository checks in a readable Node-compatible `server.cjs` plus minified browser bundles. Rebuild after changing TypeScript source:
+Development and CI use the pinned Bun 1.4 toolchain. `bun run security:audit` resolves that exact audit runtime through the public npm registry, so an older Bun earlier on a developer's `PATH` cannot misread the v1.4 lockfile. Installed plugins do not require Bun: the repository checks in readable Node-compatible stdio and protected HTTP server bundles plus minified browser bundles. Rebuild after changing TypeScript source:
 
 ```sh
 bun run build
@@ -212,8 +212,9 @@ Review only files you intend to expose to the local FlowZone process. Submitted 
 | `packages/review-ui/`              | Reusable DOM controller over host-neutral ports                |
 | `packages/host-mcp-apps/`          | Standard MCP Apps host adapter and native browser image decode |
 | `packages/mcp-server/`             | Generic FlowZone registry plus bundled plugin factories        |
-| `server/src/main.ts`               | Static plugin list and single Node stdio composition root      |
-| `server/dist/server.cjs`           | Checked-in executable MCP server bundle                        |
+| `server/src/main.ts`, `runtime.ts` | Static plugin list and Node stdio composition root             |
+| `server/src/publish.ts`            | Strict local scheduled-publication CLI                         |
+| `server/dist/*.cjs`                | Checked-in MCP server and publisher CLI bundles                |
 | `web/flowzone.html`                | Universal accessible FlowZone UI shell                         |
 | `web/dist/flowzone.js`             | Checked-in minified MCP Apps UI bundle                         |
 | `web/dyna.html`, `web/dist/dyna.*` | Dedicated checked-in Dyna MCP Apps resource                    |

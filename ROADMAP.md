@@ -7,7 +7,7 @@ FlowZone keeps future plugins and unshipped host integrations explicit rather th
 - Add a second bundled plugin to validate the published contracts and universal view registry against a non-document workflow.
 - Add optional app-only plugin-scoped health diagnostics without widening the single model-visible router.
 - Evaluate stronger per-adapter OS isolation for CLI plugins; the current fixed-command controls intentionally do not claim to sandbox trusted child processes.
-- Evaluate Streamable HTTP only with an explicit deployment model and the required authentication, authorization, TLS, CORS, CSRF, request-size, and rate-limit controls. Local stdio remains the shipped transport.
+- Consider stronger cross-user or remote publisher authentication only if Dyna moves beyond its current single-user local trust boundary.
 
 ## 0.2.0 portability and browser acceptance
 

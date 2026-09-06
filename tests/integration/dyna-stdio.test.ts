@@ -85,9 +85,7 @@ describe("Dyna checked-in Node bundle", () => {
       const disabledPublisherEnvelope = record(
         record(disabledPublisherResult.structuredContent)["result"],
       );
-      expect(disabledPublisherEnvelope["credentialHandling"]).toBe(
-        "disabled-pending-protected-auth",
-      );
+      expect(disabledPublisherEnvelope["credentialHandling"]).toBe("disabled-no-publication");
       expect(Object.hasOwn(disabledPublisherEnvelope, "secret")).toBe(false);
       expect(JSON.stringify(disabledPublisherResult.structuredContent)).not.toContain('"secret"');
 

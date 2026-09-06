@@ -2,7 +2,7 @@
 
 Report suspected vulnerabilities privately through the repository owner's GitHub security contact rather than a public issue when disclosure could expose users.
 
-FlowZone's shipped boundary is one local stdio server running as the current OS user. It is not a privilege boundary or an OS sandbox. Review plugins, CLI adapters, and backend registrations before bundling them.
+FlowZone ships a local stdio server and a local scheduled-publication CLI, both running as the current OS user. Neither is a privilege boundary or an OS sandbox. Review plugins and CLI adapters before deployment.
 
 The public attack surface is one strict router tool. Registrations are static, copied at startup, bounded, and schema-validated. Component helpers are centrally marked app-only. Complete Markdown, image bytes, and UI payloads remain private MCP metadata. Stable errors omit request content, secrets, backend bodies, raw stderr, and unexpected exception text.
 
@@ -16,4 +16,4 @@ Dyna publishers submit bounded domain records, never components, HTML, code, pro
 
 The SQLite store rejects unknown future schemas and rolls back migrations that fail integrity or foreign-key checks. Dashboard schedule and item task-link cardinality are capped, including reservations for task creations whose external effect may already exist. Backups use a private same-directory staging file, integrity verification, restrictive permissions, and no-overwrite publication; backup and offline restore remain trusted operator operations rather than model-visible tools.
 
-Publisher credentials, view capabilities, claim tokens, and completion tokens are stored only as hashes. The one-time publisher credential is nevertheless visible to the model at creation or rotation and remains exposed if copied into a scheduled prompt. Until Codex provides protected scheduled-task credentials, Dyna publishing is a trusted single-user local preview suitable only for non-production data.
+View capabilities, claim tokens, completion tokens, and optional local-preview credentials are stored only as hashes. The installed `<plugin-root>/bin/flowzone-publish --publisher <id>` launcher uses no secret: the fixed publisher record, required immutable source manifest, dashboard bindings, schema validation, and per-user database permissions bound its writes. The accepted tradeoff is that any process running as the same macOS user can publish through a registered `local_cli` publisher. Use this mode only when that single-user trust boundary is acceptable. Connector credentials, including a manually authenticated Outlook session, remain owned by the host connector and never enter Dyna.

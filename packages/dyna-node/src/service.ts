@@ -52,6 +52,14 @@ export class DynaService {
     return this.store.publish(publisherId, secret, items, options);
   }
 
+  publishLocal(
+    publisherId: string,
+    items: readonly DynaPublishedItem[],
+    options: DynaPublishOptions,
+  ): DynaPublishResult {
+    return this.store.publishLocal(publisherId, items, options);
+  }
+
   snapshot(dashboardId: string) {
     return DynaDashboardSnapshotSchema.parse(this.store.snapshot(dashboardId));
   }

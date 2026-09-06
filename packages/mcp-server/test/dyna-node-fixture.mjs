@@ -18,9 +18,9 @@ function action(actions, id) {
   return found;
 }
 
-async function execute(target, input) {
+async function execute(target, input, executionContext = context) {
   if (target.executor.kind !== "module") throw new Error("Expected a module action");
-  return (await target.executor.execute(input, context)).result;
+  return (await target.executor.execute(input, executionContext)).result;
 }
 
 const service = new DynaService({ databasePath: ":memory:" });
@@ -36,9 +36,17 @@ try {
     name: "Executive rollup",
     requiredSourceSlices,
   });
-  assert.equal(created.credentialHandling, "disabled-pending-protected-auth");
+  assert.equal(created.credentialHandling, "disabled-no-publication");
   assert.equal("secret" in created, false);
   assert.equal(created.publisher.credentialMode, "disabled");
+  assert.equal(
+    action(actions, "create-publisher").inputSchema.safeParse({
+      name: "Local CLI",
+      requiredSourceSlices,
+      credentialMode: "local_cli",
+    }).success,
+    true,
+  );
   assert.equal(
     action(actions, "create-publisher").inputSchema.safeParse({ name: "Missing manifest" }).success,
     false,
@@ -82,9 +90,22 @@ try {
     }),
     /disabled Dyna publisher cannot use an active schedule/,
   );
+  await execute(action(actions, "enable-local-cli-publisher"), { publisherId: publisher.id });
+  await execute(action(actions, "enable-local-cli-publisher"), { publisherId: publisher.id });
+  await execute(action(actions, "update-schedule-status"), {
+    publisherId: publisher.id,
+    scheduleState: "active",
+    requiredSourceSlices,
+  });
+  assert.equal(
+    (await execute(action(actions, "list-publishers"), {})).publishers.find(
+      ({ id }) => id === publisher.id,
+    )?.credentialMode,
+    "local_cli",
+  );
   await assert.rejects(
     execute(action(actions, "rotate-publisher-secret"), { publisherId: publisher.id }),
-    /disabled Dyna publisher cannot rotate credentials/,
+    /Only a local-preview Dyna publisher can rotate credentials/,
   );
 
   const localPreview = await execute(action(actions, "create-publisher"), {
@@ -106,6 +127,35 @@ try {
     sourceSlices: requiredSourceSlices.map((slice) => ({ ...slice, status: "succeeded" })),
     items: [],
   });
+
+  const localCli = await execute(action(actions, "create-publisher"), {
+    name: "Local scheduled publisher",
+    requiredSourceSlices,
+    credentialMode: "local_cli",
+  });
+  assert.equal(localCli.credentialHandling, "local-cli-user-boundary");
+  assert.equal(localCli.publisher.credentialMode, "local_cli");
+  assert.equal("secret" in localCli, false);
+  await execute(action(actions, "bind-schedule"), {
+    dashboardId: dashboard.id,
+    publisherId: localCli.publisher.id,
+    scheduleId: "local-cli-schedule",
+    scheduleTitle: "Local CLI schedule",
+    scheduleState: "active",
+    requiredSourceSlices,
+  });
+  await assert.rejects(
+    execute(action(actions, "publish-run"), {
+      publisherId: localCli.publisher.id,
+      runId: "local-cli-mcp-run",
+      sourceCompletedAt,
+      mode: "replace",
+      status: "succeeded",
+      sourceSlices: requiredSourceSlices.map((slice) => ({ ...slice, status: "succeeded" })),
+      items: [],
+    }),
+    /invalid_type/,
+  );
 
   assert.equal(
     action(actions, "publish-run").inputSchema.safeParse({
@@ -184,7 +234,11 @@ try {
       createSchema: true,
       disabledByDefault: true,
       disabledEnforced: true,
+      disabledUpgraded: true,
       localPreviewOperational: true,
+      localCliRegistered: true,
+      localCliSecretFree: true,
+      localCliMcpPublishSeparated: true,
       scheduledManualRejected: true,
       latestSlicesExposed: true,
       manifestRequired: true,

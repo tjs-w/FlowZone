@@ -78,7 +78,13 @@ const PublisherCreationResultSchema = z.discriminatedUnion("credentialHandling",
   z
     .object({
       publisher: DynaPublisherSchema,
-      credentialHandling: z.literal("disabled-pending-protected-auth"),
+      credentialHandling: z.literal("disabled-no-publication"),
+    })
+    .strict(),
+  z
+    .object({
+      publisher: DynaPublisherSchema,
+      credentialHandling: z.literal("local-cli-user-boundary"),
     })
     .strict(),
   z
@@ -89,6 +95,7 @@ const PublisherCreationResultSchema = z.discriminatedUnion("credentialHandling",
     })
     .strict(),
 ]);
+
 const CompletionInputSchema = z.discriminatedUnion("outcome", [
   z
     .object({
@@ -531,7 +538,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
         id: "create-publisher",
         title: "Create Dyna schedule publisher",
         description:
-          "Create a Dyna publisher with its complete immutable required source manifest. The default discards the one-time credential so publication stays disabled pending protected host authentication; only an explicit trusted local-preview mode returns a model-visible credential.",
+          "Create a Dyna publisher with its complete immutable required source manifest. Local CLI mode publishes without a prompt secret inside the same-user macOS trust boundary; only explicit local-preview mode returns a model-visible credential.",
         inputSchema: z
           .object({
             name: z.string().trim().min(1).max(96),
@@ -571,7 +578,15 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
               return {
                 result: {
                   publisher: created.publisher,
-                  credentialHandling: "disabled-pending-protected-auth" as const,
+                  credentialHandling: "disabled-no-publication" as const,
+                },
+              };
+            }
+            if (credentialMode === "local_cli") {
+              return {
+                result: {
+                  publisher: created.publisher,
+                  credentialHandling: "local-cli-user-boundary" as const,
                 },
               };
             }
@@ -588,9 +603,12 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
           },
         },
         summarize(result) {
-          return PublisherCreationResultSchema.parse(result).credentialHandling ===
-            "disabled-pending-protected-auth"
-            ? "Created a Dyna publisher with publication disabled pending protected host authentication."
+          const credentialHandling = PublisherCreationResultSchema.parse(result).credentialHandling;
+          if (credentialHandling === "disabled-no-publication") {
+            return "Created a Dyna publisher with publication disabled.";
+          }
+          return credentialHandling === "local-cli-user-boundary"
+            ? "Created a Dyna publisher for secret-free local CLI publication."
             : "Created a Dyna publisher with a model-visible credential for explicitly authorized trusted non-production local preview.";
         },
       },
@@ -619,6 +637,23 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
                 credentialHandling: "model-visible-trusted-local-preview-only" as const,
               },
             };
+          },
+        },
+      },
+      {
+        id: "enable-local-cli-publisher",
+        title: "Enable local Dyna publisher",
+        description:
+          "Idempotently enable same-user local CLI publication for an existing disabled publisher with an immutable source manifest.",
+        inputSchema: z.object({ publisherId: z.uuid() }).strict(),
+        outputSchema: EmptyResultSchema,
+        risk: { readOnly: false, destructive: false, openWorld: false, idempotent: true },
+        executor: {
+          kind: "module",
+          execute(input) {
+            const { publisherId } = z.object({ publisherId: z.uuid() }).strict().parse(input);
+            service.store.enableLocalCliPublisher(publisherId);
+            return { result: { ok: true as const } };
           },
         },
       },
@@ -768,7 +803,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
         id: "publish-run",
         title: "Publish scheduled Dyna run",
         description:
-          "Validate and publish bounded email, messaging, source-control, TWG, skill, or Codex records from an authenticated scheduled run, exactly covering any registered source manifest.",
+          "Validate and publish bounded email, messaging, source-control, TWG, skill, or Codex records with an explicit local-preview secret. Local schedules use the installed plugin's separate flowzone-publish launcher.",
         inputSchema: z
           .object({
             publisherId: z.uuid(),
@@ -808,15 +843,16 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
               })
               .strict()
               .parse(input);
+            const options = {
+              runId: parsed.runId,
+              sourceCompletedAt: parsed.sourceCompletedAt,
+              mode: parsed.mode,
+              status: parsed.status,
+              ...(parsed.failureMessage ? { failureMessage: parsed.failureMessage } : {}),
+              ...(parsed.sourceSlices ? { sourceSlices: parsed.sourceSlices } : {}),
+            };
             return {
-              result: service.publish(parsed.publisherId, parsed.secret, parsed.items, {
-                runId: parsed.runId,
-                sourceCompletedAt: parsed.sourceCompletedAt,
-                mode: parsed.mode,
-                status: parsed.status,
-                ...(parsed.failureMessage ? { failureMessage: parsed.failureMessage } : {}),
-                ...(parsed.sourceSlices ? { sourceSlices: parsed.sourceSlices } : {}),
-              }),
+              result: service.publish(parsed.publisherId, parsed.secret, parsed.items, options),
             };
           },
         },

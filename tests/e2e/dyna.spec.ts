@@ -265,6 +265,50 @@ test("reflows at 320 CSS pixels without horizontal overflow", async ({ page }) =
   }
 });
 
+test("keeps a failed scheduled source readable at desktop and mobile widths", async ({ page }) => {
+  await page.setViewportSize({ width: 780, height: 1_024 });
+  await page.goto("/dyna?failed-schedule=1");
+
+  const schedule = page.locator(".dyna-schedule");
+  const title = schedule.locator("strong");
+  const metadata = schedule.locator(":scope > .dyna-meta");
+  await expect(title).toHaveText("Browser fixture schedule");
+  await expect(schedule.getByText("failed", { exact: true })).toBeVisible();
+  await expect(metadata).toHaveCount(2);
+  await expect(metadata.nth(1)).toContainText("Outlook unavailable");
+
+  const desktop = await schedule.evaluate((element) => {
+    const titleElement = element.querySelector("strong");
+    const metadataElements = [...element.querySelectorAll(":scope > .dyna-meta")];
+    const box = element.getBoundingClientRect();
+    return {
+      height: box.height,
+      width: box.width,
+      titleWidth: titleElement?.getBoundingClientRect().width ?? 0,
+      metadataWidths: metadataElements.map((entry) => entry.getBoundingClientRect().width),
+    };
+  });
+  expect(desktop.titleWidth).toBeGreaterThan(desktop.width / 2);
+  expect(desktop.metadataWidths.every((width) => width > desktop.width * 0.9)).toBe(true);
+  expect(desktop.height).toBeLessThan(180);
+
+  await page.setViewportSize({ width: 320, height: 720 });
+  const mobile = await schedule.evaluate((element) => {
+    const titleElement = element.querySelector("strong");
+    const box = element.getBoundingClientRect();
+    return {
+      height: box.height,
+      width: box.width,
+      titleWidth: titleElement?.getBoundingClientRect().width ?? 0,
+      pageClientWidth: document.documentElement.clientWidth,
+      pageScrollWidth: document.documentElement.scrollWidth,
+    };
+  });
+  expect(mobile.titleWidth).toBeGreaterThan(140);
+  expect(mobile.height).toBeLessThan(240);
+  expect(mobile.pageScrollWidth).toBeLessThanOrEqual(mobile.pageClientWidth);
+});
+
 test("requests the expanded Codex work surface when the host supports it", async ({ page }) => {
   await page.getByRole("button", { name: "Expand dashboard" }).click();
   await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "fullscreen");

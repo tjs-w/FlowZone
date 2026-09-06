@@ -88,6 +88,7 @@ async function createDynaFixture(
   includePipeline = false,
   longContent = false,
   olderAnnotationMatch = false,
+  failedSchedule = false,
 ): Promise<unknown> {
   const fixtureId = randomUUID();
   const now = new Date().toISOString();
@@ -139,7 +140,7 @@ async function createDynaFixture(
   ) {
     throw new Error("Could not create the Dyna browser fixture");
   }
-  await client.callTool({
+  const binding = await client.callTool({
     name: "flowzone",
     arguments: {
       plugin: "dyna",
@@ -153,7 +154,8 @@ async function createDynaFixture(
       },
     },
   });
-  await client.callTool({
+  if (binding.isError) throw new Error("Could not bind the Dyna browser fixture schedule");
+  const publication = await client.callTool({
     name: "flowzone",
     arguments: {
       plugin: "dyna",
@@ -164,66 +166,75 @@ async function createDynaFixture(
         runId: "browser-fixture-run",
         sourceCompletedAt: now,
         mode: "replace",
-        status: "succeeded",
-        items: Array.from({ length: itemCount }, (_, index) => ({
-          externalId: `fixture:${String(index)}`,
-          sourceRef: sources[index % sources.length],
-          sourceScope: "team/project",
-          title:
-            index === 0
-              ? longContent
-                ? `Review-${"x".repeat(193)}`
-                : "Review the release merge request"
-              : `Additional priority ${String(index)}`,
-          summary:
-            index === 0
-              ? longContent
-                ? `Context-${"y".repeat(992)}`
-                : "The change is ready and waiting for an executive review."
-              : "A cross-functional signal needs a clear owner and a bounded next move.",
-          priority: index === 0 ? "critical" : index === 3 ? "high" : "normal",
-          priorityReason: "The release window closes today.",
-          sourceUpdatedAt: now,
-          labels: ["release", "decision"],
-          people:
-            index === 2
-              ? [
-                  {
-                    displayName: "Architecture council",
-                    leadershipLevel: "architect",
-                    relationship: "neighboring_org",
-                    involvement: "mentioned",
-                    provenance: "source_metadata",
-                    confidence: "medium",
-                  },
-                ]
-              : [
-                  {
-                    displayName: index === 0 ? "Avery Chen" : "Morgan Lee",
-                    title: index === 0 ? "Chief Technology Officer" : "Senior Director",
-                    leadershipLevel: index === 0 ? "cto" : "senior_director",
-                    relationship: index === 0 ? "management_chain" : "neighboring_org",
-                    involvement: index === 0 ? "approver" : "sender",
-                    provenance: "declared_source",
-                    confidence: "high",
-                  },
-                ],
-          attention:
-            index === 0
-              ? "Confirm the risk posture and either approve the release or name the blocker."
-              : "Turn this signal into an owned decision before it becomes follow-up debt.",
-          plan: ["Validate the latest context", "Resolve the decision owner"],
-          nextSteps: [
-            {
-              label: index === 0 ? "Review the release diff" : "Confirm the accountable owner",
-              owner: "You",
-            },
-            { label: "Record the decision in the source thread" },
-          ],
-        })),
+        status: failedSchedule ? "failed" : "succeeded",
+        ...(failedSchedule
+          ? {
+              failureMessage:
+                "Outlook unavailable: saved read-only session expired and unattended authentication is not authorized. TWG rollup was also partial: Jira and Confluence reads succeeded, but GraphStore count failures left cross-source coverage incomplete.",
+            }
+          : {}),
+        items: failedSchedule
+          ? []
+          : Array.from({ length: itemCount }, (_, index) => ({
+              externalId: `fixture:${String(index)}`,
+              sourceRef: sources[index % sources.length],
+              sourceScope: "team/project",
+              title:
+                index === 0
+                  ? longContent
+                    ? `Review-${"x".repeat(193)}`
+                    : "Review the release merge request"
+                  : `Additional priority ${String(index)}`,
+              summary:
+                index === 0
+                  ? longContent
+                    ? `Context-${"y".repeat(992)}`
+                    : "The change is ready and waiting for an executive review."
+                  : "A cross-functional signal needs a clear owner and a bounded next move.",
+              priority: index === 0 ? "critical" : index === 3 ? "high" : "normal",
+              priorityReason: "The release window closes today.",
+              sourceUpdatedAt: now,
+              labels: ["release", "decision"],
+              people:
+                index === 2
+                  ? [
+                      {
+                        displayName: "Architecture council",
+                        leadershipLevel: "architect",
+                        relationship: "neighboring_org",
+                        involvement: "mentioned",
+                        provenance: "source_metadata",
+                        confidence: "medium",
+                      },
+                    ]
+                  : [
+                      {
+                        displayName: index === 0 ? "Avery Chen" : "Morgan Lee",
+                        title: index === 0 ? "Chief Technology Officer" : "Senior Director",
+                        leadershipLevel: index === 0 ? "cto" : "senior_director",
+                        relationship: index === 0 ? "management_chain" : "neighboring_org",
+                        involvement: index === 0 ? "approver" : "sender",
+                        provenance: "declared_source",
+                        confidence: "high",
+                      },
+                    ],
+              attention:
+                index === 0
+                  ? "Confirm the risk posture and either approve the release or name the blocker."
+                  : "Turn this signal into an owned decision before it becomes follow-up debt.",
+              plan: ["Validate the latest context", "Resolve the decision owner"],
+              nextSteps: [
+                {
+                  label: index === 0 ? "Review the release diff" : "Confirm the accountable owner",
+                  owner: "You",
+                },
+                { label: "Record the decision in the source thread" },
+              ],
+            })),
       },
     },
   });
+  if (publication.isError) throw new Error("Could not publish the Dyna browser fixture");
   let openedDyna = await client.callTool({
     name: "render_dyna_dashboard",
     arguments: { dashboardId },
@@ -700,6 +711,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
           requestUrl.searchParams.get("pipeline") === "1",
           requestUrl.searchParams.get("long-content") === "1",
           requestUrl.searchParams.get("older-match") === "1",
+          requestUrl.searchParams.get("failed-schedule") === "1",
         ),
       ),
     );

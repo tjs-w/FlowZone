@@ -55,6 +55,7 @@ button, textarea { font: inherit; }
 .dyna-task { display: flex; justify-content: space-between; gap: 8px; padding: 8px 10px; border: 1px solid var(--d-line); border-radius: 9px; font-size: 12px; }
 .dyna-schedule { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--d-line); border-radius: 10px; background: var(--d-card); }
 .dyna-schedule strong { overflow-wrap: anywhere; font-size: 13px; }
+.dyna-schedule > .dyna-meta { grid-column: 1 / -1; line-height: 1.4; }
 .dyna-note-list { display: grid; gap: 5px; margin: 0; padding-left: 20px; color: var(--d-muted); font-size: 12px; }
 .dyna-connection { position: sticky; top: max(0px, env(safe-area-inset-top), var(--d-safe-top, 0px)); z-index: 20; margin: max(0px, env(safe-area-inset-top), var(--d-safe-top, 0px)) max(10px, env(safe-area-inset-right), var(--d-safe-right, 0px)) 10px max(10px, env(safe-area-inset-left), var(--d-safe-left, 0px)); padding: 9px 12px; border: 1px solid color-mix(in srgb, var(--d-high) 55%, var(--d-line)); border-radius: 10px; background: var(--d-bg); color: var(--d-text); font-size: 13px; }
 .dyna-inline-more { margin: 2px 0 0; color: var(--d-muted); font-size: 12px; }

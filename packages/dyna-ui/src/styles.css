@@ -130,6 +130,10 @@ select {
   -webkit-line-clamp: 1;
 }
 
+.dyna[data-condensed="false"] .dyna-description {
+  display: none;
+}
+
 .dyna-header-meta,
 .dyna-meta {
   color: var(--d-muted);
@@ -177,7 +181,7 @@ select {
   top: max(0px, env(safe-area-inset-top), var(--d-safe-top, 0px));
   z-index: 20;
   display: grid;
-  grid-template-columns: auto minmax(160px, 1fr) auto;
+  grid-template-columns: auto minmax(120px, 1fr) auto auto;
   gap: 7px;
   align-items: center;
   margin: 0 -2px 7px;
@@ -219,7 +223,10 @@ select {
 .dyna-row-main:focus-visible,
 .dyna-stage-tab:focus-visible,
 .dyna-card:focus-visible,
-.dyna-source-health > summary:focus-visible {
+.dyna-source-health > summary:focus-visible,
+.dyna-filters > summary:focus-visible,
+.dyna-filter-panel select:focus-visible,
+.dyna-filter-panel button:focus-visible {
   outline: 2px solid var(--d-ring);
   outline-offset: 2px;
 }
@@ -243,7 +250,7 @@ select {
 
 .dyna-search-control {
   width: 100%;
-  min-height: 40px;
+  min-height: 44px;
 }
 
 .dyna-search-control input {
@@ -259,6 +266,135 @@ select {
   min-width: 28px !important;
   min-height: 28px !important;
   transform: translateY(-50%);
+}
+
+.dyna-filters {
+  position: relative;
+  min-width: 0;
+}
+
+.dyna-filters > summary {
+  display: inline-flex;
+  min-height: 40px;
+  gap: 5px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 9px;
+  border: 1px solid var(--d-border);
+  border-radius: 7px;
+  background: var(--d-surface);
+  color: var(--d-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+  list-style: none;
+  white-space: nowrap;
+}
+
+.dyna-filters > summary::-webkit-details-marker {
+  display: none;
+}
+
+.dyna-filters > summary:hover,
+.dyna-filters[open] > summary {
+  border-color: var(--d-border-strong);
+  color: var(--d-text);
+}
+
+.dyna-filters[open] > summary .dyna-disclosure {
+  transform: rotate(90deg);
+}
+
+.dyna-filter-count {
+  display: grid;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--d-text);
+  color: var(--d-canvas);
+  font-size: 11px;
+  line-height: 1;
+  place-items: center;
+}
+
+.dyna-filter-panel {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  right: 0;
+  display: grid;
+  width: min(
+    410px,
+    calc(
+      100vw - max(12px, env(safe-area-inset-left), var(--d-safe-left, 0px)) -
+        max(12px, env(safe-area-inset-right), var(--d-safe-right, 0px))
+    )
+  );
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  padding: 11px;
+  border: 1px solid var(--d-border-strong);
+  border-radius: 9px;
+  background: var(--d-surface);
+}
+
+.dyna-filter-field {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  color: var(--d-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.dyna-filter-field select {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 28px 0 9px;
+  border: 1px solid var(--d-border);
+  border-radius: 7px;
+  background: var(--d-canvas);
+  color: var(--d-text);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.dyna-filter-actions {
+  display: grid;
+  grid-column: 2;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  align-self: end;
+}
+
+.dyna-filter-actions button {
+  min-height: 40px;
+  padding: 5px 8px;
+  border: 1px solid var(--d-border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--d-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 640;
+}
+
+.dyna-filter-actions button:hover:not(:disabled) {
+  border-color: var(--d-border-strong);
+  color: var(--d-text);
+}
+
+.dyna-filter-actions button[aria-pressed="true"] {
+  border-color: var(--d-ring);
+  background: color-mix(in srgb, var(--d-ring) 9%, var(--d-surface));
+  color: var(--d-text);
+}
+
+.dyna-filter-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .dyna-visually-hidden {
@@ -383,11 +519,13 @@ select {
   min-width: 0;
 }
 
-.dyna-row-main {
+.dyna .dyna-row-main {
   display: grid;
   min-width: 0;
   width: 100%;
-  min-height: 80px;
+  height: 82px;
+  min-height: 82px;
+  max-height: 82px;
   gap: 3px;
   padding: 7px 10px 7px 14px;
   border: 0;
@@ -421,6 +559,7 @@ select {
 }
 
 .dyna-source-mark,
+.dyna-row-status,
 .dyna-row-person {
   overflow: hidden;
   max-width: 45%;
@@ -428,10 +567,15 @@ select {
   white-space: nowrap;
 }
 
-.dyna-row-time,
-.dyna-row-chevron {
+.dyna-row-time {
   margin-left: auto;
   white-space: nowrap;
+}
+
+.dyna-row-status {
+  flex: 0 1 auto;
+  color: var(--d-text);
+  font-weight: 620;
 }
 
 .dyna-row-time[data-has-deadline="true"] {
@@ -466,6 +610,17 @@ select {
   max-width: 34%;
   color: var(--d-text);
   font-weight: 620;
+}
+
+.dyna-row-primary {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 2px;
+  align-items: center;
+  color: var(--d-text);
+  font-size: 12px;
+  font-weight: 680;
+  white-space: nowrap;
 }
 
 .dyna-row-chevron {
@@ -1170,6 +1325,14 @@ select {
     width: 420px;
   }
 
+  .dyna[data-display-mode="fullscreen"][data-has-selection="true"] > .dyna-commandbar {
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+  }
+
+  .dyna[data-display-mode="fullscreen"][data-has-selection="true"] .dyna-add-label {
+    display: none;
+  }
+
   .dyna-inspector-layer[data-presentation="split"] {
     z-index: 30;
     inset: max(8px, env(safe-area-inset-top), var(--d-safe-top, 0px))
@@ -1198,6 +1361,28 @@ select {
   display: none;
 }
 
+:root[data-touch="true"] .dyna button,
+:root[data-touch="true"] .dyna input,
+:root[data-touch="true"] .dyna select,
+:root[data-touch="true"] .dyna textarea,
+:root[data-touch="true"] .dyna summary,
+:root[data-touch="true"] .dyna-inspector-layer button,
+:root[data-touch="true"] .dyna-inspector-layer summary,
+:root[data-touch="true"] .dyna-dialog button,
+:root[data-touch="true"] .dyna-dialog input,
+:root[data-touch="true"] .dyna-dialog select,
+:root[data-touch="true"] .dyna-dialog textarea {
+  min-height: 44px;
+}
+
+:root[data-touch="true"] .dyna-search-clear,
+:root[data-touch="true"] .dyna-inspector-close,
+:root[data-touch="true"] .dyna-commandbar button[aria-label="Add to-do"],
+:root[data-touch="true"] .dyna-more-trigger {
+  min-width: 44px !important;
+  min-height: 44px !important;
+}
+
 @media (max-width: 560px), (pointer: coarse) {
   .dyna {
     padding-top: max(6px, env(safe-area-inset-top), var(--d-safe-top, 0px));
@@ -1208,15 +1393,22 @@ select {
   }
 
   .dyna-commandbar {
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
   }
 
   .dyna-tabs button,
-  .dyna-row-main,
   .dyna-stage-tab,
   .dyna button,
+  .dyna input,
+  .dyna select,
+  .dyna textarea,
+  .dyna summary,
   .dyna-inspector-layer button,
+  .dyna-inspector-layer summary,
   .dyna-dialog button,
+  .dyna-dialog input,
+  .dyna-dialog select,
+  .dyna-dialog textarea,
   .dyna-source-health > summary,
   .dyna-context-details > summary {
     min-height: 44px;
@@ -1226,12 +1418,27 @@ select {
     display: none;
   }
 
-  .dyna-row-main {
+  .dyna .dyna-row-main {
+    height: 82px;
     min-height: 82px;
+    max-height: 82px;
+  }
+
+  .dyna-filter-field select,
+  .dyna-filter-actions button,
+  .dyna-filters > summary {
+    min-height: 44px;
+  }
+
+  .dyna-search-control {
+    min-height: 44px;
   }
 
   .dyna-search-clear,
+  .dyna-inspector-close,
+  .dyna-commandbar button[aria-label="Add to-do"],
   .dyna-more-trigger {
+    min-width: 44px !important;
     min-height: 44px !important;
   }
 
@@ -1241,6 +1448,36 @@ select {
 }
 
 @media (max-width: 560px) {
+  .dyna-commandbar {
+    grid-template-areas:
+      "tabs search"
+      "filters add";
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .dyna-tabs {
+    grid-area: tabs;
+  }
+
+  .dyna-search {
+    grid-area: search;
+  }
+
+  .dyna-filters {
+    grid-area: filters;
+    justify-self: start;
+  }
+
+  .dyna-commandbar > button[aria-label="Add to-do"] {
+    grid-area: add;
+    justify-self: end;
+  }
+
+  .dyna-filter-panel {
+    right: auto;
+    left: 0;
+  }
+
   .dyna-overflow-menu {
     right: auto;
     left: 0;

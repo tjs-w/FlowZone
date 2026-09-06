@@ -148,7 +148,7 @@ async function createDynaFixture(
       input: {
         dashboardId,
         publisherId,
-        scheduleId: "browser-fixture-schedule",
+        scheduleId: `browser-fixture-schedule-${fixtureId}`,
         scheduleTitle: "Browser fixture schedule",
         scheduleState: "active",
       },
@@ -175,69 +175,82 @@ async function createDynaFixture(
           : {}),
         items: failedSchedule
           ? []
-          : Array.from({ length: itemCount }, (_, index) => ({
-              externalId: `fixture:${String(index)}`,
-              sourceRef: sources[index % sources.length],
-              sourceScope: "team/project",
-              title:
-                index === 0
-                  ? longContent
-                    ? `Review-${"x".repeat(193)}`
-                    : "Review the release merge request"
-                  : `Additional priority ${String(index)}`,
-              summary:
-                index === 0
-                  ? longContent
-                    ? `Context-${"y".repeat(992)}`
-                    : "The change is ready and waiting for an executive review."
-                  : "A cross-functional signal needs a clear owner and a bounded next move.",
-              priority: index === 0 ? "critical" : index === 3 ? "high" : "normal",
-              priorityReason: "The release window closes today.",
-              sourceUpdatedAt: now,
-              ...(index === 2
-                ? {}
-                : {
-                    dueAt: new Date(
-                      Date.parse(now) + (index === 0 ? 2 : index === 3 ? 4 : 24) * 60 * 60_000,
-                    ).toISOString(),
-                  }),
-              labels: ["release", "decision"],
-              people:
-                index === 2
-                  ? [
-                      {
-                        displayName: "Architecture council",
-                        leadershipLevel: "architect",
-                        relationship: "neighboring_org",
-                        involvement: "mentioned",
-                        provenance: "source_metadata",
-                        confidence: "medium",
-                      },
-                    ]
-                  : [
-                      {
-                        displayName: index === 0 ? "Avery Chen" : "Morgan Lee",
-                        title: index === 0 ? "Chief Technology Officer" : "Senior Director",
-                        leadershipLevel: index === 0 ? "cto" : "senior_director",
-                        relationship: index === 0 ? "management_chain" : "neighboring_org",
-                        involvement: index === 0 ? "approver" : "sender",
-                        provenance: "declared_source",
-                        confidence: "high",
-                      },
-                    ],
-              attention:
-                index === 0
-                  ? "Confirm the risk posture and either approve the release or name the blocker."
-                  : "Turn this signal into an owned decision before it becomes follow-up debt.",
-              plan: ["Validate the latest context", "Resolve the decision owner"],
-              nextSteps: [
-                {
-                  label: index === 0 ? "Review the release diff" : "Confirm the accountable owner",
-                  owner: "You",
-                },
-                { label: "Record the decision in the source thread" },
-              ],
-            })),
+          : Array.from({ length: itemCount }, (_, index) => {
+              const source = sources[index % sources.length];
+              if (!source) throw new Error("Dyna fixture source was not found");
+              const sourceRef =
+                source.source === "scm"
+                  ? { ...source, entityId: `fixture-pr-${String(index)}` }
+                  : source.source === "outlook"
+                    ? { ...source, messageId: `quarterly-plan-${String(index)}` }
+                    : source.source === "messaging"
+                      ? { ...source, messageId: `decision-${String(index)}` }
+                      : { ...source, recordId: `JIRA-${String(4_242 + index)}` };
+              return {
+                externalId: `fixture:${String(index)}`,
+                sourceRef,
+                sourceScope: "team/project",
+                title:
+                  index === 0
+                    ? longContent
+                      ? `Review-${"x".repeat(193)}`
+                      : "Review the release merge request"
+                    : `Additional priority ${String(index)}`,
+                summary:
+                  index === 0
+                    ? longContent
+                      ? `Context-${"y".repeat(992)}`
+                      : "The change is ready and waiting for an executive review."
+                    : "A cross-functional signal needs a clear owner and a bounded next move.",
+                priority: index === 0 ? "critical" : index === 3 ? "high" : "normal",
+                priorityReason: "The release window closes today.",
+                sourceUpdatedAt: now,
+                ...(index === 2
+                  ? {}
+                  : {
+                      dueAt: new Date(
+                        Date.parse(now) + (index === 0 ? 2 : index === 3 ? 4 : 24) * 60 * 60_000,
+                      ).toISOString(),
+                    }),
+                labels: ["release", "decision"],
+                people:
+                  index === 2
+                    ? [
+                        {
+                          displayName: "Architecture council",
+                          leadershipLevel: "architect",
+                          relationship: "neighboring_org",
+                          involvement: "mentioned",
+                          provenance: "source_metadata",
+                          confidence: "medium",
+                        },
+                      ]
+                    : [
+                        {
+                          displayName: index === 0 ? "Avery Chen" : "Morgan Lee",
+                          title: index === 0 ? "Chief Technology Officer" : "Senior Director",
+                          leadershipLevel: index === 0 ? "cto" : "senior_director",
+                          relationship: index === 0 ? "management_chain" : "neighboring_org",
+                          involvement: index === 0 ? "approver" : "sender",
+                          provenance: "declared_source",
+                          confidence: "high",
+                        },
+                      ],
+                attention:
+                  index === 0
+                    ? "Confirm the risk posture and either approve the release or name the blocker."
+                    : "Turn this signal into an owned decision before it becomes follow-up debt.",
+                plan: ["Validate the latest context", "Resolve the decision owner"],
+                nextSteps: [
+                  {
+                    label:
+                      index === 0 ? "Review the release diff" : "Confirm the accountable owner",
+                    owner: "You",
+                  },
+                  { label: "Record the decision in the source thread" },
+                ],
+              };
+            }),
       },
     },
   });
@@ -327,9 +340,16 @@ async function createDynaFixture(
     const payload = resultRecord(metadata["dynaDashboard"]);
     const snapshot = resultRecord(payload["snapshot"]);
     const cards = Array.isArray(snapshot["cards"]) ? snapshot["cards"] : [];
-    const taskStates = ["running", "waiting", "succeeded"] as const;
-    for (const [offset, state] of taskStates.entries()) {
-      const card = resultRecord(cards[offset + 1]);
+    const taskStates = [
+      { title: "Additional priority 1", state: "running" },
+      { title: "Additional priority 3", state: "waiting" },
+      { title: "Additional priority 2", state: "succeeded" },
+    ] as const;
+    for (const [offset, target] of taskStates.entries()) {
+      const matchingCard = cards.map(resultRecord).find((card) => card["title"] === target.title);
+      if (!matchingCard)
+        throw new Error(`Dyna pipeline fixture card was not found: ${target.title}`);
+      const card = matchingCard;
       const itemId = card["id"];
       if (typeof itemId !== "string") continue;
       await client.callTool({
@@ -343,10 +363,10 @@ async function createDynaFixture(
               taskId: `pipeline-task-${String(offset + 1)}`,
               hostId: "local",
               title: `Codex execution ${String(offset + 1)}`,
-              state,
+              state: target.state,
               statusUpdatedAt: now,
               observedAt: now,
-              ...(state === "succeeded"
+              ...(target.state === "succeeded"
                 ? { outcome: "Approved the release path and documented the remaining risk." }
                 : {}),
             },
@@ -575,7 +595,21 @@ const dynaHostScript = (dynaResult: unknown) => `<script>
 (() => {
   const initialResult = ${safeJson(dynaResult)};
   const query = new URLSearchParams(window.location.search);
-  const state = window.__dynaHost = { messages: [], toolCalls: [], displayModeRequests: [] };
+  const state = window.__dynaHost = {
+    messages: [],
+    toolCalls: [],
+    toolResults: [],
+    displayModeRequests: [],
+    snapshotResults: 0,
+    replayedToolResults: 0,
+    latestToolResult: initialResult,
+    replayLatestToolResult() {
+      state.replayedToolResults += 1;
+      document.documentElement.dataset.dynaReplayedToolResultCount =
+        String(state.replayedToolResults);
+      notify("ui/notifications/tool-result", state.latestToolResult);
+    }
+  };
   const respond = (id, result) => window.postMessage({ jsonrpc: "2.0", id, result }, "*");
   const notify = (method, params) => window.postMessage({ jsonrpc: "2.0", method, params }, "*");
   window.addEventListener("message", async (event) => {
@@ -643,6 +677,13 @@ const dynaHostScript = (dynaResult: unknown) => `<script>
           });
           result = await response.json();
         }
+        state.toolResults.push(result);
+        state.latestToolResult = result;
+        if (request.params?.name === "dyna_get_snapshot") {
+          state.snapshotResults += 1;
+          document.documentElement.dataset.dynaSnapshotResultCount =
+            String(state.snapshotResults);
+        }
       } else if (request.method === "ui/message") {
         state.messages.push(request.params);
         document.documentElement.dataset.dynaMessageCount = String(state.messages.length);
@@ -704,24 +745,23 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     return;
   }
   if (request.method === "GET" && requestUrl.pathname === "/dyna") {
+    const dynaFixture = await createDynaFixture(
+      requestUrl.searchParams.get("dense") === "1"
+        ? 9
+        : requestUrl.searchParams.get("many-items") === "1" ||
+            requestUrl.searchParams.get("pipeline") === "1"
+          ? 4
+          : 1,
+      requestUrl.searchParams.get("pipeline") === "1",
+      requestUrl.searchParams.get("long-content") === "1",
+      requestUrl.searchParams.get("older-match") === "1",
+      requestUrl.searchParams.get("failed-schedule") === "1",
+    );
     response.writeHead(200, {
       "cache-control": "no-store",
       "content-type": "text/html; charset=utf-8",
     });
-    response.end(
-      dynaPage(
-        await createDynaFixture(
-          requestUrl.searchParams.get("many-items") === "1" ||
-            requestUrl.searchParams.get("pipeline") === "1"
-            ? 4
-            : 1,
-          requestUrl.searchParams.get("pipeline") === "1",
-          requestUrl.searchParams.get("long-content") === "1",
-          requestUrl.searchParams.get("older-match") === "1",
-          requestUrl.searchParams.get("failed-schedule") === "1",
-        ),
-      ),
-    );
+    response.end(dynaPage(dynaFixture));
     return;
   }
   if (request.method === "GET" && request.url === "/health") {

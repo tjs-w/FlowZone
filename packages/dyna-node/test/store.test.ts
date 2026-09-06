@@ -49,4 +49,66 @@ describe("DynaStore lifecycle", () => {
       visiblyStale: true,
     });
   });
+
+  test("rejects databases created by a future schema version", () => {
+    const fixture = resolve(import.meta.dir, "schema-version-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ futureVersionRejected: true });
+  });
+
+  test("rolls back an unversioned migration when legacy relationships are corrupt", () => {
+    const fixture = resolve(import.meta.dir, "migration-rollback-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ corruptMigrationRolledBack: true });
+  });
+
+  test("creates a verified private backup that can be restored offline", () => {
+    const fixture = resolve(import.meta.dir, "backup-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      backupVerified: true,
+      offlineRestore: true,
+      privatePermissions: true,
+    });
+  });
+
+  test("enforces immutable unique schedules and the 50-binding snapshot limit", () => {
+    const fixture = resolve(import.meta.dir, "schedule-cardinality-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ immutable: true, unique: true, maximum: 50 });
+  });
+
+  test("rejects a ninth task while preserving legacy aggregate workflow state", () => {
+    const fixture = resolve(import.meta.dir, "task-cardinality-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      maximum: 8,
+      reservationPreserved: true,
+      reconciliationReservationPreserved: true,
+      legacyNineTaskState: "attention",
+    });
+  });
+
+  test("deduplicates logical action preparation across processes and guards delivery state", () => {
+    const fixture = resolve(import.meta.dir, "action-race-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ crossProcessDedupe: true, deliveryCas: true });
+  });
+
+  test("bounds and redacts failure messages before storage and snapshot rendering", () => {
+    const fixture = resolve(import.meta.dir, "failure-message-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      bounded: true,
+      singleLine: true,
+      secretsRedacted: true,
+    });
+  });
 });

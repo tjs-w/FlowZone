@@ -59,6 +59,7 @@ try {
 
   const raw = new DatabaseSync(databasePath);
   raw.prepare("UPDATE task_bindings SET outcome = NULL WHERE task_id = 'legacy-task'").run();
+  raw.exec("PRAGMA user_version = 0");
   raw.close();
 
   const migrated = new DynaStore({ databasePath, clock: () => new Date(now) });
@@ -70,6 +71,10 @@ try {
     "Completed before outcome tracking; refresh this task for details.",
   );
   migrated.close();
+
+  const versioned = new DatabaseSync(databasePath, { readOnly: true });
+  assert.equal(versioned.prepare("PRAGMA user_version").get().user_version, 1);
+  versioned.close();
 
   globalThis.process.stdout.write(JSON.stringify({ migrated: true, completedIsNotFocus: true }));
 } finally {

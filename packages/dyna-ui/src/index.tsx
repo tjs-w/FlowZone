@@ -33,6 +33,9 @@ type ActionName =
   "annotate" | "open_source" | "create_codex_task" | "open_codex_task" | "refresh_codex_status";
 
 type TodoPriority = "critical" | "high" | "normal" | "low";
+type WorkflowState = "todo" | "executing" | "paused" | "attention" | "completed";
+type PriorityFilter = TodoPriority | "all";
+type WorkflowFilter = WorkflowState | "all";
 
 type DynaHostContext = McpUiHostContext & {
   readonly locale?: string;
@@ -76,13 +79,22 @@ interface DynaUiController {
   readonly condenseInline: boolean;
   readonly initialExpansionPending: boolean;
   readonly locale: string;
+  readonly leadershipOnly: boolean;
+  readonly priorityFilter: PriorityFilter;
   readonly query: string;
   readonly selectedItemId: string | undefined;
   readonly serverQuery: string;
-  readonly pipelineState: "todo" | "executing" | "paused" | "attention" | "completed";
+  readonly sourceFilter: string;
+  readonly workflowFilter: WorkflowFilter;
+  readonly pipelineState: WorkflowState;
   readonly view: "queue" | "pipeline";
+  clearFilters(): void;
+  setLeadershipOnly(value: boolean): void;
+  setPriorityFilter(value: PriorityFilter): void;
   setQuery(value: string): void;
-  setPipelineState(value: "todo" | "executing" | "paused" | "attention" | "completed"): void;
+  setSourceFilter(value: string): void;
+  setWorkflowFilter(value: WorkflowFilter): void;
+  setPipelineState(value: WorkflowState): void;
   setView(value: "queue" | "pipeline"): void;
   expand(trigger?: HTMLElement): Promise<void>;
 }
@@ -266,6 +278,7 @@ interface FixedComponents {
       readonly freshness: DynaSnapshot["freshness"];
       readonly generatedAt: string;
       readonly revision: number;
+      readonly sourceOptions: readonly string[];
     }>,
   ) => ReactNode;
   readonly SummaryStrip: (
@@ -310,6 +323,11 @@ interface FixedComponents {
 const fixedComponents: FixedComponents = {
   Dashboard: ({ props, children }) => {
     const controller = useController();
+    const activeFilterCount =
+      Number(controller.priorityFilter !== "all") +
+      Number(controller.sourceFilter !== "all") +
+      Number(controller.workflowFilter !== "all") +
+      Number(controller.leadershipOnly);
     const health = controller.blocked
       ? { color: "danger" as const, label: "Offline" }
       : props.freshness === "fresh"
@@ -321,6 +339,7 @@ const fixedComponents: FixedComponents = {
         data-display-mode={controller.displayMode}
         data-dashboard-view={controller.view}
         data-has-selection={Boolean(controller.selectedItemId)}
+        data-condensed={controller.condenseInline}
       >
         <header className="dyna-header">
           <div className="dyna-title-row">
@@ -423,7 +442,7 @@ const fixedComponents: FixedComponents = {
                 className="dyna-search-control"
                 aria-label="Search dashboard"
                 type="search"
-                size="lg"
+                size="2xl"
                 value={controller.query}
                 maxLength={500}
                 placeholder="Find people, requests, MRs…"
@@ -446,6 +465,92 @@ const fixedComponents: FixedComponents = {
                 </Button>
               ) : null}
             </div>
+            <details className="dyna-filters">
+              <summary aria-label="Filters">
+                <span>Filters</span>
+                {activeFilterCount > 0 ? (
+                  <span className="dyna-filter-count" aria-hidden="true">
+                    {activeFilterCount}
+                  </span>
+                ) : null}
+                <ChevronRight className="dyna-disclosure" aria-hidden="true" />
+              </summary>
+              <div className="dyna-filter-panel" aria-label="Dashboard filters">
+                <label className="dyna-filter-field">
+                  <span>Priority</span>
+                  <select
+                    aria-label="Priority"
+                    value={controller.priorityFilter}
+                    onChange={(event) => {
+                      controller.setPriorityFilter(event.currentTarget.value as PriorityFilter);
+                    }}
+                  >
+                    <option value="all">All priorities</option>
+                    <option value="critical">Critical</option>
+                    <option value="high">High</option>
+                    <option value="normal">Normal</option>
+                    <option value="low">Low</option>
+                  </select>
+                </label>
+                <label className="dyna-filter-field">
+                  <span>Source</span>
+                  <select
+                    aria-label="Source"
+                    value={controller.sourceFilter}
+                    onChange={(event) => {
+                      controller.setSourceFilter(event.currentTarget.value);
+                    }}
+                  >
+                    <option value="all">All sources</option>
+                    {props.sourceOptions.map((source) => (
+                      <option value={source} key={source}>
+                        {source}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="dyna-filter-field">
+                  <span>Workflow</span>
+                  <select
+                    aria-label="Workflow"
+                    value={controller.workflowFilter}
+                    onChange={(event) => {
+                      controller.setWorkflowFilter(event.currentTarget.value as WorkflowFilter);
+                    }}
+                  >
+                    <option value="all">All workflows</option>
+                    <option value="todo">To do</option>
+                    <option value="executing">Executing</option>
+                    <option value="paused">Paused for input</option>
+                    <option value="attention">Needs attention</option>
+                    <option value="completed">Completed</option>
+                  </select>
+                </label>
+                <div className="dyna-filter-actions">
+                  <button
+                    type="button"
+                    className="dyna-leadership-filter"
+                    aria-pressed={controller.leadershipOnly}
+                    onClick={() => {
+                      controller.setLeadershipOnly(!controller.leadershipOnly);
+                    }}
+                  >
+                    Leadership only
+                  </button>
+                  <button
+                    type="button"
+                    className="dyna-clear-filters"
+                    disabled={activeFilterCount === 0}
+                    onClick={(event) => {
+                      controller.clearFilters();
+                      event.currentTarget.closest("details")?.removeAttribute("open");
+                    }}
+                  >
+                    Clear filters
+                  </button>
+                </div>
+              </div>
+            </details>
             <Button
               color="primary"
               size="sm"
@@ -658,6 +763,10 @@ const fixedComponents: FixedComponents = {
               <span className="dyna-priority-label">{props.priority}</span>
               <span aria-hidden="true">·</span>
               <span className="dyna-source-mark">{props.sourceLabel}</span>
+              <span aria-hidden="true">·</span>
+              <span className="dyna-row-status" data-workflow-state={props.workflowState}>
+                {humanize(props.workflowState)}
+              </span>
               <span className="dyna-row-time" data-has-deadline={Boolean(props.dueAt)}>
                 {props.dueAt
                   ? `Due ${relativeTime(props.dueAt, controller.locale)}`
@@ -675,7 +784,10 @@ const fixedComponents: FixedComponents = {
                   {lead.displayName}
                 </span>
               ) : null}
-              <ChevronRight className="dyna-row-chevron" aria-hidden="true" />
+              <span className="dyna-row-primary">
+                Details
+                <ChevronRight className="dyna-row-chevron" aria-hidden="true" />
+              </span>
             </span>
           </button>
         </div>
@@ -1220,6 +1332,21 @@ function cardMatches(card: DynaCard, query: string, locale: string): boolean {
   return terms.every((term) => searchable.includes(term));
 }
 
+function cardPassesFilters(
+  card: DynaCard,
+  priority: PriorityFilter,
+  source: string,
+  workflow: WorkflowFilter,
+  leadershipOnly: boolean,
+): boolean {
+  return (
+    (priority === "all" || card.priority === priority) &&
+    (source === "all" || card.sourceLabel === source) &&
+    (workflow === "all" || card.workflowState === workflow) &&
+    (!leadershipOnly || card.leadershipScore > 0)
+  );
+}
+
 function cardViewProps(card: DynaCard): CardViewProps {
   const { id, annotations, linkedTasks, ...props } = card;
   void linkedTasks;
@@ -1258,14 +1385,32 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
   const ScheduleStatus = fixedComponents.ScheduleStatus;
   const EmptyState = fixedComponents.EmptyState;
   const compactInline = controller.condenseInline;
-  const cards = [...snapshot.cards]
+  const sourceOptions = [...new Set(snapshot.cards.map((card) => card.sourceLabel))].sort((a, b) =>
+    a.localeCompare(b, controller.locale),
+  );
+  if (controller.sourceFilter !== "all" && !sourceOptions.includes(controller.sourceFilter)) {
+    sourceOptions.unshift(controller.sourceFilter);
+  }
+  const stageCards = [...snapshot.cards]
     .filter((card) => cardMatches(card, controller.query, controller.locale))
+    .filter((card) =>
+      cardPassesFilters(
+        card,
+        controller.priorityFilter,
+        controller.sourceFilter,
+        "all",
+        controller.leadershipOnly,
+      ),
+    )
     .sort(compareCards);
+  const cards = stageCards.filter((card) =>
+    cardPassesFilters(card, "all", "all", controller.workflowFilter, false),
+  );
   const queueCards = cards.filter((card) => card.workflowState !== "completed");
   const selectedCard = cards.find((card) => card.id === controller.selectedItemId);
   const inlineCards = selectedCard
-    ? [selectedCard, ...queueCards.filter((card) => card.id !== selectedCard.id)].slice(0, 3)
-    : queueCards.slice(0, 3);
+    ? [selectedCard, ...queueCards.filter((card) => card.id !== selectedCard.id)].slice(0, 4)
+    : queueCards.slice(0, 4);
   const unhealthySchedules = snapshot.schedules.filter(
     (schedule) =>
       schedule.lastRunStatus === "failed" ||
@@ -1275,9 +1420,9 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
   const stages = PIPELINE_STAGES.map(([state, title]) => ({
     state,
     title,
-    count: cards.filter((card) => card.workflowState === state).length,
+    count: stageCards.filter((card) => card.workflowState === state).length,
   }));
-  const activePipelineCards = cards.filter(
+  const activePipelineCards = stageCards.filter(
     (card) => card.workflowState === controller.pipelineState,
   );
 
@@ -1293,8 +1438,8 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
         {inlineCards.map((card) => (
           <CardView key={card.id} card={card} />
         ))}
-        {queueCards.length > 3 ? (
-          <p className="dyna-inline-more">{queueCards.length - 3} more in the full dashboard</p>
+        {queueCards.length > 4 ? (
+          <p className="dyna-inline-more">{queueCards.length - 4} more in the full dashboard</p>
         ) : null}
       </Section>
     ) : (
@@ -1321,9 +1466,15 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
             message:
               controller.query && cards.length === 0
                 ? `No dashboard items match “${controller.query}”.`
-                : cards.length > 0
-                  ? "Matching completed work is available in the Pipeline."
-                  : "No signals have been published to this dashboard yet.",
+                : (controller.priorityFilter !== "all" ||
+                      controller.sourceFilter !== "all" ||
+                      controller.workflowFilter !== "all" ||
+                      controller.leadershipOnly) &&
+                    cards.length === 0
+                  ? "No dashboard items match the current filters."
+                  : cards.length > 0
+                    ? "Matching completed work is available in the Pipeline."
+                    : "No signals have been published to this dashboard yet.",
           }}
         />
       ) : null}
@@ -1353,12 +1504,14 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
         freshness: snapshot.freshness,
         generatedAt: snapshot.generatedAt,
         revision: snapshot.revision,
+        sourceOptions,
       }}
     >
       <SummaryStrip
         props={{
-          focus: snapshot.counts.critical + snapshot.counts.high,
-          leadership: snapshot.counts.leadership,
+          focus: cards.filter((card) => card.priority === "critical" || card.priority === "high")
+            .length,
+          leadership: cards.filter((card) => card.leadershipScore > 0).length,
           shown: cards.length,
           total: snapshot.counts.total,
         }}
@@ -1408,9 +1561,11 @@ function DynaApp({ app }: { readonly app: App }) {
   const [todoFollowUpOf, setTodoFollowUpOf] = useState<string>();
   const [view, setViewState] = useState<"queue" | "pipeline">("queue");
   const [query, setQueryState] = useState("");
-  const [pipelineState, setPipelineStateState] = useState<
-    "todo" | "executing" | "paused" | "attention" | "completed"
-  >("attention");
+  const [priorityFilter, setPriorityFilterState] = useState<PriorityFilter>("all");
+  const [sourceFilter, setSourceFilterState] = useState("all");
+  const [workflowFilter, setWorkflowFilterState] = useState<WorkflowFilter>("all");
+  const [leadershipOnly, setLeadershipOnlyState] = useState(false);
+  const [pipelineState, setPipelineStateState] = useState<WorkflowState>("attention");
   const [selectedItemId, setSelectedItemId] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string>();
@@ -1426,6 +1581,7 @@ function DynaApp({ app }: { readonly app: App }) {
   const refreshGeneration = useRef(0);
   const queryRef = useRef("");
   const selectedItemRef = useRef<string | undefined>(undefined);
+  const pipelineChoiceExplicit = useRef(false);
   const detailScrollPosition = useRef(0);
   const todoRequestId = useRef(crypto.randomUUID());
   const createdTodoFocus = useRef<string | undefined>(undefined);
@@ -1467,6 +1623,39 @@ function DynaApp({ app }: { readonly app: App }) {
     setConnectionError(undefined);
     return true;
   }, []);
+
+  useEffect(() => {
+    if (!payload || pipelineChoiceExplicit.current) return;
+    const currentStageHasItems = payload.snapshot.cards.some(
+      (card) => card.workflowState === pipelineState,
+    );
+    if (currentStageHasItems) return;
+    const preferred = (["attention", "paused", "executing", "todo", "completed"] as const).find(
+      (state) => payload.snapshot.cards.some((card) => card.workflowState === state),
+    );
+    if (preferred) setPipelineStateState(preferred);
+  }, [payload, pipelineState]);
+
+  useEffect(() => {
+    if (!payload || !selectedItemId) return;
+    const selected = payload.snapshot.cards.find((card) => card.id === selectedItemId);
+    if (
+      !selected ||
+      !cardMatches(selected, query, locale) ||
+      !cardPassesFilters(selected, priorityFilter, sourceFilter, workflowFilter, leadershipOnly)
+    ) {
+      setSelectedItemId(undefined);
+    }
+  }, [
+    leadershipOnly,
+    locale,
+    payload,
+    priorityFilter,
+    query,
+    selectedItemId,
+    sourceFilter,
+    workflowFilter,
+  ]);
 
   const refresh = useCallback(
     async (force = false) => {
@@ -1708,6 +1897,7 @@ function DynaApp({ app }: { readonly app: App }) {
     async (itemId: string, trigger: HTMLElement) => {
       detailTrigger.current = trigger;
       detailScrollPosition.current = window.scrollY;
+      setSelectedItemId(itemId);
       if (displayMode !== "fullscreen" && canExpand) {
         setBusy(true);
         try {
@@ -1718,14 +1908,39 @@ function DynaApp({ app }: { readonly app: App }) {
           setBusy(false);
         }
       }
-      setSelectedItemId(itemId);
     },
     [canExpand, displayMode, requestExpandedPresentation],
   );
 
   const setQuery = useCallback((value: string) => {
     setQueryState(value);
-    setSelectedItemId(undefined);
+  }, []);
+
+  const setPriorityFilter = useCallback((value: PriorityFilter) => {
+    setPriorityFilterState(value);
+  }, []);
+
+  const setSourceFilter = useCallback((value: string) => {
+    setSourceFilterState(value);
+  }, []);
+
+  const setWorkflowFilter = useCallback((value: WorkflowFilter) => {
+    setWorkflowFilterState(value);
+    if (value !== "all") {
+      pipelineChoiceExplicit.current = true;
+      setPipelineStateState(value);
+    }
+  }, []);
+
+  const setLeadershipOnly = useCallback((value: boolean) => {
+    setLeadershipOnlyState(value);
+  }, []);
+
+  const clearFilters = useCallback(() => {
+    setPriorityFilterState("all");
+    setSourceFilterState("all");
+    setWorkflowFilterState("all");
+    setLeadershipOnlyState(false);
   }, []);
 
   const setView = useCallback((value: "queue" | "pipeline") => {
@@ -1733,13 +1948,12 @@ function DynaApp({ app }: { readonly app: App }) {
     setSelectedItemId(undefined);
   }, []);
 
-  const setPipelineState = useCallback(
-    (value: "todo" | "executing" | "paused" | "attention" | "completed") => {
-      setPipelineStateState(value);
-      setSelectedItemId(undefined);
-    },
-    [],
-  );
+  const setPipelineState = useCallback((value: WorkflowState) => {
+    pipelineChoiceExplicit.current = true;
+    setPipelineStateState(value);
+    setWorkflowFilterState("all");
+    setSelectedItemId(undefined);
+  }, []);
 
   useEffect(() => {
     const itemId = createdTodoFocus.current;
@@ -1791,12 +2005,21 @@ function DynaApp({ app }: { readonly app: App }) {
       condenseInline: displayMode === "inline" && (canExpand || initialExpansionPending),
       initialExpansionPending,
       locale,
+      leadershipOnly,
+      priorityFilter,
       query,
       serverQuery: payload?.snapshot.query ?? "",
       selectedItemId,
+      sourceFilter,
+      workflowFilter,
       pipelineState,
       view,
+      clearFilters,
+      setLeadershipOnly,
+      setPriorityFilter,
       setQuery,
+      setSourceFilter,
+      setWorkflowFilter,
       setPipelineState,
       setView,
       closeDetails,
@@ -2004,13 +2227,22 @@ function DynaApp({ app }: { readonly app: App }) {
       canExpand,
       connectionError,
       displayMode,
+      clearFilters,
       initialExpansionPending,
+      leadershipOnly,
       locale,
       payload?.snapshot.query,
+      priorityFilter,
       requestExpandedPresentation,
       query,
       refresh,
       selectedItemId,
+      setLeadershipOnly,
+      setPriorityFilter,
+      setSourceFilter,
+      setWorkflowFilter,
+      sourceFilter,
+      workflowFilter,
       pipelineState,
       closeDetails,
       openDetails,
@@ -2071,6 +2303,7 @@ function DynaApp({ app }: { readonly app: App }) {
       if (typeof itemId !== "string") throw new Error("To-do identity was not returned.");
       createdTodoFocus.current = itemId;
       closeTodo();
+      setWorkflowFilterState("all");
       setView("queue");
       setToast("To-do added to the priority queue.");
       await refresh(true);
@@ -2192,7 +2425,7 @@ function DynaApp({ app }: { readonly app: App }) {
                 id="dyna-todo-title"
                 className="dyna-field"
                 type="text"
-                size="xl"
+                size="2xl"
                 value={todoTitle}
                 maxLength={200}
                 placeholder="What needs to get done?"

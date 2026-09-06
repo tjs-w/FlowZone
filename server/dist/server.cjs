@@ -35335,12 +35335,12 @@ var require_source_map = __commonJS({
 var require_previous_map = __commonJS({
   "node_modules/postcss/lib/previous-map.js"(exports2, module2) {
     "use strict";
-    var { existsSync: existsSync2, readFileSync: readFileSync2, realpathSync: realpathSync2 } = require("fs");
+    var { existsSync: existsSync2, readFileSync: readFileSync2, realpathSync: realpathSync3 } = require("fs");
     var { dirname: dirname3, isAbsolute: isAbsolute3, join: join2, relative: relative2, sep: sep2 } = require("path");
     var { SourceMapConsumer, SourceMapGenerator } = require_source_map();
     function realPath(path) {
       try {
-        return realpathSync2(path);
+        return realpathSync3(path);
       } catch {
         return path;
       }
@@ -54779,7 +54779,13 @@ var VIEW_TTL_MS = 30 * 24 * 60 * 60 * 1e3;
 var ACTION_TTL_MS = 10 * 60 * 1e3;
 var CLAIM_LEASE_MS = 5 * 60 * 1e3;
 var MAX_CLOCK_SKEW_MS = 5 * 60 * 1e3;
+var DYNA_SCHEMA_VERSION = 1;
+var MAX_SCHEDULES_PER_DASHBOARD = 50;
+var MAX_TASK_BINDINGS_PER_ITEM = 8;
+var MAX_PUBLIC_FAILURE_LENGTH = 500;
+var MAX_FAILURE_SANITIZATION_INPUT = 4096;
 var LEGACY_COMPLETION_OUTCOME = "Completed before outcome tracking; refresh this task for details.";
+var LEGACY_UNSPECIFIED_FAILURE = "An earlier operation reported an unspecified failure.";
 var DYNA_ELIGIBLE_CTE = `
   WITH eligible AS (
     SELECT DISTINCT i.*,
@@ -54880,6 +54886,16 @@ function hashesMatch(value, stored) {
   const expected = Buffer.from(stored);
   return candidate.length === expected.length && (0, import_node_crypto5.timingSafeEqual)(candidate, expected);
 }
+function lstatIfPresent(path) {
+  try {
+    return (0, import_node_fs3.lstatSync)(path);
+  } catch (error51) {
+    if (error51 && typeof error51 === "object" && "code" in error51 && error51.code === "ENOENT") {
+      return void 0;
+    }
+    throw error51;
+  }
+}
 function requiredString(row, key) {
   const value = row[key];
   if (typeof value !== "string") throw new Error(`Dyna database column ${key} is invalid.`);
@@ -54893,6 +54909,48 @@ function requiredNumber(row, key) {
   const value = row[key];
   if (typeof value !== "number") throw new Error(`Dyna database column ${key} is invalid.`);
   return value;
+}
+function requiredWorkflowState(row) {
+  const value = requiredString(row, "workflow_state");
+  if (value !== "todo" && value !== "executing" && value !== "paused" && value !== "attention" && value !== "completed") {
+    throw new Error("Dyna database workflow state is invalid.");
+  }
+  return value;
+}
+function publicSafeFailureCharacters(value) {
+  let result = "";
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+    const unsafe = codePoint === void 0 || codePoint <= 31 || codePoint >= 127 && codePoint <= 159 || codePoint >= 55296 && codePoint <= 57343 || codePoint >= 8232 && codePoint <= 8238 || codePoint >= 8294 && codePoint <= 8297;
+    result += unsafe ? " " : character;
+  }
+  return result;
+}
+function sanitizePublicFailureMessage(value) {
+  if (typeof value !== "string") throw new Error("A Dyna failure message must be text.");
+  let sanitized = publicSafeFailureCharacters(value.slice(0, MAX_FAILURE_SANITIZATION_INPUT)).replace(/\s+/g, " ").trim();
+  if (!sanitized) throw new Error("A Dyna failure message cannot be empty.");
+  sanitized = sanitized.replace(
+    /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----.*?(?:-----END (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----|$)/gi,
+    "[REDACTED PRIVATE KEY]"
+  ).replace(/(\b[a-z][a-z0-9+.-]*:\/\/[^:\s/@]+:)[^@\s/]+@/gi, "$1[REDACTED]@").replace(
+    /\bauthorization\s*[:=]\s*(?:(?:bearer|basic)\s+)?[^\s,;]+/gi,
+    "authorization=[REDACTED]"
+  ).replace(/\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{4,}/gi, "$1 [REDACTED]").replace(
+    /\b([A-Za-z0-9_-]*(?:password|passwd|secret|api[-_]?key|access[-_]?token|refresh[-_]?token|token|authorization|private[-_]?key)[A-Za-z0-9_-]*|client[-_ ]secret|api[-_ ]key|access[-_ ]token|refresh[-_ ]token|aws[-_ ]secret[-_ ]access[-_ ]key|private[-_ ]key)\b["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
+    "$1=[REDACTED]"
+  ).replace(
+    /\b(?:glpat-[A-Za-z0-9_-]{8,}|xox[a-z]-[A-Za-z0-9-]{8,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{16,}|(?:AKIA|ASIA)[A-Z0-9]{16})\b/gi,
+    "[REDACTED]"
+  ).replace(/\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\b/g, "[REDACTED]");
+  return sanitized.slice(0, MAX_PUBLIC_FAILURE_LENGTH).trimEnd();
+}
+function sanitizePersistedFailureMessage(value) {
+  try {
+    return sanitizePublicFailureMessage(value);
+  } catch {
+    return LEGACY_UNSPECIFIED_FAILURE;
+  }
 }
 function parseJson(value) {
   try {
@@ -54951,6 +55009,7 @@ var DynaStore = class {
         if (!status.isFile() || status.isSymbolicLink()) {
           throw new Error("The Dyna database path must be a regular file, not a link.");
         }
+        (0, import_node_fs3.chmodSync)(databasePath, 384);
       }
     }
     this.#database = new import_node_sqlite.DatabaseSync(databasePath, {
@@ -54958,9 +55017,71 @@ var DynaStore = class {
       enableForeignKeyConstraints: true,
       timeout: 5e3
     });
-    this.#database.exec(
-      "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;"
-    );
+    this.#database.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
+    try {
+      this.#migrateSchema();
+    } catch (error51) {
+      this.#database.close();
+      throw error51;
+    }
+    if (databasePath !== ":memory:") {
+      for (const path of [databasePath, `${databasePath}-wal`, `${databasePath}-shm`]) {
+        if ((0, import_node_fs3.existsSync)(path)) (0, import_node_fs3.chmodSync)(path, 384);
+      }
+    }
+  }
+  close() {
+    this.#database.close();
+  }
+  backup(destinationPath) {
+    const requestedPath = (0, import_node_path5.resolve)(destinationPath);
+    const requestedDirectory = (0, import_node_path5.dirname)(requestedPath);
+    (0, import_node_fs3.mkdirSync)(requestedDirectory, { mode: 448, recursive: true });
+    const directoryStatus = (0, import_node_fs3.lstatSync)(requestedDirectory);
+    if (!directoryStatus.isDirectory() || directoryStatus.isSymbolicLink()) {
+      throw new Error("The Dyna backup directory must be a private regular directory.");
+    }
+    if ((directoryStatus.mode & 511) !== 448) {
+      throw new Error("The Dyna backup directory must have 0700 permissions.");
+    }
+    const canonicalDirectory = (0, import_node_fs3.realpathSync)(requestedDirectory);
+    const backupPath = (0, import_node_path5.join)(canonicalDirectory, (0, import_node_path5.basename)(requestedPath));
+    if (lstatIfPresent(backupPath)) {
+      throw new Error("The Dyna backup destination already exists.");
+    }
+    const stagingPath = (0, import_node_path5.join)(canonicalDirectory, `.${(0, import_node_path5.basename)(requestedPath)}.${(0, import_node_crypto5.randomUUID)()}.tmp`);
+    try {
+      this.#database.prepare("VACUUM INTO ?").run(stagingPath);
+      const stagingStatus = (0, import_node_fs3.lstatSync)(stagingPath);
+      if (!stagingStatus.isFile() || stagingStatus.isSymbolicLink()) {
+        throw new Error("Dyna could not create a safe backup file.");
+      }
+      (0, import_node_fs3.chmodSync)(stagingPath, 384);
+      const verifier = new import_node_sqlite.DatabaseSync(stagingPath, {
+        allowExtension: false,
+        enableForeignKeyConstraints: true,
+        readOnly: true,
+        timeout: 5e3
+      });
+      try {
+        const versionRow = this.#one(verifier.prepare("PRAGMA user_version"));
+        const integrityRow = this.#one(verifier.prepare("PRAGMA integrity_check"));
+        const foreignKeyViolations = verifier.prepare("PRAGMA foreign_key_check").all();
+        if (!versionRow || requiredNumber(versionRow, "user_version") !== DYNA_SCHEMA_VERSION || !integrityRow || requiredString(integrityRow, "integrity_check") !== "ok" || foreignKeyViolations.length > 0) {
+          throw new Error("Dyna could not verify the backup database.");
+        }
+      } finally {
+        verifier.close();
+      }
+      (0, import_node_fs3.linkSync)(stagingPath, backupPath);
+      (0, import_node_fs3.unlinkSync)(stagingPath);
+      return backupPath;
+    } catch (error51) {
+      if (lstatIfPresent(stagingPath)) (0, import_node_fs3.unlinkSync)(stagingPath);
+      throw error51;
+    }
+  }
+  #createSchema() {
     this.#database.exec(`
       CREATE TABLE IF NOT EXISTS dashboards (
         id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL,
@@ -55058,17 +55179,80 @@ var DynaStore = class {
         id TEXT PRIMARY KEY, event_kind TEXT NOT NULL, entity_id TEXT NOT NULL, created_at TEXT NOT NULL
       );
     `);
-    this.#migrateDevelopmentSchema();
-    if (databasePath !== ":memory:") {
-      for (const path of [databasePath, `${databasePath}-wal`, `${databasePath}-shm`]) {
-        if ((0, import_node_fs3.existsSync)(path)) (0, import_node_fs3.chmodSync)(path, 384);
+  }
+  #migrateSchema() {
+    const versionRow = this.#one(this.#database.prepare("PRAGMA user_version"));
+    if (!versionRow) throw new Error("Dyna could not read its database schema version.");
+    const version2 = requiredNumber(versionRow, "user_version");
+    if (version2 > DYNA_SCHEMA_VERSION) {
+      throw new Error(
+        "The Dyna database was created by a newer FlowZone version and cannot be opened safely."
+      );
+    }
+    this.#database.exec("PRAGMA journal_mode = WAL;");
+    if (version2 === DYNA_SCHEMA_VERSION) return;
+    if (version2 !== 0) throw new Error("The Dyna database schema version is unsupported.");
+    this.#transaction(() => {
+      this.#createSchema();
+      this.#migrateUnversionedSchema();
+      this.#sanitizeLegacyFailureMessages();
+      this.#database.prepare(
+        "UPDATE publishers SET schedule_id = NULL WHERE schedule_id IS NOT NULL AND trim(schedule_id) = ''"
+      ).run();
+      const duplicateSchedule = this.#one(
+        this.#database.prepare(
+          `SELECT schedule_id FROM publishers
+           WHERE schedule_id IS NOT NULL
+           GROUP BY schedule_id HAVING COUNT(*) > 1 LIMIT 1`
+        )
+      );
+      if (duplicateSchedule) {
+        throw new Error(
+          "The unversioned Dyna database contains duplicate native schedule identifiers; reconcile them before upgrading."
+        );
       }
+      const oversizedDashboard = this.#one(
+        this.#database.prepare(
+          `SELECT dp.dashboard_id FROM dashboard_publishers dp
+           JOIN publishers p ON p.id = dp.publisher_id
+           WHERE p.schedule_id IS NOT NULL
+           GROUP BY dp.dashboard_id HAVING COUNT(*) > ? LIMIT 1`
+        ),
+        MAX_SCHEDULES_PER_DASHBOARD
+      );
+      if (oversizedDashboard) {
+        throw new Error(
+          "The unversioned Dyna database has more than 50 schedules on one dashboard; reduce its bindings before upgrading."
+        );
+      }
+      this.#database.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_dyna_publishers_schedule
+          ON publishers(schedule_id) WHERE schedule_id IS NOT NULL;
+        CREATE TRIGGER IF NOT EXISTS trg_dyna_schedule_id_immutable
+          BEFORE UPDATE OF schedule_id ON publishers
+          WHEN OLD.schedule_id IS NOT NULL AND
+            (NEW.schedule_id IS NULL OR NEW.schedule_id <> OLD.schedule_id)
+          BEGIN
+            SELECT RAISE(ABORT, 'Dyna native schedule identifiers are immutable');
+          END;
+        CREATE INDEX IF NOT EXISTS idx_dyna_dashboard_publishers_publisher
+          ON dashboard_publishers(publisher_id, dashboard_id);
+        CREATE INDEX IF NOT EXISTS idx_dyna_publisher_items_item
+          ON publisher_items(item_id, active, publisher_id);
+        CREATE INDEX IF NOT EXISTS idx_dyna_annotations_item_created
+          ON annotations(item_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_dyna_actions_item_state
+          ON action_requests(item_id, kind, state, claim_expires_at);
+      `);
+      this.#assertDatabaseIntegrity();
+      this.#database.exec("PRAGMA user_version = 1;");
+    });
+    const migratedVersion = this.#one(this.#database.prepare("PRAGMA user_version"));
+    if (!migratedVersion || requiredNumber(migratedVersion, "user_version") !== DYNA_SCHEMA_VERSION) {
+      throw new Error("Dyna could not complete its database schema migration.");
     }
   }
-  close() {
-    this.#database.close();
-  }
-  #migrateDevelopmentSchema() {
+  #migrateUnversionedSchema() {
     const additions = {
       publishers: {
         schedule_id: "TEXT",
@@ -55116,26 +55300,25 @@ var DynaStore = class {
         uncertain_effect: "INTEGER NOT NULL DEFAULT 0"
       }
     };
-    this.#transaction(() => {
-      for (const [table, columns] of Object.entries(additions)) {
-        const existing = new Set(
-          this.#database.prepare(`PRAGMA table_info(${table})`).all().map(
-            (row) => requiredString(row, "name")
-          )
-        );
-        for (const [column, definition] of Object.entries(columns)) {
-          if (!existing.has(column)) {
-            this.#database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
-          }
-        }
-      }
-      const preferenceColumns = new Set(
-        this.#database.prepare("PRAGMA table_info(item_preferences)").all().map(
+    for (const [table, columns] of Object.entries(additions)) {
+      const existing = new Set(
+        this.#database.prepare(`PRAGMA table_info(${table})`).all().map(
           (row) => requiredString(row, "name")
         )
       );
-      if (!preferenceColumns.has("dashboard_id")) {
-        this.#database.exec(`
+      for (const [column, definition] of Object.entries(columns)) {
+        if (!existing.has(column)) {
+          this.#database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+        }
+      }
+    }
+    const preferenceColumns = new Set(
+      this.#database.prepare("PRAGMA table_info(item_preferences)").all().map(
+        (row) => requiredString(row, "name")
+      )
+    );
+    if (!preferenceColumns.has("dashboard_id")) {
+      this.#database.exec(`
           ALTER TABLE item_preferences RENAME TO item_preferences_legacy;
           CREATE TABLE item_preferences (
             dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
@@ -55153,57 +55336,57 @@ var DynaStore = class {
           JOIN dashboard_publishers dp ON dp.publisher_id = pi.publisher_id;
           DROP TABLE item_preferences_legacy;
         `);
-      }
-      const legacyRuns = this.#database.prepare(
-        "SELECT publisher_id, run_id, completed_at FROM publisher_runs WHERE source_completed_ms IS NULL"
-      ).all();
-      const updateRun = this.#database.prepare(
-        "UPDATE publisher_runs SET source_completed_at = ?, source_completed_ms = ? WHERE publisher_id = ? AND run_id = ?"
+    }
+    const legacyRuns = this.#database.prepare(
+      "SELECT publisher_id, run_id, completed_at FROM publisher_runs WHERE source_completed_ms IS NULL"
+    ).all();
+    const updateRun = this.#database.prepare(
+      "UPDATE publisher_runs SET source_completed_at = ?, source_completed_ms = ? WHERE publisher_id = ? AND run_id = ?"
+    );
+    for (const row of legacyRuns) {
+      const completed = normalizeTimestamp(requiredString(row, "completed_at"));
+      updateRun.run(
+        completed.iso,
+        completed.epoch,
+        requiredString(row, "publisher_id"),
+        requiredString(row, "run_id")
       );
-      for (const row of legacyRuns) {
-        const completed = normalizeTimestamp(requiredString(row, "completed_at"));
-        updateRun.run(
-          completed.iso,
-          completed.epoch,
+    }
+    const legacyPublishers = this.#database.prepare(
+      "SELECT id, last_run_at FROM publishers WHERE last_run_at IS NOT NULL AND last_run_completed_ms IS NULL"
+    ).all();
+    const updatePublisher = this.#database.prepare(
+      "UPDATE publishers SET last_run_completed_ms = ? WHERE id = ?"
+    );
+    for (const row of legacyPublishers) {
+      updatePublisher.run(
+        normalizeTimestamp(requiredString(row, "last_run_at")).epoch,
+        requiredString(row, "id")
+      );
+    }
+    const rows = this.#database.prepare("SELECT id, publisher_id, external_id, source_ref, source_updated_at FROM items").all();
+    const update = this.#database.prepare(
+      "UPDATE items SET identity_key = ?, source_updated_ms = ? WHERE id = ?"
+    );
+    const membership = this.#database.prepare(
+      "INSERT OR IGNORE INTO publisher_items (publisher_id, external_id, item_id, active, last_seen_run_id) VALUES (?, ?, ?, 1, 'legacy')"
+    );
+    for (const row of rows) {
+      update.run(
+        identityKey(
           requiredString(row, "publisher_id"),
-          requiredString(row, "run_id")
-        );
-      }
-      const legacyPublishers = this.#database.prepare(
-        "SELECT id, last_run_at FROM publishers WHERE last_run_at IS NOT NULL AND last_run_completed_ms IS NULL"
-      ).all();
-      const updatePublisher = this.#database.prepare(
-        "UPDATE publishers SET last_run_completed_ms = ? WHERE id = ?"
+          parseJson(requiredString(row, "source_ref"))
+        ),
+        normalizeTimestamp(requiredString(row, "source_updated_at")).epoch,
+        requiredString(row, "id")
       );
-      for (const row of legacyPublishers) {
-        updatePublisher.run(
-          normalizeTimestamp(requiredString(row, "last_run_at")).epoch,
-          requiredString(row, "id")
-        );
-      }
-      const rows = this.#database.prepare("SELECT id, publisher_id, external_id, source_ref, source_updated_at FROM items").all();
-      const update = this.#database.prepare(
-        "UPDATE items SET identity_key = ?, source_updated_ms = ? WHERE id = ?"
+      membership.run(
+        requiredString(row, "publisher_id"),
+        requiredString(row, "external_id"),
+        requiredString(row, "id")
       );
-      const membership = this.#database.prepare(
-        "INSERT OR IGNORE INTO publisher_items (publisher_id, external_id, item_id, active, last_seen_run_id) VALUES (?, ?, ?, 1, 'legacy')"
-      );
-      for (const row of rows) {
-        update.run(
-          identityKey(
-            requiredString(row, "publisher_id"),
-            parseJson(requiredString(row, "source_ref"))
-          ),
-          normalizeTimestamp(requiredString(row, "source_updated_at")).epoch,
-          requiredString(row, "id")
-        );
-        membership.run(
-          requiredString(row, "publisher_id"),
-          requiredString(row, "external_id"),
-          requiredString(row, "id")
-        );
-      }
-      this.#database.exec(`
+    }
+    this.#database.exec(`
         UPDATE publisher_items
         SET active = 0
         WHERE EXISTS (
@@ -55211,14 +55394,62 @@ var DynaStore = class {
           WHERE items.id = publisher_items.item_id
             AND items.publisher_id <> publisher_items.publisher_id
         )
-      `);
-      this.#database.prepare(
-        "UPDATE task_bindings SET outcome = ? WHERE state = 'succeeded' AND (outcome IS NULL OR trim(outcome) = '')"
-      ).run(LEGACY_COMPLETION_OUTCOME);
-      this.#database.exec(
-        "CREATE INDEX IF NOT EXISTS idx_dyna_items_identity ON items(identity_key); CREATE UNIQUE INDEX IF NOT EXISTS idx_dyna_action_idempotency ON action_requests(dashboard_id, idempotency_key) WHERE idempotency_key IS NOT NULL;"
+    `);
+    this.#database.prepare(
+      "UPDATE task_bindings SET outcome = ? WHERE state = 'succeeded' AND (outcome IS NULL OR trim(outcome) = '')"
+    ).run(LEGACY_COMPLETION_OUTCOME);
+    this.#database.exec(
+      "CREATE INDEX IF NOT EXISTS idx_dyna_items_identity ON items(identity_key); CREATE UNIQUE INDEX IF NOT EXISTS idx_dyna_action_idempotency ON action_requests(dashboard_id, idempotency_key) WHERE idempotency_key IS NOT NULL;"
+    );
+  }
+  #sanitizeLegacyFailureMessages() {
+    const publisherRows = this.#database.prepare("SELECT id, last_run_error FROM publishers WHERE last_run_error IS NOT NULL").all();
+    const updatePublisher = this.#database.prepare(
+      "UPDATE publishers SET last_run_error = ? WHERE id = ?"
+    );
+    for (const row of publisherRows) {
+      updatePublisher.run(
+        sanitizePersistedFailureMessage(requiredString(row, "last_run_error")),
+        requiredString(row, "id")
       );
-    });
+    }
+    const runRows = this.#database.prepare(
+      "SELECT publisher_id, run_id, failure_message FROM publisher_runs WHERE failure_message IS NOT NULL"
+    ).all();
+    const updateRun = this.#database.prepare(
+      "UPDATE publisher_runs SET failure_message = ? WHERE publisher_id = ? AND run_id = ?"
+    );
+    for (const row of runRows) {
+      updateRun.run(
+        sanitizePersistedFailureMessage(requiredString(row, "failure_message")),
+        requiredString(row, "publisher_id"),
+        requiredString(row, "run_id")
+      );
+    }
+    const actionRows = this.#database.prepare("SELECT id, failure_message FROM action_requests WHERE failure_message IS NOT NULL").all();
+    const updateAction = this.#database.prepare(
+      "UPDATE action_requests SET failure_message = ? WHERE id = ?"
+    );
+    for (const row of actionRows) {
+      updateAction.run(
+        sanitizePersistedFailureMessage(requiredString(row, "failure_message")),
+        requiredString(row, "id")
+      );
+    }
+  }
+  #assertDatabaseIntegrity() {
+    const integrityRows = this.#database.prepare("PRAGMA integrity_check").all();
+    const foreignKeyRows = this.#database.prepare("PRAGMA foreign_key_check").all();
+    if (integrityRows.length !== 1 || !integrityRows[0] || requiredString(integrityRows[0], "integrity_check") !== "ok") {
+      throw new Error(
+        "The legacy Dyna database failed its integrity check; migration was rolled back."
+      );
+    }
+    if (foreignKeyRows.length > 0) {
+      throw new Error(
+        "The legacy Dyna database contains invalid relationships; migration was rolled back."
+      );
+    }
   }
   #transaction(operation) {
     this.#database.exec("BEGIN IMMEDIATE");
@@ -55381,9 +55612,56 @@ var DynaStore = class {
     });
   }
   bindSchedule(dashboardId, publisherId, schedule) {
+    const scheduleId = schedule.id.trim();
+    const scheduleTitle = schedule.title.trim();
+    if (!scheduleId || scheduleId.length > 256) {
+      throw new Error("A valid Dyna schedule identifier is required.");
+    }
+    if (!scheduleTitle || scheduleTitle.length > 200) {
+      throw new Error("A valid Dyna schedule title is required.");
+    }
+    if (!Number.isInteger(schedule.staleAfterMinutes) || schedule.staleAfterMinutes < 5 || schedule.staleAfterMinutes > 43200) {
+      throw new Error("Dyna schedule freshness must be between 5 and 43200 minutes.");
+    }
     this.getDashboard(dashboardId);
     const instant = this.#now();
     this.#transaction(() => {
+      const publisher = this.#one(
+        this.#database.prepare("SELECT schedule_id, revoked_at FROM publishers WHERE id = ?"),
+        publisherId
+      );
+      if (!publisher) throw new Error("Dyna publisher was not found.");
+      if (optionalString(publisher, "revoked_at")) {
+        throw new Error("A revoked Dyna publisher cannot be bound to a schedule.");
+      }
+      const currentScheduleId = optionalString(publisher, "schedule_id");
+      if (currentScheduleId && currentScheduleId !== scheduleId) {
+        throw new Error("A Dyna publisher's native schedule identifier is immutable.");
+      }
+      const collision = this.#one(
+        this.#database.prepare(
+          "SELECT id FROM publishers WHERE schedule_id = ? AND id <> ? LIMIT 1"
+        ),
+        scheduleId,
+        publisherId
+      );
+      if (collision) throw new Error("This native schedule identifier is already registered.");
+      const dashboardIds = new Set(
+        this.#database.prepare("SELECT dashboard_id FROM dashboard_publishers WHERE publisher_id = ?").all(publisherId).map((row) => requiredString(row, "dashboard_id"))
+      );
+      dashboardIds.add(dashboardId);
+      const scheduledPublisherCount = this.#database.prepare(
+        `SELECT COUNT(*) AS total FROM dashboard_publishers dp
+         JOIN publishers p ON p.id = dp.publisher_id
+         WHERE dp.dashboard_id = ? AND p.schedule_id IS NOT NULL AND p.id <> ?`
+      );
+      for (const boundDashboardId of dashboardIds) {
+        const countRow = this.#one(scheduledPublisherCount, boundDashboardId, publisherId);
+        if (!countRow) throw new Error("Dyna could not count schedule bindings.");
+        if (requiredNumber(countRow, "total") >= MAX_SCHEDULES_PER_DASHBOARD) {
+          throw new Error("A Dyna dashboard cannot bind more than 50 schedules.");
+        }
+      }
       const updated = this.#database.prepare(
         `UPDATE publishers SET schedule_id = ?, schedule_title = ?, schedule_state = ?, stale_after_minutes = ?
            WHERE id = ? AND (
@@ -55391,24 +55669,16 @@ var DynaStore = class {
              schedule_state != ? OR stale_after_minutes != ?
            )`
       ).run(
-        schedule.id,
-        schedule.title,
+        scheduleId,
+        scheduleTitle,
         schedule.state,
         schedule.staleAfterMinutes,
         publisherId,
-        schedule.id,
-        schedule.title,
+        scheduleId,
+        scheduleTitle,
         schedule.state,
         schedule.staleAfterMinutes
       ).changes;
-      const publisher = this.#one(
-        this.#database.prepare("SELECT revoked_at FROM publishers WHERE id = ?"),
-        publisherId
-      );
-      if (!publisher) throw new Error("Dyna publisher was not found.");
-      if (optionalString(publisher, "revoked_at")) {
-        throw new Error("A revoked Dyna publisher cannot be bound to a schedule.");
-      }
       const bound = this.#database.prepare(
         "INSERT OR IGNORE INTO dashboard_publishers (dashboard_id, publisher_id) VALUES (?, ?)"
       ).run(dashboardId, publisherId).changes;
@@ -55468,6 +55738,7 @@ var DynaStore = class {
     return rows.map((row) => this.#publisherFromRow(row));
   }
   #publisherFromRow(row) {
+    const lastRunError = optionalString(row, "last_run_error");
     return DynaPublisherSchema.parse({
       id: requiredString(row, "id"),
       name: requiredString(row, "name"),
@@ -55477,19 +55748,20 @@ var DynaStore = class {
       staleAfterMinutes: requiredNumber(row, "stale_after_minutes"),
       lastRunStatus: requiredString(row, "last_run_status"),
       ...optionalString(row, "last_run_at") ? { lastRunAt: optionalString(row, "last_run_at") } : {},
-      ...optionalString(row, "last_run_error") ? { lastRunError: optionalString(row, "last_run_error") } : {},
+      ...lastRunError ? { lastRunError: sanitizePersistedFailureMessage(lastRunError) } : {},
       ...optionalString(row, "revoked_at") ? { revokedAt: optionalString(row, "revoked_at") } : {},
       createdAt: requiredString(row, "created_at")
     });
   }
   publish(publisherId, secret, items, options) {
-    if (options.status === "failed" && (items.length > 0 || !options.failureMessage)) {
+    const failureMessage = options.failureMessage === void 0 ? void 0 : sanitizePublicFailureMessage(options.failureMessage);
+    if (options.status === "failed" && (items.length > 0 || !failureMessage)) {
       throw new Error("A failed Dyna run requires an error and cannot publish a partial snapshot.");
     }
-    if (options.status === "succeeded" && options.failureMessage) {
+    if (options.status === "succeeded" && failureMessage) {
       throw new Error("A successful Dyna run cannot include an error.");
     }
-    if (options.status === "partial" && (options.mode !== "upsert" || items.length === 0 || !options.failureMessage)) {
+    if (options.status === "partial" && (options.mode !== "upsert" || items.length === 0 || !failureMessage)) {
       throw new Error(
         "A partial Dyna run requires upsert mode, at least one item, and a bounded error."
       );
@@ -55502,7 +55774,7 @@ var DynaStore = class {
         sourceCompletedAt: sourceCompletion.iso,
         mode: options.mode,
         status: options.status,
-        failureMessage: options.failureMessage ?? null,
+        failureMessage: failureMessage ?? null,
         items: parsedItems
       })
     );
@@ -55553,7 +55825,7 @@ var DynaStore = class {
           options.mode,
           options.status,
           parsedItems.length,
-          options.failureMessage ?? null,
+          failureMessage ?? null,
           sourceCompletion.iso,
           sourceCompletion.epoch,
           requestHash,
@@ -55695,7 +55967,7 @@ var DynaStore = class {
         options.mode,
         options.status,
         parsedItems.length,
-        options.failureMessage ?? null,
+        failureMessage ?? null,
         sourceCompletion.iso,
         sourceCompletion.epoch,
         requestHash,
@@ -55707,7 +55979,7 @@ var DynaStore = class {
         options.status,
         sourceCompletion.iso,
         sourceCompletion.epoch,
-        options.failureMessage ?? null,
+        failureMessage ?? null,
         publisherId
       );
       this.#touchDashboards(affectedDashboards, instant);
@@ -56115,36 +56387,49 @@ var DynaStore = class {
   prepareAction(viewToken, kind, values) {
     DynaActionKindSchema.parse(kind);
     const dashboardId = this.authorizeView(viewToken, values.itemId);
-    const revisionRow = this.#one(
-      this.#database.prepare("SELECT revision FROM dashboards WHERE id = ?"),
-      dashboardId
-    );
-    if (!revisionRow || requiredNumber(revisionRow, "revision") !== values.expectedRevision) {
-      throw new Error("The Dyna dashboard changed; refresh before taking action.");
-    }
-    const item = this.#itemBaseRow(values.itemId);
-    if (requiredString(item, "fingerprint") !== values.expectedFingerprint) {
-      throw new Error("The Dyna item changed; refresh before taking action.");
-    }
-    if (kind === "open_codex_task" || kind === "refresh_codex_status") {
-      if (!values.taskId || !values.taskHostId) {
-        throw new Error("This Dyna action requires a linked Codex task and host.");
-      }
-      const linked = this.#one(
+    const result = this.#transaction(() => {
+      const instant = this.#now();
+      const existing = this.#one(
         this.#database.prepare(
-          "SELECT 1 AS present FROM task_bindings WHERE item_id = ? AND task_id = ? AND host_id = ?"
+          "SELECT * FROM action_requests WHERE dashboard_id = ? AND idempotency_key = ?"
         ),
-        values.itemId,
-        values.taskId,
-        values.taskHostId
+        dashboardId,
+        values.idempotencyKey
       );
-      if (!linked) throw new Error("The Codex task is not linked to this Dyna item.");
-    } else if (values.taskId || values.taskHostId) {
-      throw new Error("This Dyna action cannot target an existing Codex task.");
-    }
-    if (kind === "create_codex_task") {
-      const hasUncertainCreation = this.#transaction(() => {
-        const instant2 = this.#now();
+      if (existing) {
+        if (requiredString(existing, "kind") !== kind || requiredString(existing, "item_id") !== values.itemId || optionalString(existing, "task_id") !== values.taskId || optionalString(existing, "host_id") !== values.taskHostId || requiredNumber(existing, "dashboard_revision") !== values.expectedRevision || requiredString(existing, "item_fingerprint") !== values.expectedFingerprint) {
+          throw new Error("The Dyna idempotency key was already used for another action.");
+        }
+        return this.#actionFromRow(existing);
+      }
+      const revisionRow = this.#one(
+        this.#database.prepare("SELECT revision FROM dashboards WHERE id = ?"),
+        dashboardId
+      );
+      if (!revisionRow || requiredNumber(revisionRow, "revision") !== values.expectedRevision) {
+        throw new Error("The Dyna dashboard changed; refresh before taking action.");
+      }
+      const item = this.#itemBaseRow(values.itemId);
+      if (requiredString(item, "fingerprint") !== values.expectedFingerprint) {
+        throw new Error("The Dyna item changed; refresh before taking action.");
+      }
+      if (kind === "open_codex_task" || kind === "refresh_codex_status") {
+        if (!values.taskId || !values.taskHostId) {
+          throw new Error("This Dyna action requires a linked Codex task and host.");
+        }
+        const linked = this.#one(
+          this.#database.prepare(
+            "SELECT 1 AS present FROM task_bindings WHERE item_id = ? AND task_id = ? AND host_id = ?"
+          ),
+          values.itemId,
+          values.taskId,
+          values.taskHostId
+        );
+        if (!linked) throw new Error("The Codex task is not linked to this Dyna item.");
+      } else if (values.taskId || values.taskHostId) {
+        throw new Error("This Dyna action cannot target an existing Codex task.");
+      }
+      if (kind === "create_codex_task") {
         this.#database.prepare(
           `UPDATE action_requests SET state = 'needs_reconciliation', uncertain_effect = 1,
                failure_message = ?, claim_token_hash = NULL, claim_expires_at = NULL,
@@ -56153,44 +56438,14 @@ var DynaStore = class {
                AND (claim_expires_at IS NULL OR claim_expires_at <= ?)`
         ).run(
           "The controller claim expired after task creation may have started.",
-          instant2,
+          instant,
           values.itemId,
-          instant2
-        );
-        return Boolean(
-          this.#one(
-            this.#database.prepare(
-              `SELECT 1 AS present FROM action_requests
-               WHERE item_id = ? AND kind = 'create_codex_task'
-                 AND state = 'needs_reconciliation' AND uncertain_effect = 1
-               LIMIT 1`
-            ),
-            values.itemId
-          )
-        );
-      });
-      if (hasUncertainCreation) {
-        throw new Error(
-          "A prior Codex task creation needs explicit reconciliation before another can start."
+          instant
         );
       }
-    }
-    const existing = this.#one(
-      this.#database.prepare(
-        "SELECT * FROM action_requests WHERE dashboard_id = ? AND idempotency_key = ?"
-      ),
-      dashboardId,
-      values.idempotencyKey
-    );
-    if (existing) {
-      if (requiredString(existing, "kind") !== kind || requiredString(existing, "item_id") !== values.itemId || optionalString(existing, "task_id") !== values.taskId || optionalString(existing, "host_id") !== values.taskHostId || requiredNumber(existing, "dashboard_revision") !== values.expectedRevision || requiredString(existing, "item_fingerprint") !== values.expectedFingerprint) {
-        throw new Error("The Dyna idempotency key was already used for another action.");
-      }
-      return this.#actionFromRow(existing);
-    }
-    const unresolved = this.#one(
-      this.#database.prepare(
-        `
+      const unresolved = this.#one(
+        this.#database.prepare(
+          `
         SELECT * FROM action_requests
         WHERE dashboard_id = ? AND item_id = ? AND kind = ?
           AND dashboard_revision = ? AND item_fingerprint = ?
@@ -56203,81 +56458,147 @@ var DynaStore = class {
           )
         ORDER BY created_at DESC LIMIT 1
       `
-      ),
-      dashboardId,
-      values.itemId,
-      kind,
-      values.expectedRevision,
-      values.expectedFingerprint,
-      values.taskId ?? null,
-      values.taskHostId ?? null,
-      this.#now(),
-      this.#now()
-    );
-    if (unresolved) return this.#actionFromRow(unresolved);
-    const instant = this.#now();
-    const request = DynaActionRequestSchema.parse({
-      id: (0, import_node_crypto5.randomUUID)(),
-      kind,
-      itemId: values.itemId,
-      ...values.taskId ? { taskId: values.taskId } : {},
-      ...values.taskHostId ? { taskHostId: values.taskHostId } : {},
-      dashboardRevision: values.expectedRevision,
-      itemFingerprint: values.expectedFingerprint,
-      state: "prepared",
-      expiresAt: new Date(this.#nowMs() + ACTION_TTL_MS).toISOString(),
-      createdAt: instant,
-      updatedAt: instant
-    });
-    this.#database.prepare(
-      `
+        ),
+        dashboardId,
+        values.itemId,
+        kind,
+        values.expectedRevision,
+        values.expectedFingerprint,
+        values.taskId ?? null,
+        values.taskHostId ?? null,
+        instant,
+        instant
+      );
+      if (unresolved) return this.#actionFromRow(unresolved);
+      if (kind === "create_codex_task") {
+        const hasUncertainCreation = Boolean(
+          this.#one(
+            this.#database.prepare(
+              `SELECT 1 AS present FROM action_requests
+               WHERE item_id = ? AND kind = 'create_codex_task'
+                 AND state = 'needs_reconciliation' AND uncertain_effect = 1
+               LIMIT 1`
+            ),
+            values.itemId
+          )
+        );
+        if (hasUncertainCreation) {
+          return {
+            error: "A prior Codex task creation needs explicit reconciliation before another can start."
+          };
+        }
+        if (!this.#taskBindingCapacityAvailable(values.itemId)) {
+          throw new Error("A Dyna item cannot link more than eight Codex tasks.");
+        }
+      }
+      const request = DynaActionRequestSchema.parse({
+        id: (0, import_node_crypto5.randomUUID)(),
+        kind,
+        itemId: values.itemId,
+        ...values.taskId ? { taskId: values.taskId } : {},
+        ...values.taskHostId ? { taskHostId: values.taskHostId } : {},
+        dashboardRevision: values.expectedRevision,
+        itemFingerprint: values.expectedFingerprint,
+        state: "prepared",
+        expiresAt: new Date(Date.parse(instant) + ACTION_TTL_MS).toISOString(),
+        createdAt: instant,
+        updatedAt: instant
+      });
+      this.#database.prepare(
+        `
         INSERT INTO action_requests (
           id, view_token_hash, dashboard_id, kind, item_id, item_fingerprint,
           dashboard_revision, task_id, host_id, idempotency_key, state,
           expires_at, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `
-    ).run(
-      request.id,
-      tokenHash(viewToken),
-      dashboardId,
-      request.kind,
-      request.itemId ?? null,
-      request.itemFingerprint,
-      request.dashboardRevision,
-      request.taskId ?? null,
-      request.taskHostId ?? null,
-      values.idempotencyKey,
-      request.state,
-      request.expiresAt,
-      request.createdAt,
-      request.updatedAt
-    );
-    return request;
+      ).run(
+        request.id,
+        tokenHash(viewToken),
+        dashboardId,
+        request.kind,
+        request.itemId ?? null,
+        request.itemFingerprint,
+        request.dashboardRevision,
+        request.taskId ?? null,
+        request.taskHostId ?? null,
+        values.idempotencyKey,
+        request.state,
+        request.expiresAt,
+        request.createdAt,
+        request.updatedAt
+      );
+      return request;
+    });
+    if ("error" in result) throw new Error(result.error);
+    return result;
   }
   markDelivered(viewToken, requestId) {
     this.authorizeView(viewToken);
     const hash2 = tokenHash(viewToken);
-    const instant = this.#now();
-    const row = this.#one(
-      this.#database.prepare("SELECT * FROM action_requests WHERE id = ? AND view_token_hash = ?"),
-      requestId,
-      hash2
-    );
-    if (!row) throw new Error("The Dyna action request cannot be delivered.");
-    if (requiredString(row, "expires_at") <= instant) {
-      return this.actionStatusForView(viewToken, requestId);
-    }
-    if (requiredString(row, "state") === "prepared") {
-      this.#database.prepare("UPDATE action_requests SET state = 'delivered', updated_at = ? WHERE id = ?").run(instant, requestId);
-    }
-    const request = this.actionStatusForView(viewToken, requestId);
-    if (!["delivered", "claimed", "succeeded", "failed", "needs_reconciliation"].includes(
-      request.state
-    )) {
-      throw new Error("The Dyna action request cannot be delivered.");
-    }
-    return request;
+    return this.#transaction(() => {
+      const instant = this.#now();
+      let row = this.#one(
+        this.#database.prepare(
+          "SELECT * FROM action_requests WHERE id = ? AND view_token_hash = ?"
+        ),
+        requestId,
+        hash2
+      );
+      if (!row) throw new Error("The Dyna action request cannot be delivered.");
+      const state = requiredString(row, "state");
+      const requestExpired = requiredString(row, "expires_at") <= instant;
+      const claimExpired = state === "claimed" && (!optionalString(row, "claim_expires_at") || requiredString(row, "claim_expires_at") <= instant);
+      if (requestExpired && (state === "prepared" || state === "delivered")) {
+        this.#database.prepare(
+          `UPDATE action_requests SET state = 'needs_reconciliation', failure_message = ?,
+               uncertain_effect = 0, claim_token_hash = NULL, claim_expires_at = NULL,
+               updated_at = ?
+             WHERE id = ? AND view_token_hash = ? AND state = ? AND expires_at <= ?`
+        ).run(
+          "The action expired before the controller confirmed delivery.",
+          instant,
+          requestId,
+          hash2,
+          state,
+          instant
+        );
+      } else if (claimExpired) {
+        this.#database.prepare(
+          `UPDATE action_requests SET state = 'needs_reconciliation', failure_message = ?,
+               uncertain_effect = 1, claim_token_hash = NULL, claim_expires_at = NULL,
+               updated_at = ?
+             WHERE id = ? AND view_token_hash = ? AND state = 'claimed'
+               AND (claim_expires_at IS NULL OR claim_expires_at <= ?)`
+        ).run(
+          "The controller claim expired before completion.",
+          instant,
+          requestId,
+          hash2,
+          instant
+        );
+      } else if (state === "prepared") {
+        this.#database.prepare(
+          `UPDATE action_requests SET state = 'delivered', updated_at = ?
+             WHERE id = ? AND view_token_hash = ? AND state = 'prepared' AND expires_at > ?`
+        ).run(instant, requestId, hash2, instant);
+      }
+      row = this.#one(
+        this.#database.prepare(
+          "SELECT * FROM action_requests WHERE id = ? AND view_token_hash = ?"
+        ),
+        requestId,
+        hash2
+      );
+      if (!row) throw new Error("The Dyna action request cannot be delivered.");
+      const request = this.#actionFromRow(row);
+      if (!["delivered", "claimed", "succeeded", "failed", "needs_reconciliation"].includes(
+        request.state
+      )) {
+        throw new Error("The Dyna action request cannot be delivered.");
+      }
+      return request;
+    });
   }
   actionStatusForView(viewToken, requestId) {
     this.authorizeView(viewToken);
@@ -56346,6 +56667,18 @@ var DynaStore = class {
         );
         return { error: "The Dyna action preconditions changed before it could be claimed." };
       }
+      if (itemId && requiredString(requestRow, "kind") === "create_codex_task" && requiredString(requestRow, "state") === "delivered" && requiredString(requestRow, "expires_at") > instant && !this.#taskBindingCapacityAvailable(itemId)) {
+        this.#database.prepare(
+          `UPDATE action_requests SET state = 'failed', failure_message = ?,
+               uncertain_effect = 0, claim_token_hash = NULL, claim_expires_at = NULL,
+               updated_at = ? WHERE id = ? AND state = 'delivered'`
+        ).run(
+          "The linked Codex task limit was reached before creation started.",
+          instant,
+          requestId
+        );
+        return { error: "The Dyna item cannot link another Codex task." };
+      }
       const claimExpiresAt = new Date(
         Math.min(this.#nowMs() + CLAIM_LEASE_MS, requestExpiry)
       ).toISOString();
@@ -56373,6 +56706,7 @@ var DynaStore = class {
     return result;
   }
   completeAction(requestId, claimToken, result) {
+    const publicFailureMessage = result.outcome === "succeeded" ? void 0 : sanitizePublicFailureMessage(result.failureMessage);
     return this.#transaction(() => {
       const row = this.#one(
         this.#database.prepare("SELECT * FROM action_requests WHERE id = ? AND state = 'claimed'"),
@@ -56407,7 +56741,11 @@ var DynaStore = class {
         if (result.task) {
           const itemId = optionalString(row, "item_id");
           if (!itemId) throw new Error("The Dyna action has no item to link.");
-          this.#upsertTaskStatus(itemId, result.task);
+          this.#upsertTaskStatus(
+            itemId,
+            result.task,
+            kind === "create_codex_task" ? requestId : void 0
+          );
         }
       }
       this.#database.prepare(
@@ -56420,7 +56758,7 @@ var DynaStore = class {
       ).run(
         result.outcome,
         result.outcome === "succeeded" ? result.task?.taskId ?? null : null,
-        result.outcome === "succeeded" ? null : result.failureMessage,
+        publicFailureMessage ?? null,
         result.outcome === "needs_reconciliation" ? 1 : 0,
         instant,
         requestId
@@ -56430,6 +56768,7 @@ var DynaStore = class {
     });
   }
   resolveActionReconciliation(requestId, resolution) {
+    const publicExplanation = resolution.outcome === "no_task_created" ? sanitizePublicFailureMessage(resolution.explanation) : void 0;
     return this.#transaction(() => {
       const row = this.#one(
         this.#database.prepare(
@@ -56443,7 +56782,7 @@ var DynaStore = class {
       if (!itemId) throw new Error("The Dyna action has no item to reconcile.");
       const instant = this.#now();
       if (resolution.outcome === "task_linked") {
-        this.#upsertTaskStatus(itemId, resolution.task);
+        this.#upsertTaskStatus(itemId, resolution.task, requestId);
       }
       this.#database.prepare(
         `UPDATE action_requests SET state = ?, result_task_id = ?, failure_message = ?,
@@ -56451,7 +56790,7 @@ var DynaStore = class {
       ).run(
         resolution.outcome === "task_linked" ? "succeeded" : "failed",
         resolution.outcome === "task_linked" ? resolution.task.taskId : null,
-        resolution.outcome === "task_linked" ? null : resolution.explanation,
+        publicExplanation ?? null,
         instant,
         requestId
       );
@@ -56466,6 +56805,28 @@ var DynaStore = class {
     );
     if (!row) throw new Error("Dyna action request was not found.");
     return this.#actionFromRow(row);
+  }
+  #taskBindingCapacityAvailable(itemId, excludedClaimRequestId) {
+    const taskCount = this.#one(
+      this.#database.prepare("SELECT COUNT(*) AS total FROM task_bindings WHERE item_id = ?"),
+      itemId
+    );
+    const reservationCount = this.#one(
+      this.#database.prepare(
+        `SELECT COUNT(*) AS total FROM action_requests
+         WHERE item_id = ? AND kind = 'create_codex_task'
+           AND (state = 'claimed' OR
+             (state = 'needs_reconciliation' AND uncertain_effect = 1))
+           AND (? IS NULL OR id <> ?)`
+      ),
+      itemId,
+      excludedClaimRequestId ?? null,
+      excludedClaimRequestId ?? null
+    );
+    if (!taskCount || !reservationCount) {
+      throw new Error("Dyna could not determine linked Codex task capacity.");
+    }
+    return requiredNumber(taskCount, "total") + requiredNumber(reservationCount, "total") < MAX_TASK_BINDINGS_PER_ITEM;
   }
   #actionFromRow(row) {
     return DynaActionRequestSchema.parse({
@@ -56487,7 +56848,7 @@ var DynaStore = class {
       this.#upsertTaskStatus(itemId, status);
     });
   }
-  #upsertTaskStatus(itemId, status) {
+  #upsertTaskStatus(itemId, status, reservedCreateRequestId) {
     const parsed = DynaTaskStatusSchema.parse(status);
     this.#itemBaseRow(itemId);
     const statusTime = normalizeTimestamp(parsed.statusUpdatedAt, true);
@@ -56500,6 +56861,9 @@ var DynaStore = class {
       parsed.taskId,
       parsed.hostId
     );
+    if (!existing && !this.#taskBindingCapacityAvailable(itemId, reservedCreateRequestId)) {
+      throw new Error("A Dyna item cannot link more than eight Codex tasks.");
+    }
     if (existing && observedTime.epoch > requiredNumber(existing, "observed_ms") && statusTime.epoch === requiredNumber(existing, "status_updated_ms") && (parsed.state !== requiredString(existing, "state") || parsed.title !== requiredString(existing, "title") || parsed.outcome !== optionalString(existing, "outcome"))) {
       throw new Error("Dyna rejected conflicting Codex task data at the same status timestamp.");
     }
@@ -56697,7 +57061,7 @@ var DynaStore = class {
       const sourcePriority = DynaPrioritySchema.parse(requiredString(row, "priority"));
       const leadershipScore = dynaLeadershipScore(item.people);
       const linkedTasks = tasks.get(id) ?? [];
-      const workflowState = linkedTasks.length === 0 ? "todo" : linkedTasks.some((task) => task.state === "failed" || task.state === "unknown") ? "attention" : linkedTasks.some((task) => task.state === "waiting") ? "paused" : linkedTasks.some((task) => task.state === "queued" || task.state === "running") ? "executing" : linkedTasks.every((task) => task.state === "succeeded") ? "completed" : "attention";
+      const workflowState = requiredWorkflowState(row);
       const completedTask = workflowState === "completed" ? linkedTasks.find((task) => task.state === "succeeded") : void 0;
       const leadershipPriority = effectiveDynaPriority(item.priority, item.people);
       const storedPriority = optionalString(row, "preference_priority");

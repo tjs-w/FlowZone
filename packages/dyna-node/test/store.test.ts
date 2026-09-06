@@ -38,4 +38,15 @@ describe("DynaStore lifecycle", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(JSON.parse(result.stdout)).toEqual({ revokeRace: true, rotateRace: true });
   });
+
+  test("applies successful records from a partial run without retiring the previous slice", () => {
+    const fixture = resolve(import.meta.dir, "partial-run-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      appliedSuccessfulSlice: true,
+      retainedPreviousSlice: true,
+      visiblyStale: true,
+    });
+  });
 });

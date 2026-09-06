@@ -40,13 +40,13 @@ describe("Dyna checked-in Node bundle", () => {
     try {
       const resources = await client.listResources();
       const dynaResource = resources.resources.find(
-        (resource) => resource.uri === "ui://flowzone/dyna/v3.html",
+        (resource) => resource.uri === "ui://flowzone/dyna/v4.html",
       );
       expect(dynaResource?._meta?.["ui"]).toEqual({
         prefersBorder: true,
         csp: { connectDomains: [], resourceDomains: [], frameDomains: [] },
       });
-      const dynaHtml = await client.readResource({ uri: "ui://flowzone/dyna/v3.html" });
+      const dynaHtml = await client.readResource({ uri: "ui://flowzone/dyna/v4.html" });
       const dynaContent = dynaHtml.contents[0];
       expect(dynaContent && "text" in dynaContent ? dynaContent.text : "").toContain(
         'id="dyna-root"',
@@ -406,6 +406,77 @@ describe("Dyna checked-in Node bundle", () => {
       });
       expect(staleAction.isError).toBe(true);
 
+      const preparedSourceOpen = await client.callTool({
+        name: "dyna_prepare_action",
+        arguments: {
+          viewToken,
+          itemId,
+          kind: "open_source",
+          expectedRevision: refreshedRevision,
+          expectedFingerprint: itemFingerprint,
+          idempotencyKey: "integration-open-source",
+        },
+      });
+      const sourceOpenRequestId = record(preparedSourceOpen.structuredContent)["requestId"];
+      if (typeof sourceOpenRequestId !== "string")
+        throw new Error("Missing source-open request id");
+      await client.callTool({
+        name: "dyna_mark_action_delivered",
+        arguments: { viewToken, requestId: sourceOpenRequestId },
+      });
+      const claimedSourceOpen = await client.callTool({
+        name: "flowzone",
+        arguments: {
+          plugin: "dyna",
+          action: "claim-action",
+          input: { requestId: sourceOpenRequestId },
+        },
+      });
+      const sourceOpenClaim = record(record(claimedSourceOpen.structuredContent)["result"]);
+      expect(record(sourceOpenClaim["request"])["kind"]).toBe("open_source");
+      const sourceOpenContext = record(record(sourceOpenClaim["context"])["item"]);
+      expect(sourceOpenContext["trustBoundary"]).toBe("untrusted_reference_data");
+      expect(record(sourceOpenContext["sourceRef"])["projectPath"]).toBe("group/project");
+      const sourceOpenClaimToken = sourceOpenClaim["claimToken"];
+      if (typeof sourceOpenClaimToken !== "string")
+        throw new Error("Missing source-open claim token");
+      const invalidSourceOpenCompletion = await client.callTool({
+        name: "flowzone",
+        arguments: {
+          plugin: "dyna",
+          action: "complete-action",
+          input: {
+            requestId: sourceOpenRequestId,
+            claimToken: sourceOpenClaimToken,
+            outcome: "succeeded",
+            task: {
+              taskId: "unexpected-task",
+              hostId: "local",
+              title: "Unexpected task",
+              state: "running",
+              statusUpdatedAt: new Date().toISOString(),
+              observedAt: new Date().toISOString(),
+            },
+          },
+        },
+      });
+      expect(invalidSourceOpenCompletion.isError).toBe(true);
+      const completedSourceOpen = await client.callTool({
+        name: "flowzone",
+        arguments: {
+          plugin: "dyna",
+          action: "complete-action",
+          input: {
+            requestId: sourceOpenRequestId,
+            claimToken: sourceOpenClaimToken,
+            outcome: "succeeded",
+          },
+        },
+      });
+      expect(record(record(completedSourceOpen.structuredContent)["result"])["state"]).toBe(
+        "succeeded",
+      );
+
       const prepared = await client.callTool({
         name: "dyna_prepare_action",
         arguments: {
@@ -760,6 +831,59 @@ describe("Dyna checked-in Node bundle", () => {
         },
       });
       expect(safeAfterReconciliation.isError).toBeUndefined();
+
+      const partialRun = await client.callTool({
+        name: "flowzone",
+        arguments: {
+          plugin: "dyna",
+          action: "publish-run",
+          input: {
+            publisherId: secondPublisherId,
+            secret: secondSecret,
+            runId: "run-partial",
+            sourceCompletedAt: new Date(Date.parse(sourceUpdatedAt) + 1_500).toISOString(),
+            mode: "upsert",
+            status: "partial",
+            failureMessage: "Outlook was unavailable; GitLab results are current.",
+            items: [
+              {
+                externalId: "same-mr-from-another-job",
+                sourceRef: {
+                  source: "gitlab",
+                  instanceId: "corp",
+                  projectPath: "group/project",
+                  iid: 123,
+                  entityType: "merge_request",
+                },
+                sourceScope: "group/project",
+                title: "Review release MR",
+                summary: "GitLab refreshed while Outlook was unavailable.",
+                priority: "high",
+                priorityReason: "Release window closes today.",
+                sourceUpdatedAt: new Date(Date.parse(sourceUpdatedAt) + 1_500).toISOString(),
+                labels: ["release"],
+              },
+            ],
+          },
+        },
+      });
+      expect(record(record(partialRun.structuredContent)["result"])["status"]).toBe("partial");
+      const partialRefresh = await client.callTool({
+        name: "dyna_get_snapshot",
+        arguments: { viewToken },
+      });
+      const partialSnapshot = record(
+        record(record(partialRefresh._meta)["dynaDashboard"])["snapshot"],
+      );
+      expect(partialSnapshot["freshness"]).toBe("stale");
+      expect(partialSnapshot["cards"]).toHaveLength(2);
+      const partialSchedules = partialSnapshot["schedules"];
+      if (!Array.isArray(partialSchedules)) throw new Error("Missing partial schedule status");
+      expect(
+        partialSchedules.map(record).find((schedule) => schedule["id"] === secondPublisherId)?.[
+          "lastRunStatus"
+        ],
+      ).toBe("partial");
 
       await client.callTool({
         name: "flowzone",

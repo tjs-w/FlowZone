@@ -285,7 +285,7 @@ export const DynaPublisherSchema = z
     scheduleTitle: z.string().trim().min(1).max(200).optional(),
     scheduleState: z.enum(["active", "paused", "unknown"]),
     staleAfterMinutes: z.number().int().min(5).max(43_200),
-    lastRunStatus: z.enum(["never", "succeeded", "failed"]),
+    lastRunStatus: z.enum(["never", "succeeded", "partial", "failed"]),
     lastRunAt: TimestampSchema.optional(),
     lastRunError: z.string().trim().min(1).max(500).optional(),
     revokedAt: TimestampSchema.optional(),
@@ -371,6 +371,7 @@ export const DynaActionItemContextSchema = z
   .strict();
 
 export const DynaActionKindSchema = z.enum([
+  "open_source",
   "create_codex_task",
   "open_codex_task",
   "refresh_codex_status",
@@ -406,6 +407,7 @@ export const DynaCardSchema = z
     id: z.uuid(),
     fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
     source: DynaSourceSchema,
+    sourceRef: DynaSourceRefSchema,
     sourceLabel: z.string().trim().min(1).max(128),
     title: z.string().max(200),
     summary: z.string().max(1_000),
@@ -458,7 +460,7 @@ export type DynaDashboardSnapshot = z.infer<typeof DynaDashboardSnapshotSchema>;
 
 export const DynaUiPayloadSchema = z
   .object({
-    schema: z.literal("dyna/ui-v3"),
+    schema: z.literal("dyna/ui-v4"),
     viewToken: z.string().min(32).max(128),
     snapshot: DynaDashboardSnapshotSchema,
     spec: z.unknown(),
@@ -468,7 +470,13 @@ export type DynaUiPayload = z.infer<typeof DynaUiPayloadSchema>;
 
 const ActionDescriptorSchema = z
   .object({
-    name: z.enum(["annotate", "create_codex_task", "open_codex_task", "refresh_codex_status"]),
+    name: z.enum([
+      "annotate",
+      "open_source",
+      "create_codex_task",
+      "open_codex_task",
+      "refresh_codex_status",
+    ]),
     label: z.string().min(1).max(64),
     taskId: IdentifierSchema.optional(),
     taskHostId: IdentifierSchema.optional(),
@@ -520,7 +528,11 @@ export const dynaCatalog = schema.createCatalog({
     },
     Section: {
       props: z
-        .object({ title: z.string().min(1).max(96), emptyMessage: z.string().max(200) })
+        .object({
+          title: z.string().min(1).max(96),
+          emptyMessage: z.string().max(200),
+          attention: z.boolean().optional(),
+        })
         .strict(),
       slots: ["default"],
       description: "A priority group in the dashboard.",
@@ -552,6 +564,7 @@ export const dynaCatalog = schema.createCatalog({
           itemId: z.uuid(),
           fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
           source: DynaSourceSchema,
+          sourceRef: DynaSourceRefSchema,
           sourceLabel: z.string().trim().min(1).max(128),
           title: z.string().max(200),
           summary: z.string().max(1_000),
@@ -577,7 +590,7 @@ export const dynaCatalog = schema.createCatalog({
           enrichmentState: z.enum(["active", "stale"]).optional(),
           annotationCount: z.number().int().nonnegative(),
           annotationPreview: z.array(z.string().trim().min(1).max(1_000)).max(3),
-          actions: z.array(ActionDescriptorSchema).min(1).max(2),
+          actions: z.array(ActionDescriptorSchema).min(1).max(3),
         })
         .strict(),
       slots: ["default"],

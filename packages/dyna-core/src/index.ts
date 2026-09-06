@@ -24,9 +24,20 @@ export function compareDynaCards(left: DynaCard, right: DynaCard): number {
 }
 
 function cardActions(card: DynaCard) {
-  return card.linkedTasks.length > 0
-    ? [{ name: "annotate" as const, label: "Add note" }]
+  const linkedTask = card.linkedTasks[0];
+  return linkedTask
+    ? [
+        { name: "open_source" as const, label: "Open source" },
+        {
+          name: "open_codex_task" as const,
+          label: "Open Codex",
+          taskId: linkedTask.taskId,
+          taskHostId: linkedTask.hostId,
+        },
+        { name: "annotate" as const, label: "Add note" },
+      ]
     : [
+        { name: "open_source" as const, label: "Open source" },
         { name: "annotate" as const, label: "Add note" },
         { name: "create_codex_task" as const, label: "Review in Codex" },
       ];
@@ -65,6 +76,7 @@ export function compileDashboard(snapshot: DynaDashboardSnapshot): DynaRenderSpe
         itemId: card.id,
         fingerprint: card.fingerprint,
         source: card.source,
+        sourceRef: card.sourceRef,
         sourceLabel: card.sourceLabel,
         title: card.title,
         summary: card.summary,
@@ -162,7 +174,16 @@ export function compileDashboard(snapshot: DynaDashboardSnapshot): DynaRenderSpe
     }
     elements["section-schedules"] = {
       type: "Section",
-      props: { title: "Signal runs", emptyMessage: "No schedules are attached." },
+      props: {
+        title: "Signal runs",
+        emptyMessage: "No schedules are attached.",
+        attention: snapshot.schedules.some(
+          (schedule) =>
+            schedule.lastRunStatus === "failed" ||
+            schedule.lastRunStatus === "partial" ||
+            schedule.scheduleState !== "active",
+        ),
+      },
       children: scheduleChildren,
     };
     queueKeys.push("section-schedules");

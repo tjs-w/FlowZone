@@ -1,8 +1,6 @@
 import "./styles.css";
 
-import { Badge } from "@openai/apps-sdk-ui/components/Badge";
 import { Button } from "@openai/apps-sdk-ui/components/Button";
-import { Textarea } from "@openai/apps-sdk-ui/components/Textarea";
 import { applyDocumentTheme } from "@openai/apps-sdk-ui/theme";
 import { App, type AppEventMap, type McpUiHostContext } from "@modelcontextprotocol/ext-apps";
 import { Renderer, JSONUIProvider, defineRegistry, type Spec } from "@json-render/react";
@@ -10,6 +8,7 @@ import { DynaUiPayloadSchema, dynaCatalog, type DynaUiPayload } from "@flowzone/
 import {
   createContext,
   Children,
+  type ReactNode,
   useCallback,
   useContext,
   useEffect,
@@ -17,182 +16,13 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
 
-const STYLE = `
-:root { color-scheme: light dark; --d-bg: var(--color-background-primary, #fff); --d-card: var(--color-background-secondary, #f7f7f7); --d-text: var(--color-text-primary, #171717); --d-muted: var(--color-text-secondary, #666); --d-line: var(--color-border-light, #ddd); --d-critical: #d94841; --d-high: #d97706; --d-normal: #2563eb; --d-low: #748094; }
-* { box-sizing: border-box; }
-html, body, #dyna-root { margin: 0; min-height: 100%; background: var(--d-bg); color: var(--d-text); }
-body { font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-button, textarea { font: inherit; }
-.dyna { width: min(100%, 760px); margin: 0 auto; padding-top: max(14px, env(safe-area-inset-top), var(--d-safe-top, 0px)); padding-right: max(14px, env(safe-area-inset-right), var(--d-safe-right, 0px)); padding-bottom: max(14px, env(safe-area-inset-bottom), var(--d-safe-bottom, 0px)); padding-left: max(14px, env(safe-area-inset-left), var(--d-safe-left, 0px)); }
-.dyna-header { display: grid; gap: 8px; margin-bottom: 14px; }
-.dyna-title-row { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
-.dyna h1 { margin: 0; font-size: clamp(20px, 4vw, 28px); line-height: 1.15; letter-spacing: -.02em; }
-.dyna-description, .dyna-meta, .dyna-reason, .dyna-task { color: var(--d-muted); }
-.dyna-description { margin: 0; font-size: 14px; }
-.dyna-meta { font-size: 12px; }
-.dyna-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0 0 18px; }
-.dyna-stat { padding: 11px 12px; border: 1px solid var(--d-line); border-radius: 12px; background: var(--d-card); }
-.dyna-stat strong { display: block; font-size: 22px; line-height: 1; }
-.dyna-stat span { font-size: 11px; color: var(--d-muted); }
-.dyna-section { display: grid; gap: 9px; margin: 0 0 20px; }
-.dyna-section h2 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--d-muted); }
-.dyna-card { position: relative; overflow: hidden; display: grid; gap: 10px; padding: 14px 14px 14px 18px; border: 1px solid var(--d-line); border-radius: 14px; background: var(--d-card); }
-.dyna-card > *, .dyna-task > *, .dyna-schedule > * { min-width: 0; }
-.dyna-card h3, .dyna-card p, .dyna-task, .dyna-schedule, .dyna-note-list { overflow-wrap: anywhere; }
-.dyna-card::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; background: var(--d-priority); }
-.dyna-card[data-priority="critical"] { --d-priority: var(--d-critical); }
-.dyna-card[data-priority="high"] { --d-priority: var(--d-high); }
-.dyna-card[data-priority="normal"] { --d-priority: var(--d-normal); }
-.dyna-card[data-priority="low"] { --d-priority: var(--d-low); }
-.dyna-card-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.dyna-card h3 { margin: 0; font-size: 16px; line-height: 1.3; }
-.dyna-card p { margin: 0; font-size: 14px; line-height: 1.45; }
-.dyna-reason { padding-left: 10px; border-left: 2px solid var(--d-priority); font-size: 12px !important; }
-.dyna-labels, .dyna-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.dyna-actions { padding-top: 2px; }
-.dyna-task { display: flex; justify-content: space-between; gap: 8px; padding: 8px 10px; border: 1px solid var(--d-line); border-radius: 9px; font-size: 12px; }
-.dyna-schedule { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--d-line); border-radius: 10px; background: var(--d-card); }
-.dyna-schedule strong { overflow-wrap: anywhere; font-size: 13px; }
-.dyna-schedule > .dyna-meta { grid-column: 1 / -1; line-height: 1.4; }
-.dyna-note-list { display: grid; gap: 5px; margin: 0; padding-left: 20px; color: var(--d-muted); font-size: 12px; }
-.dyna-connection { position: sticky; top: max(0px, env(safe-area-inset-top), var(--d-safe-top, 0px)); z-index: 20; margin: max(0px, env(safe-area-inset-top), var(--d-safe-top, 0px)) max(10px, env(safe-area-inset-right), var(--d-safe-right, 0px)) 10px max(10px, env(safe-area-inset-left), var(--d-safe-left, 0px)); padding: 9px 12px; border: 1px solid color-mix(in srgb, var(--d-high) 55%, var(--d-line)); border-radius: 10px; background: var(--d-bg); color: var(--d-text); font-size: 13px; }
-.dyna-inline-more { margin: 2px 0 0; color: var(--d-muted); font-size: 12px; }
-.dyna-empty { padding: 38px 18px; border: 1px dashed var(--d-line); border-radius: 14px; text-align: center; color: var(--d-muted); }
-.dyna-dialog { position: fixed; inset: 0; z-index: 50; display: grid; place-items: end center; padding-top: max(14px, env(safe-area-inset-top), var(--d-safe-top, 0px)); padding-right: max(14px, env(safe-area-inset-right), var(--d-safe-right, 0px)); padding-bottom: max(14px, env(safe-area-inset-bottom), var(--d-safe-bottom, 0px)); padding-left: max(14px, env(safe-area-inset-left), var(--d-safe-left, 0px)); background: color-mix(in srgb, #000 35%, transparent); }
-.dyna-sheet { width: min(100%, 560px); display: grid; gap: 12px; padding: 16px; border-radius: 16px; background: var(--d-bg); box-shadow: 0 18px 60px #0004; }
-.dyna-sheet h2 { margin: 0; font-size: 18px; }
-.dyna-sheet-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.dyna-toast { position: fixed; right: max(14px, env(safe-area-inset-right), var(--d-safe-right, 0px)); bottom: max(14px, env(safe-area-inset-bottom), var(--d-safe-bottom, 0px)); z-index: 60; max-width: min(360px, calc(100vw - 28px)); padding: 10px 12px; border-radius: 10px; background: var(--d-text); color: var(--d-bg); font-size: 13px; }
-@media (max-width: 480px), (pointer: coarse) { .dyna { padding-top: max(10px, env(safe-area-inset-top), var(--d-safe-top, 0px)); padding-right: max(10px, env(safe-area-inset-right), var(--d-safe-right, 0px)); padding-bottom: max(10px, env(safe-area-inset-bottom), var(--d-safe-bottom, 0px)); padding-left: max(10px, env(safe-area-inset-left), var(--d-safe-left, 0px)); } .dyna-summary { gap: 6px; } .dyna-stat { padding: 9px; } .dyna-actions > * { flex: 1 1 auto; } .dyna-task { display: grid; } .dyna-task-actions { justify-content: flex-start; } .dyna-actions button, .dyna-task button, .dyna-header button, .dyna-sheet-actions button { min-height: 44px; } }
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
-`;
+type ActionName =
+  "annotate" | "open_source" | "create_codex_task" | "open_codex_task" | "refresh_codex_status";
 
-const EXECUTIVE_STYLE = `
-:root {
-  --d-paper: #f5f7f8;
-  --d-ink: #172126;
-  --d-cobalt: #2457d6;
-  --d-plum: #7057d9;
-  --d-ember: #c9443e;
-  --d-moss: #257a55;
-  --d-carbon: #0e1417;
-  --d-slate: #182126;
-  --d-bg: var(--d-paper);
-  --d-card: #ffffff;
-  --d-text: var(--d-ink);
-  --d-muted: #5e6b72;
-  --d-line: #d8dfe2;
-  --d-line-strong: #aebbc1;
-  --d-critical: var(--d-ember);
-  --d-high: #b65b1c;
-  --d-normal: var(--d-cobalt);
-  --d-low: #748087;
-  color-scheme: light;
-}
-:root[data-theme="dark"] {
-  --d-bg: var(--d-carbon);
-  --d-card: var(--d-slate);
-  --d-text: #edf2f3;
-  --d-muted: #aeb9bd;
-  --d-line: #2c393e;
-  --d-line-strong: #536168;
-  --d-high: #e79a56;
-  --d-normal: #789cff;
-  --d-low: #98a5aa;
-  color-scheme: dark;
-}
-html, body, #dyna-root { background: var(--d-bg); }
-body { font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", sans-serif; }
-.dyna { width: min(100%, 820px); padding-inline: max(18px, env(safe-area-inset-left), var(--d-safe-left, 0px)); }
-.dyna-header { gap: 10px; margin-bottom: 18px; padding: 8px 0 17px; border-bottom: 1px solid var(--d-line-strong); }
-.dyna-title-row { align-items: flex-start; }
-.dyna [data-color="success"][data-variant="soft"] { --badge-background-color: #c4e7d4; --badge-text-color: #0b6638; font-weight: 600; }
-:root[data-theme="dark"] .dyna [data-color="success"][data-variant="soft"] { --badge-background-color: #173e2b; --badge-text-color: #9be3bd; }
-.dyna h1 { max-width: 20ch; font-size: clamp(24px, 5vw, 34px); font-weight: 650; letter-spacing: -.035em; }
-.dyna-description { max-width: 66ch; line-height: 1.55; }
-.dyna-commandbar { position: sticky; top: max(0px, env(safe-area-inset-top), var(--d-safe-top, 0px)); z-index: 15; display: grid; gap: 10px; margin: 0 0 18px; padding: 10px 0; border-bottom: 1px solid var(--d-line); background: color-mix(in srgb, var(--d-bg) 94%, transparent); backdrop-filter: blur(12px); }
-.dyna-tabs { display: flex; gap: 4px; }
-.dyna-tabs button { min-height: 34px; padding: 6px 10px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--d-muted); cursor: pointer; font-size: 13px; font-weight: 590; }
-.dyna-tabs button[aria-selected="true"] { border-bottom-color: var(--d-cobalt); color: var(--d-text); }
-.dyna-tabs button:focus-visible { outline: 2px solid var(--d-cobalt); outline-offset: 2px; }
-.dyna-command-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
-.dyna-search input, .dyna-input { width: 100%; min-height: 36px; padding: 7px 10px; border: 1px solid var(--d-line-strong); border-radius: 4px; background: var(--d-card); color: var(--d-text); font: inherit; font-size: 13px; }
-.dyna-search input:focus, .dyna-input:focus { border-color: var(--d-cobalt); outline: 2px solid color-mix(in srgb, var(--d-cobalt) 25%, transparent); outline-offset: 1px; }
-.dyna-visually-hidden { position: absolute; overflow: hidden; width: 1px; height: 1px; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
-.dyna-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin-bottom: 28px; border-block: 1px solid var(--d-line); background: color-mix(in srgb, var(--d-card) 68%, transparent); }
-.dyna-stat { min-width: 0; padding: 14px 15px; border: 0; border-right: 1px solid var(--d-line); border-radius: 0; background: transparent; }
-.dyna-stat:last-child { border-right: 0; }
-.dyna-stat strong { font-size: clamp(23px, 5vw, 31px); font-weight: 580; letter-spacing: -.04em; }
-.dyna-stat span { display: block; margin-top: 4px; font-size: 12px; letter-spacing: .01em; }
-.dyna-section { gap: 10px; margin-bottom: 30px; }
-.dyna-section h2 { padding-bottom: 5px; border-bottom: 1px solid var(--d-line); color: var(--d-text); font-size: 15px; font-weight: 620; letter-spacing: -.01em; text-transform: none; }
-.dyna-card { gap: 12px; padding: 17px 17px 16px 21px; border: 0; border-bottom: 1px solid var(--d-line); border-radius: 0; background: transparent; }
-.dyna-card::before { width: 3px; bottom: 16px; border-radius: 2px; }
-.dyna-card:first-of-type { border-top: 0; }
-.dyna-card-head { gap: 7px; }
-.dyna-card h3 { max-width: 64ch; font-size: clamp(16px, 3vw, 19px); font-weight: 640; line-height: 1.32; letter-spacing: -.012em; }
-.dyna-card p { max-width: 72ch; line-height: 1.55; }
-.dyna-reason { padding: 0; border: 0; color: var(--d-muted); }
-.dyna-lift { color: var(--d-plum); font-size: 12px; font-weight: 600; }
-:root[data-theme="dark"] .dyna-lift { color: #b9a8ff; }
-.dyna-people { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
-.dyna-person { display: inline-flex; gap: 5px; align-items: baseline; color: var(--d-text); font-size: 12px; }
-.dyna-person::before { content: ""; width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--d-plum); }
-.dyna-person small { color: var(--d-muted); font-size: 11px; }
-.dyna-guidance { display: grid; gap: 12px; padding: 13px 14px; border-left: 2px solid color-mix(in srgb, var(--d-priority) 70%, var(--d-line)); background: color-mix(in srgb, var(--d-card) 62%, transparent); }
-.dyna-guidance-block { display: grid; gap: 4px; }
-.dyna-guidance-label { color: var(--d-muted); font-size: 11px; font-weight: 650; letter-spacing: .025em; }
-.dyna-guidance p { font-size: 13px; }
-.dyna-plan, .dyna-next { display: grid; gap: 5px; margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.45; }
-.dyna-next { list-style: none; padding-left: 0; }
-.dyna-next li { position: relative; padding-left: 25px; }
-.dyna-next-number { position: absolute; top: 1px; left: 0; display: grid; width: 17px; height: 17px; place-items: center; border: 1px solid var(--d-line-strong); border-radius: 50%; color: var(--d-muted); font-size: 10px; }
-.dyna-next-meta { color: var(--d-muted); font-size: 11px; }
-.dyna-labels { gap: 5px; }
-.dyna-actions { gap: 8px; padding-top: 4px; }
-.dyna-organize { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; padding-top: 5px; border-top: 1px dashed var(--d-line); }
-.dyna-organize > span { margin-right: 4px; color: var(--d-muted); font-size: 11px; }
-.dyna-outcome { display: grid; gap: 3px; padding: 10px 11px; border-left: 2px solid var(--d-moss); background: color-mix(in srgb, var(--d-moss) 8%, var(--d-card)); }
-.dyna-outcome > span { color: var(--d-muted); font-size: 11px; font-weight: 650; }
-.dyna-outcome p { font-size: 13px; }
-.dyna-task { border-width: 0 0 0 2px; border-radius: 0; background: color-mix(in srgb, var(--d-card) 60%, transparent); }
-.dyna-task-actions { display: flex; flex-wrap: wrap; gap: 2px; }
-.dyna-task-outcome { display: block; margin-top: 4px; color: var(--d-text); }
-.dyna-pipeline { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; margin-bottom: 30px; }
-.dyna-pipeline-column { min-width: 0; border-top: 3px solid var(--d-line-strong); background: color-mix(in srgb, var(--d-card) 58%, transparent); }
-.dyna-pipeline-column[data-workflow-state="executing"] { border-top-color: var(--d-cobalt); }
-.dyna-pipeline-column[data-workflow-state="paused"] { border-top-color: var(--d-high); }
-.dyna-pipeline-column[data-workflow-state="attention"] { border-top-color: var(--d-critical); }
-.dyna-pipeline-column[data-workflow-state="completed"] { border-top-color: var(--d-moss); }
-.dyna-pipeline-column > header { display: flex; justify-content: space-between; gap: 8px; padding: 11px 12px 8px; }
-.dyna-pipeline-column > header h2 { margin: 0; font-size: 14px; }
-.dyna-pipeline-column > header span { color: var(--d-muted); font-size: 12px; }
-.dyna-pipeline-items { display: grid; }
-.dyna-pipeline .dyna-card { padding: 13px 12px 14px 16px; }
-.dyna-pipeline .dyna-card h3 { font-size: 15px; }
-.dyna-pipeline .dyna-card p { font-size: 13px; }
-.dyna-pipeline-empty { margin: 0; padding: 18px 12px; color: var(--d-muted); font-size: 12px; }
-.dyna-schedule { border-width: 0 0 1px; border-radius: 0; background: transparent; }
-.dyna-empty { border-radius: 2px; background: color-mix(in srgb, var(--d-card) 55%, transparent); }
-.dyna-sheet { border: 1px solid var(--d-line); border-radius: 10px 10px 3px 3px; }
-.dyna-toast, .dyna-connection { border-radius: 4px; }
-@media (max-width: 480px), (pointer: coarse) {
-  .dyna { padding-inline: max(12px, env(safe-area-inset-left), var(--d-safe-left, 0px)); }
-  .dyna-header { padding-top: 4px; }
-  .dyna-card { padding: 15px 4px 15px 15px; }
-  .dyna-guidance { padding: 12px; }
-  .dyna-stat { padding: 12px 9px; }
-  .dyna-stat span { font-size: 11px; }
-  .dyna-command-actions { grid-template-columns: 1fr; }
-  .dyna-command-actions button { width: 100%; }
-  .dyna-pipeline { grid-template-columns: 1fr; }
-  .dyna button { min-height: 44px; }
-}
-`;
-
-type ActionName = "annotate" | "create_codex_task" | "open_codex_task" | "refresh_codex_status";
+type TodoPriority = "critical" | "high" | "normal" | "low";
 
 type DynaHostContext = McpUiHostContext & {
   readonly locale?: string;
@@ -205,6 +35,8 @@ type DynaHostContext = McpUiHostContext & {
 
 interface DynaUiController {
   annotate(itemId: string, trigger: HTMLElement): void;
+  closeDetails(): void;
+  openDetails(itemId: string, trigger: HTMLElement): void;
   startTodo(
     trigger: HTMLElement,
     title?: string,
@@ -233,9 +65,12 @@ interface DynaUiController {
   readonly initialExpansionPending: boolean;
   readonly locale: string;
   readonly query: string;
+  readonly selectedItemId: string | undefined;
   readonly serverQuery: string;
+  readonly pipelineState: "todo" | "executing" | "paused" | "attention" | "completed";
   readonly view: "queue" | "pipeline";
   setQuery(value: string): void;
+  setPipelineState(value: "todo" | "executing" | "paused" | "attention" | "completed"): void;
   setView(value: "queue" | "pipeline"): void;
   expand(trigger?: HTMLElement): Promise<void>;
 }
@@ -266,6 +101,96 @@ function humanize(value: string): string {
     .join(" ");
 }
 
+function sourceReferenceLabel(sourceRef: unknown): string {
+  if (!sourceRef || typeof sourceRef !== "object" || Array.isArray(sourceRef)) {
+    return "Stored source record";
+  }
+  const source = sourceRef as Readonly<Record<string, unknown>>;
+  const parts = [
+    source["projectPath"],
+    source["repository"],
+    source["entityType"],
+    source["iid"],
+    source["entityId"],
+    source["channelId"],
+    source["messageId"],
+    source["resultType"],
+    source["recordId"],
+    source["taskId"],
+    source["skillName"],
+  ].filter((value): value is string | number =>
+    typeof value === "string" ? value.length > 0 : typeof value === "number",
+  );
+  return parts.length > 0 ? parts.slice(0, 4).join(" · ") : "Stored source record";
+}
+
+function InspectorShell({
+  labelledBy,
+  onClose,
+  children,
+}: {
+  readonly labelledBy: string;
+  readonly onClose: () => void;
+  readonly children: ReactNode;
+}) {
+  const controller = useController();
+  const panel = useRef<HTMLElement | null>(null);
+  const routePresentation = controller.displayMode !== "fullscreen";
+
+  useEffect(() => {
+    const inspector = panel.current;
+    if (routePresentation) {
+      inspector?.querySelector<HTMLElement>("[data-dyna-inspector-back]")?.focus();
+      const previousOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = previousOverflow;
+      };
+    }
+  }, [routePresentation]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        if (document.querySelector(".dyna-dialog")) return;
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      const inspector = panel.current;
+      if (!routePresentation || event.key !== "Tab" || !inspector) return;
+      const focusable = [
+        ...inspector.querySelectorAll<HTMLElement>(
+          "button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex='-1'])",
+        ),
+      ];
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onClose, routePresentation]);
+
+  return createPortal(
+    <div className="dyna-inspector-layer" data-presentation={routePresentation ? "route" : "split"}>
+      <aside ref={panel} className="dyna-inspector" role="region" aria-labelledby={labelledBy}>
+        {children}
+      </aside>
+    </div>,
+    document.body,
+  );
+}
+
 function toolResultFailed(result: unknown): boolean {
   return Boolean(
     result &&
@@ -278,49 +203,55 @@ const { registry } = defineRegistry(dynaCatalog, {
   components: {
     Dashboard: ({ props, children }) => {
       const controller = useController();
+      const health = controller.blocked
+        ? { color: "danger" as const, label: "Offline" }
+        : props.freshness === "fresh"
+          ? { color: "success" as const, label: "Live" }
+          : { color: "warning" as const, label: "Delayed" };
+      const pipelineAvailable = controller.displayMode === "fullscreen" || !controller.canExpand;
       return (
         <main
           className="dyna"
           data-display-mode={controller.displayMode}
           data-dashboard-view={controller.view}
+          data-has-selection={Boolean(controller.selectedItemId)}
         >
           <header className="dyna-header">
             <div className="dyna-title-row">
-              <div>
+              <div className="dyna-heading">
                 <h1>{props.name}</h1>
-                <div className="dyna-meta">
+                <div className="dyna-header-meta">
                   Updated {relativeTime(props.generatedAt, controller.locale)} · revision{" "}
                   {props.revision}
                 </div>
               </div>
-              <Badge
-                color={
-                  props.freshness === "fresh"
-                    ? "success"
-                    : props.freshness === "aging"
-                      ? "warning"
-                      : "danger"
-                }
-                pill
-              >
-                {props.freshness}
-              </Badge>
+              <div className="dyna-header-actions">
+                <span className="dyna-chip" data-tone={health.color}>
+                  {health.label}
+                </span>
+                {controller.displayMode !== "fullscreen" &&
+                controller.canExpand &&
+                !controller.initialExpansionPending ? (
+                  <Button
+                    color="secondary"
+                    variant="outline"
+                    size="sm"
+                    data-dyna-expand="true"
+                    loading={controller.busy}
+                    disabled={controller.busy}
+                    aria-label="Open full dashboard"
+                    title="Open full dashboard"
+                    onClick={(event) => void controller.expand(event.currentTarget)}
+                  >
+                    <span className="dyna-symbol" aria-hidden="true">
+                      ↗
+                    </span>
+                    <span className="dyna-expand-label">Full dashboard</span>
+                  </Button>
+                ) : null}
+              </div>
             </div>
             {props.description ? <p className="dyna-description">{props.description}</p> : null}
-            {controller.displayMode !== "fullscreen" &&
-            controller.canExpand &&
-            !controller.initialExpansionPending ? (
-              <Button
-                color="secondary"
-                variant="outline"
-                data-dyna-expand="true"
-                loading={controller.busy}
-                disabled={controller.busy}
-                onClick={(event) => void controller.expand(event.currentTarget)}
-              >
-                Expand dashboard
-              </Button>
-            ) : null}
           </header>
           <div className="dyna-commandbar">
             <div className="dyna-tabs" role="tablist" aria-label="Dashboard view">
@@ -328,6 +259,7 @@ const { registry } = defineRegistry(dynaCatalog, {
                 id="dyna-tab-queue"
                 type="button"
                 role="tab"
+                aria-label="Priority queue"
                 aria-selected={controller.view === "queue"}
                 aria-controls="dyna-panel-queue"
                 tabIndex={controller.view === "queue" ? 0 : -1}
@@ -335,62 +267,83 @@ const { registry } = defineRegistry(dynaCatalog, {
                   controller.setView("queue");
                 }}
                 onKeyDown={(event) => {
-                  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+                  if (!pipelineAvailable || !["ArrowRight", "End"].includes(event.key)) return;
                   event.preventDefault();
-                  const next = event.key === "Home" ? "queue" : "pipeline";
-                  controller.setView(next);
-                  document.getElementById(`dyna-tab-${next}`)?.focus();
-                }}
-              >
-                Priority queue
-              </button>
-              <button
-                id="dyna-tab-pipeline"
-                type="button"
-                role="tab"
-                aria-selected={controller.view === "pipeline"}
-                aria-controls="dyna-panel-pipeline"
-                tabIndex={controller.view === "pipeline" ? 0 : -1}
-                onClick={() => {
                   controller.setView("pipeline");
-                }}
-                onKeyDown={(event) => {
-                  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-                  event.preventDefault();
-                  const next = event.key === "End" ? "pipeline" : "queue";
-                  controller.setView(next);
-                  document.getElementById(`dyna-tab-${next}`)?.focus();
+                  document.getElementById("dyna-tab-pipeline")?.focus();
                 }}
               >
-                Progress pipeline
+                Focus
               </button>
-            </div>
-            <div className="dyna-command-actions">
-              <label className="dyna-search">
-                <span className="dyna-visually-hidden">Search dashboard</span>
-                <input
-                  type="search"
-                  value={controller.query}
-                  maxLength={500}
-                  placeholder="Search signals, people, plans…"
-                  onChange={(event) => {
-                    controller.setQuery(event.currentTarget.value);
+              {pipelineAvailable ? (
+                <button
+                  id="dyna-tab-pipeline"
+                  type="button"
+                  role="tab"
+                  aria-label="Progress pipeline"
+                  aria-selected={controller.view === "pipeline"}
+                  aria-controls="dyna-panel-pipeline"
+                  tabIndex={controller.view === "pipeline" ? 0 : -1}
+                  onClick={() => {
+                    controller.setView("pipeline");
                   }}
-                />
-              </label>
-              <Button
-                color="primary"
-                size="sm"
-                onClick={(event) => {
-                  controller.startTodo(event.currentTarget);
-                }}
-                disabled={controller.busy || controller.blocked}
-              >
-                Add to-do
-              </Button>
+                  onKeyDown={(event) => {
+                    if (!["ArrowLeft", "Home"].includes(event.key)) return;
+                    event.preventDefault();
+                    controller.setView("queue");
+                    document.getElementById("dyna-tab-queue")?.focus();
+                  }}
+                >
+                  Pipeline
+                </button>
+              ) : null}
             </div>
+            <label className="dyna-search">
+              <span className="dyna-visually-hidden">Search dashboard</span>
+              <input
+                className="dyna-search-control dyna-native-input"
+                type="search"
+                value={controller.query}
+                maxLength={500}
+                placeholder="Find people, requests, MRs…"
+                onChange={(event) => {
+                  controller.setQuery(event.currentTarget.value);
+                }}
+              />
+              {controller.query ? (
+                <Button
+                  className="dyna-search-clear"
+                  color="secondary"
+                  size="xs"
+                  variant="ghost"
+                  aria-label="Clear search"
+                  onClick={() => {
+                    controller.setQuery("");
+                  }}
+                >
+                  <span className="dyna-symbol" aria-hidden="true">
+                    ×
+                  </span>
+                </Button>
+              ) : null}
+            </label>
+            <Button
+              color="primary"
+              size="sm"
+              onClick={(event) => {
+                controller.startTodo(event.currentTarget);
+              }}
+              disabled={controller.busy || controller.blocked}
+              aria-label="Add to-do"
+              title="New to-do"
+            >
+              <span className="dyna-symbol" aria-hidden="true">
+                +
+              </span>
+              <span className="dyna-add-label">New to-do</span>
+            </Button>
           </div>
-          {children}
+          <div className="dyna-workspace">{children}</div>
         </main>
       );
     },
@@ -399,22 +352,24 @@ const { registry } = defineRegistry(dynaCatalog, {
       const settled = controller.query.trim() === controller.serverQuery;
       return (
         <>
-          <section className="dyna-summary" aria-label="Dashboard summary">
-            <div className="dyna-stat">
-              <strong>{props.focus}</strong>
-              <span>Need focus</span>
-            </div>
-            <div className="dyna-stat">
-              <strong>{props.leadership}</strong>
-              <span>Leadership signals</span>
-            </div>
-            <div className="dyna-stat">
-              <strong>
-                {props.shown < props.total ? `${props.shown} / ${props.total}` : props.total}
-              </strong>
-              <span>{props.shown < props.total ? "Shown / matching" : "Total"}</span>
-            </div>
-          </section>
+          {!controller.condenseInline ? (
+            <section className="dyna-summary" aria-label="Dashboard summary">
+              <div className="dyna-stat">
+                <strong>{props.focus}</strong>
+                <span>need attention</span>
+              </div>
+              <div className="dyna-stat">
+                <strong>{props.leadership}</strong>
+                <span>leadership</span>
+              </div>
+              <div className="dyna-stat">
+                <strong>
+                  {props.shown < props.total ? `${props.shown}/${props.total}` : props.total}
+                </strong>
+                <span>{props.shown < props.total ? "shown" : "total"}</span>
+              </div>
+            </section>
+          ) : null}
           <div className="dyna-visually-hidden" role="status" aria-live="polite">
             {settled && controller.query.trim()
               ? props.total === 0
@@ -428,17 +383,44 @@ const { registry } = defineRegistry(dynaCatalog, {
     Section: ({ props, children }) => {
       const controller = useController();
       const allChildren = Children.toArray(children);
+      if (props.title === "Signal runs") {
+        if (controller.condenseInline && !props.attention) return null;
+        return (
+          <details
+            className="dyna-source-health"
+            data-attention={Boolean(props.attention)}
+            open={props.attention ? true : undefined}
+          >
+            <summary role="button">
+              <span className="dyna-disclosure" aria-hidden="true">
+                ›
+              </span>
+              {props.attention ? "Source health needs attention" : "Source health"}
+              <span className="dyna-meta">
+                {allChildren.length} {allChildren.length === 1 ? "run" : "runs"}
+              </span>
+            </summary>
+            <div className="dyna-source-list">{allChildren}</div>
+          </details>
+        );
+      }
       const visibleChildren =
-        !controller.query && controller.displayMode === "inline" && controller.condenseInline
+        !controller.query &&
+        !controller.selectedItemId &&
+        controller.displayMode === "inline" &&
+        controller.condenseInline
           ? allChildren.slice(0, 3)
           : allChildren;
       return (
         <section className="dyna-section">
-          <h2>{props.title}</h2>
+          <header className="dyna-section-header">
+            <h2>{props.title}</h2>
+            <span className="dyna-section-count">{allChildren.length}</span>
+          </header>
           {visibleChildren}
           {visibleChildren.length < allChildren.length ? (
             <p className="dyna-inline-more">
-              Expand to see {allChildren.length - visibleChildren.length} more.
+              Open the full dashboard to see {allChildren.length - visibleChildren.length} more.
             </p>
           ) : null}
         </section>
@@ -470,19 +452,56 @@ const { registry } = defineRegistry(dynaCatalog, {
         </div>
       ) : null;
     },
-    PipelineColumn: ({ props, children }) => (
-      <section className="dyna-pipeline-column" data-workflow-state={props.state}>
-        <header>
-          <h2>{props.title}</h2>
-          <span>{props.count}</span>
-        </header>
-        <div className="dyna-pipeline-items">
-          {Children.count(children) > 0 ? children : <p className="dyna-pipeline-empty">Clear</p>}
-        </div>
-      </section>
-    ),
+    PipelineColumn: ({ props, children }) => {
+      const controller = useController();
+      const selected = controller.pipelineState === props.state;
+      const shortTitle = {
+        todo: "To do",
+        executing: "Doing",
+        paused: "Input",
+        attention: "Review",
+        completed: "Done",
+      }[props.state];
+      const panelId = `dyna-stage-${props.state}`;
+      return (
+        <section
+          className="dyna-pipeline-column"
+          data-workflow-state={props.state}
+          data-active={selected}
+        >
+          <button
+            type="button"
+            className="dyna-stage-tab"
+            role="tab"
+            aria-label={`${props.title}: ${props.count}`}
+            aria-selected={selected}
+            aria-controls={panelId}
+            onClick={() => {
+              controller.setPipelineState(props.state);
+            }}
+          >
+            <strong>{props.count}</strong>
+            <span>{shortTitle}</span>
+          </button>
+          <div
+            id={panelId}
+            className="dyna-pipeline-items"
+            role="tabpanel"
+            aria-label={props.title}
+            hidden={!selected}
+          >
+            {Children.count(children) > 0 ? (
+              children
+            ) : (
+              <p className="dyna-pipeline-empty">Nothing in {props.title.toLowerCase()}.</p>
+            )}
+          </div>
+        </section>
+      );
+    },
     PriorityCard: ({ props, children }) => {
       const controller = useController();
+      const menuTrigger = useRef<HTMLElement | null>(null);
       const presentation = controller.view;
       const localQueryPending = controller.query.trim() !== controller.serverQuery;
       const queryTerms = localQueryPending
@@ -511,6 +530,13 @@ const { registry } = defineRegistry(dynaCatalog, {
         .join(" ")
         .toLocaleLowerCase(controller.locale);
       if (localQueryPending && queryTerms.some((term) => !searchable.includes(term))) return null;
+      const selected = controller.selectedItemId === props.itemId;
+      const inspectorTitleId = `dyna-inspector-title-${props.itemId}`;
+      const quickAction = props.actions.find(
+        (action) => action.name === "create_codex_task" || action.name === "open_codex_task",
+      );
+      const lead = props.people[0];
+      const detailLabel = `Open details for ${props.title}`;
       return (
         <article
           className="dyna-card"
@@ -519,248 +545,415 @@ const { registry } = defineRegistry(dynaCatalog, {
           data-item-id={props.itemId}
           data-presentation={presentation}
           data-workflow-state={props.workflowState}
+          data-selected={selected}
         >
-          <div className="dyna-card-head">
-            <Badge variant="outline" pill>
-              {props.sourceLabel}
-            </Badge>
-            <Badge
-              color={
-                props.priority === "critical"
-                  ? "danger"
-                  : props.priority === "high"
-                    ? "warning"
-                    : "info"
-              }
-              pill
+          <div className="dyna-card-row">
+            <button
+              type="button"
+              className="dyna-row-main"
+              data-dyna-details-item={props.itemId}
+              aria-label={detailLabel}
+              aria-expanded={selected}
+              aria-controls={selected ? inspectorTitleId : undefined}
+              onClick={(event) => {
+                controller.openDetails(props.itemId, event.currentTarget);
+              }}
             >
-              {props.priority}
-            </Badge>
-            {props.enrichmentState === "stale" ? (
-              <Badge color="warning" variant="soft" pill>
-                Enrichment needs review
-              </Badge>
-            ) : null}
-            <span className="dyna-meta">
-              {relativeTime(props.sourceUpdatedAt, controller.locale)}
-            </span>
-            {props.dueAt ? (
-              <span className="dyna-meta">Due {relativeTime(props.dueAt, controller.locale)}</span>
-            ) : null}
-          </div>
-          <h3>{props.title}</h3>
-          <p>{props.summary}</p>
-          {presentation === "queue" ? <p className="dyna-reason">{props.priorityReason}</p> : null}
-          {props.sourcePriority !== props.priority ? (
-            <span className="dyna-lift">
-              {props.priorityMode === "manual"
-                ? `Manually moved from ${props.sourcePriority}`
-                : props.priorityMode === "leadership"
-                  ? `Raised from ${props.sourcePriority} by verified leadership context`
-                  : `Refined from ${props.sourcePriority} by later analysis`}
-            </span>
-          ) : null}
-          {props.followUpOfItemId ? (
-            <span className="dyna-meta">Follow-up to completed work</span>
-          ) : null}
-          {props.people.length > 0 ? (
-            <div className="dyna-people" aria-label="Relevant people">
-              {props.people.slice(0, presentation === "queue" ? 4 : 1).map((person, index) => (
-                <span
-                  className="dyna-person"
-                  key={`${person.displayName}-${person.involvement}-${index}`}
-                  title={`${humanize(person.leadershipLevel)} · ${humanize(person.relationship)} · ${person.provenance}`}
-                >
-                  {person.displayName}
-                  <small>
-                    {person.title ?? humanize(person.leadershipLevel)} ·{" "}
-                    {humanize(person.involvement)}
-                  </small>
+              <span className="dyna-row-top">
+                <span className="dyna-priority-label">{props.priority}</span>
+                <span aria-hidden="true">·</span>
+                <span className="dyna-source-mark">{props.sourceLabel}</span>
+                <span className="dyna-row-time">
+                  {props.dueAt
+                    ? `Due ${relativeTime(props.dueAt, controller.locale)}`
+                    : `Updated ${relativeTime(props.sourceUpdatedAt, controller.locale)}`}
                 </span>
-              ))}
-            </div>
-          ) : null}
-          {presentation === "queue" ? (
-            <div className="dyna-guidance">
-              <div className="dyna-guidance-block">
-                <span className="dyna-guidance-label">Needs attention</span>
-                <p>{props.attention ?? props.priorityReason}</p>
-              </div>
-              {props.plan.length > 0 ? (
-                <div className="dyna-guidance-block">
-                  <span className="dyna-guidance-label">Plan</span>
-                  <ul className="dyna-plan">
-                    {props.plan.map((step, index) => (
-                      <li key={`${index}-${step}`}>{step}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-              {props.nextSteps.length > 0 ? (
-                <div className="dyna-guidance-block">
-                  <span className="dyna-guidance-label">Immediate next steps</span>
-                  <ol className="dyna-next">
-                    {props.nextSteps.map((step, index) => (
-                      <li key={`${index}-${step.label}`}>
-                        <span className="dyna-next-number" aria-hidden="true">
-                          {index + 1}
-                        </span>
-                        {step.label}
-                        {step.owner || step.dueAt ? (
-                          <span className="dyna-next-meta">
-                            {step.owner ? ` · ${step.owner}` : ""}
-                            {step.dueAt
-                              ? ` · due ${relativeTime(step.dueAt, controller.locale)}`
-                              : ""}
-                          </span>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-          {presentation === "queue" && props.labels.length > 0 ? (
-            <div className="dyna-labels">
-              {props.labels.map((label) => (
-                <Badge key={label} variant="soft">
-                  {label}
-                </Badge>
-              ))}
-            </div>
-          ) : null}
-          {children}
-          {presentation === "queue" && props.annotationPreview.length > 0 ? (
-            <ul className="dyna-note-list" aria-label="Recent notes">
-              {props.annotationPreview.map((note, index) => (
-                <li key={`${index}-${note}`}>{note}</li>
-              ))}
-            </ul>
-          ) : null}
-          <div className="dyna-actions">
-            {props.actions.map((action) => (
-              <Button
-                key={action.name}
-                data-dyna-action={`${props.itemId}:${action.name}`}
-                data-dyna-annotation-item={action.name === "annotate" ? props.itemId : undefined}
-                color={action.name === "create_codex_task" ? "primary" : "secondary"}
-                size="sm"
-                variant={action.name === "create_codex_task" ? "solid" : "outline"}
-                onClick={(event) => {
-                  if (action.name === "annotate") {
-                    controller.annotate(props.itemId, event.currentTarget);
-                  } else
+              </span>
+              <span className="dyna-row-title">{props.title}</span>
+              <span className="dyna-row-attention">{props.attention ?? props.priorityReason}</span>
+              <span className="dyna-row-foot">
+                {lead ? (
+                  <span className="dyna-row-person">
+                    {lead.displayName} · {lead.title ?? humanize(lead.leadershipLevel)}
+                  </span>
+                ) : (
+                  <span>{humanize(props.source)}</span>
+                )}
+                <span className="dyna-row-state" data-state={props.workflowState}>
+                  {humanize(props.workflowState)}
+                </span>
+              </span>
+            </button>
+            <div className="dyna-card-rail">
+              {quickAction ? (
+                <Button
+                  className="dyna-card-quick"
+                  data-dyna-action={`${props.itemId}:${quickAction.name}`}
+                  color="primary"
+                  size="xs"
+                  onClick={(event) =>
                     void controller.request(
                       props.itemId,
                       props.fingerprint,
-                      action.name,
-                      action.taskId,
-                      action.taskHostId,
+                      quickAction.name as Exclude<ActionName, "annotate">,
+                      quickAction.taskId,
+                      quickAction.taskHostId,
                       event.currentTarget,
-                    );
-                }}
-                disabled={controller.busy || controller.blocked}
-              >
-                {action.label}
-              </Button>
-            ))}
-            {props.annotationCount > 0 ? (
-              <span className="dyna-meta">
-                {props.annotationCount} note{props.annotationCount === 1 ? "" : "s"}
-              </span>
-            ) : null}
-            {presentation === "pipeline" && props.workflowState === "completed" ? (
+                    )
+                  }
+                  disabled={controller.busy || controller.blocked}
+                >
+                  {quickAction.label}
+                </Button>
+              ) : null}
               <Button
+                className="dyna-details-button"
                 color="secondary"
-                size="sm"
-                variant="outline"
+                size="xs"
+                variant="ghost"
+                aria-label={detailLabel}
+                aria-expanded={selected}
                 onClick={(event) => {
-                  controller.startTodo(
-                    event.currentTarget,
-                    `Follow up: ${props.title}`,
-                    `Continue from completed work: ${props.outcome ?? props.summary}`,
-                    props.itemId,
-                  );
+                  controller.openDetails(props.itemId, event.currentTarget);
                 }}
-                disabled={controller.busy || controller.blocked}
               >
-                Create follow-up
-              </Button>
-            ) : null}
-          </div>
-          {presentation === "queue" ? (
-            <div className="dyna-organize" aria-label={`Organize ${props.title}`}>
-              <span>Priority & order</span>
-              <Button
-                color="secondary"
-                size="xs"
-                variant="ghost"
-                data-dyna-action={`${props.itemId}:bump`}
-                onClick={(event) =>
-                  void controller.organize(
-                    props.itemId,
-                    props.fingerprint,
-                    "bump",
-                    event.currentTarget,
-                  )
-                }
-                disabled={controller.busy || controller.blocked || props.priority === "critical"}
-              >
-                Bump
-              </Button>
-              <Button
-                color="secondary"
-                size="xs"
-                variant="ghost"
-                data-dyna-action={`${props.itemId}:lower`}
-                onClick={(event) =>
-                  void controller.organize(
-                    props.itemId,
-                    props.fingerprint,
-                    "lower",
-                    event.currentTarget,
-                  )
-                }
-                disabled={controller.busy || controller.blocked || props.priority === "low"}
-              >
-                Lower
-              </Button>
-              <Button
-                color="secondary"
-                size="xs"
-                variant="ghost"
-                data-dyna-action={`${props.itemId}:earlier`}
-                onClick={(event) =>
-                  void controller.organize(
-                    props.itemId,
-                    props.fingerprint,
-                    "earlier",
-                    event.currentTarget,
-                  )
-                }
-                disabled={controller.busy || controller.blocked || !props.canMoveEarlier}
-              >
-                Earlier
-              </Button>
-              <Button
-                color="secondary"
-                size="xs"
-                variant="ghost"
-                data-dyna-action={`${props.itemId}:later`}
-                onClick={(event) =>
-                  void controller.organize(
-                    props.itemId,
-                    props.fingerprint,
-                    "later",
-                    event.currentTarget,
-                  )
-                }
-                disabled={controller.busy || controller.blocked || !props.canMoveLater}
-              >
-                Later
+                <span className="dyna-symbol" aria-hidden="true">
+                  ›
+                </span>
               </Button>
             </div>
+          </div>
+          {selected ? (
+            <InspectorShell
+              labelledBy={inspectorTitleId}
+              onClose={() => {
+                controller.closeDetails();
+              }}
+            >
+              <header className="dyna-inspector-header">
+                <div className="dyna-inspector-nav">
+                  <Button
+                    className="dyna-inspector-back"
+                    data-dyna-inspector-back="true"
+                    color="secondary"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      controller.closeDetails();
+                    }}
+                  >
+                    <span className="dyna-symbol" aria-hidden="true">
+                      ←
+                    </span>
+                    Back to attention queue
+                  </Button>
+                  <Button
+                    className="dyna-inspector-close"
+                    data-dyna-inspector-close="true"
+                    color="secondary"
+                    size="xs"
+                    variant="ghost"
+                    aria-label="Close details"
+                    title="Close details"
+                    onClick={() => {
+                      controller.closeDetails();
+                    }}
+                  >
+                    <span className="dyna-symbol" aria-hidden="true">
+                      ×
+                    </span>
+                  </Button>
+                </div>
+                <div className="dyna-inspector-heading">
+                  <div className="dyna-inspector-eyebrow">
+                    <span className="dyna-priority-label">{props.priority}</span>
+                    <span>{props.sourceLabel}</span>
+                    <span>{humanize(props.workflowState)}</span>
+                    {props.dueAt ? (
+                      <span>Due {relativeTime(props.dueAt, controller.locale)}</span>
+                    ) : null}
+                  </div>
+                  <h2 id={inspectorTitleId}>{props.title}</h2>
+                </div>
+              </header>
+              <div className="dyna-inspector-scroll" data-priority={props.priority}>
+                <div className="dyna-attention">
+                  <span>
+                    {props.dueAt
+                      ? `Decision due ${relativeTime(props.dueAt, controller.locale)}`
+                      : "Decision"}
+                  </span>
+                  <p>{props.attention ?? props.priorityReason}</p>
+                </div>
+                <p className="dyna-inspector-summary">{props.summary}</p>
+                {props.people.length > 0 ? (
+                  <section className="dyna-inspector-section">
+                    <h3>People</h3>
+                    <div className="dyna-people" aria-label="Relevant people">
+                      {props.people.slice(0, 4).map((person, index) => (
+                        <span
+                          className="dyna-person"
+                          key={`${person.displayName}-${person.involvement}-${index}`}
+                          title={`${humanize(person.leadershipLevel)} · ${humanize(person.relationship)} · ${person.provenance}`}
+                        >
+                          {person.displayName}
+                          <small>
+                            {person.title ?? humanize(person.leadershipLevel)} ·{" "}
+                            {humanize(person.involvement)}
+                          </small>
+                        </span>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
+                {props.nextSteps.length > 0 ? (
+                  <section className="dyna-inspector-section">
+                    <h3>Immediate next steps</h3>
+                    <ol className="dyna-next">
+                      {props.nextSteps.map((step, index) => (
+                        <li key={`${index}-${step.label}`}>
+                          <span className="dyna-next-number" aria-hidden="true">
+                            {index + 1}
+                          </span>
+                          {step.label}
+                          {step.owner || step.dueAt ? (
+                            <span className="dyna-next-meta">
+                              {step.owner ?? ""}
+                              {step.owner && step.dueAt ? " · " : ""}
+                              {step.dueAt
+                                ? `due ${relativeTime(step.dueAt, controller.locale)}`
+                                : ""}
+                            </span>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ol>
+                  </section>
+                ) : null}
+                {props.outcome ? (
+                  <div className="dyna-outcome">
+                    <span>Outcome</span>
+                    <p>{props.outcome}</p>
+                  </div>
+                ) : null}
+                {Children.count(children) > 0 ? (
+                  <section className="dyna-inspector-section">
+                    <h3>Codex tasks</h3>
+                    {children}
+                  </section>
+                ) : null}
+                <details className="dyna-context-details">
+                  <summary role="button">Plan, priority rationale, and provenance</summary>
+                  <div className="dyna-context-body">
+                    {props.plan.length > 0 ? (
+                      <ul className="dyna-plan">
+                        {props.plan.map((step, index) => (
+                          <li key={`${index}-${step}`}>{step}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    <p className="dyna-reason">Why now: {props.priorityReason}</p>
+                    {props.sourcePriority !== props.priority ? (
+                      <span className="dyna-lift">
+                        {props.priorityMode === "manual"
+                          ? `Manually moved from ${props.sourcePriority}`
+                          : props.priorityMode === "leadership"
+                            ? `Raised from ${props.sourcePriority} by verified leadership context`
+                            : `Refined from ${props.sourcePriority} by later analysis`}
+                      </span>
+                    ) : null}
+                    {props.enrichmentState === "stale" ? (
+                      <span className="dyna-chip" data-tone="warning">
+                        Enrichment needs review
+                      </span>
+                    ) : null}
+                    {props.followUpOfItemId ? (
+                      <span className="dyna-meta">Follow-up to completed work</span>
+                    ) : null}
+                    {props.labels.length > 0 ? (
+                      <div className="dyna-labels">
+                        {props.labels.map((label) => (
+                          <span className="dyna-chip" key={label}>
+                            {label}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                    <div className="dyna-origin">
+                      <strong>Originating record</strong>
+                      <code>{sourceReferenceLabel(props.sourceRef)}</code>
+                      <span className="dyna-meta">
+                        Updated {relativeTime(props.sourceUpdatedAt, controller.locale)}
+                      </span>
+                    </div>
+                  </div>
+                </details>
+                {props.annotationPreview.length > 0 ? (
+                  <section className="dyna-inspector-section">
+                    <h3>Recent notes</h3>
+                    <ul className="dyna-note-list" aria-label="Recent notes">
+                      {props.annotationPreview.map((note, index) => (
+                        <li key={`${index}-${note}`}>{note}</li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null}
+              </div>
+              <footer className="dyna-inspector-footer">
+                <div className="dyna-actions">
+                  {props.actions.map((action) => (
+                    <Button
+                      key={action.name}
+                      data-dyna-action={`${props.itemId}:${action.name}`}
+                      data-dyna-annotation-item={
+                        action.name === "annotate" ? props.itemId : undefined
+                      }
+                      color={
+                        action.name === "create_codex_task" || action.name === "open_codex_task"
+                          ? "primary"
+                          : "secondary"
+                      }
+                      size="sm"
+                      variant={
+                        action.name === "create_codex_task" || action.name === "open_codex_task"
+                          ? "solid"
+                          : action.name === "annotate"
+                            ? "ghost"
+                            : "outline"
+                      }
+                      onClick={(event) => {
+                        if (action.name === "annotate") {
+                          controller.annotate(props.itemId, event.currentTarget);
+                        } else
+                          void controller.request(
+                            props.itemId,
+                            props.fingerprint,
+                            action.name,
+                            action.taskId,
+                            action.taskHostId,
+                            event.currentTarget,
+                          );
+                      }}
+                      disabled={controller.busy || controller.blocked}
+                    >
+                      {action.label}
+                    </Button>
+                  ))}
+                  {props.annotationCount > 0 ? (
+                    <span className="dyna-meta">
+                      {props.annotationCount} note{props.annotationCount === 1 ? "" : "s"}
+                    </span>
+                  ) : null}
+                  {presentation === "pipeline" && props.workflowState === "completed" ? (
+                    <Button
+                      color="secondary"
+                      size="sm"
+                      variant="outline"
+                      onClick={(event) => {
+                        controller.startTodo(
+                          event.currentTarget,
+                          `Follow up: ${props.title}`,
+                          `Continue from completed work: ${props.outcome ?? props.summary}`,
+                          props.itemId,
+                        );
+                      }}
+                      disabled={controller.busy || controller.blocked}
+                    >
+                      Create follow-up
+                    </Button>
+                  ) : null}
+                </div>
+                {props.workflowState !== "completed" ? (
+                  <details className="dyna-overflow">
+                    <summary
+                      ref={menuTrigger}
+                      className="dyna-more-trigger"
+                      role="button"
+                      aria-label={`Manage priority and order for ${props.title}`}
+                      aria-disabled={controller.busy || controller.blocked}
+                      onClick={(event) => {
+                        if (controller.busy || controller.blocked) event.preventDefault();
+                      }}
+                    >
+                      <span className="dyna-symbol" aria-hidden="true">
+                        ⋯
+                      </span>
+                    </summary>
+                    <div className="dyna-overflow-menu" aria-label="Priority and order actions">
+                      <button
+                        type="button"
+                        disabled={props.priority === "critical"}
+                        onClick={(event) => {
+                          event.currentTarget.closest("details")?.removeAttribute("open");
+                          if (menuTrigger.current) {
+                            void controller.organize(
+                              props.itemId,
+                              props.fingerprint,
+                              "bump",
+                              menuTrigger.current,
+                            );
+                          }
+                        }}
+                      >
+                        Raise priority
+                      </button>
+                      <button
+                        type="button"
+                        disabled={props.priority === "low"}
+                        onClick={(event) => {
+                          event.currentTarget.closest("details")?.removeAttribute("open");
+                          if (menuTrigger.current) {
+                            void controller.organize(
+                              props.itemId,
+                              props.fingerprint,
+                              "lower",
+                              menuTrigger.current,
+                            );
+                          }
+                        }}
+                      >
+                        Lower priority
+                      </button>
+                      <div className="dyna-overflow-separator" role="separator" />
+                      <button
+                        type="button"
+                        disabled={!props.canMoveEarlier}
+                        onClick={(event) => {
+                          event.currentTarget.closest("details")?.removeAttribute("open");
+                          if (menuTrigger.current) {
+                            void controller.organize(
+                              props.itemId,
+                              props.fingerprint,
+                              "earlier",
+                              menuTrigger.current,
+                            );
+                          }
+                        }}
+                      >
+                        Move earlier in group
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!props.canMoveLater}
+                        onClick={(event) => {
+                          event.currentTarget.closest("details")?.removeAttribute("open");
+                          if (menuTrigger.current) {
+                            void controller.organize(
+                              props.itemId,
+                              props.fingerprint,
+                              "later",
+                              menuTrigger.current,
+                            );
+                          }
+                        }}
+                      >
+                        Move later in group
+                      </button>
+                    </div>
+                  </details>
+                ) : null}
+              </footer>
+            </InspectorShell>
           ) : null}
         </article>
       );
@@ -825,18 +1018,20 @@ const { registry } = defineRegistry(dynaCatalog, {
       return (
         <div className="dyna-schedule">
           <strong>{props.scheduleTitle ?? props.name}</strong>
-          <Badge
-            color={
+          <span
+            className="dyna-chip"
+            data-tone={
               props.lastRunStatus === "failed"
                 ? "danger"
-                : props.lastRunStatus === "succeeded"
-                  ? "success"
-                  : "secondary"
+                : props.lastRunStatus === "partial"
+                  ? "warning"
+                  : props.lastRunStatus === "succeeded"
+                    ? "success"
+                    : "secondary"
             }
-            pill
           >
             {props.lastRunStatus}
-          </Badge>
+          </span>
           <span className="dyna-meta">
             {props.scheduleState}
             {props.lastRunAt
@@ -847,7 +1042,29 @@ const { registry } = defineRegistry(dynaCatalog, {
         </div>
       );
     },
-    EmptyState: ({ props }) => <div className="dyna-empty">{props.message}</div>,
+    EmptyState: ({ props }) => {
+      const controller = useController();
+      return (
+        <div className="dyna-empty-wrap">
+          <div className="dyna-empty">
+            <strong>{controller.query ? "Nothing matched" : "Queue is clear"}</strong>
+            <p>{props.message}</p>
+            {controller.query ? (
+              <Button
+                color="secondary"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  controller.setQuery("");
+                }}
+              >
+                Clear search
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      );
+    },
   },
   actions: {},
 });
@@ -872,12 +1089,14 @@ function DynaApp({ app }: { readonly app: App }) {
   const [todoOpen, setTodoOpen] = useState(false);
   const [todoTitle, setTodoTitle] = useState("");
   const [todoSummary, setTodoSummary] = useState("");
-  const [todoPriority, setTodoPriority] = useState<"critical" | "high" | "normal" | "low">(
-    "normal",
-  );
+  const [todoPriority, setTodoPriority] = useState<TodoPriority>("normal");
   const [todoFollowUpOf, setTodoFollowUpOf] = useState<string>();
-  const [view, setView] = useState<"queue" | "pipeline">("queue");
-  const [query, setQuery] = useState("");
+  const [view, setViewState] = useState<"queue" | "pipeline">("queue");
+  const [query, setQueryState] = useState("");
+  const [pipelineState, setPipelineStateState] = useState<
+    "todo" | "executing" | "paused" | "attention" | "completed"
+  >("attention");
+  const [selectedItemId, setSelectedItemId] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string>();
   const [connectionError, setConnectionError] = useState<string>();
@@ -890,6 +1109,9 @@ function DynaApp({ app }: { readonly app: App }) {
   const refreshInFlight = useRef(false);
   const refreshGeneration = useRef(0);
   const queryRef = useRef("");
+  const selectedItemRef = useRef<string | undefined>(undefined);
+  const autoSelectionContext = useRef("");
+  const detailScrollPosition = useRef(0);
   const todoRequestId = useRef(crypto.randomUUID());
   const createdTodoFocus = useRef<string | undefined>(undefined);
   const hostContext = useRef<DynaHostContext>({});
@@ -897,6 +1119,7 @@ function DynaApp({ app }: { readonly app: App }) {
     new Map<string, { readonly requestId: string; readonly idempotencyKey: string }>(),
   );
   const annotationTrigger = useRef<HTMLElement | null>(null);
+  const detailTrigger = useRef<HTMLElement | null>(null);
   const todoTrigger = useRef<HTMLElement | null>(null);
   const expansionTrigger = useRef<HTMLElement | null>(null);
   const actionTrigger = useRef<{ readonly element: HTMLElement; readonly key: string } | null>(
@@ -906,13 +1129,28 @@ function DynaApp({ app }: { readonly app: App }) {
   const dialog = useRef<HTMLDivElement | null>(null);
   current.current = payload;
   queryRef.current = query;
+  selectedItemRef.current = selectedItemId;
 
   const acceptPayload = useCallback((candidate: unknown) => {
     const parsed = DynaUiPayloadSchema.safeParse(candidate);
-    if (parsed.success && dynaCatalog.validate(parsed.data.spec).success) {
-      setPayload(parsed.data);
-      setConnectionError(undefined);
+    if (!parsed.success || !dynaCatalog.validate(parsed.data.spec).success) return false;
+    const active = current.current;
+    if (
+      active &&
+      (parsed.data.snapshot.dashboard.id !== active.snapshot.dashboard.id ||
+        parsed.data.viewToken !== active.viewToken ||
+        parsed.data.snapshot.revision < active.snapshot.revision)
+    ) {
+      return false;
     }
+    const selected = selectedItemRef.current;
+    if (selected && !parsed.data.snapshot.cards.some((card) => card.id === selected)) {
+      setSelectedItemId(undefined);
+      setToast("The selected item is no longer in this view.");
+    }
+    setPayload(parsed.data);
+    setConnectionError(undefined);
+    return true;
   }, []);
 
   const refresh = useCallback(
@@ -939,8 +1177,8 @@ function DynaApp({ app }: { readonly app: App }) {
           return;
         }
         const next = metadataPayload(result);
-        if (next) acceptPayload(next);
-        else setConnectionError(undefined);
+        if (next && !acceptPayload(next)) throw new Error("Snapshot identity validation failed.");
+        if (!next) setConnectionError(undefined);
       } catch {
         if (generation === refreshGeneration.current) {
           setConnectionError(
@@ -1122,6 +1360,61 @@ function DynaApp({ app }: { readonly app: App }) {
     window.setTimeout(() => todoTrigger.current?.focus(), 0);
   }, []);
 
+  const closeDetails = useCallback(() => {
+    const trigger = detailTrigger.current;
+    const itemId = selectedItemRef.current;
+    setSelectedItemId(undefined);
+    window.setTimeout(() => {
+      window.scrollTo({ top: detailScrollPosition.current });
+      const currentTrigger = trigger?.isConnected
+        ? trigger
+        : itemId
+          ? document.querySelector<HTMLElement>(`[data-dyna-details-item="${CSS.escape(itemId)}"]`)
+          : undefined;
+      currentTrigger?.focus();
+    }, 0);
+  }, []);
+
+  const openDetails = useCallback((itemId: string, trigger: HTMLElement) => {
+    detailTrigger.current = trigger;
+    detailScrollPosition.current = window.scrollY;
+    setSelectedItemId(itemId);
+  }, []);
+
+  const setQuery = useCallback((value: string) => {
+    setQueryState(value);
+    setSelectedItemId(undefined);
+  }, []);
+
+  const setView = useCallback((value: "queue" | "pipeline") => {
+    setViewState(value);
+    setSelectedItemId(undefined);
+  }, []);
+
+  const setPipelineState = useCallback(
+    (value: "todo" | "executing" | "paused" | "attention" | "completed") => {
+      setPipelineStateState(value);
+      setSelectedItemId(undefined);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (displayMode !== "fullscreen") {
+      autoSelectionContext.current = "";
+      return;
+    }
+    const context = `${displayMode}:${view}:${pipelineState}`;
+    if (selectedItemId) return;
+    if (autoSelectionContext.current === context) return;
+    autoSelectionContext.current = context;
+    if (!payload) return;
+    const preferred = payload.snapshot.cards.find((card) =>
+      view === "queue" ? card.workflowState !== "completed" : card.workflowState === pipelineState,
+    );
+    if (preferred) setSelectedItemId(preferred.id);
+  }, [displayMode, payload, pipelineState, selectedItemId, view]);
+
   useEffect(() => {
     const itemId = createdTodoFocus.current;
     if (!itemId || busy || todoOpen) return;
@@ -1169,14 +1462,19 @@ function DynaApp({ app }: { readonly app: App }) {
       blocked: Boolean(connectionError),
       displayMode,
       canExpand,
-      condenseInline: false,
+      condenseInline: displayMode === "inline" && canExpand,
       initialExpansionPending,
       locale,
       query,
       serverQuery: payload?.snapshot.query ?? "",
+      selectedItemId,
+      pipelineState,
       view,
       setQuery,
+      setPipelineState,
       setView,
+      closeDetails,
+      openDetails,
       annotate(itemId, trigger) {
         annotationTrigger.current = trigger;
         setAnnotationItem(itemId);
@@ -1385,6 +1683,13 @@ function DynaApp({ app }: { readonly app: App }) {
       requestExpandedPresentation,
       query,
       refresh,
+      selectedItemId,
+      pipelineState,
+      closeDetails,
+      openDetails,
+      setQuery,
+      setPipelineState,
+      setView,
       view,
     ],
   );
@@ -1451,29 +1756,39 @@ function DynaApp({ app }: { readonly app: App }) {
     return (
       <main className="dyna">
         {connectionError ? (
-          <div className="dyna-connection" role="alert">
-            {connectionError}
+          <div className="dyna-alert" role="alert">
+            <strong>Offline</strong>
+            <span>{connectionError}</span>
           </div>
         ) : null}
-        <div className="dyna-empty">Loading dashboard…</div>
+        <div className="dyna-empty-wrap">
+          <div className="dyna-empty" role="status">
+            <strong>Loading dashboard</strong>
+            <p>Connecting to the Dyna data source…</p>
+          </div>
+        </div>
       </main>
     );
   }
+  const routeDetailsOpen = Boolean(selectedItemId) && displayMode !== "fullscreen";
+  const rendererUnavailable = annotationItem !== undefined || todoOpen || routeDetailsOpen;
   return (
     <ControllerContext.Provider value={controller}>
       {connectionError ? (
-        <div className="dyna-connection" role="alert">
-          {connectionError}
+        <div className="dyna-alert" role="alert">
+          <strong>Offline</strong>
+          <span>{connectionError}</span>
         </div>
       ) : null}
       {operationError ? (
-        <div className="dyna-connection" role="alert">
-          {operationError}
+        <div className="dyna-alert" role="alert">
+          <strong>Action unavailable</strong>
+          <span>{operationError}</span>
         </div>
       ) : null}
       <div
-        inert={annotationItem !== undefined || todoOpen ? true : undefined}
-        aria-hidden={annotationItem || todoOpen ? true : undefined}
+        inert={rendererUnavailable ? true : undefined}
+        aria-hidden={rendererUnavailable ? true : undefined}
       >
         <JSONUIProvider registry={registry}>
           <Renderer spec={payload.spec as Spec} registry={registry} />
@@ -1488,19 +1803,24 @@ function DynaApp({ app }: { readonly app: App }) {
           aria-labelledby="annotation-title"
         >
           <div className="dyna-sheet">
-            <h2 id="annotation-title">Add an executive note</h2>
-            <label htmlFor="dyna-annotation">Note</label>
-            <Textarea
-              id="dyna-annotation"
-              value={annotation}
-              rows={4}
-              maxLength={1_000}
-              placeholder="Example: Create a new Codex task to review this MR"
-              onChange={(event) => {
-                setAnnotation(event.currentTarget.value);
-              }}
-              autoFocus
-            />
+            <header className="dyna-sheet-header">
+              <h2 id="annotation-title">Add an executive note</h2>
+            </header>
+            <div className="dyna-sheet-body">
+              <label htmlFor="dyna-annotation">Note</label>
+              <textarea
+                id="dyna-annotation"
+                className="dyna-field dyna-native-textarea"
+                value={annotation}
+                rows={4}
+                maxLength={1_000}
+                placeholder="Example: Create a new Codex task to review this MR"
+                onChange={(event) => {
+                  setAnnotation(event.currentTarget.value);
+                }}
+                autoFocus
+              />
+            </div>
             <div className="dyna-sheet-actions">
               <Button color="secondary" variant="ghost" onClick={closeAnnotation}>
                 Cancel
@@ -1526,46 +1846,50 @@ function DynaApp({ app }: { readonly app: App }) {
           aria-labelledby="todo-title"
         >
           <div className="dyna-sheet">
-            <h2 id="todo-title">Add to the priority queue</h2>
-            <label htmlFor="dyna-todo-title">To-do</label>
-            <input
-              id="dyna-todo-title"
-              className="dyna-input"
-              value={todoTitle}
-              maxLength={200}
-              placeholder="What needs to get done?"
-              onChange={(event) => {
-                setTodoTitle(event.currentTarget.value);
-              }}
-              autoFocus
-            />
-            <label htmlFor="dyna-todo-summary">Context</label>
-            <Textarea
-              id="dyna-todo-summary"
-              value={todoSummary}
-              rows={3}
-              maxLength={1_000}
-              placeholder="Optional context or desired outcome"
-              onChange={(event) => {
-                setTodoSummary(event.currentTarget.value);
-              }}
-            />
-            <label htmlFor="dyna-todo-priority">Priority</label>
-            <select
-              id="dyna-todo-priority"
-              className="dyna-input"
-              value={todoPriority}
-              onChange={(event) => {
-                setTodoPriority(
-                  event.currentTarget.value as "critical" | "high" | "normal" | "low",
-                );
-              }}
-            >
-              <option value="critical">Critical</option>
-              <option value="high">High</option>
-              <option value="normal">Normal</option>
-              <option value="low">Low</option>
-            </select>
+            <header className="dyna-sheet-header">
+              <h2 id="todo-title">Add to the priority queue</h2>
+            </header>
+            <div className="dyna-sheet-body">
+              <label htmlFor="dyna-todo-title">To-do</label>
+              <input
+                id="dyna-todo-title"
+                className="dyna-field dyna-native-input"
+                type="text"
+                value={todoTitle}
+                maxLength={200}
+                placeholder="What needs to get done?"
+                onChange={(event) => {
+                  setTodoTitle(event.currentTarget.value);
+                }}
+                autoFocus
+              />
+              <label htmlFor="dyna-todo-summary">Context</label>
+              <textarea
+                id="dyna-todo-summary"
+                className="dyna-field dyna-native-textarea"
+                value={todoSummary}
+                rows={3}
+                maxLength={1_000}
+                placeholder="Optional context or desired outcome"
+                onChange={(event) => {
+                  setTodoSummary(event.currentTarget.value);
+                }}
+              />
+              <label htmlFor="dyna-todo-priority">Priority</label>
+              <select
+                id="dyna-todo-priority"
+                className="dyna-native-select"
+                value={todoPriority}
+                onChange={(event) => {
+                  setTodoPriority(event.currentTarget.value as TodoPriority);
+                }}
+              >
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="normal">Normal</option>
+                <option value="low">Low</option>
+              </select>
+            </div>
             <div className="dyna-sheet-actions">
               <Button color="secondary" variant="ghost" onClick={closeTodo}>
                 Cancel
@@ -1590,10 +1914,6 @@ function DynaApp({ app }: { readonly app: App }) {
     </ControllerContext.Provider>
   );
 }
-
-const style = document.createElement("style");
-style.textContent = `${STYLE}\n${EXECUTIVE_STYLE}`;
-document.head.append(style);
 
 const rootElement = document.querySelector<HTMLElement>("#dyna-root");
 if (!rootElement) throw new Error("Dyna root element is missing.");

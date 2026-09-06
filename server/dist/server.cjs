@@ -54305,7 +54305,7 @@ var DynaPublisherSchema = external_exports.object({
   scheduleTitle: external_exports.string().trim().min(1).max(200).optional(),
   scheduleState: external_exports.enum(["active", "paused", "unknown"]),
   staleAfterMinutes: external_exports.number().int().min(5).max(43200),
-  lastRunStatus: external_exports.enum(["never", "succeeded", "failed"]),
+  lastRunStatus: external_exports.enum(["never", "succeeded", "partial", "failed"]),
   lastRunAt: TimestampSchema2.optional(),
   lastRunError: external_exports.string().trim().min(1).max(500).optional(),
   revokedAt: TimestampSchema2.optional(),
@@ -54365,6 +54365,7 @@ var DynaActionItemContextSchema = external_exports.object({
   trustBoundary: external_exports.literal("untrusted_reference_data")
 }).strict();
 var DynaActionKindSchema = external_exports.enum([
+  "open_source",
   "create_codex_task",
   "open_codex_task",
   "refresh_codex_status"
@@ -54394,6 +54395,7 @@ var DynaCardSchema = external_exports.object({
   id: external_exports.uuid(),
   fingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
   source: DynaSourceSchema,
+  sourceRef: DynaSourceRefSchema,
   sourceLabel: external_exports.string().trim().min(1).max(128),
   title: external_exports.string().max(200),
   summary: external_exports.string().max(1e3),
@@ -54436,13 +54438,19 @@ var DynaDashboardSnapshotSchema = external_exports.object({
   cards: external_exports.array(DynaCardSchema).max(200)
 }).strict();
 var DynaUiPayloadSchema = external_exports.object({
-  schema: external_exports.literal("dyna/ui-v3"),
+  schema: external_exports.literal("dyna/ui-v4"),
   viewToken: external_exports.string().min(32).max(128),
   snapshot: DynaDashboardSnapshotSchema,
   spec: external_exports.unknown()
 }).strict();
 var ActionDescriptorSchema = external_exports.object({
-  name: external_exports.enum(["annotate", "create_codex_task", "open_codex_task", "refresh_codex_status"]),
+  name: external_exports.enum([
+    "annotate",
+    "open_source",
+    "create_codex_task",
+    "open_codex_task",
+    "refresh_codex_status"
+  ]),
   label: external_exports.string().min(1).max(64),
   taskId: IdentifierSchema2.optional(),
   taskHostId: IdentifierSchema2.optional()
@@ -54486,7 +54494,11 @@ var dynaCatalog = schema.createCatalog({
       description: "Compact counts of urgent and total signals."
     },
     Section: {
-      props: external_exports.object({ title: external_exports.string().min(1).max(96), emptyMessage: external_exports.string().max(200) }).strict(),
+      props: external_exports.object({
+        title: external_exports.string().min(1).max(96),
+        emptyMessage: external_exports.string().max(200),
+        attention: external_exports.boolean().optional()
+      }).strict(),
       slots: ["default"],
       description: "A priority group in the dashboard."
     },
@@ -54514,6 +54526,7 @@ var dynaCatalog = schema.createCatalog({
         itemId: external_exports.uuid(),
         fingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
         source: DynaSourceSchema,
+        sourceRef: DynaSourceRefSchema,
         sourceLabel: external_exports.string().trim().min(1).max(128),
         title: external_exports.string().max(200),
         summary: external_exports.string().max(1e3),
@@ -54539,7 +54552,7 @@ var dynaCatalog = schema.createCatalog({
         enrichmentState: external_exports.enum(["active", "stale"]).optional(),
         annotationCount: external_exports.number().int().nonnegative(),
         annotationPreview: external_exports.array(external_exports.string().trim().min(1).max(1e3)).max(3),
-        actions: external_exports.array(ActionDescriptorSchema).min(1).max(2)
+        actions: external_exports.array(ActionDescriptorSchema).min(1).max(3)
       }).strict(),
       slots: ["default"],
       description: "One bounded actionable signal from an approved source."
@@ -54580,7 +54593,18 @@ function compareDynaCards(left, right) {
   return byUpdatedAt !== 0 ? byUpdatedAt : left.id.localeCompare(right.id);
 }
 function cardActions(card) {
-  return card.linkedTasks.length > 0 ? [{ name: "annotate", label: "Add note" }] : [
+  const linkedTask = card.linkedTasks[0];
+  return linkedTask ? [
+    { name: "open_source", label: "Open source" },
+    {
+      name: "open_codex_task",
+      label: "Open Codex",
+      taskId: linkedTask.taskId,
+      taskHostId: linkedTask.hostId
+    },
+    { name: "annotate", label: "Add note" }
+  ] : [
+    { name: "open_source", label: "Open source" },
     { name: "annotate", label: "Add note" },
     { name: "create_codex_task", label: "Review in Codex" }
   ];
@@ -54617,6 +54641,7 @@ function compileDashboard(snapshot) {
         itemId: card.id,
         fingerprint: card.fingerprint,
         source: card.source,
+        sourceRef: card.sourceRef,
         sourceLabel: card.sourceLabel,
         title: card.title,
         summary: card.summary,
@@ -54693,7 +54718,13 @@ function compileDashboard(snapshot) {
     }
     elements["section-schedules"] = {
       type: "Section",
-      props: { title: "Signal runs", emptyMessage: "No schedules are attached." },
+      props: {
+        title: "Signal runs",
+        emptyMessage: "No schedules are attached.",
+        attention: snapshot.schedules.some(
+          (schedule) => schedule.lastRunStatus === "failed" || schedule.lastRunStatus === "partial" || schedule.scheduleState !== "active"
+        )
+      },
       children: scheduleChildren
     };
     queueKeys.push("section-schedules");
@@ -55458,6 +55489,11 @@ var DynaStore = class {
     if (options.status === "succeeded" && options.failureMessage) {
       throw new Error("A successful Dyna run cannot include an error.");
     }
+    if (options.status === "partial" && (options.mode !== "upsert" || items.length === 0 || !options.failureMessage)) {
+      throw new Error(
+        "A partial Dyna run requires upsert mode, at least one item, and a bounded error."
+      );
+    }
     const parsedItems = items.map(normalizedPublishedItem);
     const sourceCompletion = normalizeTimestamp(options.sourceCompletedAt, true);
     const requestHash = sha256(
@@ -55534,7 +55570,7 @@ var DynaStore = class {
       const affectedDashboards = new Set(
         this.#database.prepare("SELECT dashboard_id FROM dashboard_publishers WHERE publisher_id = ?").all(publisherId).map((row) => requiredString(row, "dashboard_id"))
       );
-      if (options.status === "succeeded") {
+      if (options.status !== "failed") {
         if (options.mode === "replace") {
           this.#database.prepare("UPDATE publisher_items SET active = 0 WHERE publisher_id = ?").run(publisherId);
         }
@@ -56041,7 +56077,8 @@ var DynaStore = class {
       const schedules = this.listPublishers(dashboardId);
       const activeSchedules = schedules.filter((schedule) => schedule.scheduleState === "active");
       const scheduleFreshness = activeSchedules.map((schedule) => {
-        if (schedule.lastRunStatus === "failed" || !schedule.lastRunAt) return "stale";
+        if (schedule.lastRunStatus === "failed" || schedule.lastRunStatus === "partial" || !schedule.lastRunAt)
+          return "stale";
         const age = Math.max(0, this.#nowMs() - Date.parse(schedule.lastRunAt));
         const staleAfter = schedule.staleAfterMinutes * 6e4;
         return age > staleAfter ? "stale" : age > staleAfter * 0.75 ? "aging" : "fresh";
@@ -56089,7 +56126,7 @@ var DynaStore = class {
     if (requiredString(item, "fingerprint") !== values.expectedFingerprint) {
       throw new Error("The Dyna item changed; refresh before taking action.");
     }
-    if (kind !== "create_codex_task") {
+    if (kind === "open_codex_task" || kind === "refresh_codex_status") {
       if (!values.taskId || !values.taskHostId) {
         throw new Error("This Dyna action requires a linked Codex task and host.");
       }
@@ -56103,7 +56140,7 @@ var DynaStore = class {
       );
       if (!linked) throw new Error("The Codex task is not linked to this Dyna item.");
     } else if (values.taskId || values.taskHostId) {
-      throw new Error("A new Codex task action cannot target an existing task.");
+      throw new Error("This Dyna action cannot target an existing Codex task.");
     }
     if (kind === "create_codex_task") {
       const hasUncertainCreation = this.#transaction(() => {
@@ -56361,8 +56398,8 @@ var DynaStore = class {
         if ((kind === "create_codex_task" || kind === "refresh_codex_status") && !result.task) {
           throw new Error("The successful Dyna action requires controller-reported task metadata.");
         }
-        if (kind === "open_codex_task" && result.task) {
-          throw new Error("Opening a Codex task cannot attach task metadata.");
+        if ((kind === "open_codex_task" || kind === "open_source") && result.task) {
+          throw new Error("Opening a Dyna target cannot attach task metadata.");
         }
         if (kind === "refresh_codex_status" && result.task && (result.task.taskId !== optionalString(row, "task_id") || result.task.hostId !== optionalString(row, "host_id"))) {
           throw new Error("The refreshed Codex task does not match the claimed request.");
@@ -56670,6 +56707,7 @@ var DynaStore = class {
         id,
         fingerprint: item.fingerprint,
         source: item.sourceRef.source,
+        sourceRef: item.sourceRef,
         sourceLabel: dynaSourceLabel(item.sourceRef),
         title: item.title,
         summary: item.summary,
@@ -56744,7 +56782,7 @@ var DynaService = class {
   render(dashboardId) {
     const snapshot = this.store.snapshot(dashboardId);
     const payload = {
-      schema: "dyna/ui-v3",
+      schema: "dyna/ui-v4",
       viewToken: this.store.createView(dashboardId),
       snapshot,
       spec: compileDashboard(snapshot)
@@ -56757,7 +56795,7 @@ var DynaService = class {
     if (!validated.success || !validated.data)
       throw new Error("Dyna could not compile its dashboard.");
     return DynaUiPayloadSchema.parse({
-      schema: "dyna/ui-v3",
+      schema: "dyna/ui-v4",
       viewToken,
       snapshot,
       spec: validated.data
@@ -56776,7 +56814,7 @@ var DynaService = class {
 
 // packages/mcp-server/src/plugins/dyna.ts
 var DYNA_PLUGIN_ID = "dyna";
-var DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v3.html";
+var DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v4.html";
 var DashboardIdSchema = external_exports.object({ dashboardId: external_exports.uuid() }).strict();
 var ViewTokenSchema = external_exports.object({
   viewToken: external_exports.string().min(32).max(128),
@@ -57359,7 +57397,7 @@ function createDynaPlugin(options = {}) {
           runId: IdentifierSchema3,
           sourceCompletedAt: external_exports.iso.datetime({ offset: true }),
           mode: external_exports.enum(["replace", "upsert"]).default("replace"),
-          status: external_exports.enum(["succeeded", "failed"]).default("succeeded"),
+          status: external_exports.enum(["succeeded", "partial", "failed"]).default("succeeded"),
           failureMessage: external_exports.string().trim().min(1).max(500).optional(),
           items: external_exports.array(DynaPublishedItemSchema).max(200)
         }).strict(),
@@ -57367,7 +57405,7 @@ function createDynaPlugin(options = {}) {
           accepted: external_exports.number().int().nonnegative().max(200),
           deduplicated: external_exports.boolean(),
           superseded: external_exports.boolean(),
-          status: external_exports.enum(["succeeded", "failed"])
+          status: external_exports.enum(["succeeded", "partial", "failed"])
         }).strict(),
         risk: { readOnly: false, destructive: false, openWorld: false, idempotent: true },
         executor: {
@@ -57379,7 +57417,7 @@ function createDynaPlugin(options = {}) {
               runId: IdentifierSchema3,
               sourceCompletedAt: external_exports.iso.datetime({ offset: true }),
               mode: external_exports.enum(["replace", "upsert"]).default("replace"),
-              status: external_exports.enum(["succeeded", "failed"]).default("succeeded"),
+              status: external_exports.enum(["succeeded", "partial", "failed"]).default("succeeded"),
               failureMessage: external_exports.string().trim().min(1).max(500).optional(),
               items: external_exports.array(DynaPublishedItemSchema).max(200)
             }).strict().parse(input);
@@ -57712,7 +57750,7 @@ var server = createFlowZoneServer({
   uiResources: [
     {
       name: "FlowZone Dyna UI",
-      resourceUri: "ui://flowzone/dyna/v3.html",
+      resourceUri: "ui://flowzone/dyna/v4.html",
       assetLoader: dynaAssetLoader,
       description: "Dyna is a responsive executive dashboard for prioritized scheduled signals and Codex actions."
     }

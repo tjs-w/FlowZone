@@ -78,7 +78,7 @@ function resultRecord(value: unknown): Readonly<Record<string, unknown>> {
   return value as Readonly<Record<string, unknown>>;
 }
 
-const dynaResource = await client.readResource({ uri: "ui://flowzone/dyna/v3.html" });
+const dynaResource = await client.readResource({ uri: "ui://flowzone/dyna/v4.html" });
 const dynaResourceContent = dynaResource.contents[0];
 if (!dynaResourceContent || !("text" in dynaResourceContent)) {
   throw new Error("The Dyna HTML resource was not returned");
@@ -194,6 +194,13 @@ async function createDynaFixture(
               priority: index === 0 ? "critical" : index === 3 ? "high" : "normal",
               priorityReason: "The release window closes today.",
               sourceUpdatedAt: now,
+              ...(index === 2
+                ? {}
+                : {
+                    dueAt: new Date(
+                      Date.parse(now) + (index === 0 ? 2 : index === 3 ? 4 : 24) * 60 * 60_000,
+                    ).toISOString(),
+                  }),
               labels: ["release", "decision"],
               people:
                 index === 2

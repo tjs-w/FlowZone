@@ -1,5 +1,31 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+async function openDetails(page: Page, title: string): Promise<void> {
+  await page
+    .getByRole("button", { name: `Open details for ${title}` })
+    .first()
+    .click();
+  await expect(page.getByRole("heading", { name: title, level: 2 })).toBeVisible();
+}
+
+async function openOrganizationMenu(page: Page, title: string): Promise<void> {
+  await page.getByRole("button", { name: `Manage priority and order for ${title}` }).click();
+}
+
+async function closeDetails(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Back to attention queue" }).click();
+}
+
+async function closeRouteDetails(page: Page): Promise<void> {
+  const back = page.getByRole("button", { name: "Back to attention queue" });
+  if (await back.isVisible()) await back.click();
+}
+
+async function openFullDashboard(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Open full dashboard" }).click();
+  await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "fullscreen");
+}
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/dyna");
@@ -16,12 +42,19 @@ test("renders the fixed executive catalog without external requests", async ({ p
   await expect(page.getByText("Review the release merge request")).toBeVisible();
   await expect(page.getByText("critical", { exact: true })).toBeVisible();
   await expect(page.getByText("GitHub", { exact: true })).toBeVisible();
-  await expect(page.getByText("Needs attention", { exact: true })).toBeVisible();
+  await expect(page.locator(".dyna-card").first().locator(".dyna-row-time")).toContainText("Due");
+  await expect(page.getByRole("heading", { name: "Act now" })).toBeVisible();
+  await expect(
+    page.getByText("Confirm the risk posture and either approve the release or name the blocker."),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open full dashboard" })).toBeVisible();
+  await expect(page.getByText("Immediate next steps", { exact: true })).toBeHidden();
+  await openDetails(page, "Review the release merge request");
   await expect(page.getByText("Immediate next steps", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open source" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Review in Codex" })).toBeVisible();
-  await expect(page.getByText("Browser fixture schedule", { exact: true })).toBeVisible();
   await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "inline");
-  await expect(page.getByRole("button", { name: "Expand dashboard" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open full dashboard" })).toBeHidden();
   await expect(page.locator("html")).toHaveAttribute(
     "data-dyna-advertised-display-modes",
     '["inline","fullscreen"]',
@@ -47,6 +80,7 @@ test("renders the fixed executive catalog without external requests", async ({ p
 });
 
 test("adds an annotation and sends only an opaque Codex action request", async ({ page }) => {
+  await openDetails(page, "Review the release merge request");
   const addNote = page.getByRole("button", { name: "Add note" });
   await addNote.focus();
   await addNote.click();
@@ -76,7 +110,46 @@ test("adds an annotation and sends only an opaque Codex action request", async (
   expect(message).not.toContain("Create a new Codex task");
 });
 
+test("opens originating records through the opaque action protocol", async ({ page }) => {
+  await openDetails(page, "Review the release merge request");
+  await page.getByRole("button", { name: "Open source" }).click();
+  await expect.poll(() => page.locator("html").getAttribute("data-dyna-message-count")).toBe("1");
+  const message = await page.locator("html").getAttribute("data-dyna-last-message");
+  expect(message).toMatch(/Handle Dyna action request [0-9a-f-]{36} with \$flowzone:dyna\./);
+  expect(message).not.toContain("team/project");
+  expect(message).not.toContain("Review the release merge request");
+  const prepared = await page.evaluate(() => {
+    const host = (
+      window as typeof window & {
+        __dynaHost?: { toolCalls?: { name?: string; arguments?: Record<string, unknown> }[] };
+      }
+    ).__dynaHost;
+    return host?.toolCalls?.find((call) => call.name === "dyna_prepare_action")?.arguments;
+  });
+  expect(prepared?.["kind"]).toBe("open_source");
+});
+
+test("keeps detail content top-aligned in tall Codex panels", async ({ page }) => {
+  await page.setViewportSize({ width: 1_280, height: 1_400 });
+  await page.goto("/dyna?many-items=1");
+  await openDetails(page, "Review the release merge request");
+  const layout = await page.evaluate(() => {
+    const attention = document.querySelector<HTMLElement>(".dyna-attention");
+    const people = document.querySelector<HTMLElement>(".dyna-people");
+    const next = document.querySelector<HTMLElement>(".dyna-next");
+    return {
+      attentionTop: attention?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY,
+      peopleTop: people?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY,
+      nextTop: next?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY,
+    };
+  });
+  expect(layout.attentionTop).toBeLessThan(180);
+  expect(layout.peopleTop).toBeLessThan(340);
+  expect(layout.nextTop).toBeLessThan(500);
+});
+
 test("clears cancelled notes and keeps rejected annotations editable", async ({ page }) => {
+  await openDetails(page, "Review the release merge request");
   const addNote = page.getByRole("button", { name: "Add note" });
   await addNote.click();
   const note = page.getByRole("textbox", { name: "Note" });
@@ -86,6 +159,7 @@ test("clears cancelled notes and keeps rejected annotations editable", async ({ 
   await expect(note).toHaveValue("");
 
   await page.goto("/dyna?tool-error=dyna_add_annotation");
+  await openDetails(page, "Review the release merge request");
   await page.getByRole("button", { name: "Add note" }).click();
   const rejected = page.getByRole("textbox", { name: "Note" });
   await rejected.fill("Keep this draft after a failed save");
@@ -116,14 +190,13 @@ test("keeps rejected to-dos editable through a successful background refresh", a
 
 test("keeps failed reprioritization visible without mutating the item", async ({ page }) => {
   await page.goto("/dyna?many-items=1&tool-error=dyna_organize_item");
-  const card = page
-    .locator('.dyna-card[data-presentation="queue"]')
-    .filter({ hasText: "Review the release merge request" });
-  await card.getByRole("button", { name: "Lower" }).click();
+  await openDetails(page, "Review the release merge request");
+  await openOrganizationMenu(page, "Review the release merge request");
+  await page.getByRole("button", { name: "Lower priority" }).click();
   await expect(page.getByRole("alert")).toContainText("Could not reorganize the item");
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect(page.getByRole("alert")).toContainText("Could not reorganize the item");
-  await expect(card.getByText("critical", { exact: true })).toBeVisible();
+  await expect(page.locator(".dyna-inspector-eyebrow").getByText("critical")).toBeVisible();
 });
 
 test("renders cross-tool signals and only promotes evidence-bearing leadership", async ({
@@ -135,21 +208,28 @@ test("renders cross-tool signals and only promotes evidence-bearing leadership",
   }
   await expect(page.getByText("Avery Chen", { exact: false })).toBeVisible();
   await expect(page.getByText("Morgan Lee", { exact: false }).first()).toBeVisible();
+  await openDetails(page, "Additional priority 1");
+  await page.getByRole("button", { name: "Plan, priority rationale, and provenance" }).click();
   await expect(page.getByText("Raised from normal by verified leadership context")).toHaveCount(1);
+  await closeDetails(page);
   await expect(page.getByText("Architecture council", { exact: false })).toBeVisible();
 });
 
 test("uses calm, legible light and dark host themes", async ({ page }) => {
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-  expect(
-    await page.locator("body").evaluate((node) => getComputedStyle(node).backgroundColor),
-  ).toBe("rgb(245, 247, 248)");
+  const lightBackground = await page
+    .locator("body")
+    .evaluate((node) => getComputedStyle(node).backgroundColor);
+  expect(lightBackground).not.toBe("");
+  await expect(page.locator("html")).toHaveCSS("color-scheme", "light");
 
   await page.goto("/dyna?theme=dark");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  expect(
-    await page.locator("body").evaluate((node) => getComputedStyle(node).backgroundColor),
-  ).toBe("rgb(14, 20, 23)");
+  const darkBackground = await page
+    .locator("body")
+    .evaluate((node) => getComputedStyle(node).backgroundColor);
+  expect(darkBackground).not.toBe(lightBackground);
+  await expect(page.locator("html")).toHaveCSS("color-scheme", "dark");
   const accessibility = await new AxeBuilder({ page }).analyze();
   expect(accessibility.violations).toEqual([]);
 });
@@ -160,22 +240,25 @@ test("adds, searches, reprioritizes, and sequences queue items", async ({ page }
   await search.fill("github avery");
   await expect(page.locator('.dyna-card[data-presentation="queue"]')).toHaveCount(1);
   await expect(page.locator('.dyna-visually-hidden[role="status"]')).toHaveText("1 matching item.");
-  const filteredCriticalCard = page
-    .locator('.dyna-card[data-presentation="queue"]')
-    .filter({ hasText: "Review the release merge request" });
-  await filteredCriticalCard.getByRole("button", { name: "Lower" }).click();
-  await expect(filteredCriticalCard.getByText("high", { exact: true })).toBeVisible();
-  await filteredCriticalCard.getByRole("button", { name: "Bump" }).click();
-  await expect(filteredCriticalCard.getByText("critical", { exact: true })).toBeVisible();
+  await openDetails(page, "Review the release merge request");
+  await openOrganizationMenu(page, "Review the release merge request");
+  await page.getByRole("button", { name: "Lower priority" }).click();
+  await expect(page.locator(".dyna-inspector-eyebrow").getByText("high")).toBeVisible();
+  await openOrganizationMenu(page, "Review the release merge request");
+  await page.getByRole("button", { name: "Raise priority" }).click();
+  await expect(page.locator(".dyna-inspector-eyebrow").getByText("critical")).toBeVisible();
+  await closeDetails(page);
+
   await search.fill("Additional priority 1");
-  const filteredSequenceCard = page
-    .locator('.dyna-card[data-presentation="queue"]')
-    .filter({ hasText: "Additional priority 1" });
-  await expect(filteredSequenceCard).toBeVisible();
-  await filteredSequenceCard.getByRole("button", { name: "Later" }).click();
-  await expect(filteredSequenceCard.getByRole("button", { name: "Later" })).toBeDisabled();
+  await openDetails(page, "Additional priority 1");
+  await openOrganizationMenu(page, "Additional priority 1");
+  await page.getByRole("button", { name: "Move later in group" }).click();
+  await openOrganizationMenu(page, "Additional priority 1");
+  await expect(page.getByRole("button", { name: "Move later in group" })).toBeDisabled();
+  await closeDetails(page);
+
   await search.fill("definitely absent signal");
-  await expect(page.getByText(/No dashboard items match/)).toBeVisible();
+  await expect(page.getByText("Nothing matched")).toBeVisible();
   await expect(page.locator('.dyna-visually-hidden[role="status"]')).toHaveText(
     "No matching items.",
   );
@@ -191,50 +274,78 @@ test("adds, searches, reprioritizes, and sequences queue items", async ({ page }
     .locator('.dyna-card[data-presentation="queue"]')
     .filter({ hasText: "Prepare staff meeting decisions" });
   await expect(manualCard).toBeVisible();
-  await expect(manualCard.getByText("To-do", { exact: true })).toBeVisible();
+  await expect(manualCard.getByText("Todo", { exact: true })).toBeVisible();
 
-  const criticalCard = page
-    .locator('.dyna-card[data-presentation="queue"]')
-    .filter({ hasText: "Review the release merge request" });
-  await expect(criticalCard.getByRole("button", { name: "Bump" })).toBeDisabled();
-  await criticalCard.getByRole("button", { name: "Lower" }).click();
-  await expect(criticalCard.getByText("high", { exact: true })).toBeVisible();
-  await expect(criticalCard.getByText("Manually moved from critical")).toBeVisible();
+  await openDetails(page, "Review the release merge request");
+  await openOrganizationMenu(page, "Review the release merge request");
+  await expect(page.getByRole("button", { name: "Raise priority" })).toBeDisabled();
+  await page.getByRole("button", { name: "Lower priority" }).click();
+  await expect(page.locator(".dyna-inspector-eyebrow").getByText("high")).toBeVisible();
+  await page.getByRole("button", { name: "Plan, priority rationale, and provenance" }).click();
+  await expect(page.getByText("Manually moved from critical")).toBeVisible();
+  await closeDetails(page);
 
   const highSection = page
     .getByRole("heading", { name: "Needs your attention" })
-    .locator("xpath=..");
-  const before = await highSection.locator("h3").allTextContents();
+    .locator("xpath=../..");
+  const before = await highSection.locator(".dyna-row-title").allTextContents();
   const firstCard = highSection.locator('.dyna-card[data-presentation="queue"]').first();
-  await firstCard.getByRole("button", { name: "Later" }).click();
-  await expect.poll(() => highSection.locator("h3").allTextContents()).not.toEqual(before);
+  const firstTitle = (await firstCard.locator(".dyna-row-title").textContent()) ?? "";
+  await firstCard
+    .getByRole("button", { name: `Open details for ${firstTitle}` })
+    .first()
+    .click();
+  await openOrganizationMenu(page, firstTitle);
+  await page.getByRole("button", { name: "Move later in group" }).click();
+  await closeDetails(page);
+  await expect
+    .poll(() => highSection.locator(".dyna-row-title").allTextContents())
+    .not.toEqual(before);
 });
 
 test("projects the same items through the Codex progress pipeline and creates follow-ups", async ({
   page,
 }) => {
   await page.goto("/dyna?pipeline=1");
+  await openFullDashboard(page);
   const queueTab = page.getByRole("tab", { name: "Priority queue" });
   await queueTab.focus();
   await queueTab.press("ArrowRight");
   await expect(page.getByRole("tab", { name: "Progress pipeline" })).toBeFocused();
-  for (const column of [
-    "To do",
-    "Executing in Codex",
-    "Paused for input",
-    "Needs attention",
-    "Completed",
-  ]) {
-    await expect(page.getByRole("heading", { name: column })).toBeVisible();
-  }
+  for (const stage of [
+    /To do: 1/,
+    /Executing in Codex: 1/,
+    /Paused for input: 1/,
+    /Needs attention: 0/,
+    /Completed: 1/,
+  ])
+    await expect(page.getByRole("tab", { name: stage })).toBeVisible();
+
+  await page.getByRole("tab", { name: /Executing in Codex: 1/ }).click();
+  await expect(
+    page.getByRole("heading", { name: "Additional priority 1", level: 2 }),
+  ).toBeVisible();
   await expect(page.getByText("running · observed", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open task" })).toBeVisible();
+
+  await closeRouteDetails(page);
+  await page.getByRole("tab", { name: /Paused for input: 1/ }).click();
+  await expect(
+    page.getByRole("heading", { name: "Additional priority 3", level: 2 }),
+  ).toBeVisible();
   await expect(page.getByText("waiting · observed", { exact: false })).toBeVisible();
+
+  await closeRouteDetails(page);
+  await page.getByRole("tab", { name: /Completed: 1/ }).click();
+  await expect(
+    page.getByRole("heading", { name: "Additional priority 2", level: 2 }),
+  ).toBeVisible();
   await expect(
     page
       .locator(".dyna-task-outcome")
       .getByText("Approved the release path and documented the remaining risk."),
   ).toBeVisible();
-  await expect(page.getByRole("button", { name: "Open task" })).toHaveCount(3);
+  await expect(page.getByRole("button", { name: "Open task" })).toBeVisible();
 
   await page.getByRole("button", { name: "Create follow-up" }).click();
   const followupTitle = page.getByRole("textbox", { name: "To-do" });
@@ -245,24 +356,77 @@ test("projects the same items through the Codex progress pipeline and creates fo
     "true",
   );
   await expect(page.getByText(/Follow up:/).first()).toBeVisible();
+  await closeRouteDetails(page);
+  await page
+    .getByRole("button", { name: /Open details for Follow up:/ })
+    .first()
+    .click();
+  await page.getByRole("button", { name: "Plan, priority rationale, and provenance" }).click();
   await expect(page.getByText("Follow-up to completed work")).toBeVisible();
-  await expect(
-    page.locator('.dyna-card[data-presentation="queue"]:focus').filter({ hasText: /Follow up:/ }),
-  ).toBeVisible();
 });
 
-test("reflows at 320 CSS pixels without horizontal overflow", async ({ page }) => {
-  await page.setViewportSize({ width: 320, height: 720 });
-  await page.goto("/dyna?pipeline=1&long-content=1");
+test("keeps the compact queue and forms usable at narrow mobile widths", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/dyna?many-items=1&long-content=1");
   await expect(page.getByRole("heading", { name: "Executive brief" })).toBeVisible();
-  const dimensions = await page.evaluate(() => ({
-    clientWidth: document.documentElement.clientWidth,
-    scrollWidth: document.documentElement.scrollWidth,
-  }));
+  const dimensions = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll<HTMLElement>(".dyna-card")];
+    const first = rows[0]?.getBoundingClientRect();
+    return {
+      clientWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      firstTop: first?.top ?? Number.POSITIVE_INFINITY,
+      firstHeight: first?.height ?? Number.POSITIVE_INFINITY,
+      visibleRows: rows.filter((row) => row.getBoundingClientRect().top < innerHeight).length,
+    };
+  });
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth);
+  expect(dimensions.firstTop).toBeLessThan(230);
+  expect(dimensions.firstHeight).toBeLessThanOrEqual(112);
+  expect(dimensions.visibleRows).toBeGreaterThanOrEqual(4);
   for (const button of await page.getByRole("button").all()) {
-    expect((await button.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    if (!(await button.isVisible())) continue;
+    expect(Math.round((await button.boundingBox())?.height ?? 0)).toBeGreaterThanOrEqual(44);
   }
+
+  await page.setViewportSize({ width: 320, height: 400 });
+  await page.getByRole("button", { name: "Add to-do" }).click();
+  const dialogLayout = await page.getByRole("dialog").evaluate((dialog) => {
+    const sheet = dialog.querySelector<HTMLElement>(".dyna-sheet");
+    const footer = dialog.querySelector<HTMLElement>(".dyna-sheet-actions");
+    const sheetBox = sheet?.getBoundingClientRect();
+    const footerBox = footer?.getBoundingClientRect();
+    return {
+      sheetTop: sheetBox?.top ?? -1,
+      sheetBottom: sheetBox?.bottom ?? Number.POSITIVE_INFINITY,
+      footerBottom: footerBox?.bottom ?? Number.POSITIVE_INFINITY,
+      viewportHeight: innerHeight,
+      pageClientWidth: document.documentElement.clientWidth,
+      pageScrollWidth: document.documentElement.scrollWidth,
+    };
+  });
+  expect(dialogLayout.sheetTop).toBeGreaterThanOrEqual(0);
+  expect(dialogLayout.sheetBottom).toBeLessThanOrEqual(dialogLayout.viewportHeight);
+  expect(dialogLayout.footerBottom).toBeLessThanOrEqual(dialogLayout.viewportHeight);
+  expect(dialogLayout.pageScrollWidth).toBeLessThanOrEqual(dialogLayout.pageClientWidth);
+  await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
+
+  await page.locator(".dyna-row-main").first().click();
+  await page.locator(".dyna-more-trigger").click();
+  const priorityMenuLayout = await page.locator(".dyna-overflow-menu").evaluate((menu) => {
+    const box = menu.getBoundingClientRect();
+    return {
+      left: box.left,
+      right: box.right,
+      viewportWidth: innerWidth,
+      actionHeights: [...menu.querySelectorAll("button")].map(
+        (button) => button.getBoundingClientRect().height,
+      ),
+    };
+  });
+  expect(priorityMenuLayout.left).toBeGreaterThanOrEqual(0);
+  expect(priorityMenuLayout.right).toBeLessThanOrEqual(priorityMenuLayout.viewportWidth);
+  expect(priorityMenuLayout.actionHeights.every((height) => Math.round(height) >= 44)).toBe(true);
 });
 
 test("keeps a failed scheduled source readable at desktop and mobile widths", async ({ page }) => {
@@ -310,9 +474,9 @@ test("keeps a failed scheduled source readable at desktop and mobile widths", as
 });
 
 test("requests the expanded Codex work surface when the host supports it", async ({ page }) => {
-  await page.getByRole("button", { name: "Expand dashboard" }).click();
+  await page.getByRole("button", { name: "Open full dashboard" }).click();
   await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "fullscreen");
-  await expect(page.getByRole("button", { name: "Expand dashboard" })).toBeHidden();
+  await expect(page.getByRole("button", { name: "Open full dashboard" })).toBeHidden();
   await expect(page.locator("html")).toHaveAttribute("data-dyna-display-mode-request-count", "1");
 });
 
@@ -320,7 +484,7 @@ test("keeps the host-selected panel presentation after connection", async ({ pag
   await page.goto("/dyna?display-mode-delay=1");
   await expect(page.getByRole("heading", { name: "Executive brief" })).toBeVisible();
   await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "inline");
-  await expect(page.getByRole("button", { name: "Expand dashboard" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open full dashboard" })).toBeVisible();
   await expect(page.locator("html")).not.toHaveAttribute("data-dyna-display-mode-request-count");
 });
 
@@ -328,7 +492,7 @@ test("keeps inline content visible when the host cannot expand", async ({ page }
   await page.goto("/dyna?inline-only=1");
   await expect(page.getByRole("heading", { name: "Executive brief" })).toBeVisible();
   await expect(page.getByText("Review the release merge request")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Expand dashboard" })).toBeHidden();
+  await expect(page.getByRole("button", { name: "Open full dashboard" })).toBeHidden();
   await expect(page.locator(".dyna-inline-more")).toHaveCount(0);
   await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "inline");
   await expect(page.locator("html")).not.toHaveAttribute("data-dyna-display-mode-request-count");
@@ -344,14 +508,14 @@ test("keeps a complete manual fallback when an expanded presentation request fai
   await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "inline");
   await expect(page.locator(".dyna-card")).toHaveCount(4);
   await expect(page.locator(".dyna-inline-more")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Expand dashboard" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open full dashboard" })).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
-  await page.getByRole("button", { name: "Expand dashboard" }).click();
+  await page.getByRole("button", { name: "Open full dashboard" }).click();
   await expect(page.locator(".dyna-toast")).toContainText(
     "complete current view remains available",
   );
-  await expect(page.getByRole("button", { name: "Expand dashboard" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Expand dashboard" })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Open full dashboard" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open full dashboard" })).toBeFocused();
   expect(pageErrors).toEqual([]);
 });
 
@@ -362,7 +526,7 @@ test("keeps a complete manual fallback when the host resolves expansion as inlin
   await expect(page.getByRole("heading", { name: "Executive brief" })).toBeVisible();
   await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "inline");
   await expect(page.locator(".dyna-card")).toHaveCount(4);
-  const expand = page.getByRole("button", { name: "Expand dashboard" });
+  const expand = page.getByRole("button", { name: "Open full dashboard" });
   await expand.click();
   await expect(page.locator(".dyna-toast")).toContainText(
     "complete current view remains available",

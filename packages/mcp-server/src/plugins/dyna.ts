@@ -21,7 +21,7 @@ import { z } from "zod";
 import type { FlowZoneAppTool, FlowZonePlugin } from "../plugin.js";
 
 export const DYNA_PLUGIN_ID = "dyna";
-export const DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v3.html";
+export const DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v4.html";
 
 const DashboardIdSchema = z.object({ dashboardId: z.uuid() }).strict();
 const ViewTokenSchema = z
@@ -732,7 +732,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
             runId: IdentifierSchema,
             sourceCompletedAt: z.iso.datetime({ offset: true }),
             mode: z.enum(["replace", "upsert"]).default("replace"),
-            status: z.enum(["succeeded", "failed"]).default("succeeded"),
+            status: z.enum(["succeeded", "partial", "failed"]).default("succeeded"),
             failureMessage: z.string().trim().min(1).max(500).optional(),
             items: z.array(DynaPublishedItemSchema).max(200),
           })
@@ -742,7 +742,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
             accepted: z.number().int().nonnegative().max(200),
             deduplicated: z.boolean(),
             superseded: z.boolean(),
-            status: z.enum(["succeeded", "failed"]),
+            status: z.enum(["succeeded", "partial", "failed"]),
           })
           .strict(),
         risk: { readOnly: false, destructive: false, openWorld: false, idempotent: true },
@@ -756,7 +756,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
                 runId: IdentifierSchema,
                 sourceCompletedAt: z.iso.datetime({ offset: true }),
                 mode: z.enum(["replace", "upsert"]).default("replace"),
-                status: z.enum(["succeeded", "failed"]).default("succeeded"),
+                status: z.enum(["succeeded", "partial", "failed"]).default("succeeded"),
                 failureMessage: z.string().trim().min(1).max(500).optional(),
                 items: z.array(DynaPublishedItemSchema).max(200),
               })

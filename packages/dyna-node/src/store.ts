@@ -133,14 +133,14 @@ export interface DynaPublishResult {
   readonly accepted: number;
   readonly deduplicated: boolean;
   readonly superseded: boolean;
-  readonly status: "succeeded" | "failed";
+  readonly status: "succeeded" | "partial" | "failed";
 }
 
 export interface DynaPublishOptions {
   readonly runId: string;
   readonly sourceCompletedAt: string;
   readonly mode: "replace" | "upsert";
-  readonly status: "succeeded" | "failed";
+  readonly status: "succeeded" | "partial" | "failed";
   readonly failureMessage?: string;
 }
 
@@ -905,6 +905,14 @@ export class DynaStore {
     if (options.status === "succeeded" && options.failureMessage) {
       throw new Error("A successful Dyna run cannot include an error.");
     }
+    if (
+      options.status === "partial" &&
+      (options.mode !== "upsert" || items.length === 0 || !options.failureMessage)
+    ) {
+      throw new Error(
+        "A partial Dyna run requires upsert mode, at least one item, and a bounded error.",
+      );
+    }
     const parsedItems = items.map(normalizedPublishedItem);
     const sourceCompletion = normalizeTimestamp(options.sourceCompletedAt, true);
     const requestHash = sha256(
@@ -945,7 +953,7 @@ export class DynaStore {
           accepted: requiredNumber(previous, "item_count"),
           deduplicated: true,
           superseded: requiredNumber(previous, "promoted") !== 1,
-          status: requiredString(previous, "status") as "succeeded" | "failed",
+          status: requiredString(previous, "status") as "succeeded" | "partial" | "failed",
         };
       }
 
@@ -993,7 +1001,7 @@ export class DynaStore {
             .all(publisherId) as SqlRow[]
         ).map((row) => requiredString(row, "dashboard_id")),
       );
-      if (options.status === "succeeded") {
+      if (options.status !== "failed") {
         if (options.mode === "replace") {
           this.#database
             .prepare("UPDATE publisher_items SET active = 0 WHERE publisher_id = ?")
@@ -1574,7 +1582,12 @@ export class DynaStore {
       const schedules = this.listPublishers(dashboardId);
       const activeSchedules = schedules.filter((schedule) => schedule.scheduleState === "active");
       const scheduleFreshness = activeSchedules.map((schedule) => {
-        if (schedule.lastRunStatus === "failed" || !schedule.lastRunAt) return "stale" as const;
+        if (
+          schedule.lastRunStatus === "failed" ||
+          schedule.lastRunStatus === "partial" ||
+          !schedule.lastRunAt
+        )
+          return "stale" as const;
         const age = Math.max(0, this.#nowMs() - Date.parse(schedule.lastRunAt));
         const staleAfter = schedule.staleAfterMinutes * 60_000;
         return age > staleAfter
@@ -1652,7 +1665,7 @@ export class DynaStore {
     if (requiredString(item, "fingerprint") !== values.expectedFingerprint) {
       throw new Error("The Dyna item changed; refresh before taking action.");
     }
-    if (kind !== "create_codex_task") {
+    if (kind === "open_codex_task" || kind === "refresh_codex_status") {
       if (!values.taskId || !values.taskHostId) {
         throw new Error("This Dyna action requires a linked Codex task and host.");
       }
@@ -1666,7 +1679,7 @@ export class DynaStore {
       );
       if (!linked) throw new Error("The Codex task is not linked to this Dyna item.");
     } else if (values.taskId || values.taskHostId) {
-      throw new Error("A new Codex task action cannot target an existing task.");
+      throw new Error("This Dyna action cannot target an existing Codex task.");
     }
 
     if (kind === "create_codex_task") {
@@ -1989,8 +2002,8 @@ export class DynaStore {
         if ((kind === "create_codex_task" || kind === "refresh_codex_status") && !result.task) {
           throw new Error("The successful Dyna action requires controller-reported task metadata.");
         }
-        if (kind === "open_codex_task" && result.task) {
-          throw new Error("Opening a Codex task cannot attach task metadata.");
+        if ((kind === "open_codex_task" || kind === "open_source") && result.task) {
+          throw new Error("Opening a Dyna target cannot attach task metadata.");
         }
         if (
           kind === "refresh_codex_status" &&
@@ -2376,6 +2389,7 @@ export class DynaStore {
         id,
         fingerprint: item.fingerprint,
         source: item.sourceRef.source,
+        sourceRef: item.sourceRef,
         sourceLabel: dynaSourceLabel(item.sourceRef),
         title: item.title,
         summary: item.summary,

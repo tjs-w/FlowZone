@@ -43,7 +43,7 @@
     "test:e2e:firefox": "playwright test --project=firefox",
     "validate:skill": "bun scripts/validate-package.ts skill",
     "validate:plugin": "bun scripts/validate-package.ts plugin",
-    "security:audit": "bun audit --audit-level=high",
+    "security:audit": "node scripts/security-audit.mjs",
     "check": "bun run format:check && bun run lint && bun run typecheck && bun run test:coverage && bun run build:check && bun run validate:skill && bun run validate:plugin",
     "verify": "bun run check && bun run test:e2e"
   },

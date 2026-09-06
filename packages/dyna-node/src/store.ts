@@ -49,6 +49,8 @@ const ACTION_TTL_MS = 10 * 60 * 1_000;
 const CLAIM_LEASE_MS = 5 * 60 * 1_000;
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1_000;
 const DYNA_SCHEMA_VERSION = 1;
+const MAX_DASHBOARDS = 100;
+const MAX_PUBLISHERS = 100;
 const MAX_SCHEDULES_PER_DASHBOARD = 50;
 const MAX_TASK_BINDINGS_PER_ITEM = 8;
 const MAX_PUBLIC_FAILURE_LENGTH = 500;
@@ -164,6 +166,12 @@ function token(): string {
 
 function sha256(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function scopedUuid(scope: readonly string[]): string {
+  const digest = sha256(JSON.stringify(["dyna/scoped-uuid-v1", ...scope]));
+  const variant = ((Number.parseInt(digest[16] ?? "0", 16) & 0x3) | 0x8).toString(16);
+  return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(13, 16)}-${variant}${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
 }
 
 function tokenHash(value: string): Buffer {
@@ -883,6 +891,22 @@ export class DynaStore {
       .run(randomUUID(), eventKind, entityId, occurredAt);
   }
 
+  #assertDashboardCapacity(): void {
+    const row = this.#one(this.#database.prepare("SELECT COUNT(*) AS total FROM dashboards"));
+    if (!row) throw new Error("Dyna could not count dashboards.");
+    if (requiredNumber(row, "total") >= MAX_DASHBOARDS) {
+      throw new Error("Dyna cannot create more than 100 dashboards.");
+    }
+  }
+
+  #assertPublisherCapacity(): void {
+    const row = this.#one(this.#database.prepare("SELECT COUNT(*) AS total FROM publishers"));
+    if (!row) throw new Error("Dyna could not count publishers.");
+    if (requiredNumber(row, "total") >= MAX_PUBLISHERS) {
+      throw new Error("Dyna cannot create more than 100 publishers.");
+    }
+  }
+
   createDashboard(name: string, description: string): DynaDashboard {
     const instant = this.#now();
     const dashboard = DynaDashboardSchema.parse({
@@ -893,12 +917,15 @@ export class DynaStore {
       createdAt: instant,
       updatedAt: instant,
     });
-    this.#database
-      .prepare(
-        "INSERT INTO dashboards (id, name, description, archived, revision, created_at, updated_at) VALUES (?, ?, ?, 0, 0, ?, ?)",
-      )
-      .run(dashboard.id, dashboard.name, dashboard.description, instant, instant);
-    return dashboard;
+    return this.#transaction(() => {
+      this.#assertDashboardCapacity();
+      this.#database
+        .prepare(
+          "INSERT INTO dashboards (id, name, description, archived, revision, created_at, updated_at) VALUES (?, ?, ?, 0, 0, ?, ?)",
+        )
+        .run(dashboard.id, dashboard.name, dashboard.description, instant, instant);
+      return dashboard;
+    });
   }
 
   updateDashboard(
@@ -986,26 +1013,29 @@ export class DynaStore {
       lastRunStatus: "never",
       createdAt: this.#now(),
     });
-    this.#database
-      .prepare(
-        `
-        INSERT INTO publishers (
-          id, name, token_hash, schedule_id, schedule_title, schedule_state,
-          stale_after_minutes, last_run_status, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'never', ?)
-      `,
-      )
-      .run(
-        publisher.id,
-        publisher.name,
-        tokenHash(secret),
-        publisher.scheduleId ?? null,
-        publisher.scheduleTitle ?? null,
-        publisher.scheduleState,
-        publisher.staleAfterMinutes,
-        publisher.createdAt,
-      );
-    return { publisher, secret };
+    return this.#transaction(() => {
+      this.#assertPublisherCapacity();
+      this.#database
+        .prepare(
+          `
+          INSERT INTO publishers (
+            id, name, token_hash, schedule_id, schedule_title, schedule_state,
+            stale_after_minutes, last_run_status, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'never', ?)
+        `,
+        )
+        .run(
+          publisher.id,
+          publisher.name,
+          tokenHash(secret),
+          publisher.scheduleId ?? null,
+          publisher.scheduleTitle ?? null,
+          publisher.scheduleState,
+          publisher.staleAfterMinutes,
+          publisher.createdAt,
+        );
+      return { publisher, secret };
+    });
   }
 
   rotatePublisherSecret(publisherId: string): string {
@@ -1517,16 +1547,48 @@ export class DynaStore {
   addAnnotation(
     viewToken: string,
     itemId: string,
+    clientRequestId: string,
     body: string,
   ): z.infer<typeof DynaAnnotationSchema> {
-    this.authorizeView(viewToken, itemId);
-    const annotation = DynaAnnotationSchema.parse({
-      id: randomUUID(),
+    const instant = this.#now();
+    const input = DynaAnnotationSchema.parse({
+      id: clientRequestId,
       itemId,
       body,
-      createdAt: this.#now(),
+      createdAt: instant,
     });
+    const canonicalRequestId = input.id.toLowerCase();
+    const requestHash = sha256(JSON.stringify({ body: input.body }));
     return this.#transaction(() => {
+      const dashboardId = this.authorizeView(viewToken, itemId);
+      const annotationId = scopedUuid([
+        "annotation-request",
+        dashboardId,
+        itemId,
+        canonicalRequestId,
+      ]);
+      const existing = this.#one(
+        this.#database.prepare("SELECT * FROM annotations WHERE id = ?"),
+        annotationId,
+      );
+      if (existing) {
+        const existingHash = sha256(JSON.stringify({ body: requiredString(existing, "body") }));
+        if (requiredString(existing, "item_id") !== itemId || existingHash !== requestHash) {
+          throw new Error("Dyna rejected an annotation request ID reused with different content.");
+        }
+        return DynaAnnotationSchema.parse({
+          id: annotationId,
+          itemId,
+          body: requiredString(existing, "body"),
+          createdAt: requiredString(existing, "created_at"),
+        });
+      }
+      const annotation = DynaAnnotationSchema.parse({
+        id: annotationId,
+        itemId,
+        body: input.body,
+        createdAt: instant,
+      });
       this.#database
         .prepare("INSERT INTO annotations (id, item_id, body, created_at) VALUES (?, ?, ?, ?)")
         .run(annotation.id, annotation.itemId, annotation.body, annotation.createdAt);
@@ -1562,6 +1624,7 @@ export class DynaStore {
         dashboardId,
       );
       if (!mapping) {
+        this.#assertPublisherCapacity();
         const publisherId = randomUUID();
         this.#database
           .prepare(

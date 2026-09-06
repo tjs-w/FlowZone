@@ -24,10 +24,41 @@ export default defineConfig({
     timeout: 30_000,
   },
   projects: [
-    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
-    { name: "webkit", use: { ...devices["Desktop Safari"] } },
-    { name: "mobile-chromium", use: { ...devices["Pixel 7"] } },
-    { name: "mobile-webkit", testMatch: /dyna\.spec\.ts/, use: { ...devices["iPhone 13"] } },
-    { name: "firefox", use: { ...devices["Desktop Firefox"] } },
+    {
+      name: "chromium",
+      use: {
+        ...devices["Desktop Chrome"],
+        extraHTTPHeaders: { "x-flowzone-e2e-project": "chromium" },
+      },
+    },
+    {
+      name: "webkit",
+      use: {
+        ...devices["Desktop Safari"],
+        extraHTTPHeaders: { "x-flowzone-e2e-project": "webkit" },
+      },
+    },
+    {
+      name: "mobile-chromium",
+      use: {
+        ...devices["Pixel 7"],
+        extraHTTPHeaders: { "x-flowzone-e2e-project": "mobile-chromium" },
+      },
+    },
+    {
+      name: "mobile-webkit",
+      testMatch: /dyna\.spec\.ts/,
+      use: {
+        ...devices["iPhone 13"],
+        extraHTTPHeaders: { "x-flowzone-e2e-project": "mobile-webkit" },
+      },
+    },
+    {
+      name: "firefox",
+      use: {
+        ...devices["Desktop Firefox"],
+        extraHTTPHeaders: { "x-flowzone-e2e-project": "firefox" },
+      },
+    },
   ],
 });

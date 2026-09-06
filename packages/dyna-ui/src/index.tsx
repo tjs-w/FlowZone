@@ -78,6 +78,7 @@ interface DynaUiController {
   readonly canExpand: boolean;
   readonly condenseInline: boolean;
   readonly initialExpansionPending: boolean;
+  readonly inlineCardLimit: 4 | 5;
   readonly locale: string;
   readonly leadershipOnly: boolean;
   readonly priorityFilter: PriorityFilter;
@@ -1409,8 +1410,11 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
   const queueCards = cards.filter((card) => card.workflowState !== "completed");
   const selectedCard = cards.find((card) => card.id === controller.selectedItemId);
   const inlineCards = selectedCard
-    ? [selectedCard, ...queueCards.filter((card) => card.id !== selectedCard.id)].slice(0, 4)
-    : queueCards.slice(0, 4);
+    ? [selectedCard, ...queueCards.filter((card) => card.id !== selectedCard.id)].slice(
+        0,
+        controller.inlineCardLimit,
+      )
+    : queueCards.slice(0, controller.inlineCardLimit);
   const unhealthySchedules = snapshot.schedules.filter(
     (schedule) =>
       schedule.lastRunStatus === "failed" ||
@@ -1438,8 +1442,10 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
         {inlineCards.map((card) => (
           <CardView key={card.id} card={card} />
         ))}
-        {queueCards.length > 4 ? (
-          <p className="dyna-inline-more">{queueCards.length - 4} more in the full dashboard</p>
+        {queueCards.length > controller.inlineCardLimit ? (
+          <p className="dyna-inline-more">
+            {queueCards.length - controller.inlineCardLimit} more in the full dashboard
+          </p>
         ) : null}
       </Section>
     ) : (
@@ -1573,6 +1579,9 @@ function DynaApp({ app }: { readonly app: App }) {
   const [operationError, setOperationError] = useState<string>();
   const [displayMode, setDisplayMode] = useState<"inline" | "fullscreen" | "pip">("inline");
   const [wideLayout, setWideLayout] = useState(() => window.innerWidth >= 980);
+  const [desktopInlineLayout, setDesktopInlineLayout] = useState(
+    () => window.innerWidth > 560 && window.matchMedia("(pointer: fine)").matches,
+  );
   const [canExpand, setCanExpand] = useState(false);
   const [initialExpansionPending, setInitialExpansionPending] = useState(true);
   const [locale, setLocale] = useState(navigator.language);
@@ -1583,6 +1592,7 @@ function DynaApp({ app }: { readonly app: App }) {
   const selectedItemRef = useRef<string | undefined>(undefined);
   const pipelineChoiceExplicit = useRef(false);
   const detailScrollPosition = useRef(0);
+  const annotationRequestId = useRef(crypto.randomUUID());
   const todoRequestId = useRef(crypto.randomUUID());
   const createdTodoFocus = useRef<string | undefined>(undefined);
   const hostContext = useRef<DynaHostContext>({});
@@ -1740,12 +1750,16 @@ function DynaApp({ app }: { readonly app: App }) {
   }, [refresh]);
 
   useEffect(() => {
-    const onResize = () => {
+    const finePointer = window.matchMedia("(pointer: fine)");
+    const onLayoutChange = () => {
       setWideLayout(window.innerWidth >= 980);
+      setDesktopInlineLayout(window.innerWidth > 560 && finePointer.matches);
     };
-    window.addEventListener("resize", onResize);
+    window.addEventListener("resize", onLayoutChange);
+    finePointer.addEventListener("change", onLayoutChange);
     return () => {
-      window.removeEventListener("resize", onResize);
+      window.removeEventListener("resize", onLayoutChange);
+      finePointer.removeEventListener("change", onLayoutChange);
     };
   }, []);
 
@@ -1863,6 +1877,7 @@ function DynaApp({ app }: { readonly app: App }) {
   const closeAnnotation = useCallback(() => {
     setAnnotation("");
     setAnnotationItem(undefined);
+    annotationRequestId.current = crypto.randomUUID();
     window.setTimeout(() => {
       annotationTrigger.current?.focus();
     }, 0);
@@ -1999,11 +2014,12 @@ function DynaApp({ app }: { readonly app: App }) {
       busy,
       blocked: Boolean(connectionError),
       displayMode,
-      inspectorPresentation: displayMode === "fullscreen" && wideLayout ? "split" : "route",
+      inspectorPresentation: wideLayout ? "split" : "route",
       modalOpen: annotationItem !== undefined || todoOpen,
       canExpand,
       condenseInline: displayMode === "inline" && (canExpand || initialExpansionPending),
       initialExpansionPending,
+      inlineCardLimit: desktopInlineLayout ? 5 : 4,
       locale,
       leadershipOnly,
       priorityFilter,
@@ -2026,6 +2042,7 @@ function DynaApp({ app }: { readonly app: App }) {
       openDetails,
       annotate(itemId, trigger) {
         annotationTrigger.current = trigger;
+        annotationRequestId.current = crypto.randomUUID();
         setAnnotationItem(itemId);
       },
       startTodo(trigger, title = "", summary = "", followUpOfItemId) {
@@ -2227,6 +2244,7 @@ function DynaApp({ app }: { readonly app: App }) {
       canExpand,
       connectionError,
       displayMode,
+      desktopInlineLayout,
       clearFilters,
       initialExpansionPending,
       leadershipOnly,
@@ -2263,9 +2281,15 @@ function DynaApp({ app }: { readonly app: App }) {
     try {
       const result = await app.callServerTool({
         name: "dyna_add_annotation",
-        arguments: { viewToken: active.viewToken, itemId: annotationItem, body: annotation.trim() },
+        arguments: {
+          viewToken: active.viewToken,
+          itemId: annotationItem,
+          clientRequestId: annotationRequestId.current,
+          body: annotation.trim(),
+        },
       });
       if (toolResultFailed(result)) throw new Error("Annotation save failed.");
+      annotationRequestId.current = crypto.randomUUID();
       setAnnotation("");
       annotationFocusAfterSave.current = annotationItem;
       setAnnotationItem(undefined);
@@ -2335,7 +2359,7 @@ function DynaApp({ app }: { readonly app: App }) {
       </main>
     );
   }
-  const routeDetailsOpen = Boolean(selectedItemId) && (displayMode !== "fullscreen" || !wideLayout);
+  const routeDetailsOpen = Boolean(selectedItemId) && !wideLayout;
   const dashboardUnavailable = annotationItem !== undefined || todoOpen || routeDetailsOpen;
   return (
     <ControllerContext.Provider value={controller}>

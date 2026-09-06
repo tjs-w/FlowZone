@@ -31,6 +31,14 @@ const ViewTokenSchema = z
     query: z.string().trim().max(500).optional(),
   })
   .strict();
+const AddAnnotationInputSchema = z
+  .object({
+    viewToken: z.string().min(32).max(128),
+    itemId: z.uuid(),
+    clientRequestId: z.uuid(),
+    body: z.string().trim().min(1).max(1_000),
+  })
+  .strict();
 const EmptyResultSchema = z.object({ ok: z.literal(true) }).strict();
 const DashboardListSchema = z
   .object({ dashboards: z.array(DynaDashboardSchema).max(100) })
@@ -139,33 +147,21 @@ function appTools(service: DynaService): readonly FlowZoneAppTool[] {
     {
       name: "dyna_add_annotation",
       title: "Add Dyna annotation",
-      description: "Add a bounded note to an item in the capability-bound Dyna view.",
-      inputSchema: z
-        .object({
-          viewToken: z.string().min(32).max(128),
-          itemId: z.uuid(),
-          body: z.string().trim().min(1).max(1_000),
-        })
-        .strict(),
+      description: "Retry-safely add a bounded note to an item in the capability-bound Dyna view.",
+      inputSchema: AddAnnotationInputSchema,
       outputSchema: z.object({ annotationId: z.uuid() }).strict(),
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
         openWorldHint: false,
-        idempotentHint: false,
+        idempotentHint: true,
       },
       handler(input) {
-        const parsed = z
-          .object({
-            viewToken: z.string().min(32).max(128),
-            itemId: z.uuid(),
-            body: z.string().trim().min(1).max(1_000),
-          })
-          .strict()
-          .parse(input);
+        const parsed = AddAnnotationInputSchema.parse(input);
         const annotation = service.store.addAnnotation(
           parsed.viewToken,
           parsed.itemId,
+          parsed.clientRequestId,
           parsed.body,
         );
         return { structuredContent: { annotationId: annotation.id }, content: [] };

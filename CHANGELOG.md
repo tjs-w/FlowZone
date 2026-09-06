@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Revalidated Dyna's component stack against current json-render and Apps SDK UI releases: retained host-themed Apps SDK UI atoms, native bounded controls, product-specific ledger/rail/inspector structures, and server-only json-render catalog validation after measuring compound browser alternatives against the 750 KiB resource cap.
+- Expanded the compact inline brief to five complete desktop rows while retaining four on touch/mobile, and opened details in a non-modal side inspector on every wide host—including inline-only Codex surfaces—without losing filters, selection, or scroll position.
+- Made annotation writes retry-safe and capability-scoped with a required client request ID and transactional membership reauthorization; added transactional 100-item dashboard and publisher inventory caps plus adversarial race, rollback, and cap tests.
+- Partitioned the browser harness by Playwright project so the full cross-engine matrix uses isolated MCP processes and databases without weakening production inventory limits.
+- Made the dependency audit self-resolve the repository-pinned Bun 1.4 runtime through the public npm registry when a developer's installed Bun is older than the lockfile.
 - Kept failed Dyna mutations visible through background snapshot refreshes, preserved rejected note and to-do drafts, and visibly disabled all server-backed controls while dashboard connectivity is unavailable.
 - Keep Dyna in the host-selected MCP Apps presentation with an explicit expansion action, while preserving complete inline and accessible fallbacks for Remote; exact left/right docking remains host-owned.
 - Incorporated cross-functional review feedback with bounded model-visible item search, completed-work queue semantics, full-group filtered reordering, conservative task-state precedence, versioned enrichment replacement, stale-overlay safety, publisher/binding/dashboard lifecycle controls, legacy outcome migration, and explicit trusted-local-preview credential limits.

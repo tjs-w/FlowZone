@@ -1,6 +1,6 @@
 # Dyna cross-functional review
 
-Review date: 2026-09-04
+Review date: 2026-09-06
 
 This record keeps the material findings from the frontend, Codex app, product, and data-integrity reviews. Cosmetic preferences and speculative framework work are intentionally excluded.
 
@@ -14,16 +14,23 @@ This record keeps the material findings from the frontend, Codex app, product, a
 | Data integrity   | Stale enrichment could still overlay direct item context or crash when nullable fields were read; concurrent replacements could lose data; legacy completed tasks could lack the newly required one-line outcome. | Overlay fields apply only when their source fingerprint is current, while stale provenance remains visible. Enrichment has a compare-and-increment version. Migration backfills a precise legacy placeholder and completed work is excluded from focus counts.              |
 | Data integrity   | Publication validated a publisher credential before its write transaction, allowing a concurrent revoke or rotation to commit between validation and publication.                                                 | Publication now starts an immediate write transaction before credential validation. A deterministic two-connection test blocks publication behind uncommitted revoke and rotation writes and verifies that both publications fail after commit.                             |
 | Internal browser | A successful background snapshot could erase a failed note, to-do, ordering, or Codex-action warning; disconnected mutations were internally rejected but still looked enabled.                                   | Operation failures now remain visible independently of connection refreshes, rejected drafts remain editable, and every server-backed mutation is visibly disabled while snapshot connectivity is unavailable.                                                              |
+| UX completion    | The inline brief stopped at four rows on desktop, and a wide inline-only host opened details as a full route instead of a side inspector.                                                                         | Fine-pointer desktop surfaces now show five complete 83-pixel rows while touch/mobile retains four. Every surface at least 980 pixels wide uses a non-modal 420-pixel queue plus 520-pixel inspector; narrow surfaces retain the focused route.                             |
+| Component stack  | More ready-made Apps SDK UI or json-render browser components might improve consistency, but could duplicate semantics and exceed the mobile resource budget.                                                     | Keep Apps SDK UI for host-themed atoms, native controls for bounded filters/disclosures, Dyna-owned ledger/rail/inspector structures, and json-render as a server-side catalog gate. Measured compound alternatives exceed the 750 KiB resource budget or add no benefit.   |
+| Data integrity   | Annotation retries could duplicate notes, and unbounded dashboard/publisher creation could exceed the fixed inventory response contracts.                                                                         | Annotation requests now require a stable client UUID, reauthorize active membership inside an immediate transaction, return the original note on exact retry, and reject conflicting reuse. Dashboard and publisher creation are transactionally capped at 100 each.        |
 
 ## Verification
 
-- Repository checks: formatting, lint, TypeScript, 224 tests with coverage gates, clean-build parity, skill validation, and plugin validation.
-- UI matrix: 177 passing Chromium, WebKit, mobile Chromium, and mobile WebKit journeys; three platform-inapplicable cases skipped.
-- Firefox: 53 passing journeys; one platform-inapplicable case skipped.
-- Codex internal browser: exercised light and dark queues, cross-source prioritization, search, reordering, to-do and annotation success/failure, opaque Codex actions, pipeline task states and follow-ups, expansion success/fallbacks, disconnect gating, and 320-pixel layouts with long unbroken content.
+- Repository checks: formatting, lint, TypeScript, 235 tests with coverage gates, clean-build parity, skill validation, and plugin validation.
+- Primary UI matrix: 217 passing Chromium, WebKit, mobile Chromium, and mobile WebKit journeys; three platform-inapplicable cases skipped.
+- Firefox: 63 passing journeys; one platform-inapplicable case skipped.
+- Dyna-specific matrix: 140 passing journeys across desktop Chromium, WebKit, Firefox, mobile Chromium, and mobile WebKit. This includes themes, cross-source prioritization, search, filters, reordering, to-do and annotation retry paths, opaque Codex actions, pipeline task states and follow-ups, expansion fallbacks, disconnect gating, wide inline inspection, and 320-pixel layouts.
+- Visual geometry: five complete 83-pixel rows at 1280×900, four complete rows at 390×844, and a non-overlapping 420-pixel queue plus 520-pixel inspector at wide inline size.
+- Dependency audit: no high-or-greater vulnerabilities in 587 packages using the repository-pinned Bun 1.4 runtime.
 
 ## Approval loop
 
-- Frontend and product: **APPROVE**
+- Frontend, product, and component-stack review: **APPROVE**
 - Codex app and MCP Apps: **APPROVE**
-- Data integrity and security: **APPROVE** after the transactional credential-validation follow-up
+- Data integrity and security: **APPROVE** for the implemented local-preview boundary after the transactional and retry-safety follow-ups
+
+Physical iOS/Android Remote acceptance, exact Codex host docking, and protected scheduled-publisher credentials remain external release gates rather than browser-test claims.

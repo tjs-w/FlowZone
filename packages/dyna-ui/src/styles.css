@@ -1319,17 +1319,21 @@ select {
 }
 
 @media (min-width: 980px) {
-  .dyna[data-display-mode="fullscreen"][data-has-selection="true"] > .dyna-header,
-  .dyna[data-display-mode="fullscreen"][data-has-selection="true"] > .dyna-commandbar,
-  .dyna[data-display-mode="fullscreen"][data-has-selection="true"] > .dyna-workspace {
+  .dyna[data-has-selection="true"] {
+    width: min(100%, 1000px);
+  }
+
+  .dyna[data-has-selection="true"] > .dyna-header,
+  .dyna[data-has-selection="true"] > .dyna-commandbar,
+  .dyna[data-has-selection="true"] > .dyna-workspace {
     width: 420px;
   }
 
-  .dyna[data-display-mode="fullscreen"][data-has-selection="true"] > .dyna-commandbar {
+  .dyna[data-has-selection="true"] > .dyna-commandbar {
     grid-template-columns: auto minmax(0, 1fr) auto auto;
   }
 
-  .dyna[data-display-mode="fullscreen"][data-has-selection="true"] .dyna-add-label {
+  .dyna[data-has-selection="true"] .dyna-add-label {
     display: none;
   }
 

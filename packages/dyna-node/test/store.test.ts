@@ -111,4 +111,30 @@ describe("DynaStore lifecycle", () => {
       secretsRedacted: true,
     });
   });
+
+  test("makes annotation retries scoped and atomic with active dashboard membership", () => {
+    const fixture = resolve(import.meta.dir, "annotation-idempotency-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      exactRetry: true,
+      conflictRejected: true,
+      scoped: true,
+      membershipRace: true,
+    });
+  });
+
+  test("caps dashboard and publisher inventory at creation boundaries", () => {
+    const fixture = resolve(import.meta.dir, "inventory-cap-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      dashboardMaximum: 100,
+      archivedDashboardCounted: true,
+      publisherMaximum: 100,
+      revokedPublisherCounted: true,
+      manualPublisherCounted: true,
+      failedTodoRolledBack: true,
+    });
+  });
 });

@@ -10,8 +10,8 @@ Installing FlowZone installs the shared `flowzone` MCP server and both qualified
 
 - Multiple persistent dashboards and native Codex schedule identities with many-to-many bindings, cadence-aware freshness, ordered per-run promotion, retry deduplication, and full-snapshot retirement.
 - Strict source records compiled and catalog-validated server-side; the snapshot-only UI wire never accepts arbitrary UI or code from scheduled jobs.
-- A compact 82-pixel attention ledger and four-row inline executive brief, built from Apps SDK UI controls, semantic native filters, and small product-specific queue, pipeline, and inspector structures.
-- Host-selected MCP Apps presentation with an explicit fullscreen expansion action, host-owned docking, and a usable four-row inline fallback.
+- A compact 82-pixel attention ledger with five useful inline rows on desktop and four on touch/mobile, built from Apps SDK UI controls, semantic native filters, and small product-specific queue, pipeline, and inspector structures.
+- Host-selected MCP Apps presentation with an explicit fullscreen expansion action, host-owned docking, and a usable inline fallback with wide-screen detail inspection.
 - Re-rendering after scheduled updates, durable conversation-driven enrichment overlays, annotations, and one shared item set projected as a priority queue or Codex progress pipeline with one-line outcomes and follow-ups.
 - Revision-bound, claim-revalidated, per-attempt idempotent action requests with expiring leases for native Codex task creation, existing-task attachment, navigation, and status inspection.
 - A dedicated `ui://flowzone/dyna/v5.html` resource below a 750 KiB payload budget with a closed network CSP and no clipboard permission.
@@ -147,7 +147,7 @@ bun install --frozen-lockfile
 bun run verify
 ```
 
-Development and CI use the pinned Bun 1.4 toolchain. Installed plugins do not require Bun: the repository checks in a readable Node-compatible `server.cjs` plus minified browser bundles. Rebuild after changing TypeScript source:
+Development and CI use the pinned Bun 1.4 toolchain. `bun run security:audit` resolves that exact audit runtime through the public npm registry, so an older Bun earlier on a developer's `PATH` cannot misread the v1.4 lockfile. Installed plugins do not require Bun: the repository checks in a readable Node-compatible `server.cjs` plus minified browser bundles. Rebuild after changing TypeScript source:
 
 ```sh
 bun run build

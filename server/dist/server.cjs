@@ -54780,6 +54780,8 @@ var ACTION_TTL_MS = 10 * 60 * 1e3;
 var CLAIM_LEASE_MS = 5 * 60 * 1e3;
 var MAX_CLOCK_SKEW_MS = 5 * 60 * 1e3;
 var DYNA_SCHEMA_VERSION = 1;
+var MAX_DASHBOARDS = 100;
+var MAX_PUBLISHERS = 100;
 var MAX_SCHEDULES_PER_DASHBOARD = 50;
 var MAX_TASK_BINDINGS_PER_ITEM = 8;
 var MAX_PUBLIC_FAILURE_LENGTH = 500;
@@ -54876,6 +54878,11 @@ function token() {
 }
 function sha256(value) {
   return (0, import_node_crypto5.createHash)("sha256").update(value, "utf8").digest("hex");
+}
+function scopedUuid(scope) {
+  const digest = sha256(JSON.stringify(["dyna/scoped-uuid-v1", ...scope]));
+  const variant = (Number.parseInt(digest[16] ?? "0", 16) & 3 | 8).toString(16);
+  return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(13, 16)}-${variant}${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
 }
 function tokenHash(value) {
   return (0, import_node_crypto5.createHash)("sha256").update(value, "utf8").digest();
@@ -55488,6 +55495,20 @@ var DynaStore = class {
       "INSERT INTO audit_events (id, event_kind, entity_id, created_at) VALUES (?, ?, ?, ?)"
     ).run((0, import_node_crypto5.randomUUID)(), eventKind, entityId, occurredAt);
   }
+  #assertDashboardCapacity() {
+    const row = this.#one(this.#database.prepare("SELECT COUNT(*) AS total FROM dashboards"));
+    if (!row) throw new Error("Dyna could not count dashboards.");
+    if (requiredNumber(row, "total") >= MAX_DASHBOARDS) {
+      throw new Error("Dyna cannot create more than 100 dashboards.");
+    }
+  }
+  #assertPublisherCapacity() {
+    const row = this.#one(this.#database.prepare("SELECT COUNT(*) AS total FROM publishers"));
+    if (!row) throw new Error("Dyna could not count publishers.");
+    if (requiredNumber(row, "total") >= MAX_PUBLISHERS) {
+      throw new Error("Dyna cannot create more than 100 publishers.");
+    }
+  }
   createDashboard(name, description) {
     const instant = this.#now();
     const dashboard = DynaDashboardSchema.parse({
@@ -55498,10 +55519,13 @@ var DynaStore = class {
       createdAt: instant,
       updatedAt: instant
     });
-    this.#database.prepare(
-      "INSERT INTO dashboards (id, name, description, archived, revision, created_at, updated_at) VALUES (?, ?, ?, 0, 0, ?, ?)"
-    ).run(dashboard.id, dashboard.name, dashboard.description, instant, instant);
-    return dashboard;
+    return this.#transaction(() => {
+      this.#assertDashboardCapacity();
+      this.#database.prepare(
+        "INSERT INTO dashboards (id, name, description, archived, revision, created_at, updated_at) VALUES (?, ?, ?, 0, 0, ?, ?)"
+      ).run(dashboard.id, dashboard.name, dashboard.description, instant, instant);
+      return dashboard;
+    });
   }
   updateDashboard(id, values) {
     const current = this.getDashboard(id);
@@ -55564,24 +55588,27 @@ var DynaStore = class {
       lastRunStatus: "never",
       createdAt: this.#now()
     });
-    this.#database.prepare(
-      `
-        INSERT INTO publishers (
-          id, name, token_hash, schedule_id, schedule_title, schedule_state,
-          stale_after_minutes, last_run_status, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'never', ?)
-      `
-    ).run(
-      publisher.id,
-      publisher.name,
-      tokenHash(secret),
-      publisher.scheduleId ?? null,
-      publisher.scheduleTitle ?? null,
-      publisher.scheduleState,
-      publisher.staleAfterMinutes,
-      publisher.createdAt
-    );
-    return { publisher, secret };
+    return this.#transaction(() => {
+      this.#assertPublisherCapacity();
+      this.#database.prepare(
+        `
+          INSERT INTO publishers (
+            id, name, token_hash, schedule_id, schedule_title, schedule_state,
+            stale_after_minutes, last_run_status, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'never', ?)
+        `
+      ).run(
+        publisher.id,
+        publisher.name,
+        tokenHash(secret),
+        publisher.scheduleId ?? null,
+        publisher.scheduleTitle ?? null,
+        publisher.scheduleState,
+        publisher.staleAfterMinutes,
+        publisher.createdAt
+      );
+      return { publisher, secret };
+    });
   }
   rotatePublisherSecret(publisherId) {
     const secret = token();
@@ -55992,15 +56019,46 @@ var DynaStore = class {
       };
     });
   }
-  addAnnotation(viewToken, itemId, body) {
-    this.authorizeView(viewToken, itemId);
-    const annotation = DynaAnnotationSchema.parse({
-      id: (0, import_node_crypto5.randomUUID)(),
+  addAnnotation(viewToken, itemId, clientRequestId, body) {
+    const instant = this.#now();
+    const input = DynaAnnotationSchema.parse({
+      id: clientRequestId,
       itemId,
       body,
-      createdAt: this.#now()
+      createdAt: instant
     });
+    const canonicalRequestId = input.id.toLowerCase();
+    const requestHash = sha256(JSON.stringify({ body: input.body }));
     return this.#transaction(() => {
+      const dashboardId = this.authorizeView(viewToken, itemId);
+      const annotationId = scopedUuid([
+        "annotation-request",
+        dashboardId,
+        itemId,
+        canonicalRequestId
+      ]);
+      const existing = this.#one(
+        this.#database.prepare("SELECT * FROM annotations WHERE id = ?"),
+        annotationId
+      );
+      if (existing) {
+        const existingHash = sha256(JSON.stringify({ body: requiredString(existing, "body") }));
+        if (requiredString(existing, "item_id") !== itemId || existingHash !== requestHash) {
+          throw new Error("Dyna rejected an annotation request ID reused with different content.");
+        }
+        return DynaAnnotationSchema.parse({
+          id: annotationId,
+          itemId,
+          body: requiredString(existing, "body"),
+          createdAt: requiredString(existing, "created_at")
+        });
+      }
+      const annotation = DynaAnnotationSchema.parse({
+        id: annotationId,
+        itemId,
+        body: input.body,
+        createdAt: instant
+      });
       this.#database.prepare("INSERT INTO annotations (id, item_id, body, created_at) VALUES (?, ?, ?, ?)").run(annotation.id, annotation.itemId, annotation.body, annotation.createdAt);
       this.#touchDashboardsForItem(itemId);
       this.#audit("annotation.created", itemId);
@@ -56033,6 +56091,7 @@ var DynaStore = class {
         dashboardId
       );
       if (!mapping) {
+        this.#assertPublisherCapacity();
         const publisherId2 = (0, import_node_crypto5.randomUUID)();
         this.#database.prepare(
           `INSERT INTO publishers (
@@ -57182,6 +57241,12 @@ var ViewTokenSchema = external_exports.object({
   currentRevision: external_exports.number().int().nonnegative().optional(),
   query: external_exports.string().trim().max(500).optional()
 }).strict();
+var AddAnnotationInputSchema = external_exports.object({
+  viewToken: external_exports.string().min(32).max(128),
+  itemId: external_exports.uuid(),
+  clientRequestId: external_exports.uuid(),
+  body: external_exports.string().trim().min(1).max(1e3)
+}).strict();
 var EmptyResultSchema2 = external_exports.object({ ok: external_exports.literal(true) }).strict();
 var DashboardListSchema = external_exports.object({ dashboards: external_exports.array(DynaDashboardSchema).max(100) }).strict();
 var IdentifierSchema4 = external_exports.string().trim().min(1).max(256);
@@ -57267,28 +57332,21 @@ function appTools(service) {
     {
       name: "dyna_add_annotation",
       title: "Add Dyna annotation",
-      description: "Add a bounded note to an item in the capability-bound Dyna view.",
-      inputSchema: external_exports.object({
-        viewToken: external_exports.string().min(32).max(128),
-        itemId: external_exports.uuid(),
-        body: external_exports.string().trim().min(1).max(1e3)
-      }).strict(),
+      description: "Retry-safely add a bounded note to an item in the capability-bound Dyna view.",
+      inputSchema: AddAnnotationInputSchema,
       outputSchema: external_exports.object({ annotationId: external_exports.uuid() }).strict(),
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
         openWorldHint: false,
-        idempotentHint: false
+        idempotentHint: true
       },
       handler(input) {
-        const parsed = external_exports.object({
-          viewToken: external_exports.string().min(32).max(128),
-          itemId: external_exports.uuid(),
-          body: external_exports.string().trim().min(1).max(1e3)
-        }).strict().parse(input);
+        const parsed = AddAnnotationInputSchema.parse(input);
         const annotation = service.store.addAnnotation(
           parsed.viewToken,
           parsed.itemId,
+          parsed.clientRequestId,
           parsed.body
         );
         return { structuredContent: { annotationId: annotation.id }, content: [] };

@@ -60,6 +60,56 @@ const transport = new StdioClientTransport({
 const client = new Client({ name: "flowzone-browser-harness", version: "0.1.0" });
 await client.connect(transport);
 
+interface DynaHarnessBackend {
+  readonly client: Client;
+  readonly dataDirectory: string;
+}
+
+const dynaBackendPromises = new Map<string, Promise<DynaHarnessBackend>>();
+
+function dynaPartition(request: IncomingMessage): string {
+  const header = request.headers["x-flowzone-e2e-project"];
+  const value = Array.isArray(header) ? header[0] : header;
+  if (!value) return "default";
+  if (!/^[a-z0-9-]{1,40}$/u.test(value)) {
+    throw new Error("The Dyna harness project partition is invalid.");
+  }
+  return value;
+}
+
+async function dynaBackend(request: IncomingMessage): Promise<DynaHarnessBackend> {
+  const partition = dynaPartition(request);
+  if (partition === "default") return { client, dataDirectory: dynaDataDirectory };
+  const existing = dynaBackendPromises.get(partition);
+  if (existing) return existing;
+  if (dynaBackendPromises.size >= 8) {
+    throw new Error("The Dyna harness cannot create more than eight test partitions.");
+  }
+  const pending = (async () => {
+    const dataDirectory = await mkdtemp(join(tmpdir(), `flowzone-dyna-${partition}-`));
+    const partitionTransport = new StdioClientTransport({
+      command: "node",
+      args: [resolve(pluginRoot, "server/dist/server.cjs")],
+      cwd: pluginRoot,
+      env: { FLOWZONE_DATA_DIR: dataDirectory, PATH: process.env["PATH"] ?? "" },
+      stderr: "pipe",
+    });
+    const partitionClient = new Client({
+      name: `flowzone-browser-harness-${partition}`,
+      version: "0.1.0",
+    });
+    try {
+      await partitionClient.connect(partitionTransport);
+      return { client: partitionClient, dataDirectory };
+    } catch (error: unknown) {
+      await rm(dataDirectory, { force: true, recursive: true });
+      throw error;
+    }
+  })();
+  dynaBackendPromises.set(partition, pending);
+  return pending;
+}
+
 const resource = await client.readResource({ uri: "ui://flowzone/v5.html" });
 const resourceContent = resource.contents[0];
 if (!resourceContent || !("text" in resourceContent)) {
@@ -84,6 +134,7 @@ if (!dynaResourceContent || !("text" in dynaResourceContent)) {
   throw new Error("The Dyna HTML resource was not returned");
 }
 async function createDynaFixture(
+  client: Client,
   itemCount = 1,
   includePipeline = false,
   longContent = false,
@@ -315,6 +366,7 @@ async function createDynaFixture(
         arguments: {
           viewToken,
           itemId,
+          clientRequestId: randomUUID(),
           body: `buriedneedle ${"a".repeat(980)}`,
         },
       });
@@ -325,6 +377,7 @@ async function createDynaFixture(
           arguments: {
             viewToken,
             itemId,
+            clientRequestId: randomUUID(),
             body: `newer-${String(index)}-${"b".repeat(980)}`,
           },
         });
@@ -745,7 +798,9 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     return;
   }
   if (request.method === "GET" && requestUrl.pathname === "/dyna") {
+    const backend = await dynaBackend(request);
     const dynaFixture = await createDynaFixture(
+      backend.client,
       requestUrl.searchParams.get("dense") === "1"
         ? 9
         : requestUrl.searchParams.get("many-items") === "1" ||
@@ -778,7 +833,10 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       const input = ToolCallSchema.parse(
         JSON.parse((await readRequestBody(request)).toString("utf8")),
       );
-      const result = await client.callTool({
+      const requestClient = input.name.startsWith("dyna_")
+        ? (await dynaBackend(request)).client
+        : client;
+      const result = await requestClient.callTool({
         name: input.name,
         arguments: input.arguments ?? {},
       });
@@ -815,8 +873,15 @@ async function shutdown(): Promise<void> {
       else resolveClose();
     });
   });
+  const partitionBackends = await Promise.all(dynaBackendPromises.values());
+  await Promise.all(partitionBackends.map((backend) => backend.client.close()));
   await client.close();
-  await rm(dynaDataDirectory, { force: true, recursive: true });
+  await Promise.all([
+    rm(dynaDataDirectory, { force: true, recursive: true }),
+    ...partitionBackends.map((backend) =>
+      rm(backend.dataDirectory, { force: true, recursive: true }),
+    ),
+  ]);
 }
 
 process.once("SIGINT", () => {

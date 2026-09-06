@@ -240,14 +240,38 @@ describe("Dyna checked-in Node bundle", () => {
         throw new Error("Missing private Dyna payload");
       expect(record(cards[0])["id"]).toBe(itemId);
 
-      await client.callTool({
+      const annotationRequestId = "8300a8a9-e686-4d6f-8c1e-2b30bd9cff47";
+      const annotationArguments = {
+        viewToken,
+        itemId,
+        clientRequestId: annotationRequestId,
+        body: "Create a new Codex task to review this MR.",
+      };
+      const missingAnnotationRequestId = await client.callTool({
         name: "dyna_add_annotation",
         arguments: {
           viewToken,
           itemId,
-          body: "Create a new Codex task to review this MR.",
+          body: "A request without an idempotency key must be rejected.",
         },
       });
+      expect(missingAnnotationRequestId.isError).toBe(true);
+      const addedAnnotation = await client.callTool({
+        name: "dyna_add_annotation",
+        arguments: annotationArguments,
+      });
+      const retriedAnnotation = await client.callTool({
+        name: "dyna_add_annotation",
+        arguments: annotationArguments,
+      });
+      expect(record(retriedAnnotation.structuredContent)["annotationId"]).toBe(
+        record(addedAnnotation.structuredContent)["annotationId"],
+      );
+      const conflictingAnnotation = await client.callTool({
+        name: "dyna_add_annotation",
+        arguments: { ...annotationArguments, body: "Different note content." },
+      });
+      expect(conflictingAnnotation.isError).toBe(true);
 
       await client.callTool({
         name: "flowzone",

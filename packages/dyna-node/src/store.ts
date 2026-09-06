@@ -17,6 +17,7 @@ import {
   DynaActionKindSchema,
   DynaActionRequestSchema,
   DynaAnnotationSchema,
+  DynaCredentialModeSchema,
   DynaDashboardSchema,
   DynaDashboardSnapshotSchema,
   DynaItemContextSchema,
@@ -26,6 +27,7 @@ import {
   DynaPublishedItemSchema,
   DynaPublisherSchema,
   DynaRequiredSourceSlicesSchema,
+  DynaScheduledPublishedItemSchema,
   DynaSourceRefSchema,
   DynaTaskStatusSchema,
   DynaTodoInputSchema,
@@ -33,6 +35,7 @@ import {
   dynaSourceLabel,
   effectiveDynaPriority,
   type DynaCard,
+  type DynaCredentialMode,
   type DynaDashboard,
   type DynaDashboardSnapshot,
   type DynaItemContext,
@@ -52,7 +55,7 @@ const VIEW_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
 const ACTION_TTL_MS = 10 * 60 * 1_000;
 const CLAIM_LEASE_MS = 5 * 60 * 1_000;
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1_000;
-const DYNA_SCHEMA_VERSION = 2;
+const DYNA_SCHEMA_VERSION = 3;
 const MAX_DASHBOARDS = 100;
 const MAX_PUBLISHERS = 100;
 const MAX_SCHEDULES_PER_DASHBOARD = 50;
@@ -316,6 +319,10 @@ function normalizedPublishedItem(item: DynaPublishedItem): DynaPublishedItem {
   });
 }
 
+function normalizedScheduledPublishedItem(item: DynaPublishedItem): DynaPublishedItem {
+  return DynaScheduledPublishedItemSchema.parse(normalizedPublishedItem(item));
+}
+
 function publishSourceSliceKey(source: string, sourceScope: string): string {
   return JSON.stringify([source, sourceScope]);
 }
@@ -340,6 +347,15 @@ function requiredSourceSlicesFromRow(row: SqlRow): readonly DynaRequiredSourceSl
   if (stored === null || stored === undefined) return undefined;
   if (typeof stored !== "string") throw new Error("Dyna stored publisher manifest is invalid.");
   return normalizedRequiredSourceSlices(DynaRequiredSourceSlicesSchema.parse(parseJson(stored)));
+}
+
+function publishSourceSlicesFromRow(row: SqlRow): readonly DynaPublishSourceSlice[] | undefined {
+  const stored = row["latest_source_slices"];
+  if (stored === null || stored === undefined) return undefined;
+  if (typeof stored !== "string") throw new Error("Dyna stored publish source slices are invalid.");
+  return [...DynaPublishSourceSlicesSchema.parse(parseJson(stored))].sort(
+    comparePublishSourceSlices,
+  );
 }
 
 export function defaultDynaDatabasePath(environment: NodeJS.ProcessEnv = process.env): string {
@@ -487,6 +503,8 @@ export class DynaStore {
         id TEXT PRIMARY KEY, name TEXT NOT NULL, token_hash BLOB NOT NULL,
         schedule_id TEXT, schedule_title TEXT, schedule_state TEXT NOT NULL DEFAULT 'unknown',
         stale_after_minutes INTEGER NOT NULL DEFAULT 1440,
+        credential_mode TEXT NOT NULL DEFAULT 'disabled'
+          CHECK (credential_mode IN ('disabled', 'local_preview')),
         required_source_slices TEXT,
         last_run_status TEXT NOT NULL DEFAULT 'never', last_run_at TEXT, last_run_completed_ms INTEGER,
         last_run_error TEXT, revoked_at TEXT,
@@ -523,6 +541,7 @@ export class DynaStore {
         publisher_id TEXT NOT NULL REFERENCES publishers(id) ON DELETE CASCADE,
         run_id TEXT NOT NULL, mode TEXT NOT NULL, status TEXT NOT NULL, item_count INTEGER NOT NULL,
         failure_message TEXT, source_completed_at TEXT, source_completed_ms INTEGER,
+        source_slices TEXT,
         request_hash TEXT, promoted INTEGER NOT NULL DEFAULT 1, completed_at TEXT NOT NULL,
         PRIMARY KEY (publisher_id, run_id)
       );
@@ -580,15 +599,15 @@ export class DynaStore {
   #migrateSchema(): void {
     const versionRow = this.#one(this.#database.prepare("PRAGMA user_version"));
     if (!versionRow) throw new Error("Dyna could not read its database schema version.");
-    const version = requiredNumber(versionRow, "user_version");
-    if (version > DYNA_SCHEMA_VERSION) {
+    const startingVersion = requiredNumber(versionRow, "user_version");
+    if (startingVersion > DYNA_SCHEMA_VERSION) {
       throw new Error(
         "The Dyna database was created by a newer FlowZone version and cannot be opened safely.",
       );
     }
     this.#database.exec("PRAGMA journal_mode = WAL;");
-    if (version === DYNA_SCHEMA_VERSION) return;
-    if (version === 1) {
+    if (startingVersion === DYNA_SCHEMA_VERSION) return;
+    if (startingVersion === 1) {
       this.#transaction(() => {
         const publisherColumns = new Set(
           (this.#database.prepare("PRAGMA table_info(publishers)").all() as SqlRow[]).map((row) =>
@@ -601,9 +620,7 @@ export class DynaStore {
         this.#assertDatabaseIntegrity();
         this.#database.exec("PRAGMA user_version = 2;");
       });
-    } else {
-      if (version !== 0) throw new Error("The Dyna database schema version is unsupported.");
-
+    } else if (startingVersion === 0) {
       this.#transaction(() => {
         this.#createSchema();
         this.#migrateUnversionedSchema();
@@ -661,7 +678,60 @@ export class DynaStore {
         this.#assertDatabaseIntegrity();
         this.#database.exec("PRAGMA user_version = 2;");
       });
+    } else if (startingVersion !== 2) {
+      throw new Error("The Dyna database schema version is unsupported.");
     }
+
+    const versionTwoRow = this.#one(this.#database.prepare("PRAGMA user_version"));
+    if (!versionTwoRow || requiredNumber(versionTwoRow, "user_version") !== 2) {
+      throw new Error("Dyna could not complete its database schema migration.");
+    }
+    this.#transaction(() => {
+      const publisherColumns = new Set(
+        (this.#database.prepare("PRAGMA table_info(publishers)").all() as SqlRow[]).map((row) =>
+          requiredString(row, "name"),
+        ),
+      );
+      if (!publisherColumns.has("credential_mode")) {
+        this.#database.exec(
+          "ALTER TABLE publishers ADD COLUMN credential_mode TEXT NOT NULL DEFAULT 'disabled' CHECK (credential_mode IN ('disabled', 'local_preview'))",
+        );
+      }
+      const publisherRunColumns = new Set(
+        (this.#database.prepare("PRAGMA table_info(publisher_runs)").all() as SqlRow[]).map((row) =>
+          requiredString(row, "name"),
+        ),
+      );
+      if (!publisherRunColumns.has("source_slices")) {
+        this.#database.exec("ALTER TABLE publisher_runs ADD COLUMN source_slices TEXT");
+      }
+      this.#database
+        .prepare(
+          `UPDATE publishers
+           SET credential_mode = 'disabled', schedule_state = 'unknown', token_hash = randomblob(32)
+           WHERE NOT EXISTS (
+             SELECT 1 FROM dashboard_manual_publishers mp WHERE mp.publisher_id = publishers.id
+           )`,
+        )
+        .run();
+      this.#database
+        .prepare(
+          `UPDATE publishers SET credential_mode = 'disabled'
+           WHERE id IN (SELECT publisher_id FROM dashboard_manual_publishers)`,
+        )
+        .run();
+      this.#database
+        .prepare(
+          `UPDATE item_enrichments SET priority = NULL, priority_reason = NULL
+           WHERE priority = 'critical' AND EXISTS (
+             SELECT 1 FROM items WHERE items.id = item_enrichments.item_id
+               AND items.priority <> 'critical'
+           )`,
+        )
+        .run();
+      this.#assertDatabaseIntegrity();
+      this.#database.exec("PRAGMA user_version = 3;");
+    });
     const migratedVersion = this.#one(this.#database.prepare("PRAGMA user_version"));
     if (
       !migratedVersion ||
@@ -678,6 +748,8 @@ export class DynaStore {
         schedule_title: "TEXT",
         schedule_state: "TEXT NOT NULL DEFAULT 'unknown'",
         stale_after_minutes: "INTEGER NOT NULL DEFAULT 1440",
+        credential_mode:
+          "TEXT NOT NULL DEFAULT 'disabled' CHECK (credential_mode IN ('disabled', 'local_preview'))",
         required_source_slices: "TEXT",
         last_run_status: "TEXT NOT NULL DEFAULT 'never'",
         last_run_at: "TEXT",
@@ -688,6 +760,7 @@ export class DynaStore {
       publisher_runs: {
         source_completed_at: "TEXT",
         source_completed_ms: "INTEGER",
+        source_slices: "TEXT",
         request_hash: "TEXT",
         promoted: "INTEGER NOT NULL DEFAULT 1",
       },
@@ -1082,7 +1155,12 @@ export class DynaStore {
       readonly staleAfterMinutes?: number;
     },
     requiredSourceSlices?: readonly DynaRequiredSourceSlice[],
-  ): { readonly publisher: DynaPublisher; readonly secret: string } {
+    credentialMode: DynaCredentialMode = "disabled",
+  ): { readonly publisher: DynaPublisher; readonly secret?: string } {
+    const normalizedCredentialMode = DynaCredentialModeSchema.parse(credentialMode);
+    if (normalizedCredentialMode === "disabled" && schedule?.state === "active") {
+      throw new Error("A disabled Dyna publisher cannot use an active schedule.");
+    }
     const secret = token();
     const normalizedRequiredSlices = requiredSourceSlices
       ? normalizedRequiredSourceSlices(requiredSourceSlices)
@@ -1093,6 +1171,7 @@ export class DynaStore {
       ...(schedule ? { scheduleId: schedule.id, scheduleTitle: schedule.title } : {}),
       scheduleState: schedule?.state ?? "unknown",
       staleAfterMinutes: schedule?.staleAfterMinutes ?? 1_440,
+      credentialMode: normalizedCredentialMode,
       ...(normalizedRequiredSlices ? { requiredSourceSlices: normalizedRequiredSlices } : {}),
       lastRunStatus: "never",
       createdAt: this.#now(),
@@ -1104,8 +1183,8 @@ export class DynaStore {
           `
           INSERT INTO publishers (
             id, name, token_hash, schedule_id, schedule_title, schedule_state,
-            stale_after_minutes, required_source_slices, last_run_status, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'never', ?)
+            stale_after_minutes, credential_mode, required_source_slices, last_run_status, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'never', ?)
         `,
         )
         .run(
@@ -1116,16 +1195,27 @@ export class DynaStore {
           publisher.scheduleTitle ?? null,
           publisher.scheduleState,
           publisher.staleAfterMinutes,
+          publisher.credentialMode,
           publisher.requiredSourceSlices ? JSON.stringify(publisher.requiredSourceSlices) : null,
           publisher.createdAt,
         );
-      return { publisher, secret };
+      return publisher.credentialMode === "local_preview" ? { publisher, secret } : { publisher };
     });
   }
 
   rotatePublisherSecret(publisherId: string): string {
     const secret = token();
     this.#transaction(() => {
+      const publisher = this.#one(
+        this.#database.prepare("SELECT credential_mode, revoked_at FROM publishers WHERE id = ?"),
+        publisherId,
+      );
+      if (!publisher || optionalString(publisher, "revoked_at")) {
+        throw new Error("Active Dyna publisher was not found.");
+      }
+      if (requiredString(publisher, "credential_mode") !== "local_preview") {
+        throw new Error("A disabled Dyna publisher cannot rotate credentials.");
+      }
       const changed = this.#database
         .prepare("UPDATE publishers SET token_hash = ? WHERE id = ? AND revoked_at IS NULL")
         .run(tokenHash(secret), publisherId).changes;
@@ -1152,7 +1242,7 @@ export class DynaStore {
       } else {
         this.#database
           .prepare(
-            "UPDATE publishers SET revoked_at = COALESCE(revoked_at, ?), schedule_state = 'paused' WHERE id = ?",
+            "UPDATE publishers SET revoked_at = COALESCE(revoked_at, ?), schedule_state = 'unknown' WHERE id = ?",
           )
           .run(this.#now(), publisherId);
       }
@@ -1192,13 +1282,19 @@ export class DynaStore {
     this.#transaction(() => {
       const publisher = this.#one(
         this.#database.prepare(
-          "SELECT schedule_id, required_source_slices, revoked_at FROM publishers WHERE id = ?",
+          "SELECT schedule_id, credential_mode, required_source_slices, revoked_at FROM publishers WHERE id = ?",
         ),
         publisherId,
       );
       if (!publisher) throw new Error("Dyna publisher was not found.");
       if (optionalString(publisher, "revoked_at")) {
         throw new Error("A revoked Dyna publisher cannot be bound to a schedule.");
+      }
+      if (
+        schedule.state === "active" &&
+        requiredString(publisher, "credential_mode") === "disabled"
+      ) {
+        throw new Error("A disabled Dyna publisher cannot use an active schedule.");
       }
       const currentScheduleId = optionalString(publisher, "schedule_id");
       if (currentScheduleId && currentScheduleId !== scheduleId) {
@@ -1310,11 +1406,14 @@ export class DynaStore {
     this.#transaction(() => {
       const row = this.#one(
         this.#database.prepare(
-          "SELECT schedule_title, schedule_state, stale_after_minutes, required_source_slices FROM publishers WHERE id = ?",
+          "SELECT schedule_title, schedule_state, stale_after_minutes, credential_mode, required_source_slices FROM publishers WHERE id = ?",
         ),
         publisherId,
       );
       if (!row) throw new Error("Dyna publisher was not found.");
+      if (schedule.state === "active" && requiredString(row, "credential_mode") === "disabled") {
+        throw new Error("A disabled Dyna publisher cannot use an active schedule.");
+      }
       const title = schedule.title ?? optionalString(row, "schedule_title");
       const staleAfterMinutes =
         schedule.staleAfterMinutes ?? requiredNumber(row, "stale_after_minutes");
@@ -1360,7 +1459,11 @@ export class DynaStore {
       ? (this.#database
           .prepare(
             `
-            SELECT p.* FROM publishers p
+            SELECT p.*, (
+              SELECT pr.source_slices FROM publisher_runs pr
+              WHERE pr.publisher_id = p.id AND pr.promoted = 1
+              ORDER BY pr.source_completed_ms DESC, pr.completed_at DESC LIMIT 1
+            ) AS latest_source_slices FROM publishers p
             JOIN dashboard_publishers dp ON dp.publisher_id = p.id
             LEFT JOIN dashboard_manual_publishers mp ON mp.publisher_id = p.id
             WHERE dp.dashboard_id = ? AND mp.publisher_id IS NULL ORDER BY p.name, p.id
@@ -1369,7 +1472,11 @@ export class DynaStore {
           .all(dashboardId) as SqlRow[])
       : (this.#database
           .prepare(
-            `SELECT p.* FROM publishers p
+            `SELECT p.*, (
+               SELECT pr.source_slices FROM publisher_runs pr
+               WHERE pr.publisher_id = p.id AND pr.promoted = 1
+               ORDER BY pr.source_completed_ms DESC, pr.completed_at DESC LIMIT 1
+             ) AS latest_source_slices FROM publishers p
              LEFT JOIN dashboard_manual_publishers mp ON mp.publisher_id = p.id
              WHERE mp.publisher_id IS NULL ORDER BY p.name, p.id`,
           )
@@ -1380,6 +1487,16 @@ export class DynaStore {
   #publisherFromRow(row: SqlRow): DynaPublisher {
     const lastRunError = optionalString(row, "last_run_error");
     const requiredSourceSlices = requiredSourceSlicesFromRow(row);
+    const lastRunAt = optionalString(row, "last_run_at");
+    const staleAfterMinutes = requiredNumber(row, "stale_after_minutes");
+    const publishSourceSlices = publishSourceSlicesFromRow(row);
+    const successfulSliceFreshness = lastRunAt
+      ? (() => {
+          const age = Math.max(0, this.#nowMs() - Date.parse(lastRunAt));
+          const staleAfter = staleAfterMinutes * 60_000;
+          return age > staleAfter ? "stale" : age > staleAfter * 0.75 ? "aging" : "fresh";
+        })()
+      : "stale";
     return DynaPublisherSchema.parse({
       id: requiredString(row, "id"),
       name: requiredString(row, "name"),
@@ -1390,13 +1507,20 @@ export class DynaStore {
         ? { scheduleTitle: optionalString(row, "schedule_title") }
         : {}),
       scheduleState: requiredString(row, "schedule_state"),
-      staleAfterMinutes: requiredNumber(row, "stale_after_minutes"),
+      staleAfterMinutes,
+      credentialMode: requiredString(row, "credential_mode"),
       ...(requiredSourceSlices ? { requiredSourceSlices } : {}),
       lastRunStatus: requiredString(row, "last_run_status"),
-      ...(optionalString(row, "last_run_at")
-        ? { lastRunAt: optionalString(row, "last_run_at") }
-        : {}),
+      ...(lastRunAt ? { lastRunAt } : {}),
       ...(lastRunError ? { lastRunError: sanitizePersistedFailureMessage(lastRunError) } : {}),
+      ...(publishSourceSlices
+        ? {
+            lastSourceSlices: publishSourceSlices.map((slice) => ({
+              ...slice,
+              freshness: slice.status === "failed" ? "stale" : successfulSliceFreshness,
+            })),
+          }
+        : {}),
       ...(optionalString(row, "revoked_at")
         ? { revokedAt: optionalString(row, "revoked_at") }
         : {}),
@@ -1414,12 +1538,13 @@ export class DynaStore {
       options.failureMessage === undefined
         ? undefined
         : sanitizePublicFailureMessage(options.failureMessage);
-    const parsedItems = items.map(normalizedPublishedItem);
+    const parsedItems = items.map(normalizedScheduledPublishedItem);
     const sourceSlices = options.sourceSlices
       ? [...DynaPublishSourceSlicesSchema.parse(options.sourceSlices)].sort(
           comparePublishSourceSlices,
         )
       : undefined;
+    const sourceSlicesJson = sourceSlices ? JSON.stringify(sourceSlices) : null;
     if (options.status === "failed" && (parsedItems.length > 0 || !failureMessage)) {
       throw new Error("A failed Dyna run requires an error and cannot publish a partial snapshot.");
     }
@@ -1480,13 +1605,14 @@ export class DynaStore {
     return this.#transaction(() => {
       const publisher = this.#one(
         this.#database.prepare(
-          "SELECT token_hash, required_source_slices, revoked_at FROM publishers WHERE id = ?",
+          "SELECT token_hash, credential_mode, required_source_slices, revoked_at FROM publishers WHERE id = ?",
         ),
         publisherId,
       );
       if (
         !publisher ||
         optionalString(publisher, "revoked_at") ||
+        requiredString(publisher, "credential_mode") !== "local_preview" ||
         !hashesMatch(secret, publisher["token_hash"])
       ) {
         throw new Error("Dyna publisher credentials are invalid.");
@@ -1544,8 +1670,9 @@ export class DynaStore {
             `
             INSERT INTO publisher_runs (
               publisher_id, run_id, mode, status, item_count, failure_message,
-              source_completed_at, source_completed_ms, request_hash, promoted, completed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+              source_completed_at, source_completed_ms, source_slices, request_hash,
+              promoted, completed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
           `,
           )
           .run(
@@ -1557,6 +1684,7 @@ export class DynaStore {
             failureMessage ?? null,
             sourceCompletion.iso,
             sourceCompletion.epoch,
+            sourceSlicesJson,
             requestHash,
             instant,
           );
@@ -1744,8 +1872,9 @@ export class DynaStore {
           `
           INSERT INTO publisher_runs (
             publisher_id, run_id, mode, status, item_count, failure_message,
-            source_completed_at, source_completed_ms, request_hash, promoted, completed_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+            source_completed_at, source_completed_ms, source_slices, request_hash,
+            promoted, completed_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
         `,
         )
         .run(
@@ -1757,6 +1886,7 @@ export class DynaStore {
           failureMessage ?? null,
           sourceCompletion.iso,
           sourceCompletion.epoch,
+          sourceSlicesJson,
           requestHash,
           instant,
         );
@@ -1867,8 +1997,9 @@ export class DynaStore {
         this.#database
           .prepare(
             `INSERT INTO publishers (
-              id, name, token_hash, schedule_state, stale_after_minutes, last_run_status, created_at
-            ) VALUES (?, ?, ?, 'unknown', 43200, 'never', ?)`,
+              id, name, token_hash, schedule_state, stale_after_minutes, credential_mode,
+              last_run_status, created_at
+            ) VALUES (?, ?, ?, 'unknown', 43200, 'disabled', 'never', ?)`,
           )
           .run(publisherId, "Dyna to-dos", tokenHash(token()), instant);
         this.#database
@@ -2064,11 +2195,18 @@ export class DynaStore {
   ): void {
     const dueAt = values.dueAt ? normalizeTimestamp(values.dueAt).iso : undefined;
     const dueAtSet = values.dueAt !== undefined ? 1 : 0;
+    const priority =
+      values.priority === undefined ? undefined : DynaPrioritySchema.parse(values.priority);
     const instant = this.#now();
     this.#transaction(() => {
       const base = this.#itemBaseRow(itemId);
       if (requiredString(base, "fingerprint") !== values.expectedFingerprint) {
         throw new Error("The Dyna item changed; retrieve its latest context before enrichment.");
+      }
+      if (priority === "critical" && requiredString(base, "priority") !== "critical") {
+        throw new Error(
+          "Dyna enrichment cannot set critical unless the source priority is already critical.",
+        );
       }
       const existing = this.#one(
         this.#database.prepare("SELECT version FROM item_enrichments WHERE item_id = ?"),
@@ -2104,7 +2242,7 @@ export class DynaStore {
         .run(
           itemId,
           values.summary ?? null,
-          values.priority ?? null,
+          priority ?? null,
           values.priorityReason ?? null,
           dueAt ?? null,
           dueAtSet,
@@ -2265,7 +2403,7 @@ export class DynaStore {
                 ? "aging"
                 : "stale";
       return DynaDashboardSnapshotSchema.parse({
-        schema: "dyna/snapshot-v3",
+        schema: "dyna/snapshot-v4",
         dashboard,
         generatedAt: this.#now(),
         query,

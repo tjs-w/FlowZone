@@ -12,7 +12,7 @@ const databasePath = join(directory, "dyna.sqlite3");
 try {
   const store = new DynaStore({ databasePath });
   const dashboard = store.createDashboard("Schedules", "Cardinality guard");
-  const first = store.createPublisher("Schedule 0");
+  const first = store.createPublisher("Schedule 0", undefined, undefined, "local_preview");
   store.bindSchedule(dashboard.id, first.publisher.id, {
     id: "schedule-0",
     title: "Schedule 0",
@@ -36,7 +36,12 @@ try {
     /identifier is immutable/,
   );
 
-  const duplicate = store.createPublisher("Duplicate native schedule");
+  const duplicate = store.createPublisher(
+    "Duplicate native schedule",
+    undefined,
+    undefined,
+    "local_preview",
+  );
   assert.throws(
     () =>
       store.bindSchedule(dashboard.id, duplicate.publisher.id, {
@@ -49,12 +54,17 @@ try {
   );
 
   for (let index = 1; index < 50; index += 1) {
-    const created = store.createPublisher(`Schedule ${index}`, {
-      id: `schedule-${index}`,
-      title: `Schedule ${index}`,
-      state: "active",
-      staleAfterMinutes: 60,
-    });
+    const created = store.createPublisher(
+      `Schedule ${index}`,
+      {
+        id: `schedule-${index}`,
+        title: `Schedule ${index}`,
+        state: "active",
+        staleAfterMinutes: 60,
+      },
+      undefined,
+      "local_preview",
+    );
     store.bindSchedule(dashboard.id, created.publisher.id, {
       id: `schedule-${index}`,
       title: `Schedule ${index}`,
@@ -63,12 +73,17 @@ try {
     });
   }
 
-  const overflow = store.createPublisher("Schedule overflow", {
-    id: "schedule-50",
-    title: "Schedule 50",
-    state: "active",
-    staleAfterMinutes: 60,
-  });
+  const overflow = store.createPublisher(
+    "Schedule overflow",
+    {
+      id: "schedule-50",
+      title: "Schedule 50",
+      state: "active",
+      staleAfterMinutes: 60,
+    },
+    undefined,
+    "local_preview",
+  );
   assert.throws(
     () =>
       store.bindSchedule(dashboard.id, overflow.publisher.id, {

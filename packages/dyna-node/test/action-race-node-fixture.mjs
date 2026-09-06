@@ -52,7 +52,12 @@ if (process.argv[2] === "worker") {
   try {
     const seed = new DynaStore({ databasePath, clock: () => new Date(now) });
     const dashboard = seed.createDashboard("Action race", "Cross-process logical dedupe");
-    const { publisher, secret } = seed.createPublisher("Action schedule");
+    const { publisher, secret } = seed.createPublisher(
+      "Action schedule",
+      undefined,
+      undefined,
+      "local_preview",
+    );
     seed.bindSchedule(dashboard.id, publisher.id, {
       id: "action-schedule",
       title: "Action schedule",

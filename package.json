@@ -48,8 +48,6 @@
     "verify": "bun run check && bun run test:e2e"
   },
   "dependencies": {
-    "@json-render/core": "0.20.0",
-    "@json-render/react": "0.20.0",
     "@modelcontextprotocol/ext-apps": "^1.7.5",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@openai/apps-sdk-ui": "0.2.2",

@@ -40,8 +40,8 @@ if (!isMainThread) {
   const databasePath = join(directory, "dyna.sqlite3");
   try {
     const seed = new DynaStore({ databasePath, clock: () => new Date(now) });
-    const revoked = seed.createPublisher("Revocation race");
-    const rotated = seed.createPublisher("Rotation race");
+    const revoked = seed.createPublisher("Revocation race", undefined, undefined, "local_preview");
+    const rotated = seed.createPublisher("Rotation race", undefined, undefined, "local_preview");
     seed.close();
 
     async function assertBlockedPublicationFails(publisher, runId, mutate) {

@@ -3,6 +3,19 @@ import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 
 describe("DynaStore lifecycle", () => {
+  test("enforces scheduled-source, critical-priority, and publisher credential boundaries", () => {
+    const fixture = resolve(import.meta.dir, "publication-boundaries-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      scheduledManualRejected: true,
+      criticalEnrichmentBounded: true,
+      manualOverridePreserved: true,
+      disabledModeEnforced: true,
+      localPreviewOperational: true,
+    });
+  });
+
   test("passes Node-native claim lease and schedule freshness checks", () => {
     const fixture = resolve(import.meta.dir, "store-node-fixture.mjs");
     const result = spawnSync("node", [fixture], { encoding: "utf8" });
@@ -29,16 +42,39 @@ describe("DynaStore lifecycle", () => {
     const fixture = resolve(import.meta.dir, "migration-node-fixture.mjs");
     const result = spawnSync("node", [fixture], { encoding: "utf8" });
     expect(result.status, result.stderr).toBe(0);
-    expect(JSON.parse(result.stdout)).toEqual({ migrated: true, completedIsNotFocus: true });
+    expect(JSON.parse(result.stdout)).toEqual({
+      migrated: true,
+      completedIsNotFocus: true,
+      externalPublisherDisabled: true,
+      legacyCredentialInvalidated: true,
+      manifestlessPublicationDenied: true,
+    });
   });
 
-  test("migrates version-one publishers without requiring a source manifest", () => {
+  test("disables version-one publishers until safe manifest-backed re-registration", () => {
     const fixture = resolve(import.meta.dir, "source-manifest-migration-node-fixture.mjs");
     const result = spawnSync("node", [fixture], { encoding: "utf8" });
     expect(result.status, result.stderr).toBe(0);
     expect(JSON.parse(result.stdout)).toEqual({
       migratedFromVersionOne: true,
-      legacyPublisherCompatible: true,
+      legacyPublisherDisabled: true,
+      manifestEnrollmentPreserved: true,
+      safeReregistrationPublishes: true,
+    });
+  });
+
+  test("migrates version-two credential state and historical source-slice evidence", () => {
+    const fixture = resolve(import.meta.dir, "credential-mode-migration-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      externalPublisherDisabled: true,
+      externalScheduleUnknown: true,
+      legacyCredentialInvalidated: true,
+      manifestAndDataPreserved: true,
+      manualPublisherDisabled: true,
+      historicalSlicesRemainUnknown: true,
+      invalidCriticalEnrichmentRepaired: true,
     });
   });
 
@@ -81,6 +117,8 @@ describe("DynaStore lifecycle", () => {
       bindTimeRegistration: true,
       updateTimeRegistration: true,
       multiSourcePartial: true,
+      sourceSliceEvidence: true,
+      latestSliceFreshness: true,
       omittedRejected: true,
       extraRejected: true,
       duplicateRejected: true,

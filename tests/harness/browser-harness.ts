@@ -128,7 +128,7 @@ function resultRecord(value: unknown): Readonly<Record<string, unknown>> {
   return value as Readonly<Record<string, unknown>>;
 }
 
-const dynaResource = await client.readResource({ uri: "ui://flowzone/dyna/v5.html" });
+const dynaResource = await client.readResource({ uri: "ui://flowzone/dyna/v6.html" });
 const dynaResourceContent = dynaResource.contents[0];
 if (!dynaResourceContent || !("text" in dynaResourceContent)) {
   throw new Error("The Dyna HTML resource was not returned");
@@ -384,7 +384,7 @@ async function createDynaFixture(
           body: `buriedneedle ${"a".repeat(980)}`,
         },
       });
-      for (let index = 0; index < 6; index += 1) {
+      for (let index = 0; index < 14; index += 1) {
         await new Promise((resolveDelay) => setTimeout(resolveDelay, 2));
         await client.callTool({
           name: "dyna_add_annotation",
@@ -820,12 +820,14 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     const backend = await dynaBackend(request);
     const dynaFixture = await createDynaFixture(
       backend.client,
-      requestUrl.searchParams.get("dense") === "1"
-        ? 9
-        : requestUrl.searchParams.get("many-items") === "1" ||
-            requestUrl.searchParams.get("pipeline") === "1"
-          ? 4
-          : 1,
+      requestUrl.searchParams.get("stress") === "1"
+        ? 200
+        : requestUrl.searchParams.get("dense") === "1"
+          ? 9
+          : requestUrl.searchParams.get("many-items") === "1" ||
+              requestUrl.searchParams.get("pipeline") === "1"
+            ? 4
+            : 1,
       requestUrl.searchParams.get("pipeline") === "1",
       requestUrl.searchParams.get("long-content") === "1",
       requestUrl.searchParams.get("older-match") === "1",

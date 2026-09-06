@@ -27,6 +27,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -41,6 +42,7 @@ type TodoPriority = "critical" | "high" | "normal" | "low";
 type WorkflowState = "todo" | "executing" | "paused" | "attention" | "completed";
 type PriorityFilter = TodoPriority | "all";
 type WorkflowFilter = WorkflowState | "all";
+type ScrollSurface = "queue" | "pipeline";
 
 const INLINE_SUMMARY_MAX_LENGTH = 240;
 
@@ -172,11 +174,21 @@ function focusableElements(container: HTMLElement): HTMLElement[] {
   });
 }
 
+function lockBodyScroll(): () => void {
+  const previousOverflow = document.body.style.overflow;
+  document.body.style.overflow = "hidden";
+  return () => {
+    document.body.style.overflow = previousOverflow;
+  };
+}
+
 function InspectorShell({
+  id,
   labelledBy,
   onClose,
   children,
 }: {
+  readonly id: string;
   readonly labelledBy: string;
   readonly onClose: () => void;
   readonly children: ReactNode;
@@ -192,13 +204,6 @@ function InspectorShell({
         routePresentation ? "[data-dyna-inspector-back]" : "[data-dyna-inspector-close]",
       )
       ?.focus();
-    if (routePresentation) {
-      const previousOverflow = document.body.style.overflow;
-      document.body.style.overflow = "hidden";
-      return () => {
-        document.body.style.overflow = previousOverflow;
-      };
-    }
   }, [routePresentation]);
 
   useEffect(() => {
@@ -232,6 +237,7 @@ function InspectorShell({
   return createPortal(
     <div className="dyna-inspector-layer" data-presentation={routePresentation ? "route" : "split"}>
       <div
+        id={id}
         ref={panel}
         className="dyna-inspector"
         role={routePresentation ? "dialog" : "region"}
@@ -258,7 +264,22 @@ function toolResultFailed(result: unknown): boolean {
 type DynaSnapshot = DynaUiPayload["snapshot"];
 type DynaCard = DynaSnapshot["cards"][number];
 type DynaSchedule = DynaSnapshot["schedules"][number];
+type DynaSourceSlice = NonNullable<DynaSchedule["lastSourceSlices"]>[number];
 type DynaTask = DynaCard["linkedTasks"][number];
+
+function sourceSliceLabel(source: DynaSourceSlice["source"]): string {
+  return {
+    slack: "Slack",
+    outlook: "Outlook",
+    gitlab: "GitLab",
+    codex: "Codex",
+    email: "Email",
+    messaging: "Messaging",
+    scm: "Source control",
+    twg: "TWG",
+    skill: "Skill",
+  }[source];
+}
 
 interface ActionDescriptor {
   readonly name: ActionName;
@@ -280,7 +301,7 @@ interface ComponentArgs<Props> {
   readonly children?: ReactNode;
 }
 
-interface FixedComponents {
+interface DynaComponentCatalog {
   readonly Dashboard: (
     args: ComponentArgs<{
       readonly dashboardId: string;
@@ -331,7 +352,7 @@ interface FixedComponents {
   readonly EmptyState: (args: ComponentArgs<{ readonly message: string }>) => ReactNode;
 }
 
-const fixedComponents: FixedComponents = {
+const dynaComponents: DynaComponentCatalog = {
   Dashboard: ({ props, children }) => {
     const controller = useController();
     const activeFilterCount =
@@ -420,10 +441,11 @@ const fixedComponents: FixedComponents = {
                   controller.setView("queue");
                 }}
                 onKeyDown={(event) => {
-                  if (!["ArrowRight", "End"].includes(event.key)) return;
+                  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
                   event.preventDefault();
-                  controller.setView("pipeline");
-                  document.getElementById("dyna-tab-pipeline")?.focus();
+                  const next = event.key === "Home" ? "queue" : "pipeline";
+                  controller.setView(next);
+                  document.getElementById(`dyna-tab-${next}`)?.focus();
                 }}
               >
                 Queue
@@ -440,10 +462,11 @@ const fixedComponents: FixedComponents = {
                   controller.setView("pipeline");
                 }}
                 onKeyDown={(event) => {
-                  if (!["ArrowLeft", "Home"].includes(event.key)) return;
+                  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
                   event.preventDefault();
-                  controller.setView("queue");
-                  document.getElementById("dyna-tab-queue")?.focus();
+                  const next = event.key === "End" ? "pipeline" : "queue";
+                  controller.setView(next);
+                  document.getElementById(`dyna-tab-${next}`)?.focus();
                 }}
               >
                 Pipeline
@@ -585,7 +608,7 @@ const fixedComponents: FixedComponents = {
   },
   SummaryStrip: ({ props }) => {
     const controller = useController();
-    const settled = controller.query.trim() === controller.serverQuery;
+    const settled = controller.readOnly || controller.query.trim() === controller.serverQuery;
     return (
       <>
         <section
@@ -740,6 +763,7 @@ const fixedComponents: FixedComponents = {
     const presentation = controller.view;
     const selected = controller.selectedItemId === props.itemId;
     const inspectorTitleId = `dyna-inspector-title-${props.itemId}`;
+    const inspectorId = `dyna-inspector-${props.itemId}`;
     const lead = props.people[0];
     const detailLabel = `Open details for ${props.title}`;
     const summaryNeedsDisclosure = props.summary.length > INLINE_SUMMARY_MAX_LENGTH;
@@ -768,7 +792,7 @@ const fixedComponents: FixedComponents = {
             data-dyna-details-item={props.itemId}
             aria-label={detailLabel}
             aria-expanded={selected}
-            aria-controls={selected ? inspectorTitleId : undefined}
+            aria-controls={selected ? inspectorId : undefined}
             onClick={(event) => {
               void controller.openDetails(props.itemId, event.currentTarget);
             }}
@@ -784,7 +808,7 @@ const fixedComponents: FixedComponents = {
               <span className="dyna-row-time" data-has-deadline={Boolean(props.dueAt)}>
                 {props.dueAt
                   ? `Due ${relativeTime(props.dueAt, controller.locale)}`
-                  : `Updated ${relativeTime(props.sourceUpdatedAt, controller.locale)}`}
+                  : "No deadline"}
               </span>
             </span>
             <span className="dyna-row-title">{props.title}</span>
@@ -807,6 +831,7 @@ const fixedComponents: FixedComponents = {
         </div>
         {selected ? (
           <InspectorShell
+            id={inspectorId}
             labelledBy={inspectorTitleId}
             onClose={() => {
               controller.closeDetails();
@@ -1232,6 +1257,11 @@ const fixedComponents: FixedComponents = {
   },
   ScheduleStatus: ({ props }) => {
     const controller = useController();
+    const slices = props.lastSourceSlices ?? [];
+    const unhealthySlices = slices.filter(
+      (slice) => slice.status === "failed" || slice.freshness !== "fresh",
+    );
+    const healthySliceCount = slices.length - unhealthySlices.length;
     return (
       <div className="dyna-schedule">
         <strong>{props.scheduleTitle ?? props.name}</strong>
@@ -1256,6 +1286,42 @@ const fixedComponents: FixedComponents = {
             : " · not run yet"}
         </span>
         {props.lastRunError ? <span className="dyna-meta">{props.lastRunError}</span> : null}
+        {slices.length > 0 ? (
+          unhealthySlices.length === 0 ? (
+            <span className="dyna-meta">
+              {slices.length} {slices.length === 1 ? "source" : "sources"} fresh
+            </span>
+          ) : (
+            <div className="dyna-slice-summary" role="list" aria-label="Latest source results">
+              {unhealthySlices.map((slice) => {
+                const state = slice.status === "failed" ? "failed" : slice.freshness;
+                return (
+                  <span
+                    key={`${slice.source}:${slice.sourceScope}`}
+                    className="dyna-slice"
+                    role="listitem"
+                    aria-label={`${sourceSliceLabel(slice.source)} ${slice.sourceScope}: ${state}`}
+                    title={slice.sourceScope}
+                  >
+                    <span aria-hidden="true">{sourceSliceLabel(slice.source)}</span>
+                    <Badge
+                      color={state === "failed" || state === "stale" ? "danger" : "warning"}
+                      variant="soft"
+                      aria-hidden="true"
+                    >
+                      {state}
+                    </Badge>
+                  </span>
+                );
+              })}
+              {healthySliceCount > 0 ? (
+                <span className="dyna-meta">
+                  {healthySliceCount} {healthySliceCount === 1 ? "source" : "sources"} fresh
+                </span>
+              ) : null}
+            </div>
+          )
+        ) : null}
       </div>
     );
   },
@@ -1343,6 +1409,7 @@ function cardSearchText(card: DynaCard): string {
     card.sourceLabel,
     card.priority,
     card.priorityReason,
+    JSON.stringify(card.sourceRef),
     card.attention ?? "",
     card.outcome ?? "",
     ...card.labels,
@@ -1357,9 +1424,7 @@ function cardSearchText(card: DynaCard): string {
     ]),
     ...card.annotations.map((annotation) => annotation.body),
     ...card.linkedTasks.flatMap((task) => [task.title, task.state, task.outcome ?? ""]),
-  ]
-    .join(" ")
-    .slice(0, 10_000);
+  ].join(" ");
 }
 
 function cardMatches(card: DynaCard, query: string, locale: string): boolean {
@@ -1398,8 +1463,8 @@ function cardViewProps(card: DynaCard): CardViewProps {
 }
 
 function CardView({ card }: { readonly card: DynaCard }) {
-  const PriorityCard = fixedComponents.PriorityCard;
-  const TaskStatus = fixedComponents.TaskStatus;
+  const PriorityCard = dynaComponents.PriorityCard;
+  const TaskStatus = dynaComponents.TaskStatus;
   return (
     <PriorityCard props={cardViewProps(card)}>
       {card.linkedTasks.map((task) => (
@@ -1414,13 +1479,13 @@ function CardView({ card }: { readonly card: DynaCard }) {
 
 function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
   const controller = useController();
-  const Dashboard = fixedComponents.Dashboard;
-  const SummaryStrip = fixedComponents.SummaryStrip;
-  const Section = fixedComponents.Section;
-  const QueueView = fixedComponents.QueueView;
-  const PipelineView = fixedComponents.PipelineView;
-  const ScheduleStatus = fixedComponents.ScheduleStatus;
-  const EmptyState = fixedComponents.EmptyState;
+  const Dashboard = dynaComponents.Dashboard;
+  const SummaryStrip = dynaComponents.SummaryStrip;
+  const Section = dynaComponents.Section;
+  const QueueView = dynaComponents.QueueView;
+  const PipelineView = dynaComponents.PipelineView;
+  const ScheduleStatus = dynaComponents.ScheduleStatus;
+  const EmptyState = dynaComponents.EmptyState;
   const compactInline = controller.condenseInline;
   const sourceOptions = [...new Set(snapshot.cards.map((card) => card.sourceLabel))].sort((a, b) =>
     a.localeCompare(b, controller.locale),
@@ -1429,7 +1494,11 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
     sourceOptions.unshift(controller.sourceFilter);
   }
   const stageCards = [...snapshot.cards]
-    .filter((card) => cardMatches(card, controller.query, controller.locale))
+    .filter(
+      (card) =>
+        controller.query.trim() === snapshot.query ||
+        cardMatches(card, controller.query, controller.locale),
+    )
     .filter((card) =>
       cardPassesFilters(
         card,
@@ -1455,7 +1524,8 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
     (schedule) =>
       schedule.lastRunStatus === "failed" ||
       schedule.lastRunStatus === "partial" ||
-      schedule.scheduleState !== "active",
+      schedule.scheduleState !== "active" ||
+      schedule.lastSourceSlices?.some((slice) => slice.freshness !== "fresh"),
   );
   const stages = PIPELINE_STAGES.map(([state, title]) => ({
     state,
@@ -1628,6 +1698,10 @@ function DynaApp({ app }: { readonly app: App }) {
   const refreshGeneration = useRef(0);
   const queryRef = useRef("");
   const selectedItemRef = useRef<string | undefined>(undefined);
+  const viewRef = useRef<"queue" | "pipeline">("queue");
+  const pipelineStateRef = useRef<WorkflowState>("attention");
+  const scrollPositions = useRef(new Map<ScrollSurface, number>());
+  const pendingScrollPosition = useRef<number | null>(null);
   const pipelineChoiceExplicit = useRef(false);
   const detailScrollPosition = useRef(0);
   const annotationRequestId = useRef(crypto.randomUUID());
@@ -1650,6 +1724,10 @@ function DynaApp({ app }: { readonly app: App }) {
   current.current = payload;
   queryRef.current = query;
   selectedItemRef.current = selectedItemId;
+  viewRef.current = view;
+  pipelineStateRef.current = pipelineState;
+  const backgroundLocked =
+    annotationItem !== undefined || todoOpen || (selectedItemId !== undefined && !wideLayout);
 
   const acceptPayload = useCallback((candidate: unknown) => {
     const parsed = DynaUiPayloadSchema.safeParse(candidate);
@@ -1686,11 +1764,29 @@ function DynaApp({ app }: { readonly app: App }) {
   }, [payload, pipelineState]);
 
   useEffect(() => {
+    if (!backgroundLocked) return;
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
+    const restoreBodyScroll = lockBodyScroll();
+    return () => {
+      restoreBodyScroll();
+      window.scrollTo(scrollX, scrollY);
+    };
+  }, [backgroundLocked]);
+
+  useLayoutEffect(() => {
+    const target = pendingScrollPosition.current;
+    if (target === null) return;
+    pendingScrollPosition.current = null;
+    window.scrollTo(window.scrollX, target);
+  }, [pipelineState, view]);
+
+  useEffect(() => {
     if (!payload || !selectedItemId) return;
     const selected = payload.snapshot.cards.find((card) => card.id === selectedItemId);
     if (
       !selected ||
-      !cardMatches(selected, query, locale) ||
+      (query.trim() !== payload.snapshot.query && !cardMatches(selected, query, locale)) ||
       !cardPassesFilters(selected, priorityFilter, sourceFilter, workflowFilter, leadershipOnly)
     ) {
       setSelectedItemId(undefined);
@@ -2006,17 +2102,37 @@ function DynaApp({ app }: { readonly app: App }) {
     setLeadershipOnlyState(false);
   }, []);
 
-  const setView = useCallback((value: "queue" | "pipeline") => {
-    setViewState(value);
-    setSelectedItemId(undefined);
+  const prepareScrollTransition = useCallback((nextView: "queue" | "pipeline") => {
+    scrollPositions.current.set(viewRef.current, window.scrollY);
+    pendingScrollPosition.current = scrollPositions.current.get(nextView) ?? 0;
   }, []);
 
-  const setPipelineState = useCallback((value: WorkflowState) => {
-    pipelineChoiceExplicit.current = true;
-    setPipelineStateState(value);
-    setWorkflowFilterState("all");
-    setSelectedItemId(undefined);
-  }, []);
+  const setView = useCallback(
+    (value: "queue" | "pipeline") => {
+      if (value !== viewRef.current) {
+        prepareScrollTransition(value);
+        setViewState(value);
+      }
+      setSelectedItemId(undefined);
+    },
+    [prepareScrollTransition],
+  );
+
+  const setPipelineState = useCallback(
+    (value: WorkflowState) => {
+      pipelineChoiceExplicit.current = true;
+      if (value !== pipelineStateRef.current) {
+        if (viewRef.current === "pipeline") {
+          scrollPositions.current.set("pipeline", 0);
+          pendingScrollPosition.current = 0;
+        }
+        setPipelineStateState(value);
+      }
+      setWorkflowFilterState("all");
+      setSelectedItemId(undefined);
+    },
+    [prepareScrollTransition],
+  );
 
   useEffect(() => {
     const itemId = createdTodoFocus.current;

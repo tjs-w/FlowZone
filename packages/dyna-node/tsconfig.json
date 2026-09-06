@@ -8,5 +8,5 @@
     "tsBuildInfoFile": "../../.build/types/dyna-node.tsbuildinfo"
   },
   "include": ["src/**/*.ts"],
-  "references": [{ "path": "../dyna-contracts" }, { "path": "../dyna-core" }]
+  "references": [{ "path": "../dyna-contracts" }]
 }

@@ -233,7 +233,7 @@ export function dynaSourceLabel(sourceRef: DynaSourceRef): string {
     case "scm":
       return sourceRef.provider;
     case "twg":
-      return "$twg";
+      return "TWG";
     case "skill":
       return sourceRef.skillName;
     case "manual":
@@ -272,6 +272,14 @@ export const DynaPublishedItemSchema = z
   })
   .strict();
 export type DynaPublishedItem = z.infer<typeof DynaPublishedItemSchema>;
+
+export const DynaScheduledPublishedItemSchema = DynaPublishedItemSchema.refine(
+  (item) => item.sourceRef.source !== "manual",
+  {
+    message: "Scheduled Dyna publishers cannot publish manual records.",
+    path: ["sourceRef", "source"],
+  },
+);
 
 export const DynaRequiredSourceSliceSchema = z
   .object({
@@ -332,6 +340,14 @@ export const DynaMaterializedItemSchema = DynaPublishedItemSchema.extend({
   people: z.array(DynaPersonSignalSchema).max(8).default([]),
 });
 
+export const DynaCredentialModeSchema = z.enum(["disabled", "local_preview"]);
+export type DynaCredentialMode = z.infer<typeof DynaCredentialModeSchema>;
+
+export const DynaPublisherSourceSliceSchema = DynaPublishSourceSliceSchema.extend({
+  freshness: z.enum(["fresh", "aging", "stale"]),
+});
+export type DynaPublisherSourceSlice = z.infer<typeof DynaPublisherSourceSliceSchema>;
+
 export const DynaDashboardSchema = z
   .object({
     id: z.uuid(),
@@ -352,10 +368,12 @@ export const DynaPublisherSchema = z
     scheduleTitle: z.string().trim().min(1).max(200).optional(),
     scheduleState: z.enum(["active", "paused", "unknown"]),
     staleAfterMinutes: z.number().int().min(5).max(43_200),
+    credentialMode: DynaCredentialModeSchema,
     requiredSourceSlices: DynaRequiredSourceSlicesSchema.optional(),
     lastRunStatus: z.enum(["never", "succeeded", "partial", "failed"]),
     lastRunAt: TimestampSchema.optional(),
     lastRunError: z.string().trim().min(1).max(500).optional(),
+    lastSourceSlices: z.array(DynaPublisherSourceSliceSchema).max(50).optional(),
     revokedAt: TimestampSchema.optional(),
     createdAt: TimestampSchema,
   })
@@ -506,7 +524,7 @@ export type DynaCard = z.infer<typeof DynaCardSchema>;
 
 export const DynaDashboardSnapshotSchema = z
   .object({
-    schema: z.literal("dyna/snapshot-v3"),
+    schema: z.literal("dyna/snapshot-v4"),
     dashboard: DynaDashboardSchema,
     generatedAt: TimestampSchema,
     query: z.string().max(500),
@@ -528,7 +546,7 @@ export type DynaDashboardSnapshot = z.infer<typeof DynaDashboardSnapshotSchema>;
 
 export const DynaUiPayloadSchema = z
   .object({
-    schema: z.literal("dyna/ui-v5"),
+    schema: z.literal("dyna/ui-v6"),
     viewToken: z.string().min(32).max(128),
     snapshot: DynaDashboardSnapshotSchema,
   })

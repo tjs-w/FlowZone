@@ -13,7 +13,12 @@ const databasePath = join(directory, "dyna.sqlite3");
 try {
   const seed = new DynaStore({ databasePath, clock: () => new Date(now) });
   const dashboard = seed.createDashboard("Corrupt legacy", "Rollback verification");
-  const { publisher, secret } = seed.createPublisher("Legacy source");
+  const { publisher, secret } = seed.createPublisher(
+    "Legacy source",
+    undefined,
+    undefined,
+    "local_preview",
+  );
   seed.bindSchedule(dashboard.id, publisher.id, {
     id: "legacy-corrupt-source",
     title: "Legacy corrupt source",

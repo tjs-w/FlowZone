@@ -40,13 +40,13 @@ describe("Dyna checked-in Node bundle", () => {
     try {
       const resources = await client.listResources();
       const dynaResource = resources.resources.find(
-        (resource) => resource.uri === "ui://flowzone/dyna/v5.html",
+        (resource) => resource.uri === "ui://flowzone/dyna/v6.html",
       );
       expect(dynaResource?._meta?.["ui"]).toEqual({
         prefersBorder: true,
         csp: { connectDomains: [], resourceDomains: [], frameDomains: [] },
       });
-      const dynaHtml = await client.readResource({ uri: "ui://flowzone/dyna/v5.html" });
+      const dynaHtml = await client.readResource({ uri: "ui://flowzone/dyna/v6.html" });
       const dynaContent = dynaHtml.contents[0];
       expect(dynaContent && "text" in dynaContent ? dynaContent.text : "").toContain(
         'id="dyna-root"',
@@ -221,7 +221,7 @@ describe("Dyna checked-in Node bundle", () => {
                 sourceScope: "group/project",
                 title: "Review release MR",
                 summary: "The MR is ready for review.",
-                priority: "high",
+                priority: "critical",
                 priorityReason: "Release window closes today.",
                 sourceUpdatedAt,
                 labels: ["release"],
@@ -263,7 +263,7 @@ describe("Dyna checked-in Node bundle", () => {
         "The MR is ready for review.",
       );
       const payload = record(record(rendered._meta)["dynaDashboard"]);
-      expect(payload["schema"]).toBe("dyna/ui-v5");
+      expect(payload["schema"]).toBe("dyna/ui-v6");
       expect("spec" in payload).toBe(false);
       const viewToken = payload["viewToken"];
       const snapshot = record(payload["snapshot"]);
@@ -396,7 +396,7 @@ describe("Dyna checked-in Node bundle", () => {
         arguments: { viewToken },
       });
       const refreshedPayload = record(record(refreshed._meta)["dynaDashboard"]);
-      expect(refreshedPayload["schema"]).toBe("dyna/ui-v5");
+      expect(refreshedPayload["schema"]).toBe("dyna/ui-v6");
       expect("spec" in refreshedPayload).toBe(false);
       const refreshedSnapshot = record(refreshedPayload["snapshot"]);
       expect(record(refreshedSnapshot["counts"])["critical"]).toBe(1);

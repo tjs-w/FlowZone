@@ -68,7 +68,12 @@ function slackItem(externalId, messageId, title, sourceUpdatedAt) {
 
 try {
   const dashboard = store.createDashboard("Partial run", "Preserve failed source slices");
-  const { publisher, secret } = store.createPublisher("Executive rollup");
+  const { publisher, secret } = store.createPublisher(
+    "Executive rollup",
+    undefined,
+    undefined,
+    "local_preview",
+  );
   store.bindSchedule(dashboard.id, publisher.id, {
     id: "executive-rollup",
     title: "Executive rollup",

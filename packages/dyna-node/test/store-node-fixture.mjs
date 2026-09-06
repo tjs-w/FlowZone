@@ -6,7 +6,12 @@ let clockMs = Date.now();
 const store = new DynaStore({ databasePath: ":memory:", clock: () => new Date(clockMs) });
 try {
   const dashboard = store.createDashboard("Executive brief", "Decisions and risks");
-  const { publisher, secret } = store.createPublisher("Morning schedule");
+  const { publisher, secret } = store.createPublisher(
+    "Morning schedule",
+    undefined,
+    undefined,
+    "local_preview",
+  );
   store.bindSchedule(dashboard.id, publisher.id, {
     id: "morning",
     title: "Morning schedule",

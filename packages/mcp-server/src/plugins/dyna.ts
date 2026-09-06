@@ -3,15 +3,16 @@ import {
   DynaActionKindSchema,
   DynaActionRequestSchema,
   DynaActionStateSchema,
+  DynaCredentialModeSchema,
   DynaDashboardSchema,
   DynaItemContextSchema,
   DynaNextStepSchema,
   DynaPersonSignalSchema,
   DynaPrioritySchema,
   DynaPublishSourceSlicesSchema,
-  DynaPublishedItemSchema,
   DynaPublisherSchema,
   DynaRequiredSourceSlicesSchema,
+  DynaScheduledPublishedItemSchema,
   DynaSourceRefSchema,
   DynaTaskStatusSchema,
   DynaTodoInputSchema,
@@ -23,7 +24,7 @@ import { z } from "zod";
 import type { FlowZoneAppTool, FlowZonePlugin } from "../plugin.js";
 
 export const DYNA_PLUGIN_ID = "dyna";
-export const DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v5.html";
+export const DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v6.html";
 
 const DashboardIdSchema = z.object({ dashboardId: z.uuid() }).strict();
 const ViewTokenSchema = z
@@ -536,7 +537,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
             name: z.string().trim().min(1).max(96),
             schedule: ScheduleSchema.optional(),
             requiredSourceSlices: DynaRequiredSourceSlicesSchema,
-            credentialMode: z.enum(["disabled", "local_preview"]).default("disabled"),
+            credentialMode: DynaCredentialModeSchema.default("disabled"),
           })
           .strict(),
         outputSchema: PublisherCreationResultSchema,
@@ -549,7 +550,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
                 name: z.string().trim().min(1).max(96),
                 schedule: ScheduleSchema.optional(),
                 requiredSourceSlices: DynaRequiredSourceSlicesSchema,
-                credentialMode: z.enum(["disabled", "local_preview"]).default("disabled"),
+                credentialMode: DynaCredentialModeSchema.default("disabled"),
               })
               .strict()
               .parse(input);
@@ -564,6 +565,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
                   }
                 : undefined,
               requiredSourceSlices,
+              credentialMode,
             );
             if (credentialMode === "disabled") {
               return {
@@ -573,9 +575,13 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
                 },
               };
             }
+            if (!created.secret) {
+              throw new Error("Dyna could not issue a local-preview publisher credential.");
+            }
             return {
               result: {
-                ...created,
+                publisher: created.publisher,
+                secret: created.secret,
                 credentialHandling: "model-visible-trusted-local-preview-only" as const,
               },
             };
@@ -773,7 +779,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
             status: z.enum(["succeeded", "partial", "failed"]).default("succeeded"),
             failureMessage: z.string().trim().min(1).max(500).optional(),
             sourceSlices: DynaPublishSourceSlicesSchema.optional(),
-            items: z.array(DynaPublishedItemSchema).max(200),
+            items: z.array(DynaScheduledPublishedItemSchema).max(200),
           })
           .strict(),
         outputSchema: z
@@ -798,7 +804,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
                 status: z.enum(["succeeded", "partial", "failed"]).default("succeeded"),
                 failureMessage: z.string().trim().min(1).max(500).optional(),
                 sourceSlices: DynaPublishSourceSlicesSchema.optional(),
-                items: z.array(DynaPublishedItemSchema).max(200),
+                items: z.array(DynaScheduledPublishedItemSchema).max(200),
               })
               .strict()
               .parse(input);

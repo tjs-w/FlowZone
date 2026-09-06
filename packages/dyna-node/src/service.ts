@@ -5,7 +5,6 @@ import {
   type DynaTaskStatus,
   type DynaUiPayload,
 } from "@flowzone/dyna-contracts";
-import { compileDashboard } from "@flowzone/dyna-core";
 
 import {
   DynaStore,
@@ -27,9 +26,8 @@ export class DynaService {
 
   render(dashboardId: string): DynaUiPayload {
     const snapshot = this.store.snapshot(dashboardId);
-    compileDashboard(snapshot);
     const payload = {
-      schema: "dyna/ui-v5" as const,
+      schema: "dyna/ui-v6" as const,
       viewToken: this.store.createView(dashboardId),
       snapshot,
     };
@@ -38,9 +36,8 @@ export class DynaService {
 
   refresh(viewToken: string, query = ""): DynaUiPayload {
     const snapshot = this.store.snapshotForView(viewToken, query);
-    compileDashboard(snapshot);
     return DynaUiPayloadSchema.parse({
-      schema: "dyna/ui-v5",
+      schema: "dyna/ui-v6",
       viewToken,
       snapshot,
     });

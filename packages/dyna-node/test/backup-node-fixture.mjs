@@ -27,7 +27,12 @@ try {
   mkdirSync(backupDirectory, { mode: 0o700 });
   const store = new DynaStore({ databasePath, clock: () => new Date(now) });
   const dashboard = store.createDashboard("Backup", "Point-in-time restore");
-  const { publisher, secret } = store.createPublisher("Backup schedule");
+  const { publisher, secret } = store.createPublisher(
+    "Backup schedule",
+    undefined,
+    undefined,
+    "local_preview",
+  );
   store.bindSchedule(dashboard.id, publisher.id, {
     id: "backup-schedule",
     title: "Backup schedule",
@@ -82,7 +87,7 @@ try {
   );
 
   const verified = new DatabaseSync(backupPath, { readOnly: true });
-  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 2);
+  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 3);
   assert.equal(verified.prepare("PRAGMA integrity_check").get().integrity_check, "ok");
   assert.deepEqual(verified.prepare("PRAGMA foreign_key_check").all(), []);
   verified.close();

@@ -13,7 +13,12 @@ const databasePath = join(directory, "dyna.sqlite3");
 try {
   const original = new DynaStore({ databasePath, clock: () => new Date(now) });
   const dashboard = original.createDashboard("Migration", "Legacy outcome");
-  const publisher = original.createPublisher("Legacy publisher");
+  const publisher = original.createPublisher(
+    "Legacy publisher",
+    undefined,
+    undefined,
+    "local_preview",
+  );
   original.bindSchedule(dashboard.id, publisher.publisher.id, {
     id: "legacy-schedule",
     title: "Legacy schedule",
@@ -58,7 +63,13 @@ try {
   original.close();
 
   const raw = new DatabaseSync(databasePath);
+  const legacyTokenHash = raw
+    .prepare("SELECT token_hash FROM publishers WHERE id = ?")
+    .get(publisher.publisher.id).token_hash;
   raw.prepare("UPDATE task_bindings SET outcome = NULL WHERE task_id = 'legacy-task'").run();
+  raw.exec("ALTER TABLE publishers DROP COLUMN credential_mode");
+  raw.exec("ALTER TABLE publishers DROP COLUMN required_source_slices");
+  raw.exec("ALTER TABLE publisher_runs DROP COLUMN source_slices");
   raw.exec("PRAGMA user_version = 0");
   raw.close();
 
@@ -70,13 +81,43 @@ try {
     snapshot.cards[0]?.outcome,
     "Completed before outcome tracking; refresh this task for details.",
   );
+  const migratedPublisher = migrated
+    .listPublishers(dashboard.id)
+    .find(({ id }) => id === publisher.publisher.id);
+  assert.ok(migratedPublisher);
+  assert.equal(migratedPublisher.credentialMode, "disabled");
+  assert.equal(migratedPublisher.scheduleState, "unknown");
+  assert.equal(migratedPublisher.requiredSourceSlices, undefined);
+  assert.throws(
+    () =>
+      migrated.publish(publisher.publisher.id, publisher.secret, [], {
+        runId: "legacy-credential-after-unversioned-migration",
+        sourceCompletedAt: new Date(Date.parse(now) + 1_000).toISOString(),
+        mode: "replace",
+        status: "succeeded",
+      }),
+    /credentials are invalid/,
+  );
   migrated.close();
 
   const versioned = new DatabaseSync(databasePath, { readOnly: true });
-  assert.equal(versioned.prepare("PRAGMA user_version").get().user_version, 2);
+  assert.equal(versioned.prepare("PRAGMA user_version").get().user_version, 3);
+  assert.notDeepEqual(
+    versioned.prepare("SELECT token_hash FROM publishers WHERE id = ?").get(publisher.publisher.id)
+      .token_hash,
+    legacyTokenHash,
+  );
   versioned.close();
 
-  globalThis.process.stdout.write(JSON.stringify({ migrated: true, completedIsNotFocus: true }));
+  globalThis.process.stdout.write(
+    JSON.stringify({
+      migrated: true,
+      completedIsNotFocus: true,
+      externalPublisherDisabled: true,
+      legacyCredentialInvalidated: true,
+      manifestlessPublicationDenied: true,
+    }),
+  );
 } finally {
   rmSync(directory, { recursive: true, force: true });
 }

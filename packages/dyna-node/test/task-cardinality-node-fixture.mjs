@@ -15,7 +15,12 @@ const databasePath = join(directory, "dyna.sqlite3");
 try {
   const store = new DynaStore({ databasePath, clock: () => new Date(clockMs) });
   const dashboard = store.createDashboard("Tasks", "Task binding guard");
-  const { publisher, secret } = store.createPublisher("Task schedule");
+  const { publisher, secret } = store.createPublisher(
+    "Task schedule",
+    undefined,
+    undefined,
+    "local_preview",
+  );
   store.bindSchedule(dashboard.id, publisher.id, {
     id: "task-schedule",
     title: "Task schedule",

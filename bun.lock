@@ -5,8 +5,6 @@
     "": {
       "name": "flowzone",
       "dependencies": {
-        "@json-render/core": "0.20.0",
-        "@json-render/react": "0.20.0",
         "@modelcontextprotocol/ext-apps": "^1.7.5",
         "@modelcontextprotocol/sdk": "^1.30.0",
         "@openai/apps-sdk-ui": "0.2.2",
@@ -59,16 +57,7 @@
       "name": "@flowzone/dyna-contracts",
       "version": "0.1.0",
       "dependencies": {
-        "@json-render/core": "0.20.0",
-        "@json-render/react": "0.20.0",
         "zod": "^4.4.3",
-      },
-    },
-    "packages/dyna-core": {
-      "name": "@flowzone/dyna-core",
-      "version": "0.1.0",
-      "dependencies": {
-        "@flowzone/dyna-contracts": "workspace:*",
       },
     },
     "packages/dyna-node": {
@@ -76,7 +65,6 @@
       "version": "0.1.0",
       "dependencies": {
         "@flowzone/dyna-contracts": "workspace:*",
-        "@flowzone/dyna-core": "workspace:*",
         "zod": "^4.4.3",
       },
       "devDependencies": {
@@ -263,8 +251,6 @@
 
     "@flowzone/dyna-contracts": ["@flowzone/dyna-contracts@workspace:packages/dyna-contracts"],
 
-    "@flowzone/dyna-core": ["@flowzone/dyna-core@workspace:packages/dyna-core"],
-
     "@flowzone/dyna-node": ["@flowzone/dyna-node@workspace:packages/dyna-node"],
 
     "@flowzone/dyna-ui": ["@flowzone/dyna-ui@workspace:packages/dyna-ui"],
@@ -288,10 +274,6 @@
     "@iconify/types": ["@iconify/types@2.0.0", "", {}, "sha512-+wluvCrRhXrhyOmRDJ3q8mux9JkKy5SJ/v8ol2tu4FVjyYvtEzkc/3pK15ET6RKg4b4w4BmTk1+gsCUhf21Ykg=="],
 
     "@iconify/utils": ["@iconify/utils@3.1.4", "", { "dependencies": { "@antfu/install-pkg": "^1.1.0", "@iconify/types": "^2.0.0", "import-meta-resolve": "^4.2.0" } }, "sha512-b1S7B1k9ohZ+iNTi2ATxbRYG9fTrJmUT0rc46bvVnNxqNRGW7dyo/vRREwyniI5IRN2RSJHDcm+s3BjWrSAjHw=="],
-
-    "@json-render/core": ["@json-render/core@0.20.0", "", { "dependencies": { "zod": "^4.3.6" } }, "sha512-cXAXn7h3QaylefQgh85AEGPuVq4C8SJ3k9JqigWLJhaBSozF1Fmsrm43DP16RmkqNiVgj5pBRdmB48lEO5qlow=="],
-
-    "@json-render/react": ["@json-render/react@0.20.0", "", { "dependencies": { "@json-render/core": "0.20.0" }, "peerDependencies": { "react": "^19.2.3" } }, "sha512-arRrlf7zeIJYM6i2JHcTBKW5Kl+ErBtoNR29h4i6rG4AtTzLmaWDgPTs35pr3MdSCTp0UxKwY4O3vWMdUihpRQ=="],
 
     "@markdown-review/contracts": ["@markdown-review/contracts@workspace:packages/contracts"],
 

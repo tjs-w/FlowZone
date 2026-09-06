@@ -8,13 +8,14 @@ Installing FlowZone installs the shared `flowzone` MCP server and both qualified
 
 ## Bundled plugin: Dyna
 
-- Multiple persistent dashboards and native Codex schedule identities with many-to-many bindings, cadence-aware freshness, ordered per-run promotion, retry deduplication, and full-snapshot retirement.
-- Strict source records compiled and catalog-validated server-side; the snapshot-only UI wire never accepts arbitrary UI or code from scheduled jobs.
+- Multiple persistent dashboards and native Codex schedule identities with many-to-many bindings, cadence-aware per-source health, ordered per-run promotion, retry deduplication, partial-failure preservation, and full-snapshot retirement.
+- Strict source records and a Zod-validated snapshot-only UI wire projected through a closed typed React catalog; scheduled jobs never supply arbitrary UI, actions, or code.
 - A compact 82-pixel attention ledger with five useful inline rows on desktop and four on touch/mobile, built from Apps SDK UI controls, semantic native filters, and small product-specific queue, pipeline, and inspector structures.
 - Host-selected MCP Apps presentation with an explicit fullscreen expansion action, host-owned docking, and a usable inline fallback with wide-screen detail inspection.
 - Re-rendering after scheduled updates, durable conversation-driven enrichment overlays, annotations, and one shared item set projected as a priority queue or Codex progress pipeline with one-line outcomes and follow-ups.
 - Revision-bound, claim-revalidated, per-attempt idempotent action requests with expiring leases for native Codex task creation, existing-task attachment, navigation, and status inspection.
-- A dedicated `ui://flowzone/dyna/v5.html` resource below a 750 KiB payload budget with a closed network CSP and no clipboard permission.
+- Scheduled publishers are disabled and secret-free by default; model-visible credentials require an explicit trusted local-preview opt-in while protected host authentication remains a release gate.
+- A dedicated `ui://flowzone/dyna/v6.html` resource below a 750 KiB payload budget with a closed network CSP and no clipboard permission.
 
 See [Dyna executive dashboards](./docs/dyna.md) for requirements, architecture, action protocol, implementation status, and the mobile Remote acceptance matrix.
 
@@ -45,7 +46,7 @@ FlowZone McpServer
        │              └── markdown-review/open
        ├── typed app-only component tools
        ├── render_markdown_review → ui://flowzone/v5.html
-       └── render_dyna_dashboard → ui://flowzone/dyna/v5.html
+       └── render_dyna_dashboard → ui://flowzone/dyna/v6.html
 ```
 
 FlowZone exposes one model-visible `flowzone` data router plus a dedicated model-visible presentation tool for each rendered surface. The startup-built router union enumerates non-visual plugin/action/input combinations and validates both selected input and plugin-owned output. Dedicated presentation tools carry their own risk and MCP Apps resource metadata. Typed helpers used by a UI stay separate and are forcibly registered with `_meta.ui.visibility: ["app"]`.
@@ -201,8 +202,7 @@ Review only files you intend to expose to the local FlowZone process. Submitted 
 | `.mcp.json`                        | Bundled local MCP server configuration                         |
 | `skills/markdown-review/`          | Codex workflow and feedback-handling instructions              |
 | `skills/dyna/`                     | Schedule, publishing, dashboard, and Codex action workflow     |
-| `packages/dyna-contracts/`         | Dyna source, snapshot, action, and render-catalog schemas      |
-| `packages/dyna-core/`              | Pure Dyna snapshot-to-component compilation                    |
+| `packages/dyna-contracts/`         | Dyna source, snapshot, action, and UI payload schemas          |
 | `packages/dyna-node/`              | SQLite persistence and capability-bound action state machine   |
 | `packages/dyna-ui/`                | Responsive React and Apps SDK UI dashboard                     |
 | `packages/flowzone-contracts/`     | Shared router, UI envelope, limits, and error contracts        |

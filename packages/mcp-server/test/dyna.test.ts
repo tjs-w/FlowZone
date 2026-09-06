@@ -21,6 +21,10 @@ describe("Dyna publisher source manifest actions", () => {
       expect(JSON.parse(result.stdout)).toEqual({
         createSchema: true,
         disabledByDefault: true,
+        disabledEnforced: true,
+        localPreviewOperational: true,
+        scheduledManualRejected: true,
+        latestSlicesExposed: true,
         manifestRequired: true,
         bindSchema: true,
         updateSchema: true,

@@ -52,7 +52,12 @@ function item(slice, externalId, sourceUpdatedAt) {
 
 try {
   const dashboard = store.createDashboard("Required source manifest", "Completeness guard");
-  const created = store.createPublisher("Executive rollup", undefined, [slack, gitlab, outlook]);
+  const created = store.createPublisher(
+    "Executive rollup",
+    undefined,
+    [slack, gitlab, outlook],
+    "local_preview",
+  );
   assert.deepEqual(created.publisher.requiredSourceSlices, [gitlab, outlook, slack]);
 
   store.bindSchedule(dashboard.id, created.publisher.id, {
@@ -172,6 +177,18 @@ try {
     "gitlab:current",
     "outlook:preserved",
   ]);
+  const latestPartialSlices = store
+    .listPublishers(dashboard.id)
+    .find(({ id }) => id === created.publisher.id)?.lastSourceSlices;
+  assert.deepEqual(latestPartialSlices, [
+    { ...gitlab, status: "succeeded", freshness: "fresh" },
+    { ...outlook, status: "failed", freshness: "stale" },
+    { ...slack, status: "succeeded", freshness: "fresh" },
+  ]);
+  assert.deepEqual(
+    acceptedSnapshot.schedules.find(({ id }) => id === created.publisher.id)?.lastSourceSlices,
+    latestPartialSlices,
+  );
 
   const rejectedAt = new Date(clockMs + 1_000).toISOString();
   assert.throws(
@@ -249,6 +266,18 @@ try {
       .total,
     0,
   );
+  assert.deepEqual(
+    JSON.parse(
+      raw
+        .prepare("SELECT source_slices FROM publisher_runs WHERE run_id = 'partial-manifest'")
+        .get().source_slices,
+    ),
+    [
+      { ...gitlab, status: "succeeded" },
+      { ...outlook, status: "failed" },
+      { ...slack, status: "succeeded" },
+    ],
+  );
   raw.close();
 
   clockMs += 1_000;
@@ -274,8 +303,24 @@ try {
       .sort(),
     beforeAllFailed.cards.map((card) => card.title).sort(),
   );
+  assert.deepEqual(
+    store
+      .listPublishers(dashboard.id)
+      .find(({ id }) => id === created.publisher.id)
+      ?.lastSourceSlices?.map(({ status, freshness }) => ({ status, freshness })),
+    [
+      { status: "failed", freshness: "stale" },
+      { status: "failed", freshness: "stale" },
+      { status: "failed", freshness: "stale" },
+    ],
+  );
 
-  const legacy = store.createPublisher("Legacy publisher without a manifest");
+  const legacy = store.createPublisher(
+    "Legacy publisher without a manifest",
+    undefined,
+    undefined,
+    "local_preview",
+  );
   store.bindSchedule(dashboard.id, legacy.publisher.id, {
     id: "legacy-publisher",
     title: "Legacy publisher",
@@ -317,6 +362,8 @@ try {
       bindTimeRegistration: true,
       updateTimeRegistration: true,
       multiSourcePartial: true,
+      sourceSliceEvidence: true,
+      latestSliceFreshness: true,
       omittedRejected: true,
       extraRejected: true,
       duplicateRejected: true,

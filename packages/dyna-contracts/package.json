@@ -7,15 +7,9 @@
     ".": {
       "types": "./src/index.ts",
       "import": "./src/index.ts"
-    },
-    "./catalog": {
-      "types": "./src/catalog.ts",
-      "import": "./src/catalog.ts"
     }
   },
   "dependencies": {
-    "@json-render/core": "0.20.0",
-    "@json-render/react": "0.20.0",
     "zod": "^4.4.3"
   }
 }

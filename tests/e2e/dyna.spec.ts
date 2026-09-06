@@ -183,6 +183,10 @@ test("renders a bounded inline executive brief and expands into the full workspa
 
 test("adds an annotation and sends only an opaque Codex action request", async ({ page }) => {
   await openDetails(page, "Review the release merge request");
+  const detailTrigger = page.locator('.dyna-row-main[aria-expanded="true"]');
+  const controlledInspector = await detailTrigger.getAttribute("aria-controls");
+  expect(controlledInspector).toMatch(/^dyna-inspector-/);
+  await expect(page.locator(`[id="${controlledInspector ?? "missing"}"]`)).toBeVisible();
   const addNote = page.getByRole("button", { name: "Add note" });
   await addNote.focus();
   await addNote.click();
@@ -381,6 +385,78 @@ test("keeps rejected to-dos editable through a successful background refresh", a
   await expect(context).toHaveValue("The draft must survive a failed save.");
 });
 
+test("locks the dashboard behind sheets and narrow detail routes across responsive changes", async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1_280, height: 500 });
+  await page.goto("/dyna?stress=1&inline-only=1");
+  expect(await page.evaluate(() => document.documentElement.scrollHeight > innerHeight)).toBe(true);
+  const dashboardBefore = await page.locator(".dyna").boundingBox();
+
+  await page.getByRole("button", { name: "Add to-do" }).click();
+  await expect(page.getByRole("dialog", { name: "Add to the priority queue" })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe("hidden");
+  const lockedScrollY = await page.evaluate(() => window.scrollY);
+  const dashboardLocked = await page.locator(".dyna").boundingBox();
+  expect(Math.abs((dashboardLocked?.x ?? 0) - (dashboardBefore?.x ?? 0))).toBeLessThanOrEqual(1);
+  expect(
+    Math.abs((dashboardLocked?.width ?? 0) - (dashboardBefore?.width ?? 0)),
+  ).toBeLessThanOrEqual(1);
+  if (testInfo.project.name !== "mobile-webkit") {
+    await page.mouse.move(4, 4);
+    await page.mouse.wheel(0, 400);
+    expect(await page.evaluate(() => window.scrollY)).toBe(lockedScrollY);
+  }
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe("");
+  expect(await page.evaluate(() => window.scrollY)).toBe(lockedScrollY);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openDetails(page, "Review the release merge request");
+  await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe("hidden");
+  await page.getByRole("button", { name: "Add note" }).click();
+  await expect(page.getByRole("dialog", { name: "Add an executive note" })).toBeVisible();
+  await page.setViewportSize({ width: 1_280, height: 900 });
+  await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe("hidden");
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe("");
+  await expect(page.locator(".dyna-inspector-layer")).toHaveAttribute("data-presentation", "split");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe("hidden");
+  await page.getByRole("button", { name: "Back to attention queue" }).click();
+  await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe("");
+});
+
+test("restores the queue position and starts each pipeline stage at its top", async ({ page }) => {
+  await page.setViewportSize({ width: 1_280, height: 500 });
+  await page.goto("/dyna?stress=1&pipeline=1&inline-only=1");
+  await expect(page.locator('.dyna-card[data-presentation="queue"]')).toHaveCount(199);
+
+  await page.evaluate(() => {
+    window.scrollTo(0, document.documentElement.scrollHeight);
+  });
+  const queueScrollY = await page.evaluate(() => window.scrollY);
+  expect(queueScrollY).toBeGreaterThan(1_000);
+  await page.getByRole("tab", { name: "Progress pipeline" }).click();
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  await page.getByRole("tab", { name: "Priority queue" }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.scrollY))
+    .toBeGreaterThanOrEqual(queueScrollY - 1);
+
+  await page.getByRole("tab", { name: "Progress pipeline" }).click();
+  await page.getByRole("tab", { name: /To do: 197/ }).click();
+  await page.evaluate(() => {
+    window.scrollTo(0, 1_200);
+  });
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThanOrEqual(1_199);
+  await page.getByRole("tab", { name: /Paused for input: 1/ }).click();
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  await page.getByRole("tab", { name: /To do: 197/ }).click();
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+});
+
 test("keeps failed reprioritization visible without mutating the item", async ({ page }) => {
   await page.goto("/dyna?many-items=1&tool-error=dyna_organize_item");
   await openDetails(page, "Review the release merge request");
@@ -398,7 +474,7 @@ test("renders cross-tool signals and only promotes evidence-bearing leadership",
   await page.goto("/dyna?many-items=1");
   await openFullDashboard(page);
   const queue = page.getByRole("tabpanel", { name: "Priority queue" });
-  for (const source of ["GitHub", "Outlook", "Discord", "$twg"]) {
+  for (const source of ["GitHub", "Outlook", "Discord", "TWG"]) {
     await expect(queue.getByText(source, { exact: true })).toBeVisible();
   }
   await expect(queue.getByText("Avery Chen", { exact: false })).toBeVisible();
@@ -515,6 +591,9 @@ test("keeps a dense ledger compact, scannable, and free of nested scrolling", as
   await expect(rows).toHaveCount(9);
   await expect(rows.locator(".dyna-row-status")).toHaveCount(9);
   await expect(rows.locator(".dyna-row-primary", { hasText: "Details" })).toHaveCount(9);
+  await expect(
+    rows.filter({ hasText: "Additional priority 2" }).locator(".dyna-row-time"),
+  ).toHaveText("No deadline");
   expect((await ledgerRowHeights(page)).every((height) => height >= 82 && height <= 96)).toBe(true);
   expect(await dashboardScrollViolations(page)).toEqual([]);
 
@@ -522,6 +601,65 @@ test("keeps a dense ledger compact, scannable, and free of nested scrolling", as
   expect((await ledgerRowHeights(page)).every((height) => height >= 82 && height <= 96)).toBe(true);
   expect(await dashboardScrollViolations(page)).toEqual([]);
   expect(await touchTargetViolations(page)).toEqual([]);
+});
+
+test("keeps the maximum 200-item snapshot within interaction performance budgets", async ({
+  page,
+}) => {
+  const startedAt = Date.now();
+  await page.goto("/dyna?stress=1&inline-only=1");
+  const rows = page.locator('.dyna-card[data-presentation="queue"]');
+  await expect(rows).toHaveCount(200);
+
+  expect(Date.now() - startedAt).toBeLessThan(2_500);
+  expect(await page.locator("*").count()).toBeLessThan(5_000);
+
+  const interaction = await page.evaluate(async () => {
+    const settle = () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            resolve();
+          }),
+        ),
+      );
+    const pipeline = document.getElementById("dyna-tab-pipeline");
+    const queue = document.getElementById("dyna-tab-queue");
+    const search = document.querySelector('input[aria-label="Search dashboard"]');
+    if (
+      !(pipeline instanceof HTMLButtonElement) ||
+      !(queue instanceof HTMLButtonElement) ||
+      !(search instanceof HTMLInputElement)
+    ) {
+      throw new Error("Expected Dyna performance controls");
+    }
+
+    let start = performance.now();
+    pipeline.click();
+    await settle();
+    const pipelineMs = performance.now() - start;
+
+    queue.click();
+    await settle();
+    const valueDescriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+    if (!valueDescriptor?.set) throw new Error("Expected the native input value setter");
+    start = performance.now();
+    valueDescriptor.set.call(search, "Additional priority 199");
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+    const searchFeedbackMs = performance.now() - start;
+
+    return {
+      pipelineMs,
+      searchFeedbackMs,
+      matchingRows: document.querySelectorAll('.dyna-card[data-presentation="queue"]').length,
+    };
+  });
+
+  expect(interaction.pipelineMs).toBeLessThan(500);
+  expect(interaction.searchFeedbackMs).toBeLessThan(500);
+  expect(interaction.matchingRows).toBe(1);
+  await expect(page.locator('.dyna-visually-hidden[role="status"]')).toHaveText("1 matching item.");
 });
 
 test("lets attention rows grow without overlap at large text sizes", async ({ page }) => {
@@ -693,9 +831,18 @@ test("projects the same items through the Codex progress pipeline and creates fo
   await expect(summary).toContainText("2need attention");
   await expect(summary).toContainText("1leadership");
   const queueTab = page.getByRole("tab", { name: "Priority queue" });
+  const pipelineTab = page.getByRole("tab", { name: "Progress pipeline" });
   await queueTab.focus();
+  await queueTab.press("ArrowLeft");
+  await expect(pipelineTab).toBeFocused();
+  await pipelineTab.press("ArrowRight");
+  await expect(queueTab).toBeFocused();
+  await queueTab.press("End");
+  await expect(pipelineTab).toBeFocused();
+  await pipelineTab.press("Home");
+  await expect(queueTab).toBeFocused();
   await queueTab.press("ArrowRight");
-  await expect(page.getByRole("tab", { name: "Progress pipeline" })).toBeFocused();
+  await expect(pipelineTab).toBeFocused();
   for (const stage of [
     /To do: 1/,
     /Executing in Codex: 1/,
@@ -880,9 +1027,17 @@ test("keeps a failed scheduled source readable at desktop and mobile widths", as
   const title = schedule.locator("strong");
   const metadata = schedule.locator(":scope > .dyna-meta");
   await expect(title).toHaveText("Browser fixture schedule");
-  await expect(schedule.getByText("failed", { exact: true })).toBeVisible();
+  await expect(schedule.getByText("failed", { exact: true }).first()).toBeVisible();
   await expect(metadata).toHaveCount(2);
   await expect(metadata.nth(1)).toContainText("Outlook unavailable");
+  await expect(schedule.getByRole("list", { name: "Latest source results" })).toBeVisible();
+  await expect(schedule.getByRole("listitem")).toHaveCount(4);
+  await expect(
+    schedule.getByRole("listitem", { name: "Outlook team/project: failed" }),
+  ).toBeVisible();
+  await expect(
+    schedule.getByRole("listitem", { name: "Source control team/project: failed" }),
+  ).toBeVisible();
 
   const desktop = await schedule.evaluate((element) => {
     const titleElement = element.querySelector("strong");
@@ -1115,13 +1270,16 @@ test("keeps the bounded brief when the host resolves expansion as inline", async
   await expect(page.locator("html")).toHaveAttribute("data-dyna-display-mode-request-count", "1");
 });
 
-test("keeps authoritative server matches that fall outside the local search preview", async ({
+test("searches the complete bounded annotation history without false negatives", async ({
   page,
 }) => {
   await page.goto("/dyna?older-match=1");
   await openFullDashboard(page);
   const search = page.getByRole("searchbox", { name: "Search dashboard" });
   await search.fill("buriedneedle");
+  await expect(page.getByText("Review the release merge request")).toBeVisible();
+  await expect(page.locator('.dyna-visually-hidden[role="status"]')).toHaveText("1 matching item.");
+  await search.fill("fixture-pr-0");
   await expect(page.getByText("Review the release merge request")).toBeVisible();
   await expect(page.locator('.dyna-visually-hidden[role="status"]')).toHaveText("1 matching item.");
 });
@@ -1154,12 +1312,16 @@ test("reports a rejected action preparation as definitely unsent", async ({ page
 test("falls back to an honest read-only dashboard without server-tool capability", async ({
   page,
 }) => {
-  await page.goto("/dyna?no-server-tools=1");
+  await page.goto("/dyna?no-server-tools=1&many-items=1&inline-only=1");
   await expect(page.getByRole("status", { name: "Read-only host notice" })).toContainText(
     "Dashboard is read-only",
   );
   await expect(page.getByText("Review the release merge request")).toBeVisible();
-  await expect(page.getByRole("button", { name: "New to-do" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Add to-do" })).toBeDisabled();
+  const search = page.getByRole("searchbox", { name: "Search dashboard" });
+  await search.fill("Avery");
+  await expect(page.locator('.dyna-card[data-presentation="queue"]')).toHaveCount(1);
+  await expect(page.locator('.dyna-visually-hidden[role="status"]')).toHaveText("1 matching item.");
   await openDetails(page, "Review the release merge request");
   await expect(page.getByRole("button", { name: "Add note" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Open source" })).toBeDisabled();

@@ -33,7 +33,12 @@ function assertPublicSafe(value) {
 try {
   const store = new DynaStore({ databasePath, clock: () => new Date(clockMs) });
   const dashboard = store.createDashboard("Safe failures", "Public failure messages");
-  const { publisher, secret } = store.createPublisher("Failure source");
+  const { publisher, secret } = store.createPublisher(
+    "Failure source",
+    undefined,
+    undefined,
+    "local_preview",
+  );
   store.bindSchedule(dashboard.id, publisher.id, {
     id: "failure-source",
     title: "Failure source",

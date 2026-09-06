@@ -41,7 +41,12 @@ if (!isMainThread) {
     const store = new DynaStore({ databasePath, clock: () => new Date(now) });
     const dashboard = store.createDashboard("Annotation", "Retry and membership checks");
     const siblingDashboard = store.createDashboard("Annotation sibling", "Scope check");
-    const { publisher, secret } = store.createPublisher("Annotation source");
+    const { publisher, secret } = store.createPublisher(
+      "Annotation source",
+      undefined,
+      undefined,
+      "local_preview",
+    );
     for (const target of [dashboard, siblingDashboard]) {
       store.bindSchedule(target.id, publisher.id, {
         id: "annotation-source",

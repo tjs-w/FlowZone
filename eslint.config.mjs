@@ -52,7 +52,6 @@ export default tseslint.config(
       "packages/core/src/**/*.ts",
       "packages/review-ui/src/**/*.ts",
       "packages/dyna-contracts/src/**/*.ts",
-      "packages/dyna-core/src/**/*.ts",
     ],
     rules: {
       "no-restricted-imports": [

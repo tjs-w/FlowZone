@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 
 import {
   DynaPublishSourceSlicesSchema,
+  DynaPublisherSchema,
   DynaRequiredSourceSlicesSchema,
+  DynaScheduledPublishedItemSchema,
   DynaUiPayloadSchema,
   DynaPublishedItemSchema,
   DynaTaskStatusSchema,
@@ -26,10 +28,10 @@ describe("Dyna executive signal contracts", () => {
   test("accepts only the versioned snapshot-only UI payload", () => {
     const timestamp = "2026-09-04T12:00:00.000Z";
     const payload = {
-      schema: "dyna/ui-v5",
+      schema: "dyna/ui-v6",
       viewToken: "v".repeat(32),
       snapshot: {
-        schema: "dyna/snapshot-v3",
+        schema: "dyna/snapshot-v4",
         dashboard: {
           id: "bd9a11b5-fbf8-495a-a116-d3429496969f",
           name: "Morning brief",
@@ -99,6 +101,62 @@ describe("Dyna executive signal contracts", () => {
         { source: "manual", sourceScope: "manual:dashboard", status: "succeeded" },
       ]).success,
     ).toBe(false);
+  });
+
+  test("keeps manual items internal to user-created to-dos", () => {
+    const manualItem = {
+      externalId: "manual:todo",
+      sourceRef: {
+        source: "manual",
+        todoId: "bd9a11b5-fbf8-495a-a116-d3429496969f",
+      },
+      sourceScope: "manual:dashboard",
+      title: "User-created to-do",
+      summary: "Manual items remain valid materialized records.",
+      priority: "normal",
+      priorityReason: "Created by the user.",
+      sourceUpdatedAt: "2026-09-04T12:00:00.000Z",
+      labels: [],
+    } as const;
+
+    expect(DynaPublishedItemSchema.safeParse(manualItem).success).toBe(true);
+    expect(DynaScheduledPublishedItemSchema.safeParse(manualItem).success).toBe(false);
+  });
+
+  test("exposes bounded publisher credential and latest-slice state", () => {
+    const timestamp = "2026-09-04T12:00:00.000Z";
+    const publisher = {
+      id: "bd9a11b5-fbf8-495a-a116-d3429496969f",
+      name: "Protected publisher",
+      scheduleState: "paused",
+      staleAfterMinutes: 60,
+      lastRunStatus: "never",
+      createdAt: timestamp,
+    } as const;
+    expect(DynaPublisherSchema.safeParse(publisher).success).toBe(false);
+
+    expect(
+      DynaPublisherSchema.safeParse({
+        ...publisher,
+        credentialMode: "disabled",
+        lastRunStatus: "partial",
+        lastRunAt: timestamp,
+        lastSourceSlices: [
+          {
+            source: "gitlab",
+            sourceScope: "gitlab:corp/team/project",
+            status: "succeeded",
+            freshness: "fresh",
+          },
+          {
+            source: "outlook",
+            sourceScope: "outlook:executive@example.com",
+            status: "failed",
+            freshness: "stale",
+          },
+        ],
+      }).success,
+    ).toBe(true);
   });
 
   test("accepts bounded publisher source manifests and rejects invalid slices", () => {

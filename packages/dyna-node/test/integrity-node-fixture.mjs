@@ -8,7 +8,12 @@ const store = new DynaStore({ databasePath: ":memory:", clock: () => new Date(no
 try {
   const dashboardA = store.createDashboard("A", "Primary");
   const dashboardB = store.createDashboard("B", "Neighbor");
-  const { publisher, secret } = store.createPublisher("Shared schedule");
+  const { publisher, secret } = store.createPublisher(
+    "Shared schedule",
+    undefined,
+    undefined,
+    "local_preview",
+  );
   for (const dashboard of [dashboardA, dashboardB]) {
     store.bindSchedule(dashboard.id, publisher.id, {
       id: "shared",
@@ -249,7 +254,12 @@ try {
   assert.equal(staleContext.enrichment?.state, "stale");
   assert.equal(staleContext.enrichment?.version, 2);
 
-  const second = store.createPublisher("Untrusted second publisher");
+  const second = store.createPublisher(
+    "Untrusted second publisher",
+    undefined,
+    undefined,
+    "local_preview",
+  );
   store.bindSchedule(dashboardB.id, second.publisher.id, {
     id: "second",
     title: "Second",
@@ -303,6 +313,10 @@ try {
     /credentials are invalid/,
   );
   store.revokePublisher(second.publisher.id, false);
+  assert.equal(
+    store.listPublishers().find(({ id }) => id === second.publisher.id)?.scheduleState,
+    "unknown",
+  );
   assert.throws(
     () =>
       store.publish(second.publisher.id, rotatedSecret, [], {
@@ -319,8 +333,8 @@ try {
   assert.throws(() => store.getDashboard(disposable.id), /not found/);
 
   const searchDashboard = store.createDashboard("Search", "Bounded window");
-  const bulk = store.createPublisher("Bulk");
-  const needle = store.createPublisher("Needle");
+  const bulk = store.createPublisher("Bulk", undefined, undefined, "local_preview");
+  const needle = store.createPublisher("Needle", undefined, undefined, "local_preview");
   for (const source of [bulk.publisher, needle.publisher]) {
     store.bindSchedule(searchDashboard.id, source.id, {
       id: source.id,

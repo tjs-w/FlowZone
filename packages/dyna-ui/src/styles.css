@@ -55,6 +55,10 @@ body,
   color: var(--d-text);
 }
 
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   overflow-x: hidden;
   font-family:
@@ -802,6 +806,23 @@ select {
 .dyna-schedule > .dyna-meta {
   grid-column: 1 / -1;
   overflow-wrap: anywhere;
+}
+
+.dyna-slice-summary {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+.dyna-slice {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  color: var(--d-muted);
+  font-size: 11px;
 }
 
 .dyna-inspector-layer {

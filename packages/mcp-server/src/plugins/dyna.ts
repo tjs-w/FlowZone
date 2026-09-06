@@ -11,6 +11,7 @@ import {
   DynaPublishSourceSlicesSchema,
   DynaPublishedItemSchema,
   DynaPublisherSchema,
+  DynaRequiredSourceSlicesSchema,
   DynaSourceRefSchema,
   DynaTaskStatusSchema,
   DynaTodoInputSchema,
@@ -72,13 +73,21 @@ const SearchItemSchema = z
     linkedTasks: z.array(DynaTaskStatusSchema).max(8),
   })
   .strict();
-const PublisherSecretResultSchema = z
-  .object({
-    publisher: DynaPublisherSchema,
-    secret: z.string().min(32).max(128),
-    credentialHandling: z.literal("model-visible-trusted-local-preview-only"),
-  })
-  .strict();
+const PublisherCreationResultSchema = z.discriminatedUnion("credentialHandling", [
+  z
+    .object({
+      publisher: DynaPublisherSchema,
+      credentialHandling: z.literal("disabled-pending-protected-auth"),
+    })
+    .strict(),
+  z
+    .object({
+      publisher: DynaPublisherSchema,
+      secret: z.string().min(32).max(128),
+      credentialHandling: z.literal("model-visible-trusted-local-preview-only"),
+    })
+    .strict(),
+]);
 const CompletionInputSchema = z.discriminatedUnion("outcome", [
   z
     .object({
@@ -521,22 +530,26 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
         id: "create-publisher",
         title: "Create Dyna schedule publisher",
         description:
-          "Create a model-visible publisher credential for one trusted single-user local-preview schedule; production use requires a protected host credential channel.",
+          "Create a Dyna publisher with its complete immutable required source manifest. The default discards the one-time credential so publication stays disabled pending protected host authentication; only an explicit trusted local-preview mode returns a model-visible credential.",
         inputSchema: z
           .object({
             name: z.string().trim().min(1).max(96),
             schedule: ScheduleSchema.optional(),
+            requiredSourceSlices: DynaRequiredSourceSlicesSchema,
+            credentialMode: z.enum(["disabled", "local_preview"]).default("disabled"),
           })
           .strict(),
-        outputSchema: PublisherSecretResultSchema,
+        outputSchema: PublisherCreationResultSchema,
         risk: { readOnly: false, destructive: false, openWorld: false, idempotent: false },
         executor: {
           kind: "module",
           execute(input) {
-            const { name, schedule } = z
+            const { name, schedule, requiredSourceSlices, credentialMode } = z
               .object({
                 name: z.string().trim().min(1).max(96),
                 schedule: ScheduleSchema.optional(),
+                requiredSourceSlices: DynaRequiredSourceSlicesSchema,
+                credentialMode: z.enum(["disabled", "local_preview"]).default("disabled"),
               })
               .strict()
               .parse(input);
@@ -550,7 +563,16 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
                     staleAfterMinutes: schedule.staleAfterMinutes,
                   }
                 : undefined,
+              requiredSourceSlices,
             );
+            if (credentialMode === "disabled") {
+              return {
+                result: {
+                  publisher: created.publisher,
+                  credentialHandling: "disabled-pending-protected-auth" as const,
+                },
+              };
+            }
             return {
               result: {
                 ...created,
@@ -559,8 +581,11 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
             };
           },
         },
-        summarize() {
-          return "Created a Dyna publisher for trusted local preview. Its one-time credential is model-visible and must be rotated or revoked when exposure is uncertain.";
+        summarize(result) {
+          return PublisherCreationResultSchema.parse(result).credentialHandling ===
+            "disabled-pending-protected-auth"
+            ? "Created a Dyna publisher with publication disabled pending protected host authentication."
+            : "Created a Dyna publisher with a model-visible credential for explicitly authorized trusted non-production local preview.";
         },
       },
       {
@@ -617,9 +642,13 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
         id: "bind-schedule",
         title: "Bind schedule to Dyna dashboard",
         description:
-          "Bind one scheduled publisher to one dashboard; publishers and dashboards can have many bindings.",
+          "Bind one scheduled publisher to one dashboard and optionally register its required source slices once; publishers and dashboards can have many bindings.",
         inputSchema: z
-          .object({ dashboardId: z.uuid(), publisherId: z.uuid() })
+          .object({
+            dashboardId: z.uuid(),
+            publisherId: z.uuid(),
+            requiredSourceSlices: DynaRequiredSourceSlicesSchema.optional(),
+          })
           .extend(ScheduleSchema.shape)
           .strict(),
         outputSchema: EmptyResultSchema,
@@ -628,7 +657,11 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
           kind: "module",
           execute(input) {
             const parsed = z
-              .object({ dashboardId: z.uuid(), publisherId: z.uuid() })
+              .object({
+                dashboardId: z.uuid(),
+                publisherId: z.uuid(),
+                requiredSourceSlices: DynaRequiredSourceSlicesSchema.optional(),
+              })
               .extend(ScheduleSchema.shape)
               .strict()
               .parse(input);
@@ -637,6 +670,9 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
               title: parsed.scheduleTitle,
               state: parsed.scheduleState,
               staleAfterMinutes: parsed.staleAfterMinutes,
+              ...(parsed.requiredSourceSlices
+                ? { requiredSourceSlices: parsed.requiredSourceSlices }
+                : {}),
             });
             return { result: { ok: true as const } };
           },
@@ -666,7 +702,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
         id: "list-publishers",
         title: "List Dyna scheduled sources",
         description:
-          "List registered native schedule identities and last-run status, optionally for one dashboard.",
+          "List registered native schedule identities, required source manifests, and last-run status, optionally for one dashboard.",
         inputSchema: z.object({ dashboardId: z.uuid().optional() }).strict(),
         outputSchema: z.object({ publishers: z.array(DynaPublisherSchema).max(100) }).strict(),
         risk: { readOnly: true, destructive: false, openWorld: false, idempotent: true },
@@ -685,13 +721,14 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
         id: "update-schedule-status",
         title: "Update Dyna schedule status",
         description:
-          "Reconcile a publisher with the current native Codex schedule title and state.",
+          "Reconcile a publisher with the current native Codex schedule metadata and optionally register its required source slices once.",
         inputSchema: z
           .object({
             publisherId: z.uuid(),
             scheduleTitle: z.string().trim().min(1).max(200).optional(),
             scheduleState: z.enum(["active", "paused", "unknown"]),
             staleAfterMinutes: z.number().int().min(5).max(43_200).optional(),
+            requiredSourceSlices: DynaRequiredSourceSlicesSchema.optional(),
           })
           .strict(),
         outputSchema: EmptyResultSchema,
@@ -705,6 +742,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
                 scheduleTitle: z.string().trim().min(1).max(200).optional(),
                 scheduleState: z.enum(["active", "paused", "unknown"]),
                 staleAfterMinutes: z.number().int().min(5).max(43_200).optional(),
+                requiredSourceSlices: DynaRequiredSourceSlicesSchema.optional(),
               })
               .strict()
               .parse(input);
@@ -712,6 +750,9 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
               ...(parsed.scheduleTitle ? { title: parsed.scheduleTitle } : {}),
               state: parsed.scheduleState,
               ...(parsed.staleAfterMinutes ? { staleAfterMinutes: parsed.staleAfterMinutes } : {}),
+              ...(parsed.requiredSourceSlices
+                ? { requiredSourceSlices: parsed.requiredSourceSlices }
+                : {}),
             });
             return { result: { ok: true as const } };
           },
@@ -721,7 +762,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
         id: "publish-run",
         title: "Publish scheduled Dyna run",
         description:
-          "Validate and publish bounded email, messaging, source-control, TWG, skill, or Codex records from an authenticated scheduled run.",
+          "Validate and publish bounded email, messaging, source-control, TWG, skill, or Codex records from an authenticated scheduled run, exactly covering any registered source manifest.",
         inputSchema: z
           .object({
             publisherId: z.uuid(),

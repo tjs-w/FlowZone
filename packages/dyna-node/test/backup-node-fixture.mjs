@@ -82,7 +82,7 @@ try {
   );
 
   const verified = new DatabaseSync(backupPath, { readOnly: true });
-  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 1);
+  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 2);
   assert.equal(verified.prepare("PRAGMA integrity_check").get().integrity_check, "ok");
   assert.deepEqual(verified.prepare("PRAGMA foreign_key_check").all(), []);
   verified.close();

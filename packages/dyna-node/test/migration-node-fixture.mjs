@@ -73,7 +73,7 @@ try {
   migrated.close();
 
   const versioned = new DatabaseSync(databasePath, { readOnly: true });
-  assert.equal(versioned.prepare("PRAGMA user_version").get().user_version, 1);
+  assert.equal(versioned.prepare("PRAGMA user_version").get().user_version, 2);
   versioned.close();
 
   globalThis.process.stdout.write(JSON.stringify({ migrated: true, completedIsNotFocus: true }));

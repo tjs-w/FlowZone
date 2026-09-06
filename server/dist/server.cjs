@@ -53010,6 +53010,24 @@ var DynaPublishedItemSchema = external_exports.object({
   plan: external_exports.array(external_exports.string().trim().min(1).max(200)).max(4).default([]),
   nextSteps: external_exports.array(DynaNextStepSchema).max(4).default([])
 }).strict();
+var DynaRequiredSourceSliceSchema = external_exports.object({
+  source: DynaScheduledSourceSchema,
+  sourceScope: external_exports.string().trim().min(1).max(128)
+}).strict();
+var DynaRequiredSourceSlicesSchema = external_exports.array(DynaRequiredSourceSliceSchema).min(1).max(50).superRefine((slices, context) => {
+  const seen = /* @__PURE__ */ new Set();
+  for (const [index, slice] of slices.entries()) {
+    const key = JSON.stringify([slice.source, slice.sourceScope]);
+    if (seen.has(key)) {
+      context.addIssue({
+        code: "custom",
+        message: "A Dyna publisher manifest cannot require the same source slice twice.",
+        path: [index]
+      });
+    }
+    seen.add(key);
+  }
+});
 var DynaPublishSourceSliceSchema = external_exports.object({
   source: DynaScheduledSourceSchema,
   sourceScope: external_exports.string().trim().min(1).max(128),
@@ -53047,6 +53065,7 @@ var DynaPublisherSchema = external_exports.object({
   scheduleTitle: external_exports.string().trim().min(1).max(200).optional(),
   scheduleState: external_exports.enum(["active", "paused", "unknown"]),
   staleAfterMinutes: external_exports.number().int().min(5).max(43200),
+  requiredSourceSlices: DynaRequiredSourceSlicesSchema.optional(),
   lastRunStatus: external_exports.enum(["never", "succeeded", "partial", "failed"]),
   lastRunAt: TimestampSchema2.optional(),
   lastRunError: external_exports.string().trim().min(1).max(500).optional(),
@@ -54810,7 +54829,7 @@ var VIEW_TTL_MS = 30 * 24 * 60 * 60 * 1e3;
 var ACTION_TTL_MS = 10 * 60 * 1e3;
 var CLAIM_LEASE_MS = 5 * 60 * 1e3;
 var MAX_CLOCK_SKEW_MS = 5 * 60 * 1e3;
-var DYNA_SCHEMA_VERSION = 1;
+var DYNA_SCHEMA_VERSION = 2;
 var MAX_DASHBOARDS = 100;
 var MAX_PUBLISHERS = 100;
 var MAX_SCHEDULES_PER_DASHBOARD = 50;
@@ -55019,6 +55038,20 @@ function normalizedPublishedItem(item) {
 function publishSourceSliceKey(source, sourceScope) {
   return JSON.stringify([source, sourceScope]);
 }
+function comparePublishSourceSlices(left, right) {
+  const leftKey = publishSourceSliceKey(left.source, left.sourceScope);
+  const rightKey = publishSourceSliceKey(right.source, right.sourceScope);
+  return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+}
+function normalizedRequiredSourceSlices(slices) {
+  return [...DynaRequiredSourceSlicesSchema.parse(slices)].sort(comparePublishSourceSlices);
+}
+function requiredSourceSlicesFromRow(row) {
+  const stored = row["required_source_slices"];
+  if (stored === null || stored === void 0) return void 0;
+  if (typeof stored !== "string") throw new Error("Dyna stored publisher manifest is invalid.");
+  return normalizedRequiredSourceSlices(DynaRequiredSourceSlicesSchema.parse(parseJson(stored)));
+}
 function defaultDynaDatabasePath(environment = process.env) {
   const configured = environment["FLOWZONE_DATA_DIR"];
   if (configured?.trim()) return (0, import_node_path5.resolve)(configured, "dyna.sqlite3");
@@ -55133,6 +55166,7 @@ var DynaStore = class {
         id TEXT PRIMARY KEY, name TEXT NOT NULL, token_hash BLOB NOT NULL,
         schedule_id TEXT, schedule_title TEXT, schedule_state TEXT NOT NULL DEFAULT 'unknown',
         stale_after_minutes INTEGER NOT NULL DEFAULT 1440,
+        required_source_slices TEXT,
         last_run_status TEXT NOT NULL DEFAULT 'never', last_run_at TEXT, last_run_completed_ms INTEGER,
         last_run_error TEXT, revoked_at TEXT,
         created_at TEXT NOT NULL
@@ -55232,62 +55266,77 @@ var DynaStore = class {
     }
     this.#database.exec("PRAGMA journal_mode = WAL;");
     if (version2 === DYNA_SCHEMA_VERSION) return;
-    if (version2 !== 0) throw new Error("The Dyna database schema version is unsupported.");
-    this.#transaction(() => {
-      this.#createSchema();
-      this.#migrateUnversionedSchema();
-      this.#sanitizeLegacyFailureMessages();
-      this.#database.prepare(
-        "UPDATE publishers SET schedule_id = NULL WHERE schedule_id IS NOT NULL AND trim(schedule_id) = ''"
-      ).run();
-      const duplicateSchedule = this.#one(
-        this.#database.prepare(
-          `SELECT schedule_id FROM publishers
-           WHERE schedule_id IS NOT NULL
-           GROUP BY schedule_id HAVING COUNT(*) > 1 LIMIT 1`
-        )
-      );
-      if (duplicateSchedule) {
-        throw new Error(
-          "The unversioned Dyna database contains duplicate native schedule identifiers; reconcile them before upgrading."
+    if (version2 === 1) {
+      this.#transaction(() => {
+        const publisherColumns = new Set(
+          this.#database.prepare("PRAGMA table_info(publishers)").all().map(
+            (row) => requiredString(row, "name")
+          )
         );
-      }
-      const oversizedDashboard = this.#one(
+        if (!publisherColumns.has("required_source_slices")) {
+          this.#database.exec("ALTER TABLE publishers ADD COLUMN required_source_slices TEXT");
+        }
+        this.#assertDatabaseIntegrity();
+        this.#database.exec("PRAGMA user_version = 2;");
+      });
+    } else {
+      if (version2 !== 0) throw new Error("The Dyna database schema version is unsupported.");
+      this.#transaction(() => {
+        this.#createSchema();
+        this.#migrateUnversionedSchema();
+        this.#sanitizeLegacyFailureMessages();
         this.#database.prepare(
-          `SELECT dp.dashboard_id FROM dashboard_publishers dp
-           JOIN publishers p ON p.id = dp.publisher_id
-           WHERE p.schedule_id IS NOT NULL
-           GROUP BY dp.dashboard_id HAVING COUNT(*) > ? LIMIT 1`
-        ),
-        MAX_SCHEDULES_PER_DASHBOARD
-      );
-      if (oversizedDashboard) {
-        throw new Error(
-          "The unversioned Dyna database has more than 50 schedules on one dashboard; reduce its bindings before upgrading."
+          "UPDATE publishers SET schedule_id = NULL WHERE schedule_id IS NOT NULL AND trim(schedule_id) = ''"
+        ).run();
+        const duplicateSchedule = this.#one(
+          this.#database.prepare(
+            `SELECT schedule_id FROM publishers
+             WHERE schedule_id IS NOT NULL
+             GROUP BY schedule_id HAVING COUNT(*) > 1 LIMIT 1`
+          )
         );
-      }
-      this.#database.exec(`
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_dyna_publishers_schedule
-          ON publishers(schedule_id) WHERE schedule_id IS NOT NULL;
-        CREATE TRIGGER IF NOT EXISTS trg_dyna_schedule_id_immutable
-          BEFORE UPDATE OF schedule_id ON publishers
-          WHEN OLD.schedule_id IS NOT NULL AND
-            (NEW.schedule_id IS NULL OR NEW.schedule_id <> OLD.schedule_id)
-          BEGIN
-            SELECT RAISE(ABORT, 'Dyna native schedule identifiers are immutable');
-          END;
-        CREATE INDEX IF NOT EXISTS idx_dyna_dashboard_publishers_publisher
-          ON dashboard_publishers(publisher_id, dashboard_id);
-        CREATE INDEX IF NOT EXISTS idx_dyna_publisher_items_item
-          ON publisher_items(item_id, active, publisher_id);
-        CREATE INDEX IF NOT EXISTS idx_dyna_annotations_item_created
-          ON annotations(item_id, created_at DESC);
-        CREATE INDEX IF NOT EXISTS idx_dyna_actions_item_state
-          ON action_requests(item_id, kind, state, claim_expires_at);
-      `);
-      this.#assertDatabaseIntegrity();
-      this.#database.exec("PRAGMA user_version = 1;");
-    });
+        if (duplicateSchedule) {
+          throw new Error(
+            "The unversioned Dyna database contains duplicate native schedule identifiers; reconcile them before upgrading."
+          );
+        }
+        const oversizedDashboard = this.#one(
+          this.#database.prepare(
+            `SELECT dp.dashboard_id FROM dashboard_publishers dp
+             JOIN publishers p ON p.id = dp.publisher_id
+             WHERE p.schedule_id IS NOT NULL
+             GROUP BY dp.dashboard_id HAVING COUNT(*) > ? LIMIT 1`
+          ),
+          MAX_SCHEDULES_PER_DASHBOARD
+        );
+        if (oversizedDashboard) {
+          throw new Error(
+            "The unversioned Dyna database has more than 50 schedules on one dashboard; reduce its bindings before upgrading."
+          );
+        }
+        this.#database.exec(`
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_dyna_publishers_schedule
+            ON publishers(schedule_id) WHERE schedule_id IS NOT NULL;
+          CREATE TRIGGER IF NOT EXISTS trg_dyna_schedule_id_immutable
+            BEFORE UPDATE OF schedule_id ON publishers
+            WHEN OLD.schedule_id IS NOT NULL AND
+              (NEW.schedule_id IS NULL OR NEW.schedule_id <> OLD.schedule_id)
+            BEGIN
+              SELECT RAISE(ABORT, 'Dyna native schedule identifiers are immutable');
+            END;
+          CREATE INDEX IF NOT EXISTS idx_dyna_dashboard_publishers_publisher
+            ON dashboard_publishers(publisher_id, dashboard_id);
+          CREATE INDEX IF NOT EXISTS idx_dyna_publisher_items_item
+            ON publisher_items(item_id, active, publisher_id);
+          CREATE INDEX IF NOT EXISTS idx_dyna_annotations_item_created
+            ON annotations(item_id, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_dyna_actions_item_state
+            ON action_requests(item_id, kind, state, claim_expires_at);
+        `);
+        this.#assertDatabaseIntegrity();
+        this.#database.exec("PRAGMA user_version = 2;");
+      });
+    }
     const migratedVersion = this.#one(this.#database.prepare("PRAGMA user_version"));
     if (!migratedVersion || requiredNumber(migratedVersion, "user_version") !== DYNA_SCHEMA_VERSION) {
       throw new Error("Dyna could not complete its database schema migration.");
@@ -55300,6 +55349,7 @@ var DynaStore = class {
         schedule_title: "TEXT",
         schedule_state: "TEXT NOT NULL DEFAULT 'unknown'",
         stale_after_minutes: "INTEGER NOT NULL DEFAULT 1440",
+        required_source_slices: "TEXT",
         last_run_status: "TEXT NOT NULL DEFAULT 'never'",
         last_run_at: "TEXT",
         last_run_completed_ms: "INTEGER",
@@ -55543,6 +55593,28 @@ var DynaStore = class {
       throw new Error("Dyna cannot create more than 100 publishers.");
     }
   }
+  #assertManifestCoversActiveSlices(publisherId, requiredSourceSlices) {
+    const requiredKeys = new Set(
+      requiredSourceSlices.map((slice) => publishSourceSliceKey(slice.source, slice.sourceScope))
+    );
+    const activeSlices = this.#database.prepare(
+      `SELECT DISTINCT i.source, i.source_scope FROM publisher_items pi
+         JOIN items i ON i.id = pi.item_id
+         WHERE pi.publisher_id = ? AND pi.active = 1`
+    ).all(publisherId);
+    if (activeSlices.some(
+      (row) => !requiredKeys.has(
+        publishSourceSliceKey(
+          requiredString(row, "source"),
+          requiredString(row, "source_scope")
+        )
+      )
+    )) {
+      throw new Error(
+        "A Dyna publisher manifest must include every source slice with active records."
+      );
+    }
+  }
   createDashboard(name, description) {
     const instant = this.#now();
     const dashboard = DynaDashboardSchema.parse({
@@ -55611,14 +55683,16 @@ var DynaStore = class {
       updatedAt: requiredString(row, "updated_at")
     });
   }
-  createPublisher(name, schedule) {
+  createPublisher(name, schedule, requiredSourceSlices) {
     const secret = token();
+    const normalizedRequiredSlices = requiredSourceSlices ? normalizedRequiredSourceSlices(requiredSourceSlices) : void 0;
     const publisher = DynaPublisherSchema.parse({
       id: (0, import_node_crypto5.randomUUID)(),
       name,
       ...schedule ? { scheduleId: schedule.id, scheduleTitle: schedule.title } : {},
       scheduleState: schedule?.state ?? "unknown",
       staleAfterMinutes: schedule?.staleAfterMinutes ?? 1440,
+      ...normalizedRequiredSlices ? { requiredSourceSlices: normalizedRequiredSlices } : {},
       lastRunStatus: "never",
       createdAt: this.#now()
     });
@@ -55628,8 +55702,8 @@ var DynaStore = class {
         `
           INSERT INTO publishers (
             id, name, token_hash, schedule_id, schedule_title, schedule_state,
-            stale_after_minutes, last_run_status, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'never', ?)
+            stale_after_minutes, required_source_slices, last_run_status, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'never', ?)
         `
       ).run(
         publisher.id,
@@ -55639,6 +55713,7 @@ var DynaStore = class {
         publisher.scheduleTitle ?? null,
         publisher.scheduleState,
         publisher.staleAfterMinutes,
+        publisher.requiredSourceSlices ? JSON.stringify(publisher.requiredSourceSlices) : null,
         publisher.createdAt
       );
       return { publisher, secret };
@@ -55688,7 +55763,9 @@ var DynaStore = class {
     const instant = this.#now();
     this.#transaction(() => {
       const publisher = this.#one(
-        this.#database.prepare("SELECT schedule_id, revoked_at FROM publishers WHERE id = ?"),
+        this.#database.prepare(
+          "SELECT schedule_id, required_source_slices, revoked_at FROM publishers WHERE id = ?"
+        ),
         publisherId
       );
       if (!publisher) throw new Error("Dyna publisher was not found.");
@@ -55707,6 +55784,18 @@ var DynaStore = class {
         publisherId
       );
       if (collision) throw new Error("This native schedule identifier is already registered.");
+      const currentRequiredSlices = requiredSourceSlicesFromRow(publisher);
+      const requestedRequiredSlices = schedule.requiredSourceSlices ? normalizedRequiredSourceSlices(schedule.requiredSourceSlices) : void 0;
+      if (currentRequiredSlices && requestedRequiredSlices && JSON.stringify(currentRequiredSlices) !== JSON.stringify(requestedRequiredSlices)) {
+        throw new Error(
+          "A Dyna publisher's required source manifest is immutable once registered."
+        );
+      }
+      if (!currentRequiredSlices && requestedRequiredSlices) {
+        this.#assertManifestCoversActiveSlices(publisherId, requestedRequiredSlices);
+      }
+      const requiredSlices = currentRequiredSlices ?? requestedRequiredSlices;
+      const requiredSlicesJson = requiredSlices ? JSON.stringify(requiredSlices) : null;
       const dashboardIds = new Set(
         this.#database.prepare("SELECT dashboard_id FROM dashboard_publishers WHERE publisher_id = ?").all(publisherId).map((row) => requiredString(row, "dashboard_id"))
       );
@@ -55724,21 +55813,24 @@ var DynaStore = class {
         }
       }
       const updated = this.#database.prepare(
-        `UPDATE publishers SET schedule_id = ?, schedule_title = ?, schedule_state = ?, stale_after_minutes = ?
+        `UPDATE publishers SET schedule_id = ?, schedule_title = ?, schedule_state = ?, stale_after_minutes = ?, required_source_slices = ?
            WHERE id = ? AND (
              COALESCE(schedule_id, '') != ? OR COALESCE(schedule_title, '') != ? OR
-             schedule_state != ? OR stale_after_minutes != ?
+             schedule_state != ? OR stale_after_minutes != ? OR
+             COALESCE(required_source_slices, '') != COALESCE(?, '')
            )`
       ).run(
         scheduleId,
         scheduleTitle,
         schedule.state,
         schedule.staleAfterMinutes,
+        requiredSlicesJson,
         publisherId,
         scheduleId,
         scheduleTitle,
         schedule.state,
-        schedule.staleAfterMinutes
+        schedule.staleAfterMinutes,
+        requiredSlicesJson
       ).changes;
       const bound = this.#database.prepare(
         "INSERT OR IGNORE INTO dashboard_publishers (dashboard_id, publisher_id) VALUES (?, ?)"
@@ -55762,23 +55854,37 @@ var DynaStore = class {
     this.#transaction(() => {
       const row = this.#one(
         this.#database.prepare(
-          "SELECT schedule_title, schedule_state, stale_after_minutes FROM publishers WHERE id = ?"
+          "SELECT schedule_title, schedule_state, stale_after_minutes, required_source_slices FROM publishers WHERE id = ?"
         ),
         publisherId
       );
       if (!row) throw new Error("Dyna publisher was not found.");
       const title = schedule.title ?? optionalString(row, "schedule_title");
       const staleAfterMinutes = schedule.staleAfterMinutes ?? requiredNumber(row, "stale_after_minutes");
+      const currentRequiredSlices = requiredSourceSlicesFromRow(row);
+      const requestedRequiredSlices = schedule.requiredSourceSlices ? normalizedRequiredSourceSlices(schedule.requiredSourceSlices) : void 0;
+      if (currentRequiredSlices && requestedRequiredSlices && JSON.stringify(currentRequiredSlices) !== JSON.stringify(requestedRequiredSlices)) {
+        throw new Error(
+          "A Dyna publisher's required source manifest is immutable once registered."
+        );
+      }
+      if (!currentRequiredSlices && requestedRequiredSlices) {
+        this.#assertManifestCoversActiveSlices(publisherId, requestedRequiredSlices);
+      }
+      const requiredSlices = currentRequiredSlices ?? requestedRequiredSlices;
+      const requiredSlicesJson = requiredSlices ? JSON.stringify(requiredSlices) : null;
       const changed = this.#database.prepare(
-        "UPDATE publishers SET schedule_title = ?, schedule_state = ?, stale_after_minutes = ? WHERE id = ? AND (COALESCE(schedule_title, '') != COALESCE(?, '') OR schedule_state != ? OR stale_after_minutes != ?)"
+        "UPDATE publishers SET schedule_title = ?, schedule_state = ?, stale_after_minutes = ?, required_source_slices = ? WHERE id = ? AND (COALESCE(schedule_title, '') != COALESCE(?, '') OR schedule_state != ? OR stale_after_minutes != ? OR COALESCE(required_source_slices, '') != COALESCE(?, ''))"
       ).run(
         title ?? null,
         schedule.state,
         staleAfterMinutes,
+        requiredSlicesJson,
         publisherId,
         title ?? null,
         schedule.state,
-        staleAfterMinutes
+        staleAfterMinutes,
+        requiredSlicesJson
       ).changes;
       if (changed === 1) this.#touchDashboardsForPublisher(publisherId);
     });
@@ -55800,6 +55906,7 @@ var DynaStore = class {
   }
   #publisherFromRow(row) {
     const lastRunError = optionalString(row, "last_run_error");
+    const requiredSourceSlices = requiredSourceSlicesFromRow(row);
     return DynaPublisherSchema.parse({
       id: requiredString(row, "id"),
       name: requiredString(row, "name"),
@@ -55807,6 +55914,7 @@ var DynaStore = class {
       ...optionalString(row, "schedule_title") ? { scheduleTitle: optionalString(row, "schedule_title") } : {},
       scheduleState: requiredString(row, "schedule_state"),
       staleAfterMinutes: requiredNumber(row, "stale_after_minutes"),
+      ...requiredSourceSlices ? { requiredSourceSlices } : {},
       lastRunStatus: requiredString(row, "last_run_status"),
       ...optionalString(row, "last_run_at") ? { lastRunAt: optionalString(row, "last_run_at") } : {},
       ...lastRunError ? { lastRunError: sanitizePersistedFailureMessage(lastRunError) } : {},
@@ -55817,7 +55925,9 @@ var DynaStore = class {
   publish(publisherId, secret, items, options) {
     const failureMessage = options.failureMessage === void 0 ? void 0 : sanitizePublicFailureMessage(options.failureMessage);
     const parsedItems = items.map(normalizedPublishedItem);
-    const sourceSlices = options.sourceSlices ? DynaPublishSourceSlicesSchema.parse(options.sourceSlices) : void 0;
+    const sourceSlices = options.sourceSlices ? [...DynaPublishSourceSlicesSchema.parse(options.sourceSlices)].sort(
+      comparePublishSourceSlices
+    ) : void 0;
     if (options.status === "failed" && (parsedItems.length > 0 || !failureMessage)) {
       throw new Error("A failed Dyna run requires an error and cannot publish a partial snapshot.");
     }
@@ -55870,11 +55980,31 @@ var DynaStore = class {
     const instant = this.#now();
     return this.#transaction(() => {
       const publisher = this.#one(
-        this.#database.prepare("SELECT token_hash, revoked_at FROM publishers WHERE id = ?"),
+        this.#database.prepare(
+          "SELECT token_hash, required_source_slices, revoked_at FROM publishers WHERE id = ?"
+        ),
         publisherId
       );
       if (!publisher || optionalString(publisher, "revoked_at") || !hashesMatch(secret, publisher["token_hash"])) {
         throw new Error("Dyna publisher credentials are invalid.");
+      }
+      const requiredSourceSlices = requiredSourceSlicesFromRow(publisher);
+      if (requiredSourceSlices) {
+        if (!sourceSlices) {
+          throw new Error(
+            "A Dyna run must declare every source slice required by its publisher manifest."
+          );
+        }
+        const declaredSliceKeys = new Set(
+          sourceSlices.map((slice) => publishSourceSliceKey(slice.source, slice.sourceScope))
+        );
+        if (declaredSliceKeys.size !== requiredSourceSlices.length || requiredSourceSlices.some(
+          (slice) => !declaredSliceKeys.has(publishSourceSliceKey(slice.source, slice.sourceScope))
+        )) {
+          throw new Error(
+            "A Dyna run's source slices must exactly match its publisher manifest, including failed slices."
+          );
+        }
       }
       const previous = this.#one(
         this.#database.prepare(
@@ -57375,11 +57505,17 @@ var SearchItemSchema = external_exports.object({
   outcome: external_exports.string().trim().min(1).max(200).optional(),
   linkedTasks: external_exports.array(DynaTaskStatusSchema).max(8)
 }).strict();
-var PublisherSecretResultSchema = external_exports.object({
-  publisher: DynaPublisherSchema,
-  secret: external_exports.string().min(32).max(128),
-  credentialHandling: external_exports.literal("model-visible-trusted-local-preview-only")
-}).strict();
+var PublisherCreationResultSchema = external_exports.discriminatedUnion("credentialHandling", [
+  external_exports.object({
+    publisher: DynaPublisherSchema,
+    credentialHandling: external_exports.literal("disabled-pending-protected-auth")
+  }).strict(),
+  external_exports.object({
+    publisher: DynaPublisherSchema,
+    secret: external_exports.string().min(32).max(128),
+    credentialHandling: external_exports.literal("model-visible-trusted-local-preview-only")
+  }).strict()
+]);
 var CompletionInputSchema = external_exports.discriminatedUnion("outcome", [
   external_exports.object({
     requestId: external_exports.uuid(),
@@ -57750,19 +57886,23 @@ function createDynaPlugin(options = {}) {
       {
         id: "create-publisher",
         title: "Create Dyna schedule publisher",
-        description: "Create a model-visible publisher credential for one trusted single-user local-preview schedule; production use requires a protected host credential channel.",
+        description: "Create a Dyna publisher with its complete immutable required source manifest. The default discards the one-time credential so publication stays disabled pending protected host authentication; only an explicit trusted local-preview mode returns a model-visible credential.",
         inputSchema: external_exports.object({
           name: external_exports.string().trim().min(1).max(96),
-          schedule: ScheduleSchema.optional()
+          schedule: ScheduleSchema.optional(),
+          requiredSourceSlices: DynaRequiredSourceSlicesSchema,
+          credentialMode: external_exports.enum(["disabled", "local_preview"]).default("disabled")
         }).strict(),
-        outputSchema: PublisherSecretResultSchema,
+        outputSchema: PublisherCreationResultSchema,
         risk: { readOnly: false, destructive: false, openWorld: false, idempotent: false },
         executor: {
           kind: "module",
           execute(input) {
-            const { name, schedule } = external_exports.object({
+            const { name, schedule, requiredSourceSlices, credentialMode } = external_exports.object({
               name: external_exports.string().trim().min(1).max(96),
-              schedule: ScheduleSchema.optional()
+              schedule: ScheduleSchema.optional(),
+              requiredSourceSlices: DynaRequiredSourceSlicesSchema,
+              credentialMode: external_exports.enum(["disabled", "local_preview"]).default("disabled")
             }).strict().parse(input);
             const created = service.store.createPublisher(
               name,
@@ -57771,8 +57911,17 @@ function createDynaPlugin(options = {}) {
                 title: schedule.scheduleTitle,
                 state: schedule.scheduleState,
                 staleAfterMinutes: schedule.staleAfterMinutes
-              } : void 0
+              } : void 0,
+              requiredSourceSlices
             );
+            if (credentialMode === "disabled") {
+              return {
+                result: {
+                  publisher: created.publisher,
+                  credentialHandling: "disabled-pending-protected-auth"
+                }
+              };
+            }
             return {
               result: {
                 ...created,
@@ -57781,8 +57930,8 @@ function createDynaPlugin(options = {}) {
             };
           }
         },
-        summarize() {
-          return "Created a Dyna publisher for trusted local preview. Its one-time credential is model-visible and must be rotated or revoked when exposure is uncertain.";
+        summarize(result) {
+          return PublisherCreationResultSchema.parse(result).credentialHandling === "disabled-pending-protected-auth" ? "Created a Dyna publisher with publication disabled pending protected host authentication." : "Created a Dyna publisher with a model-visible credential for explicitly authorized trusted non-production local preview.";
         }
       },
       {
@@ -57829,19 +57978,28 @@ function createDynaPlugin(options = {}) {
       {
         id: "bind-schedule",
         title: "Bind schedule to Dyna dashboard",
-        description: "Bind one scheduled publisher to one dashboard; publishers and dashboards can have many bindings.",
-        inputSchema: external_exports.object({ dashboardId: external_exports.uuid(), publisherId: external_exports.uuid() }).extend(ScheduleSchema.shape).strict(),
+        description: "Bind one scheduled publisher to one dashboard and optionally register its required source slices once; publishers and dashboards can have many bindings.",
+        inputSchema: external_exports.object({
+          dashboardId: external_exports.uuid(),
+          publisherId: external_exports.uuid(),
+          requiredSourceSlices: DynaRequiredSourceSlicesSchema.optional()
+        }).extend(ScheduleSchema.shape).strict(),
         outputSchema: EmptyResultSchema2,
         risk: { readOnly: false, destructive: false, openWorld: false, idempotent: true },
         executor: {
           kind: "module",
           execute(input) {
-            const parsed = external_exports.object({ dashboardId: external_exports.uuid(), publisherId: external_exports.uuid() }).extend(ScheduleSchema.shape).strict().parse(input);
+            const parsed = external_exports.object({
+              dashboardId: external_exports.uuid(),
+              publisherId: external_exports.uuid(),
+              requiredSourceSlices: DynaRequiredSourceSlicesSchema.optional()
+            }).extend(ScheduleSchema.shape).strict().parse(input);
             service.store.bindSchedule(parsed.dashboardId, parsed.publisherId, {
               id: parsed.scheduleId,
               title: parsed.scheduleTitle,
               state: parsed.scheduleState,
-              staleAfterMinutes: parsed.staleAfterMinutes
+              staleAfterMinutes: parsed.staleAfterMinutes,
+              ...parsed.requiredSourceSlices ? { requiredSourceSlices: parsed.requiredSourceSlices } : {}
             });
             return { result: { ok: true } };
           }
@@ -57866,7 +58024,7 @@ function createDynaPlugin(options = {}) {
       {
         id: "list-publishers",
         title: "List Dyna scheduled sources",
-        description: "List registered native schedule identities and last-run status, optionally for one dashboard.",
+        description: "List registered native schedule identities, required source manifests, and last-run status, optionally for one dashboard.",
         inputSchema: external_exports.object({ dashboardId: external_exports.uuid().optional() }).strict(),
         outputSchema: external_exports.object({ publishers: external_exports.array(DynaPublisherSchema).max(100) }).strict(),
         risk: { readOnly: true, destructive: false, openWorld: false, idempotent: true },
@@ -57881,12 +58039,13 @@ function createDynaPlugin(options = {}) {
       {
         id: "update-schedule-status",
         title: "Update Dyna schedule status",
-        description: "Reconcile a publisher with the current native Codex schedule title and state.",
+        description: "Reconcile a publisher with the current native Codex schedule metadata and optionally register its required source slices once.",
         inputSchema: external_exports.object({
           publisherId: external_exports.uuid(),
           scheduleTitle: external_exports.string().trim().min(1).max(200).optional(),
           scheduleState: external_exports.enum(["active", "paused", "unknown"]),
-          staleAfterMinutes: external_exports.number().int().min(5).max(43200).optional()
+          staleAfterMinutes: external_exports.number().int().min(5).max(43200).optional(),
+          requiredSourceSlices: DynaRequiredSourceSlicesSchema.optional()
         }).strict(),
         outputSchema: EmptyResultSchema2,
         risk: { readOnly: false, destructive: false, openWorld: false, idempotent: true },
@@ -57897,12 +58056,14 @@ function createDynaPlugin(options = {}) {
               publisherId: external_exports.uuid(),
               scheduleTitle: external_exports.string().trim().min(1).max(200).optional(),
               scheduleState: external_exports.enum(["active", "paused", "unknown"]),
-              staleAfterMinutes: external_exports.number().int().min(5).max(43200).optional()
+              staleAfterMinutes: external_exports.number().int().min(5).max(43200).optional(),
+              requiredSourceSlices: DynaRequiredSourceSlicesSchema.optional()
             }).strict().parse(input);
             service.store.updateScheduleStatus(parsed.publisherId, {
               ...parsed.scheduleTitle ? { title: parsed.scheduleTitle } : {},
               state: parsed.scheduleState,
-              ...parsed.staleAfterMinutes ? { staleAfterMinutes: parsed.staleAfterMinutes } : {}
+              ...parsed.staleAfterMinutes ? { staleAfterMinutes: parsed.staleAfterMinutes } : {},
+              ...parsed.requiredSourceSlices ? { requiredSourceSlices: parsed.requiredSourceSlices } : {}
             });
             return { result: { ok: true } };
           }
@@ -57911,7 +58072,7 @@ function createDynaPlugin(options = {}) {
       {
         id: "publish-run",
         title: "Publish scheduled Dyna run",
-        description: "Validate and publish bounded email, messaging, source-control, TWG, skill, or Codex records from an authenticated scheduled run.",
+        description: "Validate and publish bounded email, messaging, source-control, TWG, skill, or Codex records from an authenticated scheduled run, exactly covering any registered source manifest.",
         inputSchema: external_exports.object({
           publisherId: external_exports.uuid(),
           secret: external_exports.string().min(32).max(128),

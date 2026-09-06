@@ -162,6 +162,12 @@ async function createDynaFixture(
     },
     { source: "twg", contextId: "splunk.atlassian.net", resultType: "work", recordId: "JIRA-4242" },
   ] as const;
+  const requiredSourceSlices = [
+    { source: "scm", sourceScope: "team/project" },
+    { source: "outlook", sourceScope: "team/project" },
+    { source: "messaging", sourceScope: "team/project" },
+    { source: "twg", sourceScope: "team/project" },
+  ] as const;
   const createdDashboard = await client.callTool({
     name: "flowzone",
     arguments: {
@@ -177,7 +183,11 @@ async function createDynaFixture(
     arguments: {
       plugin: "dyna",
       action: "create-publisher",
-      input: { name: "Browser fixture schedule" },
+      input: {
+        name: "Browser fixture schedule",
+        requiredSourceSlices,
+        credentialMode: "local_preview",
+      },
     },
   });
   const publisherResult = resultRecord(resultRecord(createdPublisher.structuredContent)["result"]);
@@ -224,6 +234,10 @@ async function createDynaFixture(
                 "Outlook unavailable: saved read-only session expired and unattended authentication is not authorized. TWG rollup was also partial: Jira and Confluence reads succeeded, but GraphStore count failures left cross-source coverage incomplete.",
             }
           : {}),
+        sourceSlices: requiredSourceSlices.map((slice) => ({
+          ...slice,
+          status: failedSchedule ? "failed" : "succeeded",
+        })),
         items: failedSchedule
           ? []
           : Array.from({ length: itemCount }, (_, index) => {

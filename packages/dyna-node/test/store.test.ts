@@ -32,6 +32,23 @@ describe("DynaStore lifecycle", () => {
     expect(JSON.parse(result.stdout)).toEqual({ migrated: true, completedIsNotFocus: true });
   });
 
+  test("migrates version-one publishers without requiring a source manifest", () => {
+    const fixture = resolve(import.meta.dir, "source-manifest-migration-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      migratedFromVersionOne: true,
+      legacyPublisherCompatible: true,
+    });
+  });
+
+  test("rolls back the version-one manifest migration when relationships are corrupt", () => {
+    const fixture = resolve(import.meta.dir, "source-manifest-migration-rollback-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ versionOneMigrationRolledBack: true });
+  });
+
   test("serializes publication against publisher revocation and credential rotation", () => {
     const fixture = resolve(import.meta.dir, "publisher-race-node-fixture.mjs");
     const result = spawnSync("node", [fixture], { encoding: "utf8" });
@@ -51,6 +68,27 @@ describe("DynaStore lifecycle", () => {
       idempotent: true,
       ordered: true,
       successfulCrossSliceMoveRejected: true,
+    });
+  });
+
+  test("enforces registered source manifests without breaking legacy publishers", () => {
+    const fixture = resolve(import.meta.dir, "source-manifest-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      manifestInventory: true,
+      reorderedRetry: true,
+      bindTimeRegistration: true,
+      updateTimeRegistration: true,
+      multiSourcePartial: true,
+      omittedRejected: true,
+      extraRejected: true,
+      duplicateRejected: true,
+      rejectedRunsRolledBack: true,
+      conflictingManifestRejected: true,
+      activeSliceGuard: true,
+      allFailedPreserved: true,
+      legacyCompatible: true,
     });
   });
 

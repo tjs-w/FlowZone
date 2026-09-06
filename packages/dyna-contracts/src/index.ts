@@ -273,6 +273,33 @@ export const DynaPublishedItemSchema = z
   .strict();
 export type DynaPublishedItem = z.infer<typeof DynaPublishedItemSchema>;
 
+export const DynaRequiredSourceSliceSchema = z
+  .object({
+    source: DynaScheduledSourceSchema,
+    sourceScope: z.string().trim().min(1).max(128),
+  })
+  .strict();
+export type DynaRequiredSourceSlice = z.infer<typeof DynaRequiredSourceSliceSchema>;
+
+export const DynaRequiredSourceSlicesSchema = z
+  .array(DynaRequiredSourceSliceSchema)
+  .min(1)
+  .max(50)
+  .superRefine((slices, context) => {
+    const seen = new Set<string>();
+    for (const [index, slice] of slices.entries()) {
+      const key = JSON.stringify([slice.source, slice.sourceScope]);
+      if (seen.has(key)) {
+        context.addIssue({
+          code: "custom",
+          message: "A Dyna publisher manifest cannot require the same source slice twice.",
+          path: [index],
+        });
+      }
+      seen.add(key);
+    }
+  });
+
 export const DynaPublishSourceSliceSchema = z
   .object({
     source: DynaScheduledSourceSchema,
@@ -325,6 +352,7 @@ export const DynaPublisherSchema = z
     scheduleTitle: z.string().trim().min(1).max(200).optional(),
     scheduleState: z.enum(["active", "paused", "unknown"]),
     staleAfterMinutes: z.number().int().min(5).max(43_200),
+    requiredSourceSlices: DynaRequiredSourceSlicesSchema.optional(),
     lastRunStatus: z.enum(["never", "succeeded", "partial", "failed"]),
     lastRunAt: TimestampSchema.optional(),
     lastRunError: z.string().trim().min(1).max(500).optional(),

@@ -63,13 +63,44 @@ describe("Dyna checked-in Node bundle", () => {
       const dashboard = record(record(create.structuredContent)["result"]);
       const dashboardId = dashboard["id"];
       expect(typeof dashboardId).toBe("string");
+      const morningRequiredSourceSlices = [
+        { source: "gitlab", sourceScope: "group/project" },
+      ] as const;
+      const afternoonRequiredSourceSlices = [
+        { source: "gitlab", sourceScope: "group/project" },
+        { source: "outlook", sourceScope: "executive@example.com" },
+      ] as const;
+
+      const disabledPublisherResult = await client.callTool({
+        name: "flowzone",
+        arguments: {
+          plugin: "dyna",
+          action: "create-publisher",
+          input: {
+            name: "Protected schedule",
+            requiredSourceSlices: [{ source: "codex", sourceScope: "codex:local" }],
+          },
+        },
+      });
+      const disabledPublisherEnvelope = record(
+        record(disabledPublisherResult.structuredContent)["result"],
+      );
+      expect(disabledPublisherEnvelope["credentialHandling"]).toBe(
+        "disabled-pending-protected-auth",
+      );
+      expect(Object.hasOwn(disabledPublisherEnvelope, "secret")).toBe(false);
+      expect(JSON.stringify(disabledPublisherResult.structuredContent)).not.toContain('"secret"');
 
       const publisherResult = await client.callTool({
         name: "flowzone",
         arguments: {
           plugin: "dyna",
           action: "create-publisher",
-          input: { name: "Morning schedule" },
+          input: {
+            name: "Morning schedule",
+            requiredSourceSlices: morningRequiredSourceSlices,
+            credentialMode: "local_preview",
+          },
         },
       });
       const publisherEnvelope = record(record(publisherResult.structuredContent)["result"]);
@@ -176,6 +207,7 @@ describe("Dyna checked-in Node bundle", () => {
             sourceCompletedAt: sourceUpdatedAt,
             mode: "replace",
             status: "succeeded",
+            sourceSlices: [{ source: "gitlab", sourceScope: "group/project", status: "succeeded" }],
             items: [
               {
                 externalId: "group/project!123",
@@ -293,7 +325,11 @@ describe("Dyna checked-in Node bundle", () => {
         arguments: {
           plugin: "dyna",
           action: "create-publisher",
-          input: { name: "Afternoon schedule" },
+          input: {
+            name: "Afternoon schedule",
+            requiredSourceSlices: afternoonRequiredSourceSlices,
+            credentialMode: "local_preview",
+          },
         },
       });
       const secondPublisherEnvelope = record(
@@ -327,6 +363,10 @@ describe("Dyna checked-in Node bundle", () => {
         sourceCompletedAt: secondSourceUpdatedAt,
         mode: "replace",
         status: "succeeded",
+        sourceSlices: afternoonRequiredSourceSlices.map((slice) => ({
+          ...slice,
+          status: "succeeded" as const,
+        })),
         items: [
           {
             externalId: "same-mr-from-another-job",
@@ -407,6 +447,10 @@ describe("Dyna checked-in Node bundle", () => {
             sourceCompletedAt: new Date(Date.parse(sourceUpdatedAt) + 500).toISOString(),
             mode: "replace",
             status: "succeeded",
+            sourceSlices: afternoonRequiredSourceSlices.map((slice) => ({
+              ...slice,
+              status: "succeeded" as const,
+            })),
             items: [],
           },
         },
@@ -930,6 +974,10 @@ describe("Dyna checked-in Node bundle", () => {
             mode: "replace",
             status: "failed",
             failureMessage: "Outlook was unavailable.",
+            sourceSlices: afternoonRequiredSourceSlices.map((slice) => ({
+              ...slice,
+              status: "failed" as const,
+            })),
             items: [],
           },
         },
@@ -956,6 +1004,10 @@ describe("Dyna checked-in Node bundle", () => {
             sourceCompletedAt: new Date(Date.parse(sourceUpdatedAt) + 3_000).toISOString(),
             mode: "replace",
             status: "succeeded",
+            sourceSlices: afternoonRequiredSourceSlices.map((slice) => ({
+              ...slice,
+              status: "succeeded" as const,
+            })),
             items: [],
           },
         },
@@ -972,6 +1024,7 @@ describe("Dyna checked-in Node bundle", () => {
             sourceCompletedAt: new Date(Date.parse(sourceUpdatedAt) + 1_000).toISOString(),
             mode: "replace",
             status: "succeeded",
+            sourceSlices: [{ source: "gitlab", sourceScope: "group/project", status: "succeeded" }],
             items: [],
           },
         },

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   DynaPublishSourceSlicesSchema,
+  DynaRequiredSourceSlicesSchema,
   DynaUiPayloadSchema,
   DynaPublishedItemSchema,
   DynaTaskStatusSchema,
@@ -97,6 +98,30 @@ describe("Dyna executive signal contracts", () => {
       DynaPublishSourceSlicesSchema.safeParse([
         { source: "manual", sourceScope: "manual:dashboard", status: "succeeded" },
       ]).success,
+    ).toBe(false);
+  });
+
+  test("accepts bounded publisher source manifests and rejects invalid slices", () => {
+    const required = [
+      { source: "gitlab", sourceScope: "gitlab:corp/team/project" },
+      { source: "outlook", sourceScope: "outlook:executive@example.com" },
+    ] as const;
+    expect(DynaRequiredSourceSlicesSchema.safeParse(required).success).toBe(true);
+    expect(DynaRequiredSourceSlicesSchema.safeParse([...required, required[0]]).success).toBe(
+      false,
+    );
+    expect(
+      DynaRequiredSourceSlicesSchema.safeParse([
+        { source: "manual", sourceScope: "manual:dashboard" },
+      ]).success,
+    ).toBe(false);
+    expect(
+      DynaRequiredSourceSlicesSchema.safeParse(
+        Array.from({ length: 51 }, (_, index) => ({
+          source: "skill",
+          sourceScope: `skill:${String(index)}`,
+        })),
+      ).success,
     ).toBe(false);
   });
 

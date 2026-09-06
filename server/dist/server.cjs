@@ -52800,6 +52800,361 @@ function createMarkdownReviewPlugin(options = {}) {
   };
 }
 
+// packages/dyna-contracts/src/index.ts
+var IdentifierSchema2 = external_exports.string().trim().min(1).max(256);
+var TimestampSchema2 = external_exports.iso.datetime({ offset: true });
+var DynaSourceSchema = external_exports.enum([
+  "slack",
+  "outlook",
+  "gitlab",
+  "codex",
+  "email",
+  "messaging",
+  "scm",
+  "twg",
+  "skill",
+  "manual"
+]);
+var DynaPrioritySchema = external_exports.enum(["critical", "high", "normal", "low"]);
+var DynaSourceRefSchema = external_exports.discriminatedUnion("source", [
+  external_exports.object({
+    source: external_exports.literal("slack"),
+    workspaceId: IdentifierSchema2,
+    channelId: IdentifierSchema2,
+    messageId: IdentifierSchema2
+  }).strict(),
+  external_exports.object({
+    source: external_exports.literal("outlook"),
+    accountId: IdentifierSchema2,
+    messageId: IdentifierSchema2,
+    conversationId: IdentifierSchema2.optional()
+  }).strict(),
+  external_exports.object({
+    source: external_exports.literal("gitlab"),
+    instanceId: IdentifierSchema2,
+    projectPath: external_exports.string().trim().min(1).max(512),
+    iid: external_exports.number().int().positive(),
+    entityType: external_exports.enum(["merge_request", "issue", "pipeline"])
+  }).strict(),
+  external_exports.object({
+    source: external_exports.literal("codex"),
+    taskId: IdentifierSchema2
+  }).strict(),
+  external_exports.object({
+    source: external_exports.literal("email"),
+    provider: external_exports.string().trim().min(1).max(64),
+    accountId: IdentifierSchema2,
+    messageId: IdentifierSchema2,
+    conversationId: IdentifierSchema2.optional()
+  }).strict(),
+  external_exports.object({
+    source: external_exports.literal("messaging"),
+    provider: external_exports.string().trim().min(1).max(64),
+    workspaceId: IdentifierSchema2,
+    channelId: IdentifierSchema2,
+    messageId: IdentifierSchema2
+  }).strict(),
+  external_exports.object({
+    source: external_exports.literal("scm"),
+    provider: external_exports.string().trim().min(1).max(64),
+    instanceId: IdentifierSchema2,
+    repository: external_exports.string().trim().min(1).max(512),
+    entityType: external_exports.enum(["pull_request", "merge_request", "issue", "pipeline", "commit"]),
+    entityId: IdentifierSchema2
+  }).strict(),
+  external_exports.object({
+    source: external_exports.literal("twg"),
+    contextId: IdentifierSchema2,
+    resultType: external_exports.enum(["jira", "confluence", "bitbucket", "org", "work", "other"]),
+    recordId: IdentifierSchema2
+  }).strict(),
+  external_exports.object({
+    source: external_exports.literal("skill"),
+    contextId: IdentifierSchema2,
+    skillName: external_exports.string().trim().min(1).max(128),
+    recordType: external_exports.string().trim().min(1).max(64),
+    recordId: IdentifierSchema2
+  }).strict(),
+  external_exports.object({
+    source: external_exports.literal("manual"),
+    todoId: external_exports.uuid()
+  }).strict()
+]);
+var DynaLeadershipLevelSchema = external_exports.enum([
+  "ceo",
+  "cto",
+  "gm",
+  "vp",
+  "senior_director",
+  "director",
+  "architect",
+  "vip",
+  "other"
+]);
+var DynaPersonSignalSchema = external_exports.object({
+  displayName: external_exports.string().trim().min(1).max(120),
+  title: external_exports.string().trim().min(1).max(160).optional(),
+  leadershipLevel: DynaLeadershipLevelSchema,
+  relationship: external_exports.enum(["management_chain", "my_org", "neighboring_org", "external", "unknown"]),
+  involvement: external_exports.enum([
+    "sender",
+    "author",
+    "declared_owner",
+    "operational_owner",
+    "approver",
+    "reviewer",
+    "expert",
+    "informed",
+    "mentioned"
+  ]),
+  provenance: external_exports.enum(["user_configured", "twg_org_tree", "declared_source", "source_metadata"]),
+  confidence: external_exports.enum(["high", "medium", "low"])
+}).strict();
+var DynaPublishedPersonSignalSchema = DynaPersonSignalSchema.refine(
+  (person) => person.provenance === "declared_source" || person.provenance === "source_metadata",
+  "Scheduled publishers cannot assert trusted leadership provenance."
+);
+var DynaNextStepSchema = external_exports.object({
+  label: external_exports.string().trim().min(1).max(200),
+  owner: external_exports.string().trim().min(1).max(120).optional(),
+  dueAt: TimestampSchema2.optional()
+}).strict();
+var LEADERSHIP_WEIGHTS = {
+  ceo: 100,
+  cto: 95,
+  gm: 85,
+  vp: 80,
+  senior_director: 70,
+  director: 60,
+  vip: 65,
+  architect: 55,
+  other: 0
+};
+var PRIORITY_BEARING_INVOLVEMENT = /* @__PURE__ */ new Set([
+  "sender",
+  "author",
+  "declared_owner",
+  "operational_owner",
+  "approver"
+]);
+function dynaLeadershipScore(people) {
+  return people.reduce((highest, person) => {
+    if (!PRIORITY_BEARING_INVOLVEMENT.has(person.involvement) || person.confidence === "low" || person.provenance !== "user_configured" && person.provenance !== "twg_org_tree") {
+      return highest;
+    }
+    const relationshipWeight = person.relationship === "management_chain" ? 10 : person.relationship === "my_org" || person.relationship === "neighboring_org" ? 5 : 0;
+    return Math.max(highest, LEADERSHIP_WEIGHTS[person.leadershipLevel] + relationshipWeight);
+  }, 0);
+}
+function effectiveDynaPriority(priority, people) {
+  const score = dynaLeadershipScore(people);
+  if (priority === "critical" || priority === "high") return priority;
+  if (priority === "normal" && score >= 75) return "high";
+  if (priority === "low" && score >= 55) return "normal";
+  return priority;
+}
+function dynaSourceLabel(sourceRef) {
+  switch (sourceRef.source) {
+    case "slack":
+      return "Slack";
+    case "outlook":
+      return "Outlook";
+    case "gitlab":
+      return "GitLab";
+    case "codex":
+      return "Codex";
+    case "email":
+    case "messaging":
+    case "scm":
+      return sourceRef.provider;
+    case "twg":
+      return "$twg";
+    case "skill":
+      return sourceRef.skillName;
+    case "manual":
+      return "To-do";
+  }
+}
+var DynaTodoInputSchema = external_exports.object({
+  title: external_exports.string().trim().min(1).max(200),
+  summary: external_exports.string().trim().min(1).max(1e3).optional(),
+  priority: DynaPrioritySchema.default("normal"),
+  attention: external_exports.string().trim().min(1).max(500).optional(),
+  labels: external_exports.array(external_exports.string().trim().min(1).max(64)).max(8).default([]),
+  followUpOfItemId: external_exports.uuid().optional()
+}).strict();
+var DynaPublishedItemSchema = external_exports.object({
+  externalId: IdentifierSchema2,
+  sourceRef: DynaSourceRefSchema,
+  sourceScope: external_exports.string().trim().min(1).max(128),
+  title: external_exports.string().trim().min(1).max(200),
+  summary: external_exports.string().trim().min(1).max(1e3),
+  priority: DynaPrioritySchema,
+  priorityReason: external_exports.string().trim().min(1).max(500),
+  sourceUpdatedAt: TimestampSchema2,
+  dueAt: TimestampSchema2.optional(),
+  labels: external_exports.array(external_exports.string().trim().min(1).max(64)).max(20).default([]),
+  people: external_exports.array(DynaPublishedPersonSignalSchema).max(8).default([]),
+  attention: external_exports.string().trim().min(1).max(500).optional(),
+  plan: external_exports.array(external_exports.string().trim().min(1).max(200)).max(4).default([]),
+  nextSteps: external_exports.array(DynaNextStepSchema).max(4).default([])
+}).strict();
+var DynaMaterializedItemSchema = DynaPublishedItemSchema.extend({
+  people: external_exports.array(DynaPersonSignalSchema).max(8).default([])
+});
+var DynaDashboardSchema = external_exports.object({
+  id: external_exports.uuid(),
+  name: external_exports.string().trim().min(1).max(96),
+  description: external_exports.string().trim().max(500),
+  archived: external_exports.boolean(),
+  createdAt: TimestampSchema2,
+  updatedAt: TimestampSchema2
+}).strict();
+var DynaPublisherSchema = external_exports.object({
+  id: external_exports.uuid(),
+  name: external_exports.string().trim().min(1).max(96),
+  scheduleId: IdentifierSchema2.optional(),
+  scheduleTitle: external_exports.string().trim().min(1).max(200).optional(),
+  scheduleState: external_exports.enum(["active", "paused", "unknown"]),
+  staleAfterMinutes: external_exports.number().int().min(5).max(43200),
+  lastRunStatus: external_exports.enum(["never", "succeeded", "partial", "failed"]),
+  lastRunAt: TimestampSchema2.optional(),
+  lastRunError: external_exports.string().trim().min(1).max(500).optional(),
+  revokedAt: TimestampSchema2.optional(),
+  createdAt: TimestampSchema2
+}).strict();
+var DynaTaskStateSchema = external_exports.enum([
+  "queued",
+  "running",
+  "waiting",
+  "succeeded",
+  "failed",
+  "unknown"
+]);
+var DynaTaskStatusBaseSchema = external_exports.object({
+  taskId: IdentifierSchema2,
+  hostId: IdentifierSchema2,
+  projectId: IdentifierSchema2.optional(),
+  title: external_exports.string().trim().min(1).max(200),
+  statusUpdatedAt: TimestampSchema2,
+  observedAt: TimestampSchema2
+}).strict();
+var DynaOneLineOutcomeSchema = external_exports.string().trim().min(1).max(200).regex(/^[^\r\n]+$/, "A Codex task outcome must be exactly one line.");
+var DynaTaskStatusSchema = external_exports.discriminatedUnion("state", [
+  DynaTaskStatusBaseSchema.extend({
+    state: external_exports.literal("succeeded"),
+    outcome: DynaOneLineOutcomeSchema
+  }).strict(),
+  DynaTaskStatusBaseSchema.extend({
+    state: external_exports.enum(["queued", "running", "waiting", "failed", "unknown"]),
+    outcome: DynaOneLineOutcomeSchema.optional()
+  }).strict()
+]);
+var DynaAnnotationSchema = external_exports.object({
+  id: external_exports.uuid(),
+  itemId: external_exports.uuid(),
+  body: external_exports.string().trim().min(1).max(1e3),
+  createdAt: TimestampSchema2
+}).strict();
+var DynaItemContextSchema = DynaMaterializedItemSchema.extend({
+  id: external_exports.uuid(),
+  fingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
+  enrichment: external_exports.object({
+    state: external_exports.enum(["active", "stale"]),
+    appliedAt: TimestampSchema2,
+    baseSourceUpdatedAt: TimestampSchema2,
+    provenance: external_exports.string().trim().min(1).max(128),
+    version: external_exports.number().int().positive()
+  }).strict().optional(),
+  annotations: external_exports.array(DynaAnnotationSchema).max(20)
+}).strict();
+var DynaActionItemContextSchema = external_exports.object({
+  id: external_exports.uuid(),
+  title: external_exports.string().trim().min(1).max(200),
+  sourceRef: DynaSourceRefSchema,
+  sourceUpdatedAt: TimestampSchema2,
+  annotations: external_exports.array(DynaAnnotationSchema).max(20),
+  trustBoundary: external_exports.literal("untrusted_reference_data")
+}).strict();
+var DynaActionKindSchema = external_exports.enum([
+  "open_source",
+  "create_codex_task",
+  "open_codex_task",
+  "refresh_codex_status"
+]);
+var DynaActionStateSchema = external_exports.enum([
+  "prepared",
+  "delivered",
+  "claimed",
+  "succeeded",
+  "failed",
+  "needs_reconciliation"
+]);
+var DynaActionRequestSchema = external_exports.object({
+  id: external_exports.uuid(),
+  kind: DynaActionKindSchema,
+  itemId: external_exports.uuid().optional(),
+  taskId: IdentifierSchema2.optional(),
+  taskHostId: IdentifierSchema2.optional(),
+  dashboardRevision: external_exports.number().int().nonnegative(),
+  itemFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
+  state: DynaActionStateSchema,
+  expiresAt: TimestampSchema2,
+  createdAt: TimestampSchema2,
+  updatedAt: TimestampSchema2
+}).strict();
+var DynaCardSchema = external_exports.object({
+  id: external_exports.uuid(),
+  fingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
+  source: DynaSourceSchema,
+  sourceRef: DynaSourceRefSchema,
+  sourceLabel: external_exports.string().trim().min(1).max(128),
+  title: external_exports.string().max(200),
+  summary: external_exports.string().max(1e3),
+  sourcePriority: DynaPrioritySchema,
+  priority: DynaPrioritySchema,
+  priorityReason: external_exports.string().max(500),
+  sourceUpdatedAt: TimestampSchema2,
+  dueAt: TimestampSchema2.optional(),
+  labels: external_exports.array(external_exports.string().max(64)).max(20),
+  people: external_exports.array(DynaPersonSignalSchema).max(8),
+  leadershipScore: external_exports.number().int().min(0).max(120),
+  priorityMode: external_exports.enum(["source", "enrichment", "leadership", "manual"]),
+  sequence: external_exports.number().int().nonnegative().optional(),
+  canMoveEarlier: external_exports.boolean(),
+  canMoveLater: external_exports.boolean(),
+  workflowState: external_exports.enum(["todo", "executing", "paused", "attention", "completed"]),
+  outcome: external_exports.string().trim().min(1).max(200).optional(),
+  followUpOfItemId: external_exports.uuid().optional(),
+  attention: external_exports.string().trim().min(1).max(500).optional(),
+  plan: external_exports.array(external_exports.string().trim().min(1).max(200)).max(4),
+  nextSteps: external_exports.array(DynaNextStepSchema).max(4),
+  enrichmentState: external_exports.enum(["active", "stale"]).optional(),
+  annotations: external_exports.array(DynaAnnotationSchema).max(20),
+  linkedTasks: external_exports.array(DynaTaskStatusSchema).max(8)
+}).strict();
+var DynaDashboardSnapshotSchema = external_exports.object({
+  schema: external_exports.literal("dyna/snapshot-v3"),
+  dashboard: DynaDashboardSchema,
+  generatedAt: TimestampSchema2,
+  query: external_exports.string().max(500),
+  revision: external_exports.number().int().nonnegative(),
+  freshness: external_exports.enum(["fresh", "aging", "stale"]),
+  counts: external_exports.object({
+    critical: external_exports.number().int().nonnegative(),
+    high: external_exports.number().int().nonnegative(),
+    leadership: external_exports.number().int().nonnegative(),
+    total: external_exports.number().int().nonnegative()
+  }).strict(),
+  schedules: external_exports.array(DynaPublisherSchema).max(50),
+  cards: external_exports.array(DynaCardSchema).max(200)
+}).strict();
+var DynaUiPayloadSchema = external_exports.object({
+  schema: external_exports.literal("dyna/ui-v5"),
+  viewToken: external_exports.string().min(32).max(128),
+  snapshot: DynaDashboardSnapshotSchema
+}).strict();
+
 // node_modules/@json-render/core/dist/chunk-7V7ZCHEJ.mjs
 var DynamicValueSchema = external_exports.union([
   external_exports.string(),
@@ -54088,361 +54443,9 @@ var schema = defineSchema(
   }
 );
 
-// packages/dyna-contracts/src/index.ts
-var IdentifierSchema2 = external_exports.string().trim().min(1).max(256);
-var TimestampSchema2 = external_exports.iso.datetime({ offset: true });
-var DynaSourceSchema = external_exports.enum([
-  "slack",
-  "outlook",
-  "gitlab",
-  "codex",
-  "email",
-  "messaging",
-  "scm",
-  "twg",
-  "skill",
-  "manual"
-]);
-var DynaPrioritySchema = external_exports.enum(["critical", "high", "normal", "low"]);
-var DynaSourceRefSchema = external_exports.discriminatedUnion("source", [
-  external_exports.object({
-    source: external_exports.literal("slack"),
-    workspaceId: IdentifierSchema2,
-    channelId: IdentifierSchema2,
-    messageId: IdentifierSchema2
-  }).strict(),
-  external_exports.object({
-    source: external_exports.literal("outlook"),
-    accountId: IdentifierSchema2,
-    messageId: IdentifierSchema2,
-    conversationId: IdentifierSchema2.optional()
-  }).strict(),
-  external_exports.object({
-    source: external_exports.literal("gitlab"),
-    instanceId: IdentifierSchema2,
-    projectPath: external_exports.string().trim().min(1).max(512),
-    iid: external_exports.number().int().positive(),
-    entityType: external_exports.enum(["merge_request", "issue", "pipeline"])
-  }).strict(),
-  external_exports.object({
-    source: external_exports.literal("codex"),
-    taskId: IdentifierSchema2
-  }).strict(),
-  external_exports.object({
-    source: external_exports.literal("email"),
-    provider: external_exports.string().trim().min(1).max(64),
-    accountId: IdentifierSchema2,
-    messageId: IdentifierSchema2,
-    conversationId: IdentifierSchema2.optional()
-  }).strict(),
-  external_exports.object({
-    source: external_exports.literal("messaging"),
-    provider: external_exports.string().trim().min(1).max(64),
-    workspaceId: IdentifierSchema2,
-    channelId: IdentifierSchema2,
-    messageId: IdentifierSchema2
-  }).strict(),
-  external_exports.object({
-    source: external_exports.literal("scm"),
-    provider: external_exports.string().trim().min(1).max(64),
-    instanceId: IdentifierSchema2,
-    repository: external_exports.string().trim().min(1).max(512),
-    entityType: external_exports.enum(["pull_request", "merge_request", "issue", "pipeline", "commit"]),
-    entityId: IdentifierSchema2
-  }).strict(),
-  external_exports.object({
-    source: external_exports.literal("twg"),
-    contextId: IdentifierSchema2,
-    resultType: external_exports.enum(["jira", "confluence", "bitbucket", "org", "work", "other"]),
-    recordId: IdentifierSchema2
-  }).strict(),
-  external_exports.object({
-    source: external_exports.literal("skill"),
-    contextId: IdentifierSchema2,
-    skillName: external_exports.string().trim().min(1).max(128),
-    recordType: external_exports.string().trim().min(1).max(64),
-    recordId: IdentifierSchema2
-  }).strict(),
-  external_exports.object({
-    source: external_exports.literal("manual"),
-    todoId: external_exports.uuid()
-  }).strict()
-]);
-var DynaLeadershipLevelSchema = external_exports.enum([
-  "ceo",
-  "cto",
-  "gm",
-  "vp",
-  "senior_director",
-  "director",
-  "architect",
-  "vip",
-  "other"
-]);
-var DynaPersonSignalSchema = external_exports.object({
-  displayName: external_exports.string().trim().min(1).max(120),
-  title: external_exports.string().trim().min(1).max(160).optional(),
-  leadershipLevel: DynaLeadershipLevelSchema,
-  relationship: external_exports.enum(["management_chain", "my_org", "neighboring_org", "external", "unknown"]),
-  involvement: external_exports.enum([
-    "sender",
-    "author",
-    "declared_owner",
-    "operational_owner",
-    "approver",
-    "reviewer",
-    "expert",
-    "informed",
-    "mentioned"
-  ]),
-  provenance: external_exports.enum(["user_configured", "twg_org_tree", "declared_source", "source_metadata"]),
-  confidence: external_exports.enum(["high", "medium", "low"])
-}).strict();
-var DynaPublishedPersonSignalSchema = DynaPersonSignalSchema.refine(
-  (person) => person.provenance === "declared_source" || person.provenance === "source_metadata",
-  "Scheduled publishers cannot assert trusted leadership provenance."
-);
-var DynaNextStepSchema = external_exports.object({
-  label: external_exports.string().trim().min(1).max(200),
-  owner: external_exports.string().trim().min(1).max(120).optional(),
-  dueAt: TimestampSchema2.optional()
-}).strict();
-var LEADERSHIP_WEIGHTS = {
-  ceo: 100,
-  cto: 95,
-  gm: 85,
-  vp: 80,
-  senior_director: 70,
-  director: 60,
-  vip: 65,
-  architect: 55,
-  other: 0
-};
-var PRIORITY_BEARING_INVOLVEMENT = /* @__PURE__ */ new Set([
-  "sender",
-  "author",
-  "declared_owner",
-  "operational_owner",
-  "approver"
-]);
-function dynaLeadershipScore(people) {
-  return people.reduce((highest, person) => {
-    if (!PRIORITY_BEARING_INVOLVEMENT.has(person.involvement) || person.confidence === "low" || person.provenance !== "user_configured" && person.provenance !== "twg_org_tree") {
-      return highest;
-    }
-    const relationshipWeight = person.relationship === "management_chain" ? 10 : person.relationship === "my_org" || person.relationship === "neighboring_org" ? 5 : 0;
-    return Math.max(highest, LEADERSHIP_WEIGHTS[person.leadershipLevel] + relationshipWeight);
-  }, 0);
-}
-function effectiveDynaPriority(priority, people) {
-  const score = dynaLeadershipScore(people);
-  if (priority === "critical" || priority === "high") return priority;
-  if (priority === "normal" && score >= 75) return "high";
-  if (priority === "low" && score >= 55) return "normal";
-  return priority;
-}
-function dynaSourceLabel(sourceRef) {
-  switch (sourceRef.source) {
-    case "slack":
-      return "Slack";
-    case "outlook":
-      return "Outlook";
-    case "gitlab":
-      return "GitLab";
-    case "codex":
-      return "Codex";
-    case "email":
-    case "messaging":
-    case "scm":
-      return sourceRef.provider;
-    case "twg":
-      return "$twg";
-    case "skill":
-      return sourceRef.skillName;
-    case "manual":
-      return "To-do";
-  }
-}
-var DynaTodoInputSchema = external_exports.object({
-  title: external_exports.string().trim().min(1).max(200),
-  summary: external_exports.string().trim().min(1).max(1e3).optional(),
-  priority: DynaPrioritySchema.default("normal"),
-  attention: external_exports.string().trim().min(1).max(500).optional(),
-  labels: external_exports.array(external_exports.string().trim().min(1).max(64)).max(8).default([]),
-  followUpOfItemId: external_exports.uuid().optional()
-}).strict();
-var DynaPublishedItemSchema = external_exports.object({
-  externalId: IdentifierSchema2,
-  sourceRef: DynaSourceRefSchema,
-  sourceScope: external_exports.string().trim().min(1).max(128),
-  title: external_exports.string().trim().min(1).max(200),
-  summary: external_exports.string().trim().min(1).max(1e3),
-  priority: DynaPrioritySchema,
-  priorityReason: external_exports.string().trim().min(1).max(500),
-  sourceUpdatedAt: TimestampSchema2,
-  dueAt: TimestampSchema2.optional(),
-  labels: external_exports.array(external_exports.string().trim().min(1).max(64)).max(20).default([]),
-  people: external_exports.array(DynaPublishedPersonSignalSchema).max(8).default([]),
-  attention: external_exports.string().trim().min(1).max(500).optional(),
-  plan: external_exports.array(external_exports.string().trim().min(1).max(200)).max(4).default([]),
-  nextSteps: external_exports.array(DynaNextStepSchema).max(4).default([])
-}).strict();
-var DynaMaterializedItemSchema = DynaPublishedItemSchema.extend({
-  people: external_exports.array(DynaPersonSignalSchema).max(8).default([])
-});
-var DynaDashboardSchema = external_exports.object({
-  id: external_exports.uuid(),
-  name: external_exports.string().trim().min(1).max(96),
-  description: external_exports.string().trim().max(500),
-  archived: external_exports.boolean(),
-  createdAt: TimestampSchema2,
-  updatedAt: TimestampSchema2
-}).strict();
-var DynaPublisherSchema = external_exports.object({
-  id: external_exports.uuid(),
-  name: external_exports.string().trim().min(1).max(96),
-  scheduleId: IdentifierSchema2.optional(),
-  scheduleTitle: external_exports.string().trim().min(1).max(200).optional(),
-  scheduleState: external_exports.enum(["active", "paused", "unknown"]),
-  staleAfterMinutes: external_exports.number().int().min(5).max(43200),
-  lastRunStatus: external_exports.enum(["never", "succeeded", "partial", "failed"]),
-  lastRunAt: TimestampSchema2.optional(),
-  lastRunError: external_exports.string().trim().min(1).max(500).optional(),
-  revokedAt: TimestampSchema2.optional(),
-  createdAt: TimestampSchema2
-}).strict();
-var DynaTaskStateSchema = external_exports.enum([
-  "queued",
-  "running",
-  "waiting",
-  "succeeded",
-  "failed",
-  "unknown"
-]);
-var DynaTaskStatusBaseSchema = external_exports.object({
-  taskId: IdentifierSchema2,
-  hostId: IdentifierSchema2,
-  projectId: IdentifierSchema2.optional(),
-  title: external_exports.string().trim().min(1).max(200),
-  statusUpdatedAt: TimestampSchema2,
-  observedAt: TimestampSchema2
-}).strict();
-var DynaOneLineOutcomeSchema = external_exports.string().trim().min(1).max(200).regex(/^[^\r\n]+$/, "A Codex task outcome must be exactly one line.");
-var DynaTaskStatusSchema = external_exports.discriminatedUnion("state", [
-  DynaTaskStatusBaseSchema.extend({
-    state: external_exports.literal("succeeded"),
-    outcome: DynaOneLineOutcomeSchema
-  }).strict(),
-  DynaTaskStatusBaseSchema.extend({
-    state: external_exports.enum(["queued", "running", "waiting", "failed", "unknown"]),
-    outcome: DynaOneLineOutcomeSchema.optional()
-  }).strict()
-]);
-var DynaAnnotationSchema = external_exports.object({
-  id: external_exports.uuid(),
-  itemId: external_exports.uuid(),
-  body: external_exports.string().trim().min(1).max(1e3),
-  createdAt: TimestampSchema2
-}).strict();
-var DynaItemContextSchema = DynaMaterializedItemSchema.extend({
-  id: external_exports.uuid(),
-  fingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
-  enrichment: external_exports.object({
-    state: external_exports.enum(["active", "stale"]),
-    appliedAt: TimestampSchema2,
-    baseSourceUpdatedAt: TimestampSchema2,
-    provenance: external_exports.string().trim().min(1).max(128),
-    version: external_exports.number().int().positive()
-  }).strict().optional(),
-  annotations: external_exports.array(DynaAnnotationSchema).max(20)
-}).strict();
-var DynaActionItemContextSchema = external_exports.object({
-  id: external_exports.uuid(),
-  title: external_exports.string().trim().min(1).max(200),
-  sourceRef: DynaSourceRefSchema,
-  sourceUpdatedAt: TimestampSchema2,
-  annotations: external_exports.array(DynaAnnotationSchema).max(20),
-  trustBoundary: external_exports.literal("untrusted_reference_data")
-}).strict();
-var DynaActionKindSchema = external_exports.enum([
-  "open_source",
-  "create_codex_task",
-  "open_codex_task",
-  "refresh_codex_status"
-]);
-var DynaActionStateSchema = external_exports.enum([
-  "prepared",
-  "delivered",
-  "claimed",
-  "succeeded",
-  "failed",
-  "needs_reconciliation"
-]);
-var DynaActionRequestSchema = external_exports.object({
-  id: external_exports.uuid(),
-  kind: DynaActionKindSchema,
-  itemId: external_exports.uuid().optional(),
-  taskId: IdentifierSchema2.optional(),
-  taskHostId: IdentifierSchema2.optional(),
-  dashboardRevision: external_exports.number().int().nonnegative(),
-  itemFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
-  state: DynaActionStateSchema,
-  expiresAt: TimestampSchema2,
-  createdAt: TimestampSchema2,
-  updatedAt: TimestampSchema2
-}).strict();
-var DynaCardSchema = external_exports.object({
-  id: external_exports.uuid(),
-  fingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
-  source: DynaSourceSchema,
-  sourceRef: DynaSourceRefSchema,
-  sourceLabel: external_exports.string().trim().min(1).max(128),
-  title: external_exports.string().max(200),
-  summary: external_exports.string().max(1e3),
-  sourcePriority: DynaPrioritySchema,
-  priority: DynaPrioritySchema,
-  priorityReason: external_exports.string().max(500),
-  sourceUpdatedAt: TimestampSchema2,
-  dueAt: TimestampSchema2.optional(),
-  labels: external_exports.array(external_exports.string().max(64)).max(20),
-  people: external_exports.array(DynaPersonSignalSchema).max(8),
-  leadershipScore: external_exports.number().int().min(0).max(120),
-  priorityMode: external_exports.enum(["source", "enrichment", "leadership", "manual"]),
-  sequence: external_exports.number().int().nonnegative().optional(),
-  canMoveEarlier: external_exports.boolean(),
-  canMoveLater: external_exports.boolean(),
-  workflowState: external_exports.enum(["todo", "executing", "paused", "attention", "completed"]),
-  outcome: external_exports.string().trim().min(1).max(200).optional(),
-  followUpOfItemId: external_exports.uuid().optional(),
-  attention: external_exports.string().trim().min(1).max(500).optional(),
-  plan: external_exports.array(external_exports.string().trim().min(1).max(200)).max(4),
-  nextSteps: external_exports.array(DynaNextStepSchema).max(4),
-  enrichmentState: external_exports.enum(["active", "stale"]).optional(),
-  annotations: external_exports.array(DynaAnnotationSchema).max(20),
-  linkedTasks: external_exports.array(DynaTaskStatusSchema).max(8)
-}).strict();
-var DynaDashboardSnapshotSchema = external_exports.object({
-  schema: external_exports.literal("dyna/snapshot-v3"),
-  dashboard: DynaDashboardSchema,
-  generatedAt: TimestampSchema2,
-  query: external_exports.string().max(500),
-  revision: external_exports.number().int().nonnegative(),
-  freshness: external_exports.enum(["fresh", "aging", "stale"]),
-  counts: external_exports.object({
-    critical: external_exports.number().int().nonnegative(),
-    high: external_exports.number().int().nonnegative(),
-    leadership: external_exports.number().int().nonnegative(),
-    total: external_exports.number().int().nonnegative()
-  }).strict(),
-  schedules: external_exports.array(DynaPublisherSchema).max(50),
-  cards: external_exports.array(DynaCardSchema).max(200)
-}).strict();
-var DynaUiPayloadSchema = external_exports.object({
-  schema: external_exports.literal("dyna/ui-v4"),
-  viewToken: external_exports.string().min(32).max(128),
-  snapshot: DynaDashboardSnapshotSchema,
-  spec: external_exports.unknown()
-}).strict();
+// packages/dyna-contracts/src/catalog.ts
+var IdentifierSchema3 = external_exports.string().trim().min(1).max(256);
+var TimestampSchema3 = external_exports.iso.datetime({ offset: true });
 var ActionDescriptorSchema = external_exports.object({
   name: external_exports.enum([
     "annotate",
@@ -54452,19 +54455,16 @@ var ActionDescriptorSchema = external_exports.object({
     "refresh_codex_status"
   ]),
   label: external_exports.string().min(1).max(64),
-  taskId: IdentifierSchema2.optional(),
-  taskHostId: IdentifierSchema2.optional()
+  taskId: IdentifierSchema3.optional(),
+  taskHostId: IdentifierSchema3.optional()
 }).strict();
+var [SucceededTaskStatusSchema, OtherTaskStatusSchema] = DynaTaskStatusSchema.options;
 var DynaTaskStatusPropsSchema = external_exports.discriminatedUnion("state", [
-  DynaTaskStatusBaseSchema.extend({
-    state: external_exports.literal("succeeded"),
-    outcome: DynaOneLineOutcomeSchema,
+  SucceededTaskStatusSchema.extend({
     itemId: external_exports.uuid(),
     itemFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/)
   }).strict(),
-  DynaTaskStatusBaseSchema.extend({
-    state: external_exports.enum(["queued", "running", "waiting", "failed", "unknown"]),
-    outcome: DynaOneLineOutcomeSchema.optional(),
+  OtherTaskStatusSchema.extend({
     itemId: external_exports.uuid(),
     itemFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/)
   }).strict()
@@ -54477,7 +54477,7 @@ var dynaCatalog = schema.createCatalog({
         name: external_exports.string().max(96),
         description: external_exports.string().max(500),
         freshness: external_exports.enum(["fresh", "aging", "stale"]),
-        generatedAt: TimestampSchema2,
+        generatedAt: TimestampSchema3,
         revision: external_exports.number().int().nonnegative()
       }).strict(),
       slots: ["default"],
@@ -54533,8 +54533,8 @@ var dynaCatalog = schema.createCatalog({
         sourcePriority: DynaPrioritySchema,
         priority: DynaPrioritySchema,
         priorityReason: external_exports.string().max(500),
-        sourceUpdatedAt: TimestampSchema2,
-        dueAt: TimestampSchema2.optional(),
+        sourceUpdatedAt: TimestampSchema3,
+        dueAt: TimestampSchema3.optional(),
         labels: external_exports.array(external_exports.string().max(64)).max(20),
         people: external_exports.array(DynaPersonSignalSchema).max(8),
         leadershipScore: external_exports.number().int().min(0).max(120),
@@ -56781,24 +56781,21 @@ var DynaService = class {
   }
   render(dashboardId) {
     const snapshot = this.store.snapshot(dashboardId);
+    compileDashboard(snapshot);
     const payload = {
-      schema: "dyna/ui-v4",
+      schema: "dyna/ui-v5",
       viewToken: this.store.createView(dashboardId),
-      snapshot,
-      spec: compileDashboard(snapshot)
+      snapshot
     };
     return DynaUiPayloadSchema.parse(payload);
   }
   refresh(viewToken, query = "") {
     const snapshot = this.store.snapshotForView(viewToken, query);
-    const validated = dynaCatalog.validate(compileDashboard(snapshot));
-    if (!validated.success || !validated.data)
-      throw new Error("Dyna could not compile its dashboard.");
+    compileDashboard(snapshot);
     return DynaUiPayloadSchema.parse({
-      schema: "dyna/ui-v4",
+      schema: "dyna/ui-v5",
       viewToken,
-      snapshot,
-      spec: validated.data
+      snapshot
     });
   }
   publish(publisherId, secret, items, options) {
@@ -56814,7 +56811,7 @@ var DynaService = class {
 
 // packages/mcp-server/src/plugins/dyna.ts
 var DYNA_PLUGIN_ID = "dyna";
-var DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v4.html";
+var DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v5.html";
 var DashboardIdSchema = external_exports.object({ dashboardId: external_exports.uuid() }).strict();
 var ViewTokenSchema = external_exports.object({
   viewToken: external_exports.string().min(32).max(128),
@@ -56823,9 +56820,9 @@ var ViewTokenSchema = external_exports.object({
 }).strict();
 var EmptyResultSchema2 = external_exports.object({ ok: external_exports.literal(true) }).strict();
 var DashboardListSchema = external_exports.object({ dashboards: external_exports.array(DynaDashboardSchema).max(100) }).strict();
-var IdentifierSchema3 = external_exports.string().trim().min(1).max(256);
+var IdentifierSchema4 = external_exports.string().trim().min(1).max(256);
 var ScheduleSchema = external_exports.object({
-  scheduleId: IdentifierSchema3,
+  scheduleId: IdentifierSchema4,
   scheduleTitle: external_exports.string().trim().min(1).max(200),
   scheduleState: external_exports.enum(["active", "paused", "unknown"]),
   staleAfterMinutes: external_exports.number().int().min(5).max(43200).default(1440)
@@ -57011,8 +57008,8 @@ function appTools(service) {
       inputSchema: external_exports.object({
         viewToken: external_exports.string().min(32).max(128),
         itemId: external_exports.uuid(),
-        taskId: IdentifierSchema3.optional(),
-        taskHostId: IdentifierSchema3.optional(),
+        taskId: IdentifierSchema4.optional(),
+        taskHostId: IdentifierSchema4.optional(),
         kind: DynaActionKindSchema,
         expectedRevision: external_exports.number().int().nonnegative(),
         expectedFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
@@ -57029,8 +57026,8 @@ function appTools(service) {
         const parsed = external_exports.object({
           viewToken: external_exports.string().min(32).max(128),
           itemId: external_exports.uuid(),
-          taskId: IdentifierSchema3.optional(),
-          taskHostId: IdentifierSchema3.optional(),
+          taskId: IdentifierSchema4.optional(),
+          taskHostId: IdentifierSchema4.optional(),
           kind: DynaActionKindSchema,
           expectedRevision: external_exports.number().int().nonnegative(),
           expectedFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
@@ -57394,7 +57391,7 @@ function createDynaPlugin(options = {}) {
         inputSchema: external_exports.object({
           publisherId: external_exports.uuid(),
           secret: external_exports.string().min(32).max(128),
-          runId: IdentifierSchema3,
+          runId: IdentifierSchema4,
           sourceCompletedAt: external_exports.iso.datetime({ offset: true }),
           mode: external_exports.enum(["replace", "upsert"]).default("replace"),
           status: external_exports.enum(["succeeded", "partial", "failed"]).default("succeeded"),
@@ -57414,7 +57411,7 @@ function createDynaPlugin(options = {}) {
             const parsed = external_exports.object({
               publisherId: external_exports.uuid(),
               secret: external_exports.string().min(32).max(128),
-              runId: IdentifierSchema3,
+              runId: IdentifierSchema4,
               sourceCompletedAt: external_exports.iso.datetime({ offset: true }),
               mode: external_exports.enum(["replace", "upsert"]).default("replace"),
               status: external_exports.enum(["succeeded", "partial", "failed"]).default("succeeded"),
@@ -57750,7 +57747,7 @@ var server = createFlowZoneServer({
   uiResources: [
     {
       name: "FlowZone Dyna UI",
-      resourceUri: "ui://flowzone/dyna/v4.html",
+      resourceUri: "ui://flowzone/dyna/v5.html",
       assetLoader: dynaAssetLoader,
       description: "Dyna is a responsive executive dashboard for prioritized scheduled signals and Codex actions."
     }

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  DynaUiPayloadSchema,
   DynaPublishedItemSchema,
   DynaTaskStatusSchema,
   dynaLeadershipScore,
@@ -20,6 +21,36 @@ const executive: DynaPersonSignal = {
 };
 
 describe("Dyna executive signal contracts", () => {
+  test("accepts only the versioned snapshot-only UI payload", () => {
+    const timestamp = "2026-09-04T12:00:00.000Z";
+    const payload = {
+      schema: "dyna/ui-v5",
+      viewToken: "v".repeat(32),
+      snapshot: {
+        schema: "dyna/snapshot-v3",
+        dashboard: {
+          id: "bd9a11b5-fbf8-495a-a116-d3429496969f",
+          name: "Morning brief",
+          description: "Signals that need a decision.",
+          archived: false,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+        generatedAt: timestamp,
+        query: "",
+        revision: 0,
+        freshness: "fresh",
+        counts: { critical: 0, high: 0, leadership: 0, total: 0 },
+        schedules: [],
+        cards: [],
+      },
+    } as const;
+
+    expect(DynaUiPayloadSchema.safeParse(payload).success).toBe(true);
+    expect(DynaUiPayloadSchema.safeParse({ ...payload, schema: "dyna/ui-v4" }).success).toBe(false);
+    expect(DynaUiPayloadSchema.safeParse({ ...payload, spec: {} }).success).toBe(false);
+  });
+
   test("accepts bounded cross-tool references and guidance", () => {
     const item = DynaPublishedItemSchema.parse({
       externalId: "github:team/project:123",

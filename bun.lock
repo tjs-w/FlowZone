@@ -89,7 +89,6 @@
       "version": "0.1.0",
       "dependencies": {
         "@flowzone/dyna-contracts": "workspace:*",
-        "@json-render/react": "0.20.0",
         "@modelcontextprotocol/ext-apps": "^1.7.5",
         "@openai/apps-sdk-ui": "0.2.2",
         "react": "19.2.8",

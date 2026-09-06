@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { dynaCatalog, type DynaDashboardSnapshot } from "@flowzone/dyna-contracts";
+import type { DynaDashboardSnapshot } from "@flowzone/dyna-contracts";
+import { dynaCatalog } from "@flowzone/dyna-contracts/catalog";
 
 import { compileDashboard } from "../src/index.js";
 

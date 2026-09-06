@@ -1,7 +1,6 @@
 import {
   DynaDashboardSnapshotSchema,
   DynaUiPayloadSchema,
-  dynaCatalog,
   type DynaPublishedItem,
   type DynaTaskStatus,
   type DynaUiPayload,
@@ -28,25 +27,22 @@ export class DynaService {
 
   render(dashboardId: string): DynaUiPayload {
     const snapshot = this.store.snapshot(dashboardId);
+    compileDashboard(snapshot);
     const payload = {
-      schema: "dyna/ui-v4" as const,
+      schema: "dyna/ui-v5" as const,
       viewToken: this.store.createView(dashboardId),
       snapshot,
-      spec: compileDashboard(snapshot),
     };
     return DynaUiPayloadSchema.parse(payload);
   }
 
   refresh(viewToken: string, query = ""): DynaUiPayload {
     const snapshot = this.store.snapshotForView(viewToken, query);
-    const validated = dynaCatalog.validate(compileDashboard(snapshot));
-    if (!validated.success || !validated.data)
-      throw new Error("Dyna could not compile its dashboard.");
+    compileDashboard(snapshot);
     return DynaUiPayloadSchema.parse({
-      schema: "dyna/ui-v4",
+      schema: "dyna/ui-v5",
       viewToken,
       snapshot,
-      spec: validated.data,
     });
   }
 

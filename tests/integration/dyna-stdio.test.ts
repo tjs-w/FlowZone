@@ -40,13 +40,13 @@ describe("Dyna checked-in Node bundle", () => {
     try {
       const resources = await client.listResources();
       const dynaResource = resources.resources.find(
-        (resource) => resource.uri === "ui://flowzone/dyna/v4.html",
+        (resource) => resource.uri === "ui://flowzone/dyna/v5.html",
       );
       expect(dynaResource?._meta?.["ui"]).toEqual({
         prefersBorder: true,
         csp: { connectDomains: [], resourceDomains: [], frameDomains: [] },
       });
-      const dynaHtml = await client.readResource({ uri: "ui://flowzone/dyna/v4.html" });
+      const dynaHtml = await client.readResource({ uri: "ui://flowzone/dyna/v5.html" });
       const dynaContent = dynaHtml.contents[0];
       expect(dynaContent && "text" in dynaContent ? dynaContent.text : "").toContain(
         'id="dyna-root"',
@@ -231,6 +231,8 @@ describe("Dyna checked-in Node bundle", () => {
         "The MR is ready for review.",
       );
       const payload = record(record(rendered._meta)["dynaDashboard"]);
+      expect(payload["schema"]).toBe("dyna/ui-v5");
+      expect("spec" in payload).toBe(false);
       const viewToken = payload["viewToken"];
       const snapshot = record(payload["snapshot"]);
       const cards = snapshot["cards"];
@@ -330,6 +332,8 @@ describe("Dyna checked-in Node bundle", () => {
         arguments: { viewToken },
       });
       const refreshedPayload = record(record(refreshed._meta)["dynaDashboard"]);
+      expect(refreshedPayload["schema"]).toBe("dyna/ui-v5");
+      expect("spec" in refreshedPayload).toBe(false);
       const refreshedSnapshot = record(refreshedPayload["snapshot"]);
       expect(record(refreshedSnapshot["counts"])["critical"]).toBe(1);
       const refreshedCards = refreshedSnapshot["cards"];

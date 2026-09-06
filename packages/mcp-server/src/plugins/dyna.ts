@@ -21,7 +21,7 @@ import { z } from "zod";
 import type { FlowZoneAppTool, FlowZonePlugin } from "../plugin.js";
 
 export const DYNA_PLUGIN_ID = "dyna";
-export const DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v4.html";
+export const DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v5.html";
 
 const DashboardIdSchema = z.object({ dashboardId: z.uuid() }).strict();
 const ViewTokenSchema = z

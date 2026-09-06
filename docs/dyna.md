@@ -23,33 +23,34 @@ Codex scheduled tasks                Codex task controller
             │                                       ▲
             │ publish bounded records               │ opaque action request
             ▼                                       │
-      Dyna SQLite store ── snapshot ──> pure compiler
-            ▲                              │
-            │ annotations/enrichment       ▼ validate
-            │                     @json-render catalog
-            │                              │
+      Dyna SQLite store ── snapshot ─┬─> pure compiler
+            ▲                     │          │
+            │ annotations/         │          ▼ validate
+            │ enrichment           │   @json-render catalog
+            │                     ▼
             └──── app-only tools ── Dyna MCP Apps UI
+                                  dyna/ui-v5 snapshot only
 ```
 
 The packages divide responsibility as follows:
 
 | Package                     | Responsibility                                                                            |
 | --------------------------- | ----------------------------------------------------------------------------------------- |
-| `@flowzone/dyna-contracts`  | Strict Zod records, snapshot schema, and the fixed component catalog                      |
+| `@flowzone/dyna-contracts`  | Strict Zod records and snapshot-only UI payload; fixed catalog on the `/catalog` subpath  |
 | `@flowzone/dyna-core`       | Deterministic priority ordering and snapshot-to-spec compilation                          |
 | `@flowzone/dyna-node`       | SQLite persistence, capability tokens, action state machine, and snapshots                |
 | `@flowzone/dyna-ui`         | Responsive React renderer, Apps SDK UI controls, annotations, polling, and host messaging |
 | `@flowzone/mcp-server/dyna` | Model-visible actions, private app tools, and the dedicated presentation tool             |
 
-The dedicated `render_dyna_dashboard` tool renders `ui://flowzone/dyna/v4.html`. It is separate from Markdown Review so Dyna does not inherit Mermaid's bundle weight or clipboard permission. Its combined checked-in HTML, JavaScript, and CSS budget is 750 KiB.
+The dedicated `render_dyna_dashboard` tool renders `ui://flowzone/dyna/v5.html`. It is separate from Markdown Review so Dyna does not inherit Mermaid's bundle weight or clipboard permission. Its combined checked-in HTML, JavaScript, and CSS budget is 750 KiB.
 
 ### UI component decision
 
 Dyna deliberately uses three layers rather than a general-purpose component framework:
 
-1. `@json-render/core` and `@json-render/react` provide the closed schema, component catalog, validation, and deterministic renderer. Scheduled output selects only catalog records; it never supplies implementation code or styling.
-2. `@openai/apps-sdk-ui` supplies Codex-native theme integration and the primary `Button` primitive. These controls inherit the host's visual language, focus behavior, and light/dark theme tokens.
-3. Small, semantic Dyna structures implement the product-specific attention ledger, five-stage rail, and responsive inspector. Native `input`, `textarea`, `select`, and `details` elements cover simple form semantics and remain styled with Apps SDK tokens.
+1. `@json-render/core` and `@json-render/react` provide the closed schema and component-catalog validation on the server. Each snapshot is deterministically compiled and validated before release, but the compiled component tree is discarded: the `dyna/ui-v5` wire carries only `schema`, `viewToken`, and `snapshot`. Scheduled output therefore cannot supply implementation code, styling, or arbitrary actions, and browser imports of domain contracts do not pull json-render.
+2. `@openai/apps-sdk-ui` supplies Codex-native `Button`, `Badge`, `Input`, `Textarea`, `Alert`, icons, and theme integration. These reviewed controls inherit the host's visual language, focus behavior, and light/dark tokens without pulling a second design system into the app.
+3. Small, semantic Dyna structures implement the product-specific attention ledger, five-stage rail, and responsive inspector. Native `select` and `details` elements cover the remaining simple semantics. Heavy generic menus, popovers, selectors, dashboards, and community registries stay off the mobile critical path.
 
 The reviewed Apps SDK UI package does not currently provide dense ledger rows, a pipeline rail, a data grid, or a responsive side-inspector primitive. Pulling compound menu, popover, and form modules into this single-resource MCP App also pushed the aggregate artifact over its 750 KiB budget. Dyna therefore does not add shadcn/ui, another Radix bundle, CopilotKit, or Tambo. A ready-made primitive is adopted only when it adds behavior or host consistency that the native element cannot provide within the payload and touch-target budgets.
 

@@ -1,9 +1,5 @@
-import {
-  dynaCatalog,
-  type DynaCard,
-  type DynaDashboardSnapshot,
-  type DynaRenderSpec,
-} from "@flowzone/dyna-contracts";
+import { type DynaCard, type DynaDashboardSnapshot } from "@flowzone/dyna-contracts";
+import { dynaCatalog, type DynaRenderSpec } from "@flowzone/dyna-contracts/catalog";
 
 const PRIORITY_ORDER = ["critical", "high", "normal", "low"] as const;
 

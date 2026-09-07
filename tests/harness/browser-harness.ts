@@ -149,7 +149,7 @@ async function createDynaFixture(
     {
       source: "scm",
       provider: "GitHub",
-      instanceId: fixtureId,
+      instanceId: "github.com",
       repository: "team/project",
       entityType: "pull_request",
       entityId: "123",
@@ -716,6 +716,7 @@ const dynaHostScript = (dynaResult: unknown) => `<script>
     messages: [],
     toolCalls: [],
     toolResults: [],
+    externalLinks: [],
     displayModeRequests: [],
     snapshotResults: 0,
     replayedToolResults: 0,
@@ -756,6 +757,7 @@ const dynaHostScript = (dynaResult: unknown) => `<script>
           protocolVersion: "2026-01-26",
           hostInfo: { name: "flowzone-dyna-harness", version: "0.1.0" },
           hostCapabilities: {
+            openLinks: {},
             ...(query.get("no-server-tools") === "1" ? {} : { serverTools: {} }),
             ...(query.get("no-message") === "1"
               ? {}
@@ -765,8 +767,15 @@ const dynaHostScript = (dynaResult: unknown) => `<script>
             theme: query.get("theme") === "dark" ? "dark" : "light",
             displayMode: "inline",
             availableDisplayModes,
-            platform: "mobile",
-            deviceCapabilities: { touch: true, hover: false },
+            platform:
+              navigator.maxTouchPoints > 0 || window.matchMedia("(pointer: coarse)").matches
+                ? "mobile"
+                : "desktop",
+            deviceCapabilities: {
+              touch:
+                navigator.maxTouchPoints > 0 || window.matchMedia("(pointer: coarse)").matches,
+              hover: window.matchMedia("(hover: hover)").matches
+            },
             safeAreaInsets: { top: 8, right: 0, bottom: 10, left: 0 },
             locale: "en-US",
             timeZone: "America/Los_Angeles"
@@ -811,6 +820,9 @@ const dynaHostScript = (dynaResult: unknown) => `<script>
         document.documentElement.dataset.dynaMessageCount = String(state.messages.length);
         document.documentElement.dataset.dynaLastMessage = JSON.stringify(request.params);
         if (query.get("action-error") === "1") result = { isError: true };
+      } else if (request.method === "ui/open-link") {
+        state.externalLinks.push(request.params.url);
+        document.documentElement.dataset.dynaLastExternalLink = request.params.url;
       } else if (request.method === "ui/request-display-mode") {
         state.displayModeRequests.push(request.params);
         document.documentElement.dataset.dynaDisplayModeRequestCount = String(state.displayModeRequests.length);

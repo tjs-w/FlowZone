@@ -10,6 +10,7 @@ import {
   DynaTaskStatusSchema,
   dynaLeadershipScore,
   dynaSourceLabel,
+  dynaSourceUrl,
   effectiveDynaPriority,
   type DynaPersonSignal,
 } from "../src/index.js";
@@ -79,6 +80,7 @@ describe("Dyna executive signal contracts", () => {
     });
 
     expect(dynaSourceLabel(item.sourceRef)).toBe("GitHub");
+    expect(dynaSourceUrl(item.sourceRef)).toBe("https://github.com/team/project/pull/123");
     expect(item.plan).toEqual(["Review the current diff"]);
     expect(item.nextSteps).toHaveLength(1);
     expect(
@@ -87,6 +89,44 @@ describe("Dyna executive signal contracts", () => {
         people: [executive],
       }).success,
     ).toBe(false);
+  });
+
+  test("derives safe browser links from typed source identities", () => {
+    expect(
+      dynaSourceUrl({
+        source: "gitlab",
+        instanceId: "cd.splunkdev.com",
+        projectPath: "linus/linus-findings-service",
+        iid: 295,
+        entityType: "merge_request",
+      }),
+    ).toBe("https://cd.splunkdev.com/linus/linus-findings-service/-/merge_requests/295");
+    expect(
+      dynaSourceUrl({
+        source: "twg",
+        contextId: "splunk.atlassian.net",
+        resultType: "jira",
+        recordId: "LIN-2570",
+      }),
+    ).toBe("https://splunk.atlassian.net/browse/LIN-2570");
+    expect(
+      dynaSourceUrl({
+        source: "messaging",
+        provider: "Discord",
+        workspaceId: "team",
+        channelId: "release",
+        messageId: "42",
+      }),
+    ).toBe("https://discord.com/channels/team/release/42");
+    expect(
+      dynaSourceUrl({
+        source: "gitlab",
+        instanceId: "javascript:alert(1)",
+        projectPath: "team/project",
+        iid: 1,
+        entityType: "issue",
+      }),
+    ).toBeUndefined();
   });
 
   test("accepts unique scheduled source slices and rejects manual or duplicate slices", () => {

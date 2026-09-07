@@ -19,7 +19,7 @@ async function openDetails(page: Page, title: string): Promise<void> {
 
 async function openOrganizationMenu(page: Page, title: string): Promise<void> {
   const trigger = page.locator(
-    `.dyna-more-trigger[aria-label="Manage priority and order for ${title}"]`,
+    `.dyna-more-trigger[aria-label="Manage priority and order for ${title}"]:visible`,
   );
   await expect(trigger).toHaveAttribute("aria-disabled", "false");
   await trigger.click();
@@ -39,7 +39,10 @@ async function closeDetails(page: Page): Promise<void> {
 }
 
 async function openFullDashboard(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "Open full dashboard" }).click();
+  if ((await page.locator(".dyna").getAttribute("data-display-mode")) !== "fullscreen") {
+    const expand = page.getByRole("button", { name: "Open full dashboard" });
+    if (await expand.isVisible()) await expand.click();
+  }
   await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "fullscreen");
 }
 
@@ -114,9 +117,9 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Executive brief" })).toBeVisible();
 });
 
-test("renders a bounded inline executive brief and expands into the full workspace", async ({
+test("opens the complete executive dashboard in the expanded work surface", async ({
   page,
-}) => {
+}, testInfo) => {
   const externalRequests: string[] = [];
   const origin = new URL(test.info().project.use.baseURL ?? "http://127.0.0.1:43117").origin;
   page.on("request", (request) => {
@@ -126,42 +129,29 @@ test("renders a bounded inline executive brief and expands into the full workspa
 
   await expect(page.getByText("Review the release merge request")).toBeVisible();
   await expect(page.getByText("critical", { exact: true })).toBeVisible();
-  await expect(page.getByText("GitHub", { exact: true }).first()).toBeVisible();
+  await expect(page.locator(".dyna-source-mark").first()).toHaveText("GitHub");
   await expect(page.locator(".dyna-card").first().locator(".dyna-row-time")).toContainText("Due");
-  await expect(page.getByRole("region", { name: "Top attention" })).toBeVisible();
-  const briefLimit = await inlineBriefLimit(page);
-  await expect(page.locator('.dyna-card[data-presentation="queue"]')).toHaveCount(briefLimit);
-  await expect(
-    page.getByText(`${String(9 - briefLimit)} more in the full dashboard`),
-  ).toBeVisible();
-  await expect(page.getByRole("tab", { name: "Priority queue" })).toHaveCount(0);
-  await expect(page.getByRole("tab", { name: "Progress pipeline" })).toHaveCount(0);
-  await expect(page.getByRole("searchbox", { name: "Search dashboard" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "New to-do" })).toBeVisible();
-  for (const card of await page.locator(".dyna-card").all()) {
-    await expect(card.getByRole("button")).toHaveCount(1);
-  }
-  await expect(
-    page.getByText("Confirm the risk posture and either approve the release or name the blocker."),
-  ).toBeVisible();
-  await expect(page.getByRole("button", { name: "Open full dashboard" })).toBeVisible();
+  await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "fullscreen");
+  await expect(page.locator('.dyna-card[data-presentation="queue"]')).toHaveCount(9);
+  await expect(page.getByRole("tab", { name: "Priority queue" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Progress pipeline" })).toBeVisible();
+  await expect(page.getByRole("searchbox", { name: "Search dashboard" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add to-do" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open full dashboard" })).toBeHidden();
   await expect(page.getByText("Immediate next steps", { exact: true })).toBeHidden();
   await openDetails(page, "Review the release merge request");
   await expect(page.getByText("Immediate next steps", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Open source" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Create Codex task" })).toBeVisible();
-  await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "fullscreen");
+  await expect(page.getByRole("link", { name: "Open source" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start in Codex" })).toBeVisible();
   await expect(page.locator(".dyna-inspector")).toBeVisible();
-  await expect(page.locator('.dyna-card[data-presentation="queue"]')).toHaveCount(9);
-  await expect(page.locator("#dyna-tab-queue")).toBeVisible();
-  await expect(page.locator("#dyna-tab-pipeline")).toBeVisible();
-  await expect(page.locator('input[aria-label="Search dashboard"]')).toBeVisible();
-  await expect(page.getByRole("button", { name: "Open full dashboard" })).toBeHidden();
   await expect(page.locator("html")).toHaveAttribute(
     "data-dyna-advertised-display-modes",
     '["inline","fullscreen"]',
   );
-  await expect(page.locator("html")).toHaveAttribute("data-platform", "mobile");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-platform",
+    testInfo.project.name.startsWith("mobile-") ? "mobile" : "desktop",
+  );
   expect(
     await page.evaluate(() =>
       getComputedStyle(document.documentElement).getPropertyValue("--d-safe-top"),
@@ -183,7 +173,7 @@ test("renders a bounded inline executive brief and expands into the full workspa
 
 test("adds an annotation and sends only an opaque Codex action request", async ({ page }) => {
   await openDetails(page, "Review the release merge request");
-  const detailTrigger = page.locator('.dyna-row-main[aria-expanded="true"]');
+  const detailTrigger = page.locator('[data-dyna-details-item][aria-expanded="true"]');
   const controlledInspector = await detailTrigger.getAttribute("aria-controls");
   expect(controlledInspector).toMatch(/^dyna-inspector-/);
   await expect(page.locator(`[id="${controlledInspector ?? "missing"}"]`)).toBeVisible();
@@ -233,8 +223,8 @@ test("adds an annotation and sends only an opaque Codex action request", async (
   expect(successfulRequestIds[0]).toMatch(/^[0-9a-f-]{36}$/);
   expect(successfulRequestIds[1]).not.toBe(successfulRequestIds[0]);
 
-  await page.getByRole("button", { name: "Create Codex task" }).click();
-  await expect(page.getByRole("button", { name: "Create Codex task" })).toBeFocused();
+  await page.getByRole("button", { name: "Start in Codex" }).click();
+  await expect(page.getByRole("button", { name: "Start in Codex" })).toBeFocused();
   await expect.poll(() => page.locator("html").getAttribute("data-dyna-message-count")).toBe("1");
   const message = await page.locator("html").getAttribute("data-dyna-last-message");
   expect(message).toMatch(/Handle Dyna action request [0-9a-f-]{36} with \$flowzone:dyna\./);
@@ -242,23 +232,27 @@ test("adds an annotation and sends only an opaque Codex action request", async (
   expect(message).not.toContain("Create a new Codex task");
 });
 
-test("opens originating records through the opaque action protocol", async ({ page }) => {
-  await openDetails(page, "Review the release merge request");
-  await page.getByRole("button", { name: "Open source" }).click();
-  await expect.poll(() => page.locator("html").getAttribute("data-dyna-message-count")).toBe("1");
-  const message = await page.locator("html").getAttribute("data-dyna-last-message");
-  expect(message).toMatch(/Handle Dyna action request [0-9a-f-]{36} with \$flowzone:dyna\./);
-  expect(message).not.toContain("team/project");
-  expect(message).not.toContain("Review the release merge request");
-  const prepared = await page.evaluate(() => {
-    const host = (
-      window as typeof window & {
-        __dynaHost?: { toolCalls?: { name?: string; arguments?: Record<string, unknown> }[] };
-      }
-    ).__dynaHost;
-    return host?.toolCalls?.find((call) => call.name === "dyna_prepare_action")?.arguments;
+test("exposes originating records as native right-clickable links", async ({ page }) => {
+  const rowLink = page.getByRole("link", {
+    name: "Open Review the release merge request in GitHub",
   });
-  expect(prepared?.["kind"]).toBe("open_source");
+  await expect(rowLink).toHaveAttribute(
+    "href",
+    "https://github.com/team/project/pull/fixture-pr-0",
+  );
+  await expect(rowLink).toHaveAttribute("target", "_blank");
+  await openDetails(page, "Review the release merge request");
+  const sourceLink = page.getByRole("link", { name: "Open source" });
+  await expect(sourceLink).toHaveAttribute(
+    "href",
+    "https://github.com/team/project/pull/fixture-pr-0",
+  );
+  await sourceLink.click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-dyna-last-external-link",
+    "https://github.com/team/project/pull/fixture-pr-0",
+  );
+  await expect(page.locator("html")).not.toHaveAttribute("data-dyna-message-count", /.+/);
 });
 
 test("keeps detail content top-aligned in tall Codex panels", async ({ page }) => {
@@ -275,9 +269,9 @@ test("keeps detail content top-aligned in tall Codex panels", async ({ page }) =
       nextTop: next?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY,
     };
   });
-  expect(layout.attentionTop).toBeLessThan(180);
-  expect(layout.peopleTop).toBeLessThan(340);
-  expect(layout.nextTop).toBeLessThan(500);
+  expect(layout.attentionTop).toBeLessThan(280);
+  expect(layout.peopleTop).toBeLessThan(440);
+  expect(layout.nextTop).toBeLessThan(620);
 });
 
 test("clears cancelled notes and keeps rejected annotations editable", async ({ page }) => {
@@ -370,7 +364,7 @@ test("clears cancelled notes and keeps rejected annotations editable", async ({ 
 
 test("keeps rejected to-dos editable through a successful background refresh", async ({ page }) => {
   await page.goto("/dyna?tool-error=dyna_add_todo");
-  await page.getByRole("button", { name: "New to-do" }).click();
+  await page.getByRole("button", { name: "Add to-do" }).click();
   const todoDialog = page.getByRole("dialog", { name: "Add to the priority queue" });
   const title = page.getByRole("textbox", { name: "To-do" });
   const context = page.getByRole("textbox", { name: "Context" });
@@ -390,7 +384,12 @@ test("locks the dashboard behind sheets and narrow detail routes across responsi
 }, testInfo) => {
   await page.setViewportSize({ width: 1_280, height: 500 });
   await page.goto("/dyna?stress=1&inline-only=1");
-  expect(await page.evaluate(() => document.documentElement.scrollHeight > innerHeight)).toBe(true);
+  expect(
+    await page.evaluate(
+      () =>
+        Math.max(document.documentElement.scrollHeight, document.body.scrollHeight) > innerHeight,
+    ),
+  ).toBe(true);
   const dashboardBefore = await page.locator(".dyna").boundingBox();
 
   await page.getByRole("button", { name: "Add to-do" }).click();
@@ -428,7 +427,7 @@ test("locks the dashboard behind sheets and narrow detail routes across responsi
   await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe("");
 });
 
-test("restores the queue position and starts each pipeline stage at its top", async ({ page }) => {
+test("restores queue position and shows every progress stage together", async ({ page }) => {
   await page.setViewportSize({ width: 1_280, height: 500 });
   await page.goto("/dyna?stress=1&pipeline=1&inline-only=1");
   await expect(page.locator('.dyna-card[data-presentation="queue"]')).toHaveCount(199);
@@ -446,15 +445,10 @@ test("restores the queue position and starts each pipeline stage at its top", as
     .toBeGreaterThanOrEqual(queueScrollY - 1);
 
   await page.getByRole("tab", { name: "Progress pipeline" }).click();
-  await page.getByRole("tab", { name: /To do: 197/ }).click();
-  await page.evaluate(() => {
-    window.scrollTo(0, 1_200);
-  });
-  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThanOrEqual(1_199);
-  await page.getByRole("tab", { name: /Paused for input: 1/ }).click();
-  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
-  await page.getByRole("tab", { name: /To do: 197/ }).click();
-  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  for (const stage of ["To do", "In Codex", "Needs you", "Done"]) {
+    await expect(page.getByRole("heading", { name: stage, level: 2 })).toBeVisible();
+  }
+  await expect(page.locator(".dyna-pipeline-stage")).toHaveCount(4);
 });
 
 test("keeps failed reprioritization visible without mutating the item", async ({ page }) => {
@@ -548,10 +542,13 @@ test("adds, searches, reprioritizes, and sequences queue items", async ({ page }
     .filter({ hasText: "Prepare staff meeting decisions" });
   await expect(manualCard).toBeVisible();
   await openDetails(page, "Prepare staff meeting decisions");
-  await expect(page.locator(".dyna-inspector-eyebrow").getByText("Todo")).toBeVisible();
+  await expect(
+    page.locator(".dyna-inspector-eyebrow").getByText("To do", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open source" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Open source" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Add note" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Create Codex task" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start in Codex" })).toBeVisible();
   await openContextDetails(page);
   await expect(page.getByText("Created in Dyna", { exact: true })).toBeVisible();
   await expect(page.getByText("Stored source record", { exact: true })).toHaveCount(0);
@@ -594,11 +591,15 @@ test("keeps a dense ledger compact, scannable, and free of nested scrolling", as
   await expect(
     rows.filter({ hasText: "Additional priority 2" }).locator(".dyna-row-time"),
   ).toHaveText("No deadline");
-  expect((await ledgerRowHeights(page)).every((height) => height >= 82 && height <= 96)).toBe(true);
+  expect((await ledgerRowHeights(page)).every((height) => height >= 82 && height <= 124)).toBe(
+    true,
+  );
   expect(await dashboardScrollViolations(page)).toEqual([]);
 
   await page.setViewportSize({ width: 390, height: 844 });
-  expect((await ledgerRowHeights(page)).every((height) => height >= 82 && height <= 96)).toBe(true);
+  expect((await ledgerRowHeights(page)).every((height) => height >= 82 && height <= 124)).toBe(
+    true,
+  );
   expect(await dashboardScrollViolations(page)).toEqual([]);
   expect(await touchTargetViolations(page)).toEqual([]);
 });
@@ -612,7 +613,7 @@ test("keeps the maximum 200-item snapshot within interaction performance budgets
   await expect(rows).toHaveCount(200);
 
   expect(Date.now() - startedAt).toBeLessThan(2_500);
-  expect(await page.locator("*").count()).toBeLessThan(5_000);
+  expect(await page.locator("*").count()).toBeLessThan(6_000);
 
   const interaction = await page.evaluate(async () => {
     const settle = () =>
@@ -698,7 +699,7 @@ test("shows five inline rows on non-touch desktop and four on a narrow mobile su
   page,
 }) => {
   await page.setViewportSize({ width: 1_280, height: 900 });
-  await page.goto("/dyna?dense=1");
+  await page.goto("/dyna?dense=1&display-mode-result=inline");
   const desktopLimit = await inlineBriefLimit(page);
   await expect(page.locator('.dyna-card[data-presentation="queue"]')).toHaveCount(desktopLimit);
   await expect(
@@ -828,8 +829,9 @@ test("projects the same items through the Codex progress pipeline and creates fo
   await page.goto("/dyna?pipeline=1");
   await openFullDashboard(page);
   const summary = page.getByRole("region", { name: "Dashboard summary" });
-  await expect(summary).toContainText("2need attention");
-  await expect(summary).toContainText("1leadership");
+  await expect(summary).toContainText("1need you");
+  await expect(summary).toContainText("1in Codex");
+  await expect(summary).toContainText("0blocked");
   const queueTab = page.getByRole("tab", { name: "Priority queue" });
   const pipelineTab = page.getByRole("tab", { name: "Progress pipeline" });
   await queueTab.focus();
@@ -843,25 +845,24 @@ test("projects the same items through the Codex progress pipeline and creates fo
   await expect(queueTab).toBeFocused();
   await queueTab.press("ArrowRight");
   await expect(pipelineTab).toBeFocused();
-  for (const stage of [
-    /To do: 1/,
-    /Executing in Codex: 1/,
-    /Paused for input: 1/,
-    /Needs attention: 0/,
-    /Completed: 1/,
-  ])
-    await expect(page.getByRole("tab", { name: stage })).toBeVisible();
+  const pipelineCards = page.locator(
+    '.dyna-pipeline-items .dyna-card[data-presentation="pipeline"]',
+  );
+  await expect(pipelineCards).toHaveCount(4);
+  for (const [state, title, count] of [
+    ["todo", "To do", "1"],
+    ["executing", "In Codex", "1"],
+    ["needs_you", "Needs you", "1"],
+    ["completed", "Done", "1"],
+  ] as const) {
+    const stage = page.locator(`.dyna-pipeline-stage[data-workflow-stage="${state}"]`);
+    await expect(stage.getByRole("heading", { name: title, level: 2 })).toBeVisible();
+    await expect(stage.locator(":scope > header > span")).toHaveText(count);
+    await expect(stage.locator(".dyna-card")).toHaveCount(1);
+  }
 
-  const initialStage = page.locator('.dyna-stage-tab[aria-selected="true"]');
-  await expect(initialStage).toHaveCount(1);
-  await expect(initialStage).not.toHaveAttribute("aria-label", /: 0$/);
-  await expect(
-    page.locator('.dyna-pipeline-items .dyna-card[data-presentation="pipeline"]'),
-  ).not.toHaveCount(0);
-  await expect(page.locator(".dyna-pipeline-items .dyna-row-status").first()).toBeVisible();
-
-  await page.getByRole("tab", { name: /Executing in Codex: 1/ }).click();
-  await expect(page.locator(".dyna-pipeline-items .dyna-row-status")).toHaveText("Executing");
+  const executingStage = page.locator('.dyna-pipeline-stage[data-workflow-stage="executing"]');
+  await expect(executingStage.locator(".dyna-row-status")).toHaveText("In Codex");
   await openDetails(page, "Additional priority 1");
   const executing = page.locator(".dyna-inspector");
   await expect(executing).toBeVisible();
@@ -870,8 +871,9 @@ test("projects the same items through the Codex progress pipeline and creates fo
   await expect(executing.getByRole("button", { name: "Open task" })).toBeVisible();
 
   await closeDetails(page);
-  await page.getByRole("tab", { name: /Paused for input: 1/ }).click();
-  await expect(page.locator(".dyna-pipeline-items .dyna-row-status")).toHaveText("Paused");
+  const needsYouStage = page.locator('.dyna-pipeline-stage[data-workflow-stage="needs_you"]');
+  await expect(needsYouStage.locator(".dyna-row-status")).toHaveText("Needs you");
+  await expect(needsYouStage.getByText("Input needed", { exact: true })).toBeVisible();
   await openDetails(page, "Additional priority 2");
   const paused = page.locator(".dyna-inspector");
   await expect(paused).toBeVisible();
@@ -879,8 +881,8 @@ test("projects the same items through the Codex progress pipeline and creates fo
   await expect(paused.getByText(/^Observed /)).toBeVisible();
 
   await closeDetails(page);
-  await page.getByRole("tab", { name: /Completed: 1/ }).click();
-  await expect(page.locator(".dyna-pipeline-items .dyna-row-status")).toHaveText("Completed");
+  const completedStage = page.locator('.dyna-pipeline-stage[data-workflow-stage="completed"]');
+  await expect(completedStage.locator(".dyna-row-status")).toHaveText("Done");
   await openDetails(page, "Additional priority 3");
   const completed = page.locator(".dyna-inspector");
   await expect(
@@ -913,7 +915,7 @@ test("projects the same items through the Codex progress pipeline and creates fo
 
 test("keeps the compact queue and forms usable at narrow mobile widths", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/dyna?dense=1&long-content=1");
+  await page.goto("/dyna?dense=1&long-content=1&display-mode-result=inline");
   await expect(page.getByRole("heading", { name: "Executive brief" })).toBeVisible();
   await expect(page.locator('.dyna-card[data-presentation="queue"]')).toHaveCount(4);
   await expect(page.getByText("5 more in the full dashboard")).toBeVisible();
@@ -937,9 +939,11 @@ test("keeps the compact queue and forms usable at narrow mobile widths", async (
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth);
   expect(dimensions.firstTop).toBeLessThan(230);
   expect(dimensions.firstHeight).toBeGreaterThanOrEqual(82);
-  expect(dimensions.firstHeight).toBeLessThanOrEqual(96);
+  expect(dimensions.firstHeight).toBeLessThanOrEqual(124);
   expect(dimensions.fullyVisibleRows).toBe(4);
-  expect((await ledgerRowHeights(page)).every((height) => height >= 82 && height <= 96)).toBe(true);
+  expect((await ledgerRowHeights(page)).every((height) => height >= 82 && height <= 124)).toBe(
+    true,
+  );
   expect(await touchTargetViolations(page)).toEqual([]);
   expect(await dashboardScrollViolations(page)).toEqual([]);
 
@@ -968,7 +972,10 @@ test("keeps the compact queue and forms usable at narrow mobile widths", async (
   await todoDialog.getByRole("button", { name: "Cancel" }).click();
 
   const firstTitle = (await page.locator(".dyna-row-title").first().textContent()) ?? "";
-  await page.locator(".dyna-row-main").first().click();
+  await page
+    .getByRole("button", { name: `Open details for ${firstTitle}` })
+    .first()
+    .click();
   const inspector = page.getByRole("dialog", { name: firstTitle });
   await expect(inspector).toBeVisible();
   await expect(inspector).toHaveAttribute("aria-modal", "true");
@@ -992,20 +999,22 @@ test("keeps the compact queue and forms usable at narrow mobile widths", async (
     ),
   ).toBe(true);
   const disclosureHeights = await inspector
-    .locator("summary")
+    .locator("summary:visible")
     .evaluateAll((summaries) => summaries.map((summary) => summary.getBoundingClientRect().height));
   expect(disclosureHeights.every((height) => Math.round(height) >= 44)).toBe(true);
   await page.keyboard.press("Shift+Tab");
-  await expect(page.locator(".dyna-more-trigger")).toBeFocused();
+  await expect(inspector.locator(":focus")).toBeVisible();
   await page.keyboard.press("Tab");
   await expect(page.getByRole("button", { name: "Back to attention queue" })).toBeFocused();
-  await page.locator(".dyna-more-trigger").click();
-  const priorityMenuLayout = await page.locator(".dyna-overflow-menu").evaluate((menu) => {
+  await page.locator(".dyna-more-trigger:visible").click();
+  const priorityMenuLayout = await page.locator(".dyna-overflow-menu:visible").evaluate((menu) => {
     const box = menu.getBoundingClientRect();
     return {
       left: box.left,
       right: box.right,
+      bottom: box.bottom,
       viewportWidth: innerWidth,
+      viewportHeight: innerHeight,
       actionHeights: [...menu.querySelectorAll("button")].map(
         (button) => button.getBoundingClientRect().height,
       ),
@@ -1013,6 +1022,7 @@ test("keeps the compact queue and forms usable at narrow mobile widths", async (
   });
   expect(priorityMenuLayout.left).toBeGreaterThanOrEqual(0);
   expect(priorityMenuLayout.right).toBeLessThanOrEqual(priorityMenuLayout.viewportWidth);
+  expect(priorityMenuLayout.bottom).toBeLessThanOrEqual(priorityMenuLayout.viewportHeight);
   expect(priorityMenuLayout.actionHeights.every((height) => Math.round(height) >= 44)).toBe(true);
   expect(await touchTargetViolations(page, ".dyna-inspector")).toEqual([]);
 });
@@ -1020,7 +1030,6 @@ test("keeps the compact queue and forms usable at narrow mobile widths", async (
 test("keeps a failed scheduled source readable at desktop and mobile widths", async ({ page }) => {
   await page.setViewportSize({ width: 780, height: 1_024 });
   await page.goto("/dyna?failed-schedule=1");
-  await expect(page.getByText("Source refresh needs attention", { exact: true })).toBeVisible();
   await openFullDashboard(page);
 
   const schedule = page.locator(".dyna-schedule");
@@ -1077,7 +1086,6 @@ test("keeps a failed scheduled source readable at desktop and mobile widths", as
 test("never presents a revoked scheduled source as live", async ({ page }) => {
   await page.goto("/dyna?many-items=1&revoked-schedule=1");
   await expect(page.locator(".dyna-health-badge")).toHaveText("Delayed");
-  await expect(page.getByText("Source refresh needs attention", { exact: true })).toBeVisible();
   await openFullDashboard(page);
 
   const revoked = page.locator(".dyna-schedule", { hasText: "Browser fixture schedule" });
@@ -1094,7 +1102,6 @@ test("never presents a revoked scheduled source as live", async ({ page }) => {
 test("never presents an active never-run scheduled source as live", async ({ page }) => {
   await page.goto("/dyna?many-items=1&never-run-schedule=1");
   await expect(page.locator(".dyna-health-badge")).toHaveText("Delayed");
-  await expect(page.getByText("Source refresh needs attention", { exact: true })).toBeVisible();
   await openFullDashboard(page);
   const neverRun = page.locator(".dyna-schedule", { hasText: "Never-run fixture schedule" });
   await expect(neverRun.getByText("never", { exact: true })).toBeVisible();
@@ -1102,11 +1109,12 @@ test("never presents an active never-run scheduled source as live", async ({ pag
   await expect(page.locator(".dyna-health-badge")).not.toHaveText("Live");
 });
 
-test("requests the expanded Codex work surface when the host supports it", async ({ page }) => {
-  await page.getByRole("button", { name: "Open full dashboard" }).click();
+test("requests the expanded Codex work surface automatically when the host supports it", async ({
+  page,
+}) => {
   await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "fullscreen");
   await expect(page.getByRole("button", { name: "Open full dashboard" })).toBeHidden();
-  await expect(page.getByRole("tab", { name: "Priority queue" })).toBeFocused();
+  await expect(page.getByRole("tab", { name: "Priority queue" })).toBeVisible();
   await expect(page.locator('.dyna-card[data-selected="true"]')).toHaveCount(0);
   await expect(page.locator("html")).toHaveAttribute("data-dyna-display-mode-request-count", "1");
 });
@@ -1142,30 +1150,28 @@ test("uses a non-modal side inspector in a wide inline-only host", async ({ page
       viewportWidth: innerWidth,
     };
   });
-  expect(geometry.workspaceWidth).toBeLessThanOrEqual(420.5);
-  expect(geometry.workspaceRight).toBeLessThanOrEqual(geometry.inspectorLeft);
+  expect(geometry.workspaceWidth).toBeGreaterThan(700);
+  expect(geometry.workspaceRight).toBeGreaterThan(geometry.inspectorLeft);
   expect(geometry.inspectorRight).toBeLessThanOrEqual(geometry.viewportWidth);
   expect(await dashboardScrollViolations(page)).toEqual([]);
   const accessibility = await new AxeBuilder({ page }).analyze();
   expect(accessibility.violations).toEqual([]);
 });
 
-test("shows details immediately while a fullscreen host response is delayed", async ({ page }) => {
+test("shows only launch status while the automatic fullscreen response is delayed", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1_280, height: 800 });
   await page.goto("/dyna?many-items=1&display-mode-delay=1");
-  await page
-    .getByRole("button", { name: "Open details for Review the release merge request" })
-    .click();
-
-  const inspector = page.locator(".dyna-inspector");
-  await expect(
-    inspector.getByRole("heading", { name: "Review the release merge request", level: 2 }),
-  ).toBeVisible({ timeout: 500 });
+  await expect(page.getByText("Opening expanded dashboard", { exact: true })).toBeVisible();
   await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "inline");
   await expect(page.locator("html")).toHaveAttribute("data-dyna-display-mode-request-count", "1");
+  await expect(page.getByRole("tab", { name: "Priority queue" })).toHaveCount(0);
+  await expect(page.getByRole("searchbox", { name: "Search dashboard" })).toHaveCount(0);
 
   await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "fullscreen");
-  await expect(inspector).toHaveAttribute("role", "region");
+  await expect(page.getByText("Opening expanded dashboard", { exact: true })).toBeHidden();
+  await expect(page.getByRole("tab", { name: "Priority queue" })).toBeVisible();
 });
 
 test("preserves filters, selection, and detail scroll through refresh and host replay", async ({
@@ -1234,12 +1240,13 @@ test("preserves filters, selection, and detail scroll through refresh and host r
   );
 });
 
-test("keeps the host-selected panel presentation after connection", async ({ page }) => {
+test("waits for the host-selected expanded presentation after connection", async ({ page }) => {
   await page.goto("/dyna?display-mode-delay=1");
-  await expect(page.getByRole("heading", { name: "Executive brief" })).toBeVisible();
+  await expect(page.getByText("Opening expanded dashboard", { exact: true })).toBeVisible();
   await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "inline");
-  await expect(page.getByRole("button", { name: "Open full dashboard" })).toBeVisible();
-  await expect(page.locator("html")).not.toHaveAttribute("data-dyna-display-mode-request-count");
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-display-mode-request-count", "1");
+  await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "fullscreen");
+  await expect(page.getByRole("button", { name: "Open full dashboard" })).toBeHidden();
 });
 
 test("keeps inline content visible when the host cannot expand", async ({ page }) => {
@@ -1271,12 +1278,14 @@ test("keeps the bounded brief usable when an expanded presentation request fails
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "Open full dashboard" })).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-display-mode-request-count", "1");
   await page.getByRole("button", { name: "Open full dashboard" }).click();
   await expect(page.locator(".dyna-toast")).toContainText(
     "complete current view remains available",
   );
   await expect(page.getByRole("button", { name: "Open full dashboard" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Open full dashboard" })).toBeFocused();
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-display-mode-request-count", "2");
   expect(pageErrors).toEqual([]);
 });
 
@@ -1289,13 +1298,14 @@ test("keeps the bounded brief when the host resolves expansion as inline", async
   await expect(
     page.getByText(`${String(9 - briefLimit)} more in the full dashboard`),
   ).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-display-mode-request-count", "1");
   const expand = page.getByRole("button", { name: "Open full dashboard" });
   await expand.click();
   await expect(page.locator(".dyna-toast")).toContainText(
     "complete current view remains available",
   );
   await expect(expand).toBeFocused();
-  await expect(page.locator("html")).toHaveAttribute("data-dyna-display-mode-request-count", "1");
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-display-mode-request-count", "2");
 });
 
 test("searches the complete bounded annotation history without false negatives", async ({
@@ -1320,13 +1330,13 @@ test("pauses mutations when snapshot connectivity is lost", async ({ page }) => 
   await expect(page.getByRole("button", { name: /^(Add|New) to-do$/ })).toBeDisabled();
   await openDetails(page, "Review the release merge request");
   await expect(page.getByRole("button", { name: "Add note" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Create Codex task" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Start in Codex" })).toBeDisabled();
 });
 
 test("reports a rejected action preparation as definitely unsent", async ({ page }) => {
   await page.goto("/dyna?tool-error=dyna_prepare_action");
   await openDetails(page, "Review the release merge request");
-  const createTask = page.getByRole("button", { name: "Create Codex task" });
+  const createTask = page.getByRole("button", { name: "Start in Codex" });
   await createTask.click();
   await expect(page.getByRole("alert")).toContainText("Request was not sent");
   await expect(createTask).toBeFocused();
@@ -1352,8 +1362,8 @@ test("falls back to an honest read-only dashboard without server-tool capability
   await expect(page.locator('.dyna-visually-hidden[role="status"]')).toHaveText("1 matching item.");
   await openDetails(page, "Review the release merge request");
   await expect(page.getByRole("button", { name: "Add note" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Open source" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Create Codex task" })).toBeDisabled();
+  await expect(page.getByRole("link", { name: "Open source" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Start in Codex" })).toBeDisabled();
 });
 
 test("disables only Codex-triggering actions when text-message capability is absent", async ({
@@ -1363,18 +1373,18 @@ test("disables only Codex-triggering actions when text-message capability is abs
   await expect(page.getByRole("status", { name: "Codex action capability notice" })).toContainText(
     "Codex actions unavailable",
   );
-  await expect(page.getByRole("button", { name: "New to-do" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Add to-do" })).toBeEnabled();
   await openDetails(page, "Review the release merge request");
   await expect(page.getByRole("button", { name: "Add note" })).toBeEnabled();
-  await expect(page.getByRole("button", { name: "Open source" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Create Codex task" })).toBeDisabled();
+  await expect(page.getByRole("link", { name: "Open source" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Start in Codex" })).toBeDisabled();
 });
 
 test("retries an uncertain delivery with the same idempotent request", async ({ page }) => {
   await page.goto("/dyna?action-error=1");
   await expect(page.getByRole("heading", { name: "Executive brief" })).toBeVisible();
   await openDetails(page, "Review the release merge request");
-  await page.getByRole("button", { name: "Create Codex task" }).click();
+  await page.getByRole("button", { name: "Start in Codex" }).click();
   await expect(page.getByRole("alert")).toContainText("delivery is uncertain");
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect(page.getByRole("alert")).toContainText("delivery is uncertain");

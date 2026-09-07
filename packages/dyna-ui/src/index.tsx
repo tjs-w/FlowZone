@@ -20,10 +20,11 @@ import {
   type McpUiHostCapabilities,
   type McpUiHostContext,
 } from "@modelcontextprotocol/ext-apps";
-import { DynaUiPayloadSchema, type DynaUiPayload } from "@flowzone/dyna-contracts";
+import { DynaUiPayloadSchema, dynaSourceUrl, type DynaUiPayload } from "@flowzone/dyna-contracts";
 import {
   createContext,
   type ReactNode,
+  type RefObject,
   useCallback,
   useContext,
   useEffect,
@@ -39,9 +40,9 @@ type ActionName =
   "annotate" | "open_source" | "create_codex_task" | "open_codex_task" | "refresh_codex_status";
 
 type TodoPriority = "critical" | "high" | "normal" | "low";
-type WorkflowState = "todo" | "executing" | "paused" | "attention" | "completed";
+type WorkflowStage = "todo" | "executing" | "needs_you" | "completed";
 type PriorityFilter = TodoPriority | "all";
-type WorkflowFilter = WorkflowState | "all";
+type WorkflowFilter = WorkflowStage | "all";
 type ScrollSurface = "queue" | "pipeline";
 
 const INLINE_SUMMARY_MAX_LENGTH = 240;
@@ -99,7 +100,7 @@ interface DynaUiController {
   readonly serverQuery: string;
   readonly sourceFilter: string;
   readonly workflowFilter: WorkflowFilter;
-  readonly pipelineState: WorkflowState;
+  readonly externalLinks: boolean;
   readonly view: "queue" | "pipeline";
   clearFilters(): void;
   setLeadershipOnly(value: boolean): void;
@@ -107,8 +108,8 @@ interface DynaUiController {
   setQuery(value: string): void;
   setSourceFilter(value: string): void;
   setWorkflowFilter(value: WorkflowFilter): void;
-  setPipelineState(value: WorkflowState): void;
   setView(value: "queue" | "pipeline"): void;
+  openExternal(url: string): Promise<void>;
   expand(trigger?: HTMLElement): Promise<void>;
 }
 
@@ -294,6 +295,9 @@ type CardViewProps = Omit<DynaCard, "id" | "annotations" | "linkedTasks"> & {
   readonly annotationCount: number;
   readonly annotationPreview: readonly string[];
   readonly actions: readonly ActionDescriptor[];
+  readonly workflowStage: WorkflowStage;
+  readonly workflowCondition?: string;
+  readonly sourceUrl?: string;
 };
 
 interface ComponentArgs<Props> {
@@ -316,8 +320,9 @@ interface DynaComponentCatalog {
   ) => ReactNode;
   readonly SummaryStrip: (
     args: ComponentArgs<{
-      readonly focus: number;
-      readonly leadership: number;
+      readonly needsYou: number;
+      readonly inCodex: number;
+      readonly blocked: number;
       readonly shown: number;
       readonly total: number;
     }>,
@@ -334,10 +339,17 @@ interface DynaComponentCatalog {
   readonly PipelineView: (
     args: ComponentArgs<{
       readonly stages: readonly {
-        readonly state: DynaCard["workflowState"];
+        readonly state: WorkflowStage;
         readonly title: string;
         readonly count: number;
       }[];
+    }>,
+  ) => ReactNode;
+  readonly PipelineStage: (
+    args: ComponentArgs<{
+      readonly state: WorkflowStage;
+      readonly title: string;
+      readonly count: number;
     }>,
   ) => ReactNode;
   readonly PriorityCard: (args: ComponentArgs<CardViewProps>) => ReactNode;
@@ -351,6 +363,225 @@ interface DynaComponentCatalog {
   ) => ReactNode;
   readonly ScheduleStatus: (args: ComponentArgs<DynaSchedule>) => ReactNode;
   readonly EmptyState: (args: ComponentArgs<{ readonly message: string }>) => ReactNode;
+}
+
+function InspectorActions({
+  card,
+  menuTrigger,
+}: {
+  readonly card: CardViewProps;
+  readonly menuTrigger: RefObject<HTMLElement | null>;
+}) {
+  const controller = useController();
+  const primaryAction = card.actions.find(
+    (action) => action.name === "create_codex_task" || action.name === "open_codex_task",
+  );
+  const sourceAction = card.actions.find((action) => action.name === "open_source");
+  const noteAction = card.actions.find((action) => action.name === "annotate");
+
+  const runAction = (action: ActionDescriptor, trigger: HTMLElement) => {
+    if (action.name === "annotate") {
+      controller.annotate(card.itemId, trigger);
+      return;
+    }
+    void controller.request(
+      card.itemId,
+      card.fingerprint,
+      action.name,
+      action.taskId,
+      action.taskHostId,
+      trigger,
+    );
+  };
+
+  return (
+    <div className="dyna-inspector-actions">
+      <div className="dyna-actions">
+        {card.workflowStage === "completed" ? (
+          <Button
+            color="primary"
+            size="sm"
+            onClick={(event) => {
+              controller.startTodo(
+                event.currentTarget,
+                `Follow up: ${card.title}`,
+                `Continue from completed work: ${card.outcome ?? card.summary}`,
+                card.itemId,
+              );
+            }}
+            disabled={controller.busy || controller.blocked}
+          >
+            <Plus className="dyna-icon" aria-hidden="true" />
+            Create follow-up
+          </Button>
+        ) : primaryAction ? (
+          <Button
+            data-dyna-action={`${card.itemId}:${primaryAction.name}`}
+            color="primary"
+            size="sm"
+            onClick={(event) => {
+              runAction(primaryAction, event.currentTarget);
+            }}
+            disabled={controller.busy || controller.codexActionsBlocked}
+          >
+            {primaryAction.name === "create_codex_task" ? (
+              <Plus className="dyna-icon" aria-hidden="true" />
+            ) : (
+              <ExternalLink className="dyna-icon" aria-hidden="true" />
+            )}
+            {primaryAction.label}
+          </Button>
+        ) : null}
+        {sourceAction && card.sourceUrl ? (
+          <a
+            className="dyna-action-link"
+            data-dyna-source-link={card.itemId}
+            href={card.sourceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(event) => {
+              if (
+                event.button !== 0 ||
+                event.metaKey ||
+                event.ctrlKey ||
+                event.shiftKey ||
+                event.altKey ||
+                !controller.externalLinks
+              ) {
+                return;
+              }
+              event.preventDefault();
+              void controller.openExternal(card.sourceUrl ?? "");
+            }}
+          >
+            <ExternalLink className="dyna-icon" aria-hidden="true" />
+            Open source
+          </a>
+        ) : sourceAction ? (
+          <Button
+            data-dyna-action={`${card.itemId}:${sourceAction.name}`}
+            color="secondary"
+            size="sm"
+            variant="outline"
+            onClick={(event) => {
+              runAction(sourceAction, event.currentTarget);
+            }}
+            disabled={controller.busy || controller.codexActionsBlocked}
+          >
+            <ExternalLink className="dyna-icon" aria-hidden="true" />
+            {sourceAction.label}
+          </Button>
+        ) : null}
+        {noteAction ? (
+          <Button
+            data-dyna-action={`${card.itemId}:${noteAction.name}`}
+            data-dyna-annotation-item={card.itemId}
+            color="secondary"
+            size="sm"
+            variant="ghost"
+            onClick={(event) => {
+              runAction(noteAction, event.currentTarget);
+            }}
+            disabled={controller.busy || controller.blocked}
+          >
+            Add note
+          </Button>
+        ) : null}
+        {card.annotationCount > 0 ? (
+          <span className="dyna-meta">
+            {card.annotationCount} note{card.annotationCount === 1 ? "" : "s"}
+          </span>
+        ) : null}
+      </div>
+      {card.workflowStage !== "completed" ? (
+        <details className="dyna-overflow">
+          <summary
+            ref={menuTrigger}
+            className="dyna-more-trigger"
+            aria-label={`Manage priority and order for ${card.title}`}
+            aria-disabled={controller.busy || controller.blocked}
+            onClick={(event) => {
+              if (controller.busy || controller.blocked) event.preventDefault();
+            }}
+          >
+            <span aria-hidden="true">•••</span>
+            <span className="dyna-visually-hidden">Priority and order</span>
+          </summary>
+          <div className="dyna-overflow-menu" aria-label="Priority and order actions">
+            <button
+              type="button"
+              disabled={card.priority === "critical"}
+              onClick={(event) => {
+                event.currentTarget.closest("details")?.removeAttribute("open");
+                if (menuTrigger.current) {
+                  void controller.organize(
+                    card.itemId,
+                    card.fingerprint,
+                    "bump",
+                    menuTrigger.current,
+                  );
+                }
+              }}
+            >
+              Raise priority
+            </button>
+            <button
+              type="button"
+              disabled={card.priority === "low"}
+              onClick={(event) => {
+                event.currentTarget.closest("details")?.removeAttribute("open");
+                if (menuTrigger.current) {
+                  void controller.organize(
+                    card.itemId,
+                    card.fingerprint,
+                    "lower",
+                    menuTrigger.current,
+                  );
+                }
+              }}
+            >
+              Lower priority
+            </button>
+            <div className="dyna-overflow-separator" role="separator" />
+            <button
+              type="button"
+              disabled={!card.canMoveEarlier}
+              onClick={(event) => {
+                event.currentTarget.closest("details")?.removeAttribute("open");
+                if (menuTrigger.current) {
+                  void controller.organize(
+                    card.itemId,
+                    card.fingerprint,
+                    "earlier",
+                    menuTrigger.current,
+                  );
+                }
+              }}
+            >
+              Move earlier in group
+            </button>
+            <button
+              type="button"
+              disabled={!card.canMoveLater}
+              onClick={(event) => {
+                event.currentTarget.closest("details")?.removeAttribute("open");
+                if (menuTrigger.current) {
+                  void controller.organize(
+                    card.itemId,
+                    card.fingerprint,
+                    "later",
+                    menuTrigger.current,
+                  );
+                }
+              }}
+            >
+              Move later in group
+            </button>
+          </div>
+        </details>
+      ) : null}
+    </div>
+  );
 }
 
 const dynaComponents: DynaComponentCatalog = {
@@ -470,7 +701,7 @@ const dynaComponents: DynaComponentCatalog = {
                   document.getElementById(`dyna-tab-${next}`)?.focus();
                 }}
               >
-                Pipeline
+                Progress
               </button>
             </div>
             <div className="dyna-search">
@@ -479,7 +710,7 @@ const dynaComponents: DynaComponentCatalog = {
                 className="dyna-search-control"
                 aria-label="Search dashboard"
                 type="search"
-                size="2xl"
+                size="md"
                 value={controller.query}
                 maxLength={500}
                 placeholder="Find people, requests, MRs…"
@@ -557,10 +788,9 @@ const dynaComponents: DynaComponentCatalog = {
                   >
                     <option value="all">All workflows</option>
                     <option value="todo">To do</option>
-                    <option value="executing">Executing</option>
-                    <option value="paused">Paused for input</option>
-                    <option value="attention">Needs attention</option>
-                    <option value="completed">Completed</option>
+                    <option value="executing">In Codex</option>
+                    <option value="needs_you">Needs you</option>
+                    <option value="completed">Done</option>
                   </select>
                 </label>
                 <div className="dyna-filter-actions">
@@ -618,12 +848,16 @@ const dynaComponents: DynaComponentCatalog = {
           aria-label="Dashboard summary"
         >
           <div className="dyna-stat">
-            <strong>{props.focus}</strong>
-            <span>need attention</span>
+            <strong>{props.needsYou}</strong>
+            <span>need you</span>
           </div>
           <div className="dyna-stat">
-            <strong>{props.leadership}</strong>
-            <span>leadership</span>
+            <strong>{props.inCodex}</strong>
+            <span>in Codex</span>
+          </div>
+          <div className="dyna-stat" data-condition="blocked">
+            <strong>{props.blocked}</strong>
+            <span>blocked</span>
           </div>
           <div className="dyna-stat">
             <strong>
@@ -689,84 +923,53 @@ const dynaComponents: DynaComponentCatalog = {
   },
   PipelineView: ({ props, children }) => {
     const controller = useController();
-    const active = props.stages.find((stage) => stage.state === controller.pipelineState);
-    return controller.view === "pipeline" && active ? (
+    return controller.view === "pipeline" ? (
       <div
         id="dyna-panel-pipeline"
         className="dyna-pipeline dyna-view"
         role="tabpanel"
         aria-labelledby="dyna-tab-pipeline"
       >
-        <div className="dyna-stage-rail" role="tablist" aria-label="Pipeline stage">
-          {props.stages.map((stage, index) => {
-            const selected = stage.state === controller.pipelineState;
-            const shortTitle = {
-              todo: "To do",
-              executing: "Doing",
-              paused: "Input",
-              attention: "Review",
-              completed: "Done",
-            }[stage.state];
-            return (
-              <button
-                key={stage.state}
-                id={`dyna-stage-tab-${stage.state}`}
-                type="button"
-                className="dyna-stage-tab"
-                data-workflow-state={stage.state}
-                role="tab"
-                aria-label={`${stage.title}: ${stage.count}`}
-                aria-selected={selected}
-                aria-controls={`dyna-stage-${stage.state}`}
-                tabIndex={selected ? 0 : -1}
-                onClick={() => {
-                  controller.setPipelineState(stage.state);
-                }}
-                onKeyDown={(event) => {
-                  const delta = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-                  const edge =
-                    event.key === "Home" ? 0 : event.key === "End" ? props.stages.length - 1 : -1;
-                  if (delta === 0 && edge < 0) return;
-                  event.preventDefault();
-                  const nextIndex =
-                    edge >= 0 ? edge : (index + delta + props.stages.length) % props.stages.length;
-                  const next = props.stages[nextIndex];
-                  if (!next) return;
-                  controller.setPipelineState(next.state);
-                  document.getElementById(`dyna-stage-tab-${next.state}`)?.focus();
-                }}
-              >
-                <strong>{stage.count}</strong>
-                <span>{shortTitle}</span>
-              </button>
-            );
-          })}
+        <div className="dyna-stage-summary" aria-label="Progress summary">
+          {props.stages.map((stage) => (
+            <span key={stage.state} data-workflow-stage={stage.state}>
+              <strong>{stage.count}</strong> {stage.title}
+            </span>
+          ))}
         </div>
-        <div
-          id={`dyna-stage-${active.state}`}
-          className="dyna-pipeline-items"
-          role="tabpanel"
-          aria-labelledby={`dyna-stage-tab-${active.state}`}
-          tabIndex={0}
-        >
-          {active.count > 0 ? (
-            children
-          ) : (
-            <p className="dyna-pipeline-empty">Nothing in {active.title.toLowerCase()}.</p>
-          )}
+        <div className="dyna-pipeline-grid" aria-label="All progress stages">
+          {children}
         </div>
       </div>
     ) : null;
   },
+  PipelineStage: ({ props, children }) => (
+    <section
+      className="dyna-pipeline-stage"
+      data-workflow-stage={props.state}
+      aria-labelledby={`dyna-stage-title-${props.state}`}
+    >
+      <header>
+        <h2 id={`dyna-stage-title-${props.state}`}>{props.title}</h2>
+        <span>{props.count}</span>
+      </header>
+      <div className="dyna-pipeline-items" role="list">
+        {props.count > 0 ? children : <p className="dyna-pipeline-empty">Nothing here.</p>}
+      </div>
+    </section>
+  ),
   PriorityCard: ({ props, children }) => {
     const controller = useController();
     const menuTrigger = useRef<HTMLElement | null>(null);
+    const desktopMenuTrigger = useRef<HTMLElement | null>(null);
     const presentation = controller.view;
     const selected = controller.selectedItemId === props.itemId;
     const inspectorTitleId = `dyna-inspector-title-${props.itemId}`;
     const inspectorId = `dyna-inspector-${props.itemId}`;
     const lead = props.people[0];
     const detailLabel = `Open details for ${props.title}`;
+    const workflowLabel = workflowStageLabel(props.workflowStage);
+    const sourceLinkLabel = `Open ${props.title} in ${props.sourceLabel}`;
     const summaryNeedsDisclosure = props.summary.length > INLINE_SUMMARY_MAX_LENGTH;
     const priorityColor =
       props.priority === "critical"
@@ -784,36 +987,82 @@ const dynaComponents: DynaComponentCatalog = {
         data-item-id={props.itemId}
         data-presentation={presentation}
         data-workflow-state={props.workflowState}
+        data-workflow-stage={props.workflowStage}
         data-selected={selected}
       >
         <div className="dyna-card-row">
-          <button
-            type="button"
-            className="dyna-row-main"
-            data-dyna-details-item={props.itemId}
-            aria-label={detailLabel}
-            aria-expanded={selected}
-            aria-controls={selected ? inspectorId : undefined}
-            onClick={(event) => {
-              void controller.openDetails(props.itemId, event.currentTarget);
-            }}
-          >
-            <span className="dyna-row-top">
+          <div className="dyna-row-main">
+            <div className="dyna-row-top">
               <span className="dyna-priority-label">{props.priority}</span>
               <span aria-hidden="true">·</span>
               <span className="dyna-source-mark">{props.sourceLabel}</span>
               <span aria-hidden="true">·</span>
-              <span className="dyna-row-status" data-workflow-state={props.workflowState}>
-                {humanize(props.workflowState)}
+              <span className="dyna-row-status" data-workflow-stage={props.workflowStage}>
+                {workflowLabel}
               </span>
+              {props.workflowCondition ? (
+                <span
+                  className="dyna-row-condition"
+                  data-condition={
+                    props.workflowCondition === "Input needed" ? "waiting" : "blocked"
+                  }
+                >
+                  {props.workflowCondition}
+                </span>
+              ) : null}
               <span className="dyna-row-time" data-has-deadline={Boolean(props.dueAt)}>
                 {props.dueAt
                   ? `Due ${relativeTime(props.dueAt, controller.locale)}`
                   : "No deadline"}
               </span>
-            </span>
-            <span className="dyna-row-title">{props.title}</span>
-            <span className="dyna-row-foot">
+            </div>
+            <div className="dyna-row-heading">
+              {props.sourceUrl ? (
+                <a
+                  className="dyna-row-title dyna-source-link"
+                  data-dyna-source-link={props.itemId}
+                  href={props.sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={sourceLinkLabel}
+                  title="Open source record"
+                  onClick={(event) => {
+                    if (
+                      event.button !== 0 ||
+                      event.metaKey ||
+                      event.ctrlKey ||
+                      event.shiftKey ||
+                      event.altKey ||
+                      !controller.externalLinks
+                    ) {
+                      return;
+                    }
+                    event.preventDefault();
+                    void controller.openExternal(props.sourceUrl ?? "");
+                  }}
+                >
+                  <span>{props.title}</span>
+                  <ExternalLink className="dyna-source-link-icon" aria-hidden="true" />
+                </a>
+              ) : (
+                <span className="dyna-row-title">{props.title}</span>
+              )}
+              <button
+                type="button"
+                className="dyna-row-primary"
+                data-dyna-details-item={props.itemId}
+                aria-label={detailLabel}
+                aria-expanded={selected}
+                aria-controls={selected ? inspectorId : undefined}
+                onClick={(event) => {
+                  void controller.openDetails(props.itemId, event.currentTarget);
+                }}
+              >
+                Details
+                <ChevronRight className="dyna-row-chevron" aria-hidden="true" />
+              </button>
+            </div>
+            <div className="dyna-row-foot">
               <span className="dyna-row-attention">{props.attention ?? props.priorityReason}</span>
               {lead ? (
                 <span
@@ -823,12 +1072,19 @@ const dynaComponents: DynaComponentCatalog = {
                   {lead.displayName}
                 </span>
               ) : null}
-              <span className="dyna-row-primary">
-                Details
-                <ChevronRight className="dyna-row-chevron" aria-hidden="true" />
-              </span>
-            </span>
-          </button>
+            </div>
+            <div
+              className="dyna-row-workflow"
+              role="img"
+              aria-label={`Status: ${workflowLabel}${props.workflowCondition ? `, ${props.workflowCondition}` : ""}`}
+            >
+              {PIPELINE_STAGES.map(([stage, , compactLabel]) => (
+                <span key={stage} data-current={stage === props.workflowStage}>
+                  {compactLabel}
+                </span>
+              ))}
+            </div>
+          </div>
         </div>
         {selected ? (
           <InspectorShell
@@ -874,13 +1130,15 @@ const dynaComponents: DynaComponentCatalog = {
                     {props.priority}
                   </Badge>
                   <span>{props.sourceLabel}</span>
-                  <span>{humanize(props.workflowState)}</span>
+                  <span>{workflowLabel}</span>
+                  {props.workflowCondition ? <span>{props.workflowCondition}</span> : null}
                   {props.dueAt ? (
                     <span>Due {relativeTime(props.dueAt, controller.locale)}</span>
                   ) : null}
                 </div>
                 <h2 id={inspectorTitleId}>{props.title}</h2>
               </div>
+              <InspectorActions card={props} menuTrigger={desktopMenuTrigger} />
             </div>
             <div className="dyna-inspector-scroll" data-priority={props.priority}>
               <div className="dyna-attention">
@@ -1001,7 +1259,31 @@ const dynaComponents: DynaComponentCatalog = {
                     <strong>
                       {props.source === "manual" ? "Created in Dyna" : "Originating record"}
                     </strong>
-                    {props.source === "manual" ? null : (
+                    {props.source === "manual" ? null : props.sourceUrl ? (
+                      <a
+                        className="dyna-origin-link"
+                        href={props.sourceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(event) => {
+                          if (
+                            event.button !== 0 ||
+                            event.metaKey ||
+                            event.ctrlKey ||
+                            event.shiftKey ||
+                            event.altKey ||
+                            !controller.externalLinks
+                          ) {
+                            return;
+                          }
+                          event.preventDefault();
+                          void controller.openExternal(props.sourceUrl ?? "");
+                        }}
+                      >
+                        {sourceReferenceLabel(props.sourceRef)}
+                        <ExternalLink className="dyna-source-link-icon" aria-hidden="true" />
+                      </a>
+                    ) : (
                       <code>{sourceReferenceLabel(props.sourceRef)}</code>
                     )}
                     <span className="dyna-meta">
@@ -1024,54 +1306,82 @@ const dynaComponents: DynaComponentCatalog = {
             </div>
             <div className="dyna-inspector-footer">
               <div className="dyna-actions">
-                {props.actions.map((action) => (
-                  <Button
-                    key={action.name}
-                    data-dyna-action={`${props.itemId}:${action.name}`}
-                    data-dyna-annotation-item={
-                      action.name === "annotate" ? props.itemId : undefined
-                    }
-                    color={
-                      action.name === "create_codex_task" || action.name === "open_codex_task"
-                        ? "primary"
-                        : "secondary"
-                    }
-                    size="sm"
-                    variant={
-                      action.name === "create_codex_task" || action.name === "open_codex_task"
-                        ? "solid"
-                        : action.name === "annotate"
-                          ? "ghost"
-                          : "outline"
-                    }
-                    onClick={(event) => {
-                      if (action.name === "annotate") {
-                        controller.annotate(props.itemId, event.currentTarget);
-                      } else
-                        void controller.request(
-                          props.itemId,
-                          props.fingerprint,
-                          action.name,
-                          action.taskId,
-                          action.taskHostId,
-                          event.currentTarget,
-                        );
-                    }}
-                    disabled={
-                      controller.busy ||
-                      (action.name === "annotate"
-                        ? controller.blocked
-                        : controller.codexActionsBlocked)
-                    }
-                  >
-                    {action.name === "open_source" || action.name === "open_codex_task" ? (
+                {props.actions.map((action) =>
+                  action.name === "open_source" && props.sourceUrl ? (
+                    <a
+                      key={action.name}
+                      className="dyna-action-link"
+                      data-dyna-source-link={props.itemId}
+                      href={props.sourceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(event) => {
+                        if (
+                          event.button !== 0 ||
+                          event.metaKey ||
+                          event.ctrlKey ||
+                          event.shiftKey ||
+                          event.altKey ||
+                          !controller.externalLinks
+                        ) {
+                          return;
+                        }
+                        event.preventDefault();
+                        void controller.openExternal(props.sourceUrl ?? "");
+                      }}
+                    >
                       <ExternalLink className="dyna-icon" aria-hidden="true" />
-                    ) : action.name === "create_codex_task" ? (
-                      <Plus className="dyna-icon" aria-hidden="true" />
-                    ) : null}
-                    {action.label}
-                  </Button>
-                ))}
+                      Open source
+                    </a>
+                  ) : (
+                    <Button
+                      key={action.name}
+                      data-dyna-action={`${props.itemId}:${action.name}`}
+                      data-dyna-annotation-item={
+                        action.name === "annotate" ? props.itemId : undefined
+                      }
+                      color={
+                        action.name === "create_codex_task" || action.name === "open_codex_task"
+                          ? "primary"
+                          : "secondary"
+                      }
+                      size="sm"
+                      variant={
+                        action.name === "create_codex_task" || action.name === "open_codex_task"
+                          ? "solid"
+                          : action.name === "annotate"
+                            ? "ghost"
+                            : "outline"
+                      }
+                      onClick={(event) => {
+                        if (action.name === "annotate") {
+                          controller.annotate(props.itemId, event.currentTarget);
+                        } else
+                          void controller.request(
+                            props.itemId,
+                            props.fingerprint,
+                            action.name,
+                            action.taskId,
+                            action.taskHostId,
+                            event.currentTarget,
+                          );
+                      }}
+                      disabled={
+                        controller.busy ||
+                        (action.name === "annotate"
+                          ? controller.blocked
+                          : controller.codexActionsBlocked)
+                      }
+                    >
+                      {action.name === "open_source" || action.name === "open_codex_task" ? (
+                        <ExternalLink className="dyna-icon" aria-hidden="true" />
+                      ) : action.name === "create_codex_task" ? (
+                        <Plus className="dyna-icon" aria-hidden="true" />
+                      ) : null}
+                      {action.label}
+                    </Button>
+                  ),
+                )}
                 {props.annotationCount > 0 ? (
                   <span className="dyna-meta">
                     {props.annotationCount} note{props.annotationCount === 1 ? "" : "s"}
@@ -1359,12 +1669,34 @@ const PRIORITY_GROUPS = [
 ] as const;
 
 const PIPELINE_STAGES = [
-  ["todo", "To do"],
-  ["executing", "Executing in Codex"],
-  ["paused", "Paused for input"],
-  ["attention", "Needs attention"],
-  ["completed", "Completed"],
-] as const;
+  ["todo", "To do", "To do"],
+  ["executing", "In Codex", "Codex"],
+  ["needs_you", "Needs you", "You"],
+  ["completed", "Done", "Done"],
+] as const satisfies readonly (readonly [WorkflowStage, string, string])[];
+
+function cardWorkflowStage(card: Pick<DynaCard, "workflowState">): WorkflowStage {
+  return card.workflowState === "paused" || card.workflowState === "attention"
+    ? "needs_you"
+    : card.workflowState;
+}
+
+function cardWorkflowCondition(
+  card: Pick<DynaCard, "workflowState" | "linkedTasks">,
+): string | undefined {
+  if (card.linkedTasks.some((task) => task.state === "failed")) return "Task failed";
+  if (card.linkedTasks.some((task) => task.state === "unknown")) return "Status unknown";
+  if (card.linkedTasks.some((task) => task.state === "waiting")) return "Input needed";
+  return card.workflowState === "attention" ? "Needs attention" : undefined;
+}
+
+function workflowStageLabel(stage: WorkflowStage): string {
+  return PIPELINE_STAGES.find(([value]) => value === stage)?.[1] ?? humanize(stage);
+}
+
+function cardIsBlocked(card: Pick<DynaCard, "linkedTasks">): boolean {
+  return card.linkedTasks.some((task) => task.state === "failed" || task.state === "unknown");
+}
 
 function compareCards(left: DynaCard, right: DynaCard): number {
   const order = PRIORITY_GROUPS.map(([priority]) => priority);
@@ -1387,19 +1719,21 @@ function cardActions(card: DynaCard): readonly ActionDescriptor[] {
     card.source === "manual" ? [] : [{ name: "open_source" as const, label: "Open source" }];
   return linkedTask
     ? [
-        ...sourceActions,
         {
           name: "open_codex_task",
-          label: "Open Codex",
+          label: card.linkedTasks.some((task) => task.state === "waiting")
+            ? "Respond in Codex"
+            : "Open Codex",
           taskId: linkedTask.taskId,
           taskHostId: linkedTask.hostId,
         },
+        ...sourceActions,
         { name: "annotate", label: "Add note" },
       ]
     : [
+        { name: "create_codex_task", label: "Start in Codex" },
         ...sourceActions,
         { name: "annotate", label: "Add note" },
-        { name: "create_codex_task", label: "Create Codex task" },
       ];
 }
 
@@ -1445,13 +1779,15 @@ function cardPassesFilters(
   return (
     (priority === "all" || card.priority === priority) &&
     (source === "all" || card.sourceLabel === source) &&
-    (workflow === "all" || card.workflowState === workflow) &&
+    (workflow === "all" || cardWorkflowStage(card) === workflow) &&
     (!leadershipOnly || card.leadershipScore > 0)
   );
 }
 
 function cardViewProps(card: DynaCard): CardViewProps {
   const { id, annotations, linkedTasks, ...props } = card;
+  const workflowCondition = cardWorkflowCondition(card);
+  const sourceUrl = dynaSourceUrl(card.sourceRef);
   void linkedTasks;
   return {
     ...props,
@@ -1460,6 +1796,9 @@ function cardViewProps(card: DynaCard): CardViewProps {
     annotationCount: annotations.length,
     annotationPreview: annotations.slice(0, 3).map((annotation) => annotation.body),
     actions: cardActions(card),
+    workflowStage: cardWorkflowStage(card),
+    ...(workflowCondition ? { workflowCondition } : {}),
+    ...(sourceUrl ? { sourceUrl } : {}),
   };
 }
 
@@ -1485,6 +1824,7 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
   const Section = dynaComponents.Section;
   const QueueView = dynaComponents.QueueView;
   const PipelineView = dynaComponents.PipelineView;
+  const PipelineStage = dynaComponents.PipelineStage;
   const ScheduleStatus = dynaComponents.ScheduleStatus;
   const EmptyState = dynaComponents.EmptyState;
   const compactInline = controller.condenseInline;
@@ -1533,11 +1873,9 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
   const stages = PIPELINE_STAGES.map(([state, title]) => ({
     state,
     title,
-    count: stageCards.filter((card) => card.workflowState === state).length,
+    cards: cards.filter((card) => cardWorkflowStage(card) === state),
+    count: cards.filter((card) => cardWorkflowStage(card) === state).length,
   }));
-  const activePipelineCards = stageCards.filter(
-    (card) => card.workflowState === controller.pipelineState,
-  );
 
   const queueContent = compactInline ? (
     queueCards.length > 0 || selectedCard ? (
@@ -1625,10 +1963,9 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
     >
       <SummaryStrip
         props={{
-          focus: queueCards.filter(
-            (card) => card.priority === "critical" || card.priority === "high",
-          ).length,
-          leadership: queueCards.filter((card) => card.leadershipScore > 0).length,
+          needsYou: queueCards.filter((card) => cardWorkflowStage(card) === "needs_you").length,
+          inCodex: queueCards.filter((card) => cardWorkflowStage(card) === "executing").length,
+          blocked: queueCards.filter(cardIsBlocked).length,
           shown: cards.length,
           total: snapshot.counts.total,
         }}
@@ -1645,8 +1982,19 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
       <QueueView props={{}}>{queueContent}</QueueView>
       {!compactInline ? (
         <PipelineView props={{ stages }}>
-          {activePipelineCards.map((card) => (
-            <CardView key={card.id} card={card} />
+          {stages.map((stage) => (
+            <PipelineStage
+              key={stage.state}
+              props={{
+                state: stage.state,
+                title: stage.title,
+                count: stage.count,
+              }}
+            >
+              {stage.cards.map((card) => (
+                <CardView key={card.id} card={card} />
+              ))}
+            </PipelineStage>
           ))}
         </PipelineView>
       ) : null}
@@ -1682,7 +2030,6 @@ function DynaApp({ app }: { readonly app: App }) {
   const [sourceFilter, setSourceFilterState] = useState("all");
   const [workflowFilter, setWorkflowFilterState] = useState<WorkflowFilter>("all");
   const [leadershipOnly, setLeadershipOnlyState] = useState(false);
-  const [pipelineState, setPipelineStateState] = useState<WorkflowState>("attention");
   const [selectedItemId, setSelectedItemId] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string>();
@@ -1703,16 +2050,15 @@ function DynaApp({ app }: { readonly app: App }) {
   const queryRef = useRef("");
   const selectedItemRef = useRef<string | undefined>(undefined);
   const viewRef = useRef<"queue" | "pipeline">("queue");
-  const pipelineStateRef = useRef<WorkflowState>("attention");
   const scrollPositions = useRef(new Map<ScrollSurface, number>());
   const pendingScrollPosition = useRef<number | null>(null);
-  const pipelineChoiceExplicit = useRef(false);
   const detailScrollPosition = useRef(0);
   const annotationRequestId = useRef(crypto.randomUUID());
   const todoRequestId = useRef(crypto.randomUUID());
   const createdTodoFocus = useRef<string | undefined>(undefined);
   const hostContext = useRef<DynaHostContext>({});
   const hostCapabilitiesRef = useRef<McpUiHostCapabilities>({});
+  const expansionInFlight = useRef<Promise<boolean> | undefined>(undefined);
   const pendingActions = useRef(
     new Map<string, { readonly requestId: string; readonly idempotencyKey: string }>(),
   );
@@ -1729,7 +2075,6 @@ function DynaApp({ app }: { readonly app: App }) {
   queryRef.current = query;
   selectedItemRef.current = selectedItemId;
   viewRef.current = view;
-  pipelineStateRef.current = pipelineState;
   const backgroundLocked =
     annotationItem !== undefined || todoOpen || (selectedItemId !== undefined && !wideLayout);
 
@@ -1756,18 +2101,6 @@ function DynaApp({ app }: { readonly app: App }) {
   }, []);
 
   useEffect(() => {
-    if (!payload || pipelineChoiceExplicit.current) return;
-    const currentStageHasItems = payload.snapshot.cards.some(
-      (card) => card.workflowState === pipelineState,
-    );
-    if (currentStageHasItems) return;
-    const preferred = (["attention", "paused", "executing", "todo", "completed"] as const).find(
-      (state) => payload.snapshot.cards.some((card) => card.workflowState === state),
-    );
-    if (preferred) setPipelineStateState(preferred);
-  }, [payload, pipelineState]);
-
-  useEffect(() => {
     if (!backgroundLocked) return;
     const scrollX = window.scrollX;
     const scrollY = window.scrollY;
@@ -1783,7 +2116,7 @@ function DynaApp({ app }: { readonly app: App }) {
     if (target === null) return;
     pendingScrollPosition.current = null;
     window.scrollTo(window.scrollX, target);
-  }, [pipelineState, view]);
+  }, [view]);
 
   useEffect(() => {
     if (!payload || !selectedItemId) return;
@@ -1860,11 +2193,21 @@ function DynaApp({ app }: { readonly app: App }) {
     };
   }, [query, refresh]);
 
-  const requestExpandedPresentation = useCallback(async (): Promise<boolean> => {
-    const result = await app.requestDisplayMode({ mode: "fullscreen" });
-    hostContext.current = { ...hostContext.current, displayMode: result.mode };
-    setDisplayMode(result.mode);
-    return result.mode === "fullscreen";
+  const requestExpandedPresentation = useCallback((): Promise<boolean> => {
+    const pending = expansionInFlight.current;
+    if (pending) return pending;
+    const request = app
+      .requestDisplayMode({ mode: "fullscreen" })
+      .then((result) => {
+        hostContext.current = { ...hostContext.current, displayMode: result.mode };
+        setDisplayMode(result.mode);
+        return result.mode === "fullscreen";
+      })
+      .finally(() => {
+        if (expansionInFlight.current === request) expansionInFlight.current = undefined;
+      });
+    expansionInFlight.current = request;
+    return request;
   }, [app]);
 
   useEffect(() => {
@@ -1920,6 +2263,7 @@ function DynaApp({ app }: { readonly app: App }) {
   }, [acceptPayload, app]);
 
   useEffect(() => {
+    let mounted = true;
     const applyContext = (partial: McpUiHostContext) => {
       const context = { ...hostContext.current, ...partial } as DynaHostContext;
       hostContext.current = context;
@@ -1953,25 +2297,45 @@ function DynaApp({ app }: { readonly app: App }) {
     app.addEventListener("hostcontextchanged", applyContext);
     void app
       .connect()
-      .then(() => {
+      .then(async () => {
         const context = app.getHostContext();
         if (context) applyContext(context);
         const capabilities = app.getHostCapabilities() ?? {};
         hostCapabilitiesRef.current = capabilities;
         setHostCapabilities(capabilities);
         setConnectionError(undefined);
-        setInitialExpansionPending(false);
+        const currentMode = context?.displayMode ?? "inline";
+        const hostModes = context?.availableDisplayModes;
+        const canRequestFullscreen = hostModes?.includes("fullscreen") ?? true;
+        if (currentMode !== "fullscreen" && canRequestFullscreen) {
+          try {
+            const expanded = await requestExpandedPresentation();
+            if (mounted && !expanded) {
+              setToast("Codex kept the dashboard inline. Use Open full dashboard to try again.");
+            }
+          } catch {
+            if (mounted) {
+              setToast(
+                "Codex could not open the expanded dashboard. Use Open full dashboard to retry.",
+              );
+            }
+          }
+        }
+        if (mounted) setInitialExpansionPending(false);
       })
       .catch(() => {
-        setInitialExpansionPending(false);
-        setConnectionError(
-          "Could not connect to the Remote host. Dashboard actions are unavailable.",
-        );
+        if (mounted) {
+          setInitialExpansionPending(false);
+          setConnectionError(
+            "Could not connect to the Remote host. Dashboard actions are unavailable.",
+          );
+        }
       });
     return () => {
+      mounted = false;
       app.removeEventListener("hostcontextchanged", applyContext);
     };
-  }, [app]);
+  }, [app, requestExpandedPresentation]);
 
   useEffect(() => {
     if (!toast) return;
@@ -2075,6 +2439,22 @@ function DynaApp({ app }: { readonly app: App }) {
     [canExpand, displayMode, requestExpandedPresentation],
   );
 
+  const openExternal = useCallback(
+    async (url: string) => {
+      try {
+        const destination = new URL(url);
+        if (destination.protocol !== "https:" && destination.protocol !== "http:") {
+          throw new Error("This source link protocol is not allowed.");
+        }
+        const result = await app.openLink({ url: destination.href });
+        if (result.isError) throw new Error("The host could not open this source link.");
+      } catch (error) {
+        setToast(error instanceof Error ? error.message : "Could not open this source link.");
+      }
+    },
+    [app],
+  );
+
   const setQuery = useCallback((value: string) => {
     setQueryState(value);
   }, []);
@@ -2089,10 +2469,6 @@ function DynaApp({ app }: { readonly app: App }) {
 
   const setWorkflowFilter = useCallback((value: WorkflowFilter) => {
     setWorkflowFilterState(value);
-    if (value !== "all") {
-      pipelineChoiceExplicit.current = true;
-      setPipelineStateState(value);
-    }
   }, []);
 
   const setLeadershipOnly = useCallback((value: boolean) => {
@@ -2117,22 +2493,6 @@ function DynaApp({ app }: { readonly app: App }) {
         prepareScrollTransition(value);
         setViewState(value);
       }
-      setSelectedItemId(undefined);
-    },
-    [prepareScrollTransition],
-  );
-
-  const setPipelineState = useCallback(
-    (value: WorkflowState) => {
-      pipelineChoiceExplicit.current = true;
-      if (value !== pipelineStateRef.current) {
-        if (viewRef.current === "pipeline") {
-          scrollPositions.current.set("pipeline", 0);
-          pendingScrollPosition.current = 0;
-        }
-        setPipelineStateState(value);
-      }
-      setWorkflowFilterState("all");
       setSelectedItemId(undefined);
     },
     [prepareScrollTransition],
@@ -2205,7 +2565,7 @@ function DynaApp({ app }: { readonly app: App }) {
       selectedItemId,
       sourceFilter,
       workflowFilter,
-      pipelineState,
+      externalLinks: Boolean(hostCapabilities?.openLinks),
       view,
       clearFilters,
       setLeadershipOnly,
@@ -2213,8 +2573,8 @@ function DynaApp({ app }: { readonly app: App }) {
       setQuery,
       setSourceFilter,
       setWorkflowFilter,
-      setPipelineState,
       setView,
+      openExternal,
       closeDetails,
       openDetails,
       annotate(itemId, trigger) {
@@ -2452,11 +2812,10 @@ function DynaApp({ app }: { readonly app: App }) {
       setWorkflowFilter,
       sourceFilter,
       workflowFilter,
-      pipelineState,
       closeDetails,
       openDetails,
+      openExternal,
       setQuery,
-      setPipelineState,
       setView,
       view,
       wideLayout,
@@ -2560,6 +2919,25 @@ function DynaApp({ app }: { readonly app: App }) {
           <div className="dyna-empty" role="status">
             <strong>Loading dashboard</strong>
             <p>Connecting to the Dyna data source…</p>
+          </div>
+        </div>
+      </main>
+    );
+  }
+  if (initialExpansionPending) {
+    return (
+      <main className="dyna dyna-launching" data-display-mode={displayMode}>
+        <header className="dyna-header">
+          <div className="dyna-title-row">
+            <div className="dyna-heading">
+              <h1>{payload.snapshot.dashboard.name}</h1>
+            </div>
+          </div>
+        </header>
+        <div className="dyna-empty-wrap">
+          <div className="dyna-empty" role="status">
+            <strong>Opening expanded dashboard</strong>
+            <p>Requesting Codex&apos;s expanded app surface…</p>
           </div>
         </div>
       </main>

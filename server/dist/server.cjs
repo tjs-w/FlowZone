@@ -56677,7 +56677,7 @@ var DynaService = class {
 
 // packages/mcp-server/src/plugins/dyna.ts
 var DYNA_PLUGIN_ID = "dyna";
-var DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v6.html";
+var DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v7.html";
 var DashboardIdSchema = external_exports.object({ dashboardId: external_exports.uuid() }).strict();
 var ViewTokenSchema = external_exports.object({
   viewToken: external_exports.string().min(32).max(128),
@@ -57691,7 +57691,7 @@ function createBundledFlowZoneServer() {
     uiResources: [
       {
         name: "FlowZone Dyna UI",
-        resourceUri: "ui://flowzone/dyna/v6.html",
+        resourceUri: DYNA_TEMPLATE_URI,
         assetLoader: dynaAssetLoader,
         description: "Dyna is a responsive executive dashboard for prioritized scheduled signals and Codex actions."
       }

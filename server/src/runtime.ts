@@ -6,7 +6,7 @@ import {
   createMarkdownReviewPlugin,
   developerModeEnabled,
 } from "@flowzone/mcp-server";
-import { createDynaPlugin } from "@flowzone/mcp-server/dyna";
+import { createDynaPlugin, DYNA_TEMPLATE_URI } from "@flowzone/mcp-server/dyna";
 
 const pluginRoot = resolve(__dirname, "../..");
 
@@ -26,7 +26,7 @@ export function createBundledFlowZoneServer() {
     uiResources: [
       {
         name: "FlowZone Dyna UI",
-        resourceUri: "ui://flowzone/dyna/v6.html",
+        resourceUri: DYNA_TEMPLATE_URI,
         assetLoader: dynaAssetLoader,
         description:
           "Dyna is a responsive executive dashboard for prioritized scheduled signals and Codex actions.",

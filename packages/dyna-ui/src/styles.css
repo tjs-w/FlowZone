@@ -36,8 +36,10 @@
   --ring: oklch(0.708 0 0);
   --destructive: oklch(0.577 0.245 27.325);
   --chart-3: oklch(0.55 0.22 263);
-  --font-sans: "Oxanium Variable", ui-sans-serif, sans-serif;
-  --font-mono: "Geist Mono Variable", ui-monospace, monospace;
+  --d-font-sans: "Oxanium Variable", ui-sans-serif, sans-serif;
+  --d-font-mono: "Geist Mono Variable", ui-monospace, monospace;
+  --font-sans: var(--d-font-sans);
+  --font-mono: var(--d-font-mono);
   --d-canvas: var(--background);
   --d-surface: var(--card);
   --d-surface-muted: var(--muted);
@@ -92,15 +94,13 @@ html {
 
 body {
   overflow-x: hidden;
-  font-family: var(--font-sans);
+  font-family: var(--d-font-sans);
   font-variant-numeric: tabular-nums;
 }
 
-button,
-input,
-textarea,
-select {
-  font-family: inherit;
+.dyna,
+.dyna :where(button, input, textarea, select) {
+  font-family: var(--d-font-sans);
 }
 
 .dyna {
@@ -477,7 +477,7 @@ select {
 .dyna-stat,
 .dyna-row-time,
 .dyna-row-workflow {
-  font-family: var(--font-mono);
+  font-family: var(--d-font-mono);
 }
 
 .dyna-stat[aria-pressed="true"] {
@@ -1339,7 +1339,7 @@ select {
 
 .dyna-origin code {
   color: var(--d-muted);
-  font-family: inherit;
+  font-family: var(--d-font-mono);
   font-size: 12px;
   overflow-wrap: anywhere;
 }

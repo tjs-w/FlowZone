@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Applied Oxanium explicitly to Dyna UI text and controls, retained Geist Mono for operational metadata, verified both local variable fonts across desktop and mobile browser engines, and advanced the Dyna UI cache key to `ui://flowzone/dyna/v7.html` so Codex cannot reuse the pre-typography bundle.
 - Added Dyna's durable item archive lifecycle: configurable Done retention (24 hours by default), automatic expiry on dashboard access, explicit active-item dispositions, immediate undo, later restore, archive search, append-only priority/order and archive history, changed-since-archive detection, and linked follow-ups that leave the original evidence unchanged.
 - Advanced Dyna's SQLite schema to v5 while keeping the existing strict snapshot/UI wire identifiers backward-compatible through defaulted archive fields.
 

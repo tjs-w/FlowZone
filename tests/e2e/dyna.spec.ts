@@ -535,12 +535,30 @@ test("uses calm, legible light and dark host themes", async ({ page }) => {
   await page.goto("/dyna?theme=dark&dense=1");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await expect
-    .poll(() => page.evaluate(() => document.fonts.check('12px "Oxanium Variable"')))
+    .poll(() =>
+      page.evaluate(async () => {
+        await document.fonts.load('600 18px "Oxanium Variable"', "Executive Action Queue 012345");
+        await document.fonts.ready;
+        return Array.from(document.fonts).some(
+          (face) => face.family === "Oxanium Variable" && face.status === "loaded",
+        );
+      }),
+    )
     .toBe(true);
   await expect
-    .poll(() => page.evaluate(() => document.fonts.check('12px "Geist Mono Variable"')))
+    .poll(() =>
+      page.evaluate(async () => {
+        await document.fonts.load('500 12px "Geist Mono Variable"', "Updated revision 012345");
+        await document.fonts.ready;
+        return Array.from(document.fonts).some(
+          (face) => face.family === "Geist Mono Variable" && face.status === "loaded",
+        );
+      }),
+    )
     .toBe(true);
-  await expect(page.locator("body")).toHaveCSS("font-family", /Oxanium Variable/);
+  for (const selector of ["body", ".dyna h1", ".dyna-row-title", "button", "input"]) {
+    await expect(page.locator(selector).first()).toHaveCSS("font-family", /Oxanium Variable/);
+  }
   await expect(page.locator(".dyna-stat").first()).toHaveCSS("font-family", /Geist Mono Variable/);
   const darkBackground = await page
     .locator("body")

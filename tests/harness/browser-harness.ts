@@ -128,7 +128,7 @@ function resultRecord(value: unknown): Readonly<Record<string, unknown>> {
   return value as Readonly<Record<string, unknown>>;
 }
 
-const dynaResource = await client.readResource({ uri: "ui://flowzone/dyna/v6.html" });
+const dynaResource = await client.readResource({ uri: "ui://flowzone/dyna/v7.html" });
 const dynaResourceContent = dynaResource.contents[0];
 if (!dynaResourceContent || !("text" in dynaResourceContent)) {
   throw new Error("The Dyna HTML resource was not returned");

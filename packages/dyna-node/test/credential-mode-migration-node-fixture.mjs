@@ -116,7 +116,7 @@ try {
   migrated.close();
 
   const verified = new DatabaseSync(databasePath, { readOnly: true });
-  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 4);
+  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 5);
   assert.equal(
     verified
       .prepare(

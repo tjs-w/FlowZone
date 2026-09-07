@@ -1,6 +1,6 @@
 # FlowZone
 
-FlowZone is a local-first MCP plugin host. It exposes one MCP server endpoint and statically composes independently registered plugins behind that connection. It bundles Markdown Review and Dyna, a persistent executive priority queue and progress pipeline for scheduled email, messaging, source-control, TWG, skill, and Codex signals.
+FlowZone is a local-first MCP plugin host. It exposes one MCP server endpoint and statically composes independently registered plugins behind that connection. It bundles Markdown Review and Dyna, a persistent executive priority queue, progress pipeline, and durable archive for scheduled email, messaging, source-control, TWG, skill, and Codex signals.
 
 Installing FlowZone installs the shared `flowzone` MCP server and both qualified skills. Invoke them explicitly as `$flowzone:markdown-review` and `$flowzone:dyna`; Codex renders their display names as **FlowZone**, **Markdown Review**, and **Dyna**.
 
@@ -12,10 +12,10 @@ Installing FlowZone installs the shared `flowzone` MCP server and both qualified
 - Strict source records and a Zod-validated snapshot-only UI wire projected through a closed typed React catalog; scheduled jobs never supply arbitrary UI, actions, or code.
 - A compact 82-pixel attention ledger with five useful inline rows on desktop and four on touch/mobile, built from Apps SDK UI controls, semantic native filters, and small product-specific queue, pipeline, and inspector structures.
 - Host-selected MCP Apps presentation with an explicit fullscreen expansion action, host-owned docking, and a usable inline fallback with wide-screen detail inspection.
-- Re-rendering after scheduled updates, durable conversation-driven enrichment overlays, annotations, and one shared item set projected as a priority queue or Codex progress pipeline with one-line outcomes and follow-ups.
+- Re-rendering after scheduled updates, durable conversation-driven enrichment overlays, annotations, and one shared item set projected as a priority queue, Codex progress pipeline, or searchable archive with one-line outcomes and linked follow-ups.
 - Revision-bound, claim-revalidated, per-attempt idempotent action requests with expiring leases for native Codex task creation, existing-task attachment, navigation, and status inspection.
 - Scheduled publishers can use the bundled `<plugin-root>/bin/flowzone-publish` CLI with a fixed publisher ID and schema-valid JSON stdin. It relies on the local macOS user boundary and stores no publisher secret in the prompt.
-- A dedicated `ui://flowzone/dyna/v6.html` resource below a 750 KiB payload budget with a closed network CSP and no clipboard permission.
+- A dedicated `ui://flowzone/dyna/v6.html` resource below an 825 KiB payload budget with a closed network CSP and no clipboard permission.
 
 See [Dyna executive dashboards](./docs/dyna.md) for requirements, architecture, action protocol, implementation status, and the mobile Remote acceptance matrix.
 

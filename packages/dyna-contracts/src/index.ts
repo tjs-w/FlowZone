@@ -483,6 +483,7 @@ export const DynaDashboardSchema = z
     name: z.string().trim().min(1).max(96),
     description: z.string().trim().max(500),
     archived: z.boolean(),
+    doneRetentionHours: z.number().int().min(1).max(8_760).default(24),
     createdAt: TimestampSchema,
     updatedAt: TimestampSchema,
   })
@@ -574,6 +575,60 @@ export const DynaItemContextSchema = DynaMaterializedItemSchema.extend({
 }).strict();
 export type DynaItemContext = z.infer<typeof DynaItemContextSchema>;
 
+export const DynaArchiveReasonSchema = z.enum([
+  "completed",
+  "invalid",
+  "duplicate",
+  "no_action_needed",
+  "superseded",
+  "other",
+]);
+export type DynaArchiveReason = z.infer<typeof DynaArchiveReasonSchema>;
+
+export const DynaArchiveStateSchema = z
+  .object({
+    id: z.uuid(),
+    reason: DynaArchiveReasonSchema,
+    reasonDetail: z.string().trim().min(1).max(500).optional(),
+    mode: z.enum(["manual", "automatic"]),
+    archivedAt: TimestampSchema,
+    completedAt: TimestampSchema.optional(),
+    workflowStateAtArchive: z.enum(["todo", "executing", "paused", "attention", "completed"]),
+    wasCompleted: z.boolean(),
+    changedSinceArchive: z.boolean(),
+  })
+  .strict();
+export type DynaArchiveState = z.infer<typeof DynaArchiveStateSchema>;
+
+export const DynaItemHistorySchema = z
+  .object({
+    itemId: z.uuid(),
+    archives: z
+      .array(
+        DynaArchiveStateSchema.extend({
+          restoredAt: TimestampSchema.optional(),
+          priorityAtArchive: DynaPrioritySchema,
+          sequenceAtArchive: z.number().int().nonnegative().optional(),
+          outcomeAtArchive: z.string().trim().min(1).max(200).optional(),
+        }).strict(),
+      )
+      .max(100),
+    organization: z
+      .array(
+        z
+          .object({
+            action: z.enum(["bump", "lower", "earlier", "later", "resequence"]),
+            priority: DynaPrioritySchema,
+            sequence: z.number().int().nonnegative().optional(),
+            createdAt: TimestampSchema,
+          })
+          .strict(),
+      )
+      .max(200),
+  })
+  .strict();
+export type DynaItemHistory = z.infer<typeof DynaItemHistorySchema>;
+
 export const DynaActionItemContextSchema = z
   .object({
     id: z.uuid(),
@@ -639,6 +694,7 @@ export const DynaCardSchema = z
     canMoveEarlier: z.boolean(),
     canMoveLater: z.boolean(),
     workflowState: z.enum(["todo", "executing", "paused", "attention", "completed"]),
+    completedAt: TimestampSchema.optional(),
     outcome: z.string().trim().min(1).max(200).optional(),
     followUpOfItemId: z.uuid().optional(),
     attention: z.string().trim().min(1).max(500).optional(),
@@ -647,6 +703,7 @@ export const DynaCardSchema = z
     enrichmentState: z.enum(["active", "stale"]).optional(),
     annotations: z.array(DynaAnnotationSchema).max(20),
     linkedTasks: z.array(DynaTaskStatusSchema).max(8),
+    archive: DynaArchiveStateSchema.optional(),
   })
   .strict();
 export type DynaCard = z.infer<typeof DynaCardSchema>;
@@ -657,6 +714,7 @@ export const DynaDashboardSnapshotSchema = z
     dashboard: DynaDashboardSchema,
     generatedAt: TimestampSchema,
     query: z.string().max(500),
+    scope: z.enum(["active", "archive"]).default("active"),
     revision: z.number().int().nonnegative(),
     freshness: z.enum(["fresh", "aging", "stale"]),
     counts: z
@@ -665,6 +723,7 @@ export const DynaDashboardSnapshotSchema = z
         high: z.number().int().nonnegative(),
         leadership: z.number().int().nonnegative(),
         total: z.number().int().nonnegative(),
+        archived: z.number().int().nonnegative().default(0),
       })
       .strict(),
     schedules: z.array(DynaPublisherSchema).max(50),

@@ -64,9 +64,9 @@ function $constructor(name, initializer3, params) {
     const proto = _3.prototype;
     const keys = Object.keys(proto);
     for (let i = 0; i < keys.length; i++) {
-      const k2 = keys[i];
-      if (!(k2 in inst)) {
-        inst[k2] = proto[k2].bind(inst);
+      const k3 = keys[i];
+      if (!(k3 in inst)) {
+        inst[k3] = proto[k3].bind(inst);
       }
     }
   }
@@ -205,7 +205,7 @@ function assert(_3) {
 }
 function getEnumValues(entries) {
   const numericValues = Object.values(entries).filter((v3) => typeof v3 === "number");
-  const values = Object.entries(entries).filter(([k2, _3]) => numericValues.indexOf(+k2) === -1).map(([_3, v3]) => v3);
+  const values = Object.entries(entries).filter(([k3, _3]) => numericValues.indexOf(+k3) === -1).map(([_3, v3]) => v3);
   return values;
 }
 function joinValues(array2, separator = "|") {
@@ -424,8 +424,8 @@ function stringifyPrimitive(value) {
   return `${value}`;
 }
 function optionalKeys(shape) {
-  return Object.keys(shape).filter((k2) => {
-    return shape[k2]._zod.optin === "optional" && shape[k2]._zod.optout === "optional";
+  return Object.keys(shape).filter((k3) => {
+    return shape[k3]._zod.optin === "optional" && shape[k3]._zod.optout === "optional";
   });
 }
 function pick(schema, mask) {
@@ -691,8 +691,8 @@ function issue(...args) {
   return { ...iss };
 }
 function cleanEnum(obj) {
-  return Object.entries(obj).filter(([k2, _3]) => {
-    return Number.isNaN(Number.parseInt(k2, 10));
+  return Object.entries(obj).filter(([k3, _3]) => {
+    return Number.isNaN(Number.parseInt(k3, 10));
   }).map((el) => el[1]);
 }
 function base64ToUint8Array(base643) {
@@ -1918,9 +1918,9 @@ function handlePropertyResult(result, final, key, input, isOptionalIn, isOptiona
 }
 function normalizeDef(def) {
   const keys = Object.keys(def.shape);
-  for (const k2 of keys) {
-    if (!def.shape?.[k2]?._zod?.traits?.has("$ZodType")) {
-      throw new Error(`Invalid element at key "${k2}": expected a Zod schema`);
+  for (const k3 of keys) {
+    if (!def.shape?.[k3]?._zod?.traits?.has("$ZodType")) {
+      throw new Error(`Invalid element at key "${k3}": expected a Zod schema`);
     }
   }
   const okeys = optionalKeys(def.shape);
@@ -2063,10 +2063,10 @@ function handleIntersectionResults(result, left, right) {
   for (const iss of left.issues) {
     if (iss.code === "unrecognized_keys") {
       unrecIssue ?? (unrecIssue = iss);
-      for (const k2 of iss.keys) {
-        if (!unrecKeys.has(k2))
-          unrecKeys.set(k2, {});
-        unrecKeys.get(k2).l = true;
+      for (const k3 of iss.keys) {
+        if (!unrecKeys.has(k3))
+          unrecKeys.set(k3, {});
+        unrecKeys.get(k3).l = true;
       }
     } else {
       result.issues.push(iss);
@@ -2074,16 +2074,16 @@ function handleIntersectionResults(result, left, right) {
   }
   for (const iss of right.issues) {
     if (iss.code === "unrecognized_keys") {
-      for (const k2 of iss.keys) {
-        if (!unrecKeys.has(k2))
-          unrecKeys.set(k2, {});
-        unrecKeys.get(k2).r = true;
+      for (const k3 of iss.keys) {
+        if (!unrecKeys.has(k3))
+          unrecKeys.set(k3, {});
+        unrecKeys.get(k3).r = true;
       }
     } else {
       result.issues.push(iss);
     }
   }
-  const bothKeys = [...unrecKeys].filter(([, f3]) => f3.l && f3.r).map(([k2]) => k2);
+  const bothKeys = [...unrecKeys].filter(([, f3]) => f3.l && f3.r).map(([k3]) => k3);
   if (bothKeys.length && unrecIssue) {
     result.issues.push({ ...unrecIssue, keys: bothKeys });
   }
@@ -2937,8 +2937,8 @@ var init_schemas = __esm({
         const doc = new Doc(["shape", "payload", "ctx"]);
         const normalized = _normalized.value;
         const parseStr = (key) => {
-          const k2 = esc(key);
-          return `shape[${k2}]._zod.run({ value: input[${k2}], issues: [] }, ctx)`;
+          const k3 = esc(key);
+          return `shape[${k3}]._zod.run({ value: input[${k3}], issues: [] }, ctx)`;
         };
         doc.write(`const input = payload.value;`);
         const ids = /* @__PURE__ */ Object.create(null);
@@ -2949,7 +2949,7 @@ var init_schemas = __esm({
         doc.write(`const newResult = {};`);
         for (const key of normalized.keys) {
           const id = ids[key];
-          const k2 = esc(key);
+          const k3 = esc(key);
           const schema = shape[key];
           const isOptionalIn = schema?._zod?.optin === "optional";
           const isOptionalOut = schema?._zod?.optout === "optional";
@@ -2957,30 +2957,30 @@ var init_schemas = __esm({
           if (isOptionalIn && isOptionalOut) {
             doc.write(`
         if (${id}.issues.length) {
-          if (${k2} in input) {
+          if (${k3} in input) {
             payload.issues = payload.issues.concat(${id}.issues.map(iss => ({
               ...iss,
-              path: iss.path ? [${k2}, ...iss.path] : [${k2}]
+              path: iss.path ? [${k3}, ...iss.path] : [${k3}]
             })));
           }
         }
         
         if (${id}.value === undefined) {
-          if (${k2} in input) {
-            newResult[${k2}] = undefined;
+          if (${k3} in input) {
+            newResult[${k3}] = undefined;
           }
         } else {
-          newResult[${k2}] = ${id}.value;
+          newResult[${k3}] = ${id}.value;
         }
         
       `);
           } else if (!isOptionalIn) {
             doc.write(`
-        const ${id}_present = ${k2} in input;
+        const ${id}_present = ${k3} in input;
         if (${id}.issues.length) {
           payload.issues = payload.issues.concat(${id}.issues.map(iss => ({
             ...iss,
-            path: iss.path ? [${k2}, ...iss.path] : [${k2}]
+            path: iss.path ? [${k3}, ...iss.path] : [${k3}]
           })));
         }
         if (!${id}_present && !${id}.issues.length) {
@@ -2988,15 +2988,15 @@ var init_schemas = __esm({
             code: "invalid_type",
             expected: "nonoptional",
             input: undefined,
-            path: [${k2}]
+            path: [${k3}]
           });
         }
 
         if (${id}_present) {
           if (${id}.value === undefined) {
-            newResult[${k2}] = undefined;
+            newResult[${k3}] = undefined;
           } else {
-            newResult[${k2}] = ${id}.value;
+            newResult[${k3}] = ${id}.value;
           }
         }
 
@@ -3006,16 +3006,16 @@ var init_schemas = __esm({
         if (${id}.issues.length) {
           payload.issues = payload.issues.concat(${id}.issues.map(iss => ({
             ...iss,
-            path: iss.path ? [${k2}, ...iss.path] : [${k2}]
+            path: iss.path ? [${k3}, ...iss.path] : [${k3}]
           })));
         }
         
         if (${id}.value === undefined) {
-          if (${k2} in input) {
-            newResult[${k2}] = undefined;
+          if (${k3} in input) {
+            newResult[${k3}] = undefined;
           }
         } else {
-          newResult[${k2}] = ${id}.value;
+          newResult[${k3}] = ${id}.value;
         }
         
       `);
@@ -3140,11 +3140,11 @@ var init_schemas = __esm({
           const pv = option._zod.propValues;
           if (!pv || Object.keys(pv).length === 0)
             throw new Error(`Invalid discriminated union option at index "${def.options.indexOf(option)}"`);
-          for (const [k2, v3] of Object.entries(pv)) {
-            if (!propValues[k2])
-              propValues[k2] = /* @__PURE__ */ new Set();
+          for (const [k3, v3] of Object.entries(pv)) {
+            if (!propValues[k3])
+              propValues[k3] = /* @__PURE__ */ new Set();
             for (const val of v3) {
-              propValues[k2].add(val);
+              propValues[k3].add(val);
             }
           }
         }
@@ -3472,7 +3472,7 @@ var init_schemas = __esm({
       const values = getEnumValues(def.entries);
       const valuesSet = new Set(values);
       inst._zod.values = valuesSet;
-      inst._zod.pattern = new RegExp(`^(${values.filter((k2) => propertyKeyTypes.has(typeof k2)).map((o) => typeof o === "string" ? escapeRegex(o) : o.toString()).join("|")})$`);
+      inst._zod.pattern = new RegExp(`^(${values.filter((k3) => propertyKeyTypes.has(typeof k3)).map((o) => typeof o === "string" ? escapeRegex(o) : o.toString()).join("|")})$`);
       inst._zod.parse = (payload, _ctx) => {
         const input = payload.value;
         if (valuesSet.has(input)) {
@@ -3914,10 +3914,10 @@ var init_schemas = __esm({
     $ZodLazy = /* @__PURE__ */ $constructor("$ZodLazy", (inst, def) => {
       $ZodType.init(inst, def);
       defineLazy(inst._zod, "innerType", () => {
-        const d3 = def;
-        if (!d3._cachedInner)
-          d3._cachedInner = def.getter();
-        return d3._cachedInner;
+        const d2 = def;
+        if (!d2._cachedInner)
+          d2._cachedInner = def.getter();
+        return d2._cachedInner;
       });
       defineLazy(inst._zod, "pattern", () => inst._zod.innerType?._zod?.pattern);
       defineLazy(inst._zod, "propValues", () => inst._zod.innerType?._zod?.propValues);
@@ -13275,11 +13275,11 @@ function record(keyType, valueType, params) {
   });
 }
 function partialRecord(keyType, valueType, params) {
-  const k2 = clone(keyType);
-  k2._zod.values = void 0;
+  const k3 = clone(keyType);
+  k3._zod.values = void 0;
   return new ZodRecord({
     type: "record",
-    keyType: k2,
+    keyType: k3,
     valueType,
     ...util_exports.normalizeParams(params)
   });
@@ -13607,11 +13607,11 @@ var init_schemas2 = __esm({
         transform(tx) {
           return pipe(this, transform(tx));
         },
-        default(d3) {
-          return _default2(this, d3);
+        default(d2) {
+          return _default2(this, d2);
         },
-        prefault(d3) {
-          return prefault(this, d3);
+        prefault(d2) {
+          return prefault(this, d2);
         },
         catch(params) {
           return _catch2(this, params);
@@ -15130,9 +15130,9 @@ var init_v4 = __esm({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/codegen/code.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/codegen/code.js
 var require_code = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/codegen/code.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/codegen/code.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.regexpCode = exports2.getEsmExportName = exports2.getProperty = exports2.safeStringify = exports2.stringify = exports2.strConcat = exports2.addCodeArg = exports2.str = exports2._ = exports2.nil = exports2._Code = exports2.Name = exports2.IDENTIFIER = exports2._CodeOrName = void 0;
@@ -15284,9 +15284,9 @@ var require_code = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/codegen/scope.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/codegen/scope.js
 var require_scope = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/codegen/scope.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/codegen/scope.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ValueScope = exports2.ValueScopeName = exports2.Scope = exports2.varKinds = exports2.UsedValueState = void 0;
@@ -15429,9 +15429,9 @@ var require_scope = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/codegen/index.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/codegen/index.js
 var require_codegen = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/codegen/index.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/codegen/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.or = exports2.and = exports2.not = exports2.CodeGen = exports2.operators = exports2.varKinds = exports2.ValueScopeName = exports2.ValueScope = exports2.Scope = exports2.Name = exports2.regexpCode = exports2.stringify = exports2.getProperty = exports2.nil = exports2.strConcat = exports2.str = exports2._ = void 0;
@@ -16149,9 +16149,9 @@ var require_codegen = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/util.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/util.js
 var require_util = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/util.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/util.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.checkStrictMode = exports2.getErrorPath = exports2.Type = exports2.useFunc = exports2.setEvaluated = exports2.evaluatedPropsToName = exports2.mergeEvaluated = exports2.eachItem = exports2.unescapeJsonPointer = exports2.escapeJsonPointer = exports2.escapeFragment = exports2.unescapeFragment = exports2.schemaRefOrVal = exports2.schemaHasRulesButRef = exports2.schemaHasRules = exports2.checkUnknownRules = exports2.alwaysValidSchema = exports2.toHash = void 0;
@@ -16316,9 +16316,9 @@ var require_util = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/names.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/names.js
 var require_names = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/names.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/names.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -16355,9 +16355,9 @@ var require_names = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/errors.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/errors.js
 var require_errors = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/errors.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/errors.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.extendErrors = exports2.resetErrorsCount = exports2.reportExtraError = exports2.reportError = exports2.keyword$DataError = exports2.keywordError = void 0;
@@ -16425,7 +16425,7 @@ var require_errors = __commonJS({
         gen.return(false);
       }
     }
-    var E3 = {
+    var E2 = {
       keyword: new codegen_1.Name("keyword"),
       schemaPath: new codegen_1.Name("schemaPath"),
       // also used in JTD errors
@@ -16459,27 +16459,27 @@ var require_errors = __commonJS({
       if (schemaPath) {
         schPath = (0, codegen_1.str)`${schPath}${(0, util_1.getErrorPath)(schemaPath, util_1.Type.Str)}`;
       }
-      return [E3.schemaPath, schPath];
+      return [E2.schemaPath, schPath];
     }
     function extraErrorProps(cxt, { params, message }, keyValues) {
       const { keyword, data, schemaValue, it: it2 } = cxt;
       const { opts, propertyName, topSchemaRef, schemaPath } = it2;
-      keyValues.push([E3.keyword, keyword], [E3.params, typeof params == "function" ? params(cxt) : params || (0, codegen_1._)`{}`]);
+      keyValues.push([E2.keyword, keyword], [E2.params, typeof params == "function" ? params(cxt) : params || (0, codegen_1._)`{}`]);
       if (opts.messages) {
-        keyValues.push([E3.message, typeof message == "function" ? message(cxt) : message]);
+        keyValues.push([E2.message, typeof message == "function" ? message(cxt) : message]);
       }
       if (opts.verbose) {
-        keyValues.push([E3.schema, schemaValue], [E3.parentSchema, (0, codegen_1._)`${topSchemaRef}${schemaPath}`], [names_1.default.data, data]);
+        keyValues.push([E2.schema, schemaValue], [E2.parentSchema, (0, codegen_1._)`${topSchemaRef}${schemaPath}`], [names_1.default.data, data]);
       }
       if (propertyName)
-        keyValues.push([E3.propertyName, propertyName]);
+        keyValues.push([E2.propertyName, propertyName]);
     }
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/validate/boolSchema.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/validate/boolSchema.js
 var require_boolSchema = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/validate/boolSchema.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/validate/boolSchema.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.boolOrEmptySchema = exports2.topBoolOrEmptySchema = void 0;
@@ -16528,9 +16528,9 @@ var require_boolSchema = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/rules.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/rules.js
 var require_rules = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/rules.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/rules.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.getRules = exports2.isJSONType = void 0;
@@ -16559,9 +16559,9 @@ var require_rules = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/validate/applicability.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/validate/applicability.js
 var require_applicability = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/validate/applicability.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/validate/applicability.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.shouldUseRule = exports2.shouldUseGroup = exports2.schemaHasRulesForType = void 0;
@@ -16582,9 +16582,9 @@ var require_applicability = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/validate/dataType.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/validate/dataType.js
 var require_dataType = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/validate/dataType.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/validate/dataType.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.reportTypeError = exports2.checkDataTypes = exports2.checkDataType = exports2.coerceAndCheckDataType = exports2.getJSONTypes = exports2.getSchemaTypes = exports2.DataType = void 0;
@@ -16766,9 +16766,9 @@ var require_dataType = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/validate/defaults.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/validate/defaults.js
 var require_defaults = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/validate/defaults.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/validate/defaults.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.assignDefaults = void 0;
@@ -16803,9 +16803,9 @@ var require_defaults = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/code.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/code.js
 var require_code2 = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/code.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/code.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.validateUnion = exports2.validateArray = exports2.usePattern = exports2.callValidateCode = exports2.schemaProperties = exports2.allSchemaProperties = exports2.noPropertyInData = exports2.propertyInData = exports2.isOwnProperty = exports2.hasPropFunc = exports2.reportMissingProp = exports2.checkMissingProp = exports2.checkReportMissingProp = void 0;
@@ -16936,9 +16936,9 @@ var require_code2 = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/validate/keyword.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/validate/keyword.js
 var require_keyword = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/validate/keyword.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/validate/keyword.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.validateKeywordUsage = exports2.validSchemaType = exports2.funcKeywordCode = exports2.macroKeywordCode = void 0;
@@ -17054,9 +17054,9 @@ var require_keyword = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/validate/subschema.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/validate/subschema.js
 var require_subschema = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/validate/subschema.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/validate/subschema.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.extendSubschemaMode = exports2.extendSubschemaData = exports2.getSubschema = void 0;
@@ -17137,9 +17137,9 @@ var require_subschema = __commonJS({
   }
 });
 
-// node_modules/fast-deep-equal/index.js
+// node_modules/.bun/fast-deep-equal@3.1.3/node_modules/fast-deep-equal/index.js
 var require_fast_deep_equal = __commonJS({
-  "node_modules/fast-deep-equal/index.js"(exports2, module2) {
+  "node_modules/.bun/fast-deep-equal@3.1.3/node_modules/fast-deep-equal/index.js"(exports2, module2) {
     "use strict";
     module2.exports = function equal(a, b2) {
       if (a === b2) return true;
@@ -17172,9 +17172,9 @@ var require_fast_deep_equal = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/node_modules/json-schema-traverse/index.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/node_modules/json-schema-traverse/index.js
 var require_json_schema_traverse = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/node_modules/json-schema-traverse/index.js"(exports2, module2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/node_modules/json-schema-traverse/index.js"(exports2, module2) {
     "use strict";
     var traverse = module2.exports = function(schema, opts, cb) {
       if (typeof opts == "function") {
@@ -17260,9 +17260,9 @@ var require_json_schema_traverse = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/resolve.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/resolve.js
 var require_resolve = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/resolve.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/resolve.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.getSchemaRefs = exports2.resolveUrl = exports2.normalizeId = exports2._getFullPath = exports2.getFullPath = exports2.inlineRef = void 0;
@@ -17416,9 +17416,9 @@ var require_resolve = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/validate/index.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/validate/index.js
 var require_validate = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/validate/index.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/validate/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.getData = exports2.KeywordCxt = exports2.validateFunctionCode = void 0;
@@ -17924,9 +17924,9 @@ var require_validate = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/runtime/validation_error.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/runtime/validation_error.js
 var require_validation_error = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/runtime/validation_error.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/runtime/validation_error.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var ValidationError = class extends Error {
@@ -17940,9 +17940,9 @@ var require_validation_error = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/ref_error.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/ref_error.js
 var require_ref_error = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/ref_error.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/ref_error.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var resolve_1 = require_resolve();
@@ -17957,9 +17957,9 @@ var require_ref_error = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/index.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/index.js
 var require_compile = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/index.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/compile/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.resolveSchema = exports2.getCompilingSchema = exports2.resolveRef = exports2.compileSchema = exports2.SchemaEnv = void 0;
@@ -18181,9 +18181,9 @@ var require_compile = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/refs/data.json
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/refs/data.json
 var require_data = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/refs/data.json"(exports2, module2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/refs/data.json"(exports2, module2) {
     module2.exports = {
       $id: "https://raw.githubusercontent.com/ajv-validator/ajv/master/lib/refs/data.json#",
       description: "Meta-schema for $data reference (JSON AnySchema extension proposal)",
@@ -18200,12 +18200,13 @@ var require_data = __commonJS({
   }
 });
 
-// node_modules/fast-uri/lib/utils.js
+// node_modules/.bun/fast-uri@3.1.7/node_modules/fast-uri/lib/utils.js
 var require_utils = __commonJS({
-  "node_modules/fast-uri/lib/utils.js"(exports2, module2) {
+  "node_modules/.bun/fast-uri@3.1.7/node_modules/fast-uri/lib/utils.js"(exports2, module2) {
     "use strict";
     var isUUID = RegExp.prototype.test.bind(/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/iu);
     var isIPv4 = RegExp.prototype.test.bind(/^(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)$/u);
+    var isPort = RegExp.prototype.test.bind(/^\d*$/u);
     var isHexPair = RegExp.prototype.test.bind(/^[\da-f]{2}$/iu);
     var isUnreserved = RegExp.prototype.test.bind(/^[\da-z\-._~]$/iu);
     var isPathCharacter = RegExp.prototype.test.bind(/^[A-Za-z0-9\-._~!$&'()*+,;=:@/]$/u);
@@ -18671,8 +18672,12 @@ var require_utils = __commonJS({
         uriTokens.push(host);
       }
       if (typeof component.port === "number" || typeof component.port === "string") {
+        const port = String(component.port);
+        if (!isPort(port)) {
+          throw new TypeError("URI port is malformed.");
+        }
         uriTokens.push(":");
-        uriTokens.push(String(component.port));
+        uriTokens.push(port);
       }
       return uriTokens.length ? uriTokens.join("") : void 0;
     }
@@ -18697,9 +18702,9 @@ var require_utils = __commonJS({
   }
 });
 
-// node_modules/fast-uri/lib/schemes.js
+// node_modules/.bun/fast-uri@3.1.7/node_modules/fast-uri/lib/schemes.js
 var require_schemes = __commonJS({
-  "node_modules/fast-uri/lib/schemes.js"(exports2, module2) {
+  "node_modules/.bun/fast-uri@3.1.7/node_modules/fast-uri/lib/schemes.js"(exports2, module2) {
     "use strict";
     var { isUUID } = require_utils();
     var URN_REG = /^([\da-z][\d\-a-z]{0,31}):((?:[\w!$'()*+,\-./:;=@]|%[\da-f]{2})+)$/iu;
@@ -18908,9 +18913,9 @@ var require_schemes = __commonJS({
   }
 });
 
-// node_modules/fast-uri/index.js
+// node_modules/.bun/fast-uri@3.1.7/node_modules/fast-uri/index.js
 var require_fast_uri = __commonJS({
-  "node_modules/fast-uri/index.js"(exports2, module2) {
+  "node_modules/.bun/fast-uri@3.1.7/node_modules/fast-uri/index.js"(exports2, module2) {
     "use strict";
     var { normalizeIPv6, removeDotSegments, recomposeAuthority, normalizePercentEncoding, normalizePathEncoding, serializePathEncoding, normalizeQueryFragmentEncoding, encodeQuery, encodeFragment, reescapeHostDelimiters, isIPv4, nonSimpleDomain } = require_utils();
     var { SCHEMES, getSchemeHandler } = require_schemes();
@@ -19115,12 +19120,15 @@ var require_fast_uri = __commonJS({
       }
       return false;
     }
+    function isIPLiteral(host) {
+      return host[0] === "[" && host[host.length - 1] === "]";
+    }
     function hasMalformedComponentPercentEncoding(matches) {
       const host = matches[4];
-      return hasMalformedPercentEncoding(matches[3]) || host !== void 0 && !(host[0] === "[" && host[host.length - 1] === "]") && hasMalformedPercentEncoding(host) || hasMalformedPercentEncoding(matches[6]) || hasMalformedPercentEncoding(matches[7]) || hasMalformedPercentEncoding(matches[8]);
+      return hasMalformedPercentEncoding(matches[3]) || host !== void 0 && !isIPLiteral(host) && hasMalformedPercentEncoding(host) || hasMalformedPercentEncoding(matches[6]) || hasMalformedPercentEncoding(matches[7]) || hasMalformedPercentEncoding(matches[8]);
     }
     function canonicalizeHost(parsed, options, schemeHandler, isIP) {
-      if (!options.unicodeSupport && (!schemeHandler || !schemeHandler.unicodeSupport) && parsed.host && parsed.host[0] !== "[" && (options.domainHost || schemeHandler && schemeHandler.domainHost) && isIP === false && nonSimpleDomain(parsed.host)) {
+      if (!options.unicodeSupport && (!schemeHandler || !schemeHandler.unicodeSupport) && parsed.host && !isIPLiteral(parsed.host) && (options.domainHost || schemeHandler && schemeHandler.domainHost) && isIP === false && nonSimpleDomain(parsed.host)) {
         try {
           parsed.host = new URL("http://" + parsed.host).hostname;
         } catch (e) {
@@ -19207,10 +19215,11 @@ var require_fast_uri = __commonJS({
         if (parsed.host) {
           const ipv4result = isIPv4(parsed.host);
           if (ipv4result === false) {
-            const bracketedIPLiteral = parsed.host[0] === "[" && parsed.host[parsed.host.length - 1] === "]";
+            const bracketedIPLiteral = isIPLiteral(parsed.host);
+            const hasIPLiteralBracket = parsed.host.indexOf("[") !== -1 || parsed.host.indexOf("]") !== -1;
             const ipv6result = normalizeIPv6(parsed.host);
             isIP = ipv6result.isIPV6 || ipv6result.isIPVFuture === true;
-            malformedIPLiteral = bracketedIPLiteral && ipv6result.error === true;
+            malformedIPLiteral = hasIPLiteralBracket && (!bracketedIPLiteral || ipv6result.error === true);
             parsed.host = isIP ? ipv6result.host : ipv6result.host.toLowerCase();
             if (malformedIPLiteral) {
               parsed.error = parsed.error || "URI host is malformed.";
@@ -19233,7 +19242,9 @@ var require_fast_uri = __commonJS({
           parsed.error = parsed.error || "URI is not a " + options.reference + " reference.";
         }
         const schemeHandler = getSchemeHandler(options.scheme || parsed.scheme);
-        malformedHost = canonicalizeHost(parsed, options, schemeHandler, isIP);
+        if (!malformedIPLiteral) {
+          malformedHost = canonicalizeHost(parsed, options, schemeHandler, isIP);
+        }
         if (!schemeHandler || schemeHandler && !schemeHandler.skipNormalize) {
           if (uri.indexOf("%") !== -1) {
             if (parsed.host !== void 0 && !malformedIPLiteral) {
@@ -19307,9 +19318,9 @@ var require_fast_uri = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/runtime/uri.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/runtime/uri.js
 var require_uri = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/runtime/uri.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/runtime/uri.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var uri = require_fast_uri();
@@ -19318,9 +19329,9 @@ var require_uri = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/core.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/core.js
 var require_core = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/core.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/core.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.CodeGen = exports2.Name = exports2.nil = exports2.stringify = exports2.str = exports2._ = exports2.KeywordCxt = void 0;
@@ -19681,7 +19692,7 @@ var require_core = __commonJS({
           type: (0, dataType_1.getJSONTypes)(def.type),
           schemaType: (0, dataType_1.getJSONTypes)(def.schemaType)
         };
-        (0, util_1.eachItem)(keyword, definition.type.length === 0 ? (k2) => addRule.call(this, k2, definition) : (k2) => definition.type.forEach((t) => addRule.call(this, k2, definition, t)));
+        (0, util_1.eachItem)(keyword, definition.type.length === 0 ? (k3) => addRule.call(this, k3, definition) : (k3) => definition.type.forEach((t) => addRule.call(this, k3, definition, t)));
         return this;
       }
       getKeyword(keyword) {
@@ -19929,9 +19940,9 @@ var require_core = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/core/id.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/core/id.js
 var require_id = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/core/id.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/core/id.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var def = {
@@ -19944,9 +19955,9 @@ var require_id = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/core/ref.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/core/ref.js
 var require_ref = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/core/ref.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/core/ref.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.callRef = exports2.getValidate = void 0;
@@ -20066,9 +20077,9 @@ var require_ref = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/core/index.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/core/index.js
 var require_core2 = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/core/index.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/core/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var id_1 = require_id();
@@ -20087,9 +20098,9 @@ var require_core2 = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/limitNumber.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/limitNumber.js
 var require_limitNumber = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/limitNumber.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/limitNumber.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -20119,9 +20130,9 @@ var require_limitNumber = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/multipleOf.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/multipleOf.js
 var require_multipleOf = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/multipleOf.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/multipleOf.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -20147,9 +20158,9 @@ var require_multipleOf = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/runtime/ucs2length.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/runtime/ucs2length.js
 var require_ucs2length = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/runtime/ucs2length.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/runtime/ucs2length.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     function ucs2length(str) {
@@ -20173,9 +20184,9 @@ var require_ucs2length = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/limitLength.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/limitLength.js
 var require_limitLength = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/limitLength.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/limitLength.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -20205,9 +20216,9 @@ var require_limitLength = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/pattern.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/pattern.js
 var require_pattern = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/pattern.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/pattern.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -20242,9 +20253,9 @@ var require_pattern = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/limitProperties.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/limitProperties.js
 var require_limitProperties = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/limitProperties.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/limitProperties.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -20271,9 +20282,9 @@ var require_limitProperties = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/required.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/required.js
 var require_required = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/required.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/required.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -20353,9 +20364,9 @@ var require_required = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/limitItems.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/limitItems.js
 var require_limitItems = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/limitItems.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/limitItems.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -20382,9 +20393,9 @@ var require_limitItems = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/runtime/equal.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/runtime/equal.js
 var require_equal = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/runtime/equal.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/runtime/equal.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var equal = require_fast_deep_equal();
@@ -20393,9 +20404,9 @@ var require_equal = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/uniqueItems.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/uniqueItems.js
 var require_uniqueItems = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/uniqueItems.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/uniqueItems.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var dataType_1 = require_dataType();
@@ -20460,9 +20471,9 @@ var require_uniqueItems = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/const.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/const.js
 var require_const = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/const.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/const.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -20489,9 +20500,9 @@ var require_const = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/enum.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/enum.js
 var require_enum = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/enum.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/enum.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -20538,9 +20549,9 @@ var require_enum = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/index.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/index.js
 var require_validation = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/index.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/validation/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var limitNumber_1 = require_limitNumber();
@@ -20576,9 +20587,9 @@ var require_validation = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/additionalItems.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/additionalItems.js
 var require_additionalItems = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/additionalItems.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/additionalItems.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.validateAdditionalItems = void 0;
@@ -20629,9 +20640,9 @@ var require_additionalItems = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/items.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/items.js
 var require_items = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/items.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/items.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.validateTuple = void 0;
@@ -20686,9 +20697,9 @@ var require_items = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/prefixItems.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/prefixItems.js
 var require_prefixItems = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/prefixItems.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/prefixItems.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var items_1 = require_items();
@@ -20703,9 +20714,9 @@ var require_prefixItems = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/items2020.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/items2020.js
 var require_items2020 = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/items2020.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/items2020.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -20738,9 +20749,9 @@ var require_items2020 = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/contains.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/contains.js
 var require_contains = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/contains.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/contains.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -20832,9 +20843,9 @@ var require_contains = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/dependencies.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/dependencies.js
 var require_dependencies = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/dependencies.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/dependencies.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.validateSchemaDeps = exports2.validatePropertyDeps = exports2.error = void 0;
@@ -20926,9 +20937,9 @@ var require_dependencies = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/propertyNames.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/propertyNames.js
 var require_propertyNames = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/propertyNames.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/propertyNames.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -20969,9 +20980,9 @@ var require_propertyNames = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js
 var require_additionalProperties = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -21075,9 +21086,9 @@ var require_additionalProperties = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/properties.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/properties.js
 var require_properties = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/properties.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/properties.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var validate_1 = require_validate();
@@ -21133,9 +21144,9 @@ var require_properties = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/patternProperties.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/patternProperties.js
 var require_patternProperties = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/patternProperties.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/patternProperties.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -21207,9 +21218,9 @@ var require_patternProperties = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/not.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/not.js
 var require_not = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/not.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/not.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var util_1 = require_util();
@@ -21238,9 +21249,9 @@ var require_not = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/anyOf.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/anyOf.js
 var require_anyOf = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/anyOf.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/anyOf.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -21255,9 +21266,9 @@ var require_anyOf = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/oneOf.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/oneOf.js
 var require_oneOf = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/oneOf.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/oneOf.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -21313,9 +21324,9 @@ var require_oneOf = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/allOf.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/allOf.js
 var require_allOf = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/allOf.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/allOf.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var util_1 = require_util();
@@ -21340,9 +21351,9 @@ var require_allOf = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/if.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/if.js
 var require_if = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/if.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/if.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -21409,9 +21420,9 @@ var require_if = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/thenElse.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/thenElse.js
 var require_thenElse = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/thenElse.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/thenElse.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var util_1 = require_util();
@@ -21427,9 +21438,9 @@ var require_thenElse = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/index.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/index.js
 var require_applicator = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/index.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/applicator/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var additionalItems_1 = require_additionalItems();
@@ -21475,9 +21486,9 @@ var require_applicator = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/format/format.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/format/format.js
 var require_format = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/format/format.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/format/format.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -21565,9 +21576,9 @@ var require_format = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/format/index.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/format/index.js
 var require_format2 = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/format/index.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/format/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var format_1 = require_format();
@@ -21576,9 +21587,9 @@ var require_format2 = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/metadata.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/metadata.js
 var require_metadata = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/metadata.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/metadata.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.contentVocabulary = exports2.metadataVocabulary = void 0;
@@ -21599,9 +21610,9 @@ var require_metadata = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/draft7.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/draft7.js
 var require_draft7 = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/draft7.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/draft7.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var core_1 = require_core2();
@@ -21621,9 +21632,9 @@ var require_draft7 = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/discriminator/types.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/discriminator/types.js
 var require_types = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/discriminator/types.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/discriminator/types.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.DiscrError = void 0;
@@ -21635,9 +21646,9 @@ var require_types = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/discriminator/index.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/discriminator/index.js
 var require_discriminator = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/discriminator/index.js"(exports2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/vocabularies/discriminator/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -21740,9 +21751,9 @@ var require_discriminator = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/refs/json-schema-draft-07.json
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/refs/json-schema-draft-07.json
 var require_json_schema_draft_07 = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/refs/json-schema-draft-07.json"(exports2, module2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/refs/json-schema-draft-07.json"(exports2, module2) {
     module2.exports = {
       $schema: "http://json-schema.org/draft-07/schema#",
       $id: "http://json-schema.org/draft-07/schema#",
@@ -21897,9 +21908,9 @@ var require_json_schema_draft_07 = __commonJS({
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/ajv.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/ajv.js
 var require_ajv = __commonJS({
-  "node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/ajv.js"(exports2, module2) {
+  "node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/node_modules/ajv/dist/ajv.js"(exports2, module2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.MissingRefError = exports2.ValidationError = exports2.CodeGen = exports2.Name = exports2.nil = exports2.stringify = exports2.str = exports2._ = exports2.KeywordCxt = exports2.Ajv = void 0;
@@ -21967,9 +21978,9 @@ var require_ajv = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/dist/formats.js
+// node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/formats.js
 var require_formats = __commonJS({
-  "node_modules/ajv-formats/dist/formats.js"(exports2) {
+  "node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/formats.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.formatNames = exports2.fastFormats = exports2.fullFormats = void 0;
@@ -22053,12 +22064,12 @@ var require_formats = __commonJS({
       const day = +matches[3];
       return month >= 1 && month <= 12 && day >= 1 && day <= (month === 2 && isLeapYear(year) ? 29 : DAYS[month]);
     }
-    function compareDate(d1, d22) {
-      if (!(d1 && d22))
+    function compareDate(d1, d2) {
+      if (!(d1 && d2))
         return void 0;
-      if (d1 > d22)
+      if (d1 > d2)
         return 1;
-      if (d1 < d22)
+      if (d1 < d2)
         return -1;
       return 0;
     }
@@ -22120,17 +22131,17 @@ var require_formats = __commonJS({
       if (!(dt1 && dt2))
         return void 0;
       const d1 = new Date(dt1).valueOf();
-      const d22 = new Date(dt2).valueOf();
-      if (!(d1 && d22))
+      const d2 = new Date(dt2).valueOf();
+      if (!(d1 && d2))
         return void 0;
-      return d1 - d22;
+      return d1 - d2;
     }
     function compareIsoDateTime(dt1, dt2) {
       if (!(dt1 && dt2))
         return void 0;
       const [d1, t1] = dt1.split(DATE_TIME_SEPARATOR);
-      const [d22, t2] = dt2.split(DATE_TIME_SEPARATOR);
-      const res = compareDate(d1, d22);
+      const [d2, t2] = dt2.split(DATE_TIME_SEPARATOR);
+      const res = compareDate(d1, d2);
       if (res === void 0)
         return void 0;
       return res || compareTime(t1, t2);
@@ -22170,9 +22181,9 @@ var require_formats = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/compile/codegen/code.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/code.js
 var require_code3 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/compile/codegen/code.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/code.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.regexpCode = exports2.getEsmExportName = exports2.getProperty = exports2.safeStringify = exports2.stringify = exports2.strConcat = exports2.addCodeArg = exports2.str = exports2._ = exports2.nil = exports2._Code = exports2.Name = exports2.IDENTIFIER = exports2._CodeOrName = void 0;
@@ -22324,9 +22335,9 @@ var require_code3 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/compile/codegen/scope.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/scope.js
 var require_scope2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/compile/codegen/scope.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/scope.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ValueScope = exports2.ValueScopeName = exports2.Scope = exports2.varKinds = exports2.UsedValueState = void 0;
@@ -22469,9 +22480,9 @@ var require_scope2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/compile/codegen/index.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/index.js
 var require_codegen2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/compile/codegen/index.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.or = exports2.and = exports2.not = exports2.CodeGen = exports2.operators = exports2.varKinds = exports2.ValueScopeName = exports2.ValueScope = exports2.Scope = exports2.Name = exports2.regexpCode = exports2.stringify = exports2.getProperty = exports2.nil = exports2.strConcat = exports2.str = exports2._ = void 0;
@@ -23189,9 +23200,9 @@ var require_codegen2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/compile/util.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/util.js
 var require_util2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/compile/util.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/util.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.checkStrictMode = exports2.getErrorPath = exports2.Type = exports2.useFunc = exports2.setEvaluated = exports2.evaluatedPropsToName = exports2.mergeEvaluated = exports2.eachItem = exports2.unescapeJsonPointer = exports2.escapeJsonPointer = exports2.escapeFragment = exports2.unescapeFragment = exports2.schemaRefOrVal = exports2.schemaHasRulesButRef = exports2.schemaHasRules = exports2.checkUnknownRules = exports2.alwaysValidSchema = exports2.toHash = void 0;
@@ -23356,9 +23367,9 @@ var require_util2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/compile/names.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/names.js
 var require_names2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/compile/names.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/names.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen2();
@@ -23395,9 +23406,9 @@ var require_names2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/compile/errors.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/errors.js
 var require_errors2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/compile/errors.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/errors.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.extendErrors = exports2.resetErrorsCount = exports2.reportExtraError = exports2.reportError = exports2.keyword$DataError = exports2.keywordError = void 0;
@@ -23465,7 +23476,7 @@ var require_errors2 = __commonJS({
         gen.return(false);
       }
     }
-    var E3 = {
+    var E2 = {
       keyword: new codegen_1.Name("keyword"),
       schemaPath: new codegen_1.Name("schemaPath"),
       // also used in JTD errors
@@ -23499,27 +23510,27 @@ var require_errors2 = __commonJS({
       if (schemaPath) {
         schPath = (0, codegen_1.str)`${schPath}${(0, util_1.getErrorPath)(schemaPath, util_1.Type.Str)}`;
       }
-      return [E3.schemaPath, schPath];
+      return [E2.schemaPath, schPath];
     }
     function extraErrorProps(cxt, { params, message }, keyValues) {
       const { keyword, data, schemaValue, it: it2 } = cxt;
       const { opts, propertyName, topSchemaRef, schemaPath } = it2;
-      keyValues.push([E3.keyword, keyword], [E3.params, typeof params == "function" ? params(cxt) : params || (0, codegen_1._)`{}`]);
+      keyValues.push([E2.keyword, keyword], [E2.params, typeof params == "function" ? params(cxt) : params || (0, codegen_1._)`{}`]);
       if (opts.messages) {
-        keyValues.push([E3.message, typeof message == "function" ? message(cxt) : message]);
+        keyValues.push([E2.message, typeof message == "function" ? message(cxt) : message]);
       }
       if (opts.verbose) {
-        keyValues.push([E3.schema, schemaValue], [E3.parentSchema, (0, codegen_1._)`${topSchemaRef}${schemaPath}`], [names_1.default.data, data]);
+        keyValues.push([E2.schema, schemaValue], [E2.parentSchema, (0, codegen_1._)`${topSchemaRef}${schemaPath}`], [names_1.default.data, data]);
       }
       if (propertyName)
-        keyValues.push([E3.propertyName, propertyName]);
+        keyValues.push([E2.propertyName, propertyName]);
     }
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/compile/validate/boolSchema.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/boolSchema.js
 var require_boolSchema2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/compile/validate/boolSchema.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/boolSchema.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.boolOrEmptySchema = exports2.topBoolOrEmptySchema = void 0;
@@ -23568,9 +23579,9 @@ var require_boolSchema2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/compile/rules.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/rules.js
 var require_rules2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/compile/rules.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/rules.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.getRules = exports2.isJSONType = void 0;
@@ -23599,9 +23610,9 @@ var require_rules2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/compile/validate/applicability.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/applicability.js
 var require_applicability2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/compile/validate/applicability.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/applicability.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.shouldUseRule = exports2.shouldUseGroup = exports2.schemaHasRulesForType = void 0;
@@ -23622,9 +23633,9 @@ var require_applicability2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/compile/validate/dataType.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/dataType.js
 var require_dataType2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/compile/validate/dataType.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/dataType.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.reportTypeError = exports2.checkDataTypes = exports2.checkDataType = exports2.coerceAndCheckDataType = exports2.getJSONTypes = exports2.getSchemaTypes = exports2.DataType = void 0;
@@ -23806,9 +23817,9 @@ var require_dataType2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/compile/validate/defaults.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/defaults.js
 var require_defaults2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/compile/validate/defaults.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/defaults.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.assignDefaults = void 0;
@@ -23843,9 +23854,9 @@ var require_defaults2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/code.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/code.js
 var require_code4 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/code.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/code.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.validateUnion = exports2.validateArray = exports2.usePattern = exports2.callValidateCode = exports2.schemaProperties = exports2.allSchemaProperties = exports2.noPropertyInData = exports2.propertyInData = exports2.isOwnProperty = exports2.hasPropFunc = exports2.reportMissingProp = exports2.checkMissingProp = exports2.checkReportMissingProp = void 0;
@@ -23976,9 +23987,9 @@ var require_code4 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/compile/validate/keyword.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/keyword.js
 var require_keyword2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/compile/validate/keyword.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/keyword.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.validateKeywordUsage = exports2.validSchemaType = exports2.funcKeywordCode = exports2.macroKeywordCode = void 0;
@@ -24094,9 +24105,9 @@ var require_keyword2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/compile/validate/subschema.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/subschema.js
 var require_subschema2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/compile/validate/subschema.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/subschema.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.extendSubschemaMode = exports2.extendSubschemaData = exports2.getSubschema = void 0;
@@ -24177,9 +24188,9 @@ var require_subschema2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/node_modules/json-schema-traverse/index.js
+// node_modules/.bun/json-schema-traverse@1.0.0/node_modules/json-schema-traverse/index.js
 var require_json_schema_traverse2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/node_modules/json-schema-traverse/index.js"(exports2, module2) {
+  "node_modules/.bun/json-schema-traverse@1.0.0/node_modules/json-schema-traverse/index.js"(exports2, module2) {
     "use strict";
     var traverse = module2.exports = function(schema, opts, cb) {
       if (typeof opts == "function") {
@@ -24265,9 +24276,9 @@ var require_json_schema_traverse2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/compile/resolve.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/resolve.js
 var require_resolve2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/compile/resolve.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/resolve.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.getSchemaRefs = exports2.resolveUrl = exports2.normalizeId = exports2._getFullPath = exports2.getFullPath = exports2.inlineRef = void 0;
@@ -24421,9 +24432,9 @@ var require_resolve2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/compile/validate/index.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/index.js
 var require_validate2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/compile/validate/index.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.getData = exports2.KeywordCxt = exports2.validateFunctionCode = void 0;
@@ -24929,9 +24940,9 @@ var require_validate2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/runtime/validation_error.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/validation_error.js
 var require_validation_error2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/runtime/validation_error.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/validation_error.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var ValidationError = class extends Error {
@@ -24945,9 +24956,9 @@ var require_validation_error2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/compile/ref_error.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/ref_error.js
 var require_ref_error2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/compile/ref_error.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/ref_error.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var resolve_1 = require_resolve2();
@@ -24962,9 +24973,9 @@ var require_ref_error2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/compile/index.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/index.js
 var require_compile2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/compile/index.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.resolveSchema = exports2.getCompilingSchema = exports2.resolveRef = exports2.compileSchema = exports2.SchemaEnv = void 0;
@@ -25186,9 +25197,9 @@ var require_compile2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/refs/data.json
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/data.json
 var require_data2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/refs/data.json"(exports2, module2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/data.json"(exports2, module2) {
     module2.exports = {
       $id: "https://raw.githubusercontent.com/ajv-validator/ajv/master/lib/refs/data.json#",
       description: "Meta-schema for $data reference (JSON AnySchema extension proposal)",
@@ -25205,9 +25216,9 @@ var require_data2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/runtime/uri.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/uri.js
 var require_uri2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/runtime/uri.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/uri.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var uri = require_fast_uri();
@@ -25216,9 +25227,9 @@ var require_uri2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/core.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/core.js
 var require_core3 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/core.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/core.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.CodeGen = exports2.Name = exports2.nil = exports2.stringify = exports2.str = exports2._ = exports2.KeywordCxt = void 0;
@@ -25579,7 +25590,7 @@ var require_core3 = __commonJS({
           type: (0, dataType_1.getJSONTypes)(def.type),
           schemaType: (0, dataType_1.getJSONTypes)(def.schemaType)
         };
-        (0, util_1.eachItem)(keyword, definition.type.length === 0 ? (k2) => addRule.call(this, k2, definition) : (k2) => definition.type.forEach((t) => addRule.call(this, k2, definition, t)));
+        (0, util_1.eachItem)(keyword, definition.type.length === 0 ? (k3) => addRule.call(this, k3, definition) : (k3) => definition.type.forEach((t) => addRule.call(this, k3, definition, t)));
         return this;
       }
       getKeyword(keyword) {
@@ -25827,9 +25838,9 @@ var require_core3 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/core/id.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/id.js
 var require_id2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/core/id.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/id.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var def = {
@@ -25842,9 +25853,9 @@ var require_id2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/core/ref.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/ref.js
 var require_ref2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/core/ref.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/ref.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.callRef = exports2.getValidate = void 0;
@@ -25964,9 +25975,9 @@ var require_ref2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/core/index.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/index.js
 var require_core4 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/core/index.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var id_1 = require_id2();
@@ -25985,9 +25996,9 @@ var require_core4 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/validation/limitNumber.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitNumber.js
 var require_limitNumber2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/validation/limitNumber.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitNumber.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen2();
@@ -26017,9 +26028,9 @@ var require_limitNumber2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/validation/multipleOf.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/multipleOf.js
 var require_multipleOf2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/validation/multipleOf.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/multipleOf.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen2();
@@ -26045,9 +26056,9 @@ var require_multipleOf2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/runtime/ucs2length.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/ucs2length.js
 var require_ucs2length2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/runtime/ucs2length.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/ucs2length.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     function ucs2length(str) {
@@ -26071,9 +26082,9 @@ var require_ucs2length2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/validation/limitLength.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitLength.js
 var require_limitLength2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/validation/limitLength.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitLength.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen2();
@@ -26103,9 +26114,9 @@ var require_limitLength2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/validation/pattern.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/pattern.js
 var require_pattern2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/validation/pattern.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/pattern.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var code_1 = require_code4();
@@ -26140,9 +26151,9 @@ var require_pattern2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/validation/limitProperties.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitProperties.js
 var require_limitProperties2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/validation/limitProperties.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitProperties.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen2();
@@ -26169,9 +26180,9 @@ var require_limitProperties2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/validation/required.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/required.js
 var require_required2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/validation/required.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/required.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var code_1 = require_code4();
@@ -26251,9 +26262,9 @@ var require_required2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/validation/limitItems.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitItems.js
 var require_limitItems2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/validation/limitItems.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitItems.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen2();
@@ -26280,9 +26291,9 @@ var require_limitItems2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/runtime/equal.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/equal.js
 var require_equal2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/runtime/equal.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/equal.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var equal = require_fast_deep_equal();
@@ -26291,9 +26302,9 @@ var require_equal2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/validation/uniqueItems.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/uniqueItems.js
 var require_uniqueItems2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/validation/uniqueItems.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/uniqueItems.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var dataType_1 = require_dataType2();
@@ -26358,9 +26369,9 @@ var require_uniqueItems2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/validation/const.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/const.js
 var require_const2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/validation/const.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/const.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen2();
@@ -26387,9 +26398,9 @@ var require_const2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/validation/enum.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/enum.js
 var require_enum2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/validation/enum.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/enum.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen2();
@@ -26436,9 +26447,9 @@ var require_enum2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/validation/index.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/index.js
 var require_validation2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/validation/index.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var limitNumber_1 = require_limitNumber2();
@@ -26474,9 +26485,9 @@ var require_validation2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/additionalItems.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalItems.js
 var require_additionalItems2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/additionalItems.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalItems.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.validateAdditionalItems = void 0;
@@ -26527,9 +26538,9 @@ var require_additionalItems2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/items.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items.js
 var require_items2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/items.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.validateTuple = void 0;
@@ -26584,9 +26595,9 @@ var require_items2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/prefixItems.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/prefixItems.js
 var require_prefixItems2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/prefixItems.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/prefixItems.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var items_1 = require_items2();
@@ -26601,9 +26612,9 @@ var require_prefixItems2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/items2020.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items2020.js
 var require_items20202 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/items2020.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items2020.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen2();
@@ -26636,9 +26647,9 @@ var require_items20202 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/contains.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/contains.js
 var require_contains2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/contains.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/contains.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen2();
@@ -26730,9 +26741,9 @@ var require_contains2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/dependencies.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/dependencies.js
 var require_dependencies2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/dependencies.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/dependencies.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.validateSchemaDeps = exports2.validatePropertyDeps = exports2.error = void 0;
@@ -26824,9 +26835,9 @@ var require_dependencies2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/propertyNames.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/propertyNames.js
 var require_propertyNames2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/propertyNames.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/propertyNames.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen2();
@@ -26867,9 +26878,9 @@ var require_propertyNames2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js
 var require_additionalProperties2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var code_1 = require_code4();
@@ -26973,9 +26984,9 @@ var require_additionalProperties2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/properties.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/properties.js
 var require_properties2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/properties.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/properties.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var validate_1 = require_validate2();
@@ -27031,9 +27042,9 @@ var require_properties2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/patternProperties.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/patternProperties.js
 var require_patternProperties2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/patternProperties.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/patternProperties.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var code_1 = require_code4();
@@ -27105,9 +27116,9 @@ var require_patternProperties2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/not.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/not.js
 var require_not2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/not.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/not.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var util_1 = require_util2();
@@ -27136,9 +27147,9 @@ var require_not2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/anyOf.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/anyOf.js
 var require_anyOf2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/anyOf.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/anyOf.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var code_1 = require_code4();
@@ -27153,9 +27164,9 @@ var require_anyOf2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/oneOf.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/oneOf.js
 var require_oneOf2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/oneOf.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/oneOf.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen2();
@@ -27211,9 +27222,9 @@ var require_oneOf2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/allOf.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/allOf.js
 var require_allOf2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/allOf.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/allOf.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var util_1 = require_util2();
@@ -27238,9 +27249,9 @@ var require_allOf2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/if.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/if.js
 var require_if2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/if.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/if.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen2();
@@ -27307,9 +27318,9 @@ var require_if2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/thenElse.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/thenElse.js
 var require_thenElse2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/thenElse.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/thenElse.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var util_1 = require_util2();
@@ -27325,9 +27336,9 @@ var require_thenElse2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/index.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/index.js
 var require_applicator2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/applicator/index.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var additionalItems_1 = require_additionalItems2();
@@ -27373,9 +27384,9 @@ var require_applicator2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/format/format.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/format.js
 var require_format3 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/format/format.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/format.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen2();
@@ -27463,9 +27474,9 @@ var require_format3 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/format/index.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/index.js
 var require_format4 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/format/index.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var format_1 = require_format3();
@@ -27474,9 +27485,9 @@ var require_format4 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/metadata.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/metadata.js
 var require_metadata2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/metadata.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/metadata.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.contentVocabulary = exports2.metadataVocabulary = void 0;
@@ -27497,9 +27508,9 @@ var require_metadata2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/draft7.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/draft7.js
 var require_draft72 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/draft7.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/draft7.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var core_1 = require_core4();
@@ -27519,9 +27530,9 @@ var require_draft72 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/discriminator/types.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/types.js
 var require_types2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/discriminator/types.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/types.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.DiscrError = void 0;
@@ -27533,9 +27544,9 @@ var require_types2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/discriminator/index.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/index.js
 var require_discriminator2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/vocabularies/discriminator/index.js"(exports2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var codegen_1 = require_codegen2();
@@ -27638,9 +27649,9 @@ var require_discriminator2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/refs/json-schema-draft-07.json
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/json-schema-draft-07.json
 var require_json_schema_draft_072 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/refs/json-schema-draft-07.json"(exports2, module2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/json-schema-draft-07.json"(exports2, module2) {
     module2.exports = {
       $schema: "http://json-schema.org/draft-07/schema#",
       $id: "http://json-schema.org/draft-07/schema#",
@@ -27795,9 +27806,9 @@ var require_json_schema_draft_072 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/node_modules/ajv/dist/ajv.js
+// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/ajv.js
 var require_ajv2 = __commonJS({
-  "node_modules/ajv-formats/node_modules/ajv/dist/ajv.js"(exports2, module2) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/ajv.js"(exports2, module2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.MissingRefError = exports2.ValidationError = exports2.CodeGen = exports2.Name = exports2.nil = exports2.stringify = exports2.str = exports2._ = exports2.KeywordCxt = exports2.Ajv = void 0;
@@ -27865,9 +27876,9 @@ var require_ajv2 = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/dist/limit.js
+// node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/limit.js
 var require_limit = __commonJS({
-  "node_modules/ajv-formats/dist/limit.js"(exports2) {
+  "node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/limit.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.formatLimitDefinition = void 0;
@@ -27937,9 +27948,9 @@ var require_limit = __commonJS({
   }
 });
 
-// node_modules/ajv-formats/dist/index.js
+// node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/index.js
 var require_dist = __commonJS({
-  "node_modules/ajv-formats/dist/index.js"(exports2, module2) {
+  "node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/index.js"(exports2, module2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var formats_1 = require_formats();
@@ -27979,7 +27990,7 @@ var require_dist = __commonJS({
   }
 });
 
-// node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/decode-codepoint.js
+// node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/decode-codepoint.js
 function replaceCodePoint(codePoint) {
   if (codePoint >= 55296 && codePoint <= 57343 || codePoint > 1114111) {
     return 65533;
@@ -27988,7 +27999,7 @@ function replaceCodePoint(codePoint) {
 }
 var decodeMap;
 var init_decode_codepoint = __esm({
-  "node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/decode-codepoint.js"() {
+  "node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/decode-codepoint.js"() {
     decodeMap = /* @__PURE__ */ new Map([
       [0, 65533],
       // C1 Unicode control character reference replacements
@@ -28023,7 +28034,7 @@ var init_decode_codepoint = __esm({
   }
 });
 
-// node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/internal/decode-shared.js
+// node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/internal/decode-shared.js
 function decodeBase64(input) {
   const binary = atob(input);
   const evenLength = binary.length & ~1;
@@ -28036,32 +28047,32 @@ function decodeBase64(input) {
   return out;
 }
 var init_decode_shared = __esm({
-  "node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/internal/decode-shared.js"() {
+  "node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/internal/decode-shared.js"() {
   }
 });
 
-// node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/generated/decode-data-html.js
+// node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/generated/decode-data-html.js
 var htmlDecodeTree;
 var init_decode_data_html = __esm({
-  "node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/generated/decode-data-html.js"() {
+  "node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/generated/decode-data-html.js"() {
     init_decode_shared();
     htmlDecodeTree = /* @__PURE__ */ decodeBase64("QR08ALkAAgH6AYsDNQR2BO0EPgXZBQEGLAbdBxMISQrvCmQLfQurDKQNLw4fD4YPpA+6D/IPAAAAAAAAAAAAAAAAKhBMEY8TmxUWF2EYLBkxGuAa3RsJHDscWR8YIC8jSCSIJcMl6ie3Ku8rEC0CLjoupS7kLgAIRU1hYmNmZ2xtbm9wcnN0dVQAWgBeAGUAaQBzAHcAfgCBAIQAhwCSAJoAoACsALMAbABpAGcAO4DGAMZAUAA7gCYAJkBjAHUAdABlADuAwQDBQHIiZXZlAAJhAAFpeW0AcgByAGMAO4DCAMJAEGRyAADgNdgE3XIAYQB2AGUAO4DAAMBA8CFoYZFj4SFjcgBhZAAAoFMqAAFncIsAjgBvAG4ABGFmAADgNdg43fAlbHlGdW5jdGlvbgCgYSBpAG4AZwA7gMUAxUAAAWNzpACoAHIAAOA12Jzc6SFnbgCgVCJpAGwAZABlADuAwwDDQG0AbAA7gMQAxEAABGFjZWZvcnN1xQDYANoA7QDxAPYA+QD8AAABY3LJAM8AayNzbGFzaAAAoBYidgHTANUAAKDnKmUAZAAAoAYjeQARZIABY3J0AOAA5QDrAGEidXNlAACgNSLuI291bGxpcwCgLCFhAJJjcgAA4DXYBd1wAGYAAOA12Dnd5SF2ZdhiYwDyAOoAbSJwZXEAAKBOIgAHSE9hY2RlZmhpbG9yc3UXARoBHwE6AVIBVQFiAWQBZgGCAakB6QHtAfIBYwB5ACdkUABZADuAqQCpQIABY3B5ACUBKAE1AfUhdGUGYWmg0iJ0KGFsRGlmZmVyZW50aWFsRAAAoEUhbCJleXMAAKAtIQACYWVpb0EBRAFKAU0B8iFvbgxhZABpAGwAO4DHAMdAcgBjAAhhbiJpbnQAAKAwIm8AdAAKYQABZG5ZAV0BaSJsbGEAuGB0I2VyRG90ALdg8gA5AWkAp2NyImNsZQAAAkRNUFRwAXQBeQF9AW8AdAAAoJkiaSJudXMAAKCWIuwhdXMAoJUiaSJtZXMAAKCXIm8AAAFjc4cBlAFrKndpc2VDb250b3VySW50ZWdyYWwAAKAyImUjQ3VybHkAAAFEUZwBpAFvJXVibGVRdW90ZQAAoB0gdSJvdGUAAKAZIAACbG5wdbABtgHNAdgBbwBuAGWgNyIAoHQqgAFnaXQAvAHBAcUB8iJ1ZW50AKBhIm4AdAAAoC8i7yV1ckludGVncmFsAKAuIgABZnLRAdMBAKACIe8iZHVjdACgECJuLnRlckNsb2Nrd2lzZUNvbnRvdXJJbnRlZ3JhbAAAoDMi7yFzcwCgLypjAHIAAOA12J7ccABDoNMiYQBwAACgTSKABURKU1phY2VmaW9zAAsCEgIVAhgCGwIsAjQCOQI9AnMCfwNvoEUh9CJyYWhkAKARKWMAeQACZGMAeQAFZGMAeQAPZIABZ3JzACECJQIoAuchZXIAoCEgcgAAoKEhaAB2AACg5CoAAWF5MAIzAvIhb24OYRRkbAB0oAciYQCUY3IAAOA12AfdAAFhZkECawIAAWNtRQJnAvIjaXRpY2FsAAJBREdUUAJUAl8CYwJjInV0ZQC0YG8AdAFZAloC2WJiJGxlQWN1dGUA3WJyImF2ZQBgYGkibGRlANxi7yFuZACgxCJmJWVyZW50aWFsRAAAoEYhcAR9AgAAAAAAAIECjgIAABoDZgAA4DXYO91EoagAhQKJAm8AdAAAoNwgcSJ1YWwAAKBQIuIhbGUAA0NETFJVVpkCqAK1Au8C/wIRA28AbgB0AG8AdQByAEkAbgB0AGUAZwByAGEA7ADEAW8AdAKvAgAAAACwAqhgbiNBcnJvdwAAoNMhAAFlb7kC0AJmAHQAgAFBUlQAwQLGAs0CciJyb3cAAKDQIekkZ2h0QXJyb3cAoNQhZQDlACsCbgBnAAABTFLWAugC5SFmdAABQVLcAuECciJyb3cAAKD4J+kkZ2h0QXJyb3cAoPon6SRnaHRBcnJvdwCg+SdpImdodAAAAUFU9gL7AnIicm93AACg0iFlAGUAAKCoInAAQQIGAwAAAAALA3Iicm93AACg0SFvJHduQXJyb3cAAKDVIWUlcnRpY2FsQmFyAACgJSJuAAADQUJMUlRhJAM2AzoDWgNxA3oDciJyb3cAAKGTIUJVLAMwA2EAcgAAoBMpcCNBcnJvdwAAoPUhciJldmUAEWPlIWZ00gJDAwAASwMAAFIDaSVnaHRWZWN0b3IAAKBQKWUkZVZlY3RvcgAAoF4p5SJjdG9yQqC9IWEAcgAAoFYpaSJnaHQA1AFiAwAAaQNlJGVWZWN0b3IAAKBfKeUiY3RvckKgwSFhAHIAAKBXKWUAZQBBoKQiciJyb3cAAKCnIXIAcgBvAPcAtAIAAWN0gwOHA3IAAOA12J/c8iFvaxBhAAhOVGFjZGZnbG1vcHFzdHV4owOlA6kDsAO/A8IDxgPNA9ID8gP9AwEEFAQeBCAEJQRHAEphSAA7gNAA0EBjAHUAdABlADuAyQDJQIABYWl5ALYDuQO+A/Ihb24aYXIAYwA7gMoAykAtZG8AdAAWYXIAAOA12AjdcgBhAHYAZQA7gMgAyEDlIm1lbnQAoAgiAAFhcNYD2QNjAHIAEmF0AHkAUwLhAwAAAADpA20lYWxsU3F1YXJlAACg+yVlJ3J5U21hbGxTcXVhcmUAAKCrJQABZ3D2A/kDbwBuABhhZgAA4DXYPN3zImlsb26VY3UAAAFhaQYEDgRsAFSgdSppImxkZQAAoEIi7CNpYnJpdW0AoMwhAAFjaRgEGwRyAACgMCFtAACgcyphAJdjbQBsADuAywDLQAABaXApBC0E8yF0cwCgAyLvJG5lbnRpYWxFAKBHIYACY2Zpb3MAPQQ/BEMEXQRyBHkAJGRyAADgNdgJ3WwibGVkAFMCTAQAAAAAVARtJWFsbFNxdWFyZQAAoPwlZSdyeVNtYWxsU3F1YXJlAACgqiVwA2UEAABpBAAAAABtBGYAAOA12D3dwSFsbACgACLyI2llcnRyZgCgMSFjAPIAcQQABkpUYWJjZGZnb3JzdIgEiwSOBJMElwSkBKcEqwStBLIE5QTqBGMAeQADZDuAPgA+QO0hbWFkoJMD3GNyImV2ZQAeYYABZWl5AJ0EoASjBOQhaWwiYXIAYwAcYRNkbwB0ACBhcgAA4DXYCt0AoNkicABmAADgNdg+3eUiYXRlcgADRUZHTFNUvwTIBM8E1QTZBOAEcSJ1YWwATKBlIuUhc3MAoNsidSRsbEVxdWFsAACgZyJyI2VhdGVyAACgoirlIXNzAKB3IuwkYW50RXF1YWwAoH4qaSJsZGUAAKBzImMAcgAA4DXYotwAoGsiAARBYWNmaW9zdfkE/QQFBQgFCwUTBSIFKwVSIkRjeQAqZAABY3QBBQQFZQBrAMdiXmDpIXJjJGFyAACgDCFsJWJlcnRTcGFjZQAAoAsh8AEYBQAAGwVmAACgDSHpJXpvbnRhbExpbmUAoAAlAAFjdCYFKAXyABIF8iFvayZhbQBwAEQBMQU5BW8AdwBuAEgAdQBtAPAAAAFxInVhbAAAoE8iAAdFSk9hY2RmZ21ub3N0dVMFVgVZBVwFYwVtBXAFcwV6BZAFtgXFBckFzQVjAHkAFWTsIWlnMmFjAHkAAWRjAHUAdABlADuAzQDNQAABaXlnBWwFcgBjADuAzgDOQBhkbwB0ADBhcgAAoBEhcgBhAHYAZQA7gMwAzEAAoREhYXB/BYsFAAFjZ4MFhQVyACphaSNuYXJ5SQAAoEghbABpAGUA8wD6AvQBlQUAAKUFZaAsIgABZ3KaBZ4F8iFhbACgKyLzI2VjdGlvbgCgwiJpI3NpYmxlAAABQ1SsBbEFbyJtbWEAAKBjIGkibWVzAACgYiCAAWdwdAC8Bb8FwwVvAG4ALmFmAADgNdhA3WEAmWNjAHIAAKAQIWkibGRlAChh6wHSBQAA1QVjAHkABmRsADuAzwDPQIACY2Zvc3UA4QXpBe0F8gX9BQABaXnlBegFcgBjADRhGWRyAADgNdgN3XAAZgAA4DXYQd3jAfcFAAD7BXIAAOA12KXc8iFjeQhk6yFjeQRkgANISmFjZm9zAAwGDwYSBhUGHQYhBiYGYwB5ACVkYwB5AAxk8CFwYZpjAAFleRkGHAbkIWlsNmEaZHIAAOA12A7dcABmAADgNdhC3WMAcgAA4DXYptyABUpUYWNlZmxtb3N0AD0GQAZDBl4GawZkB2gHcAd0B80H2gdjAHkACWQ7gDwAPECAAmNtbnByAEwGTwZSBlUGWwb1IXRlOWHiIWRhm2NnAACg6ifsI2FjZXRyZgCgEiFyAACgniGAAWFleQBkBmcGagbyIW9uPWHkIWlsO2EbZAABZnNvBjQHdAAABUFDREZSVFVWYXKABp4GpAbGBssG3AYDByEHwQIqBwABbnKEBowGZyVsZUJyYWNrZXQAAKDoJ/Ihb3cAoZAhQlKTBpcGYQByAACg5CHpJGdodEFycm93AKDGIWUjaWxpbmcAAKAII28A9QGqBgAAsgZiJWxlQnJhY2tldAAAoOYnbgDUAbcGAAC+BmUkZVZlY3RvcgAAoGEp5SJjdG9yQqDDIWEAcgAAoFkpbCJvb3IAAKAKI2kiZ2h0AAABQVbSBtcGciJyb3cAAKCUIeUiY3RvcgCgTikAAWVy4AbwBmUAAKGjIkFW5gbrBnIicm93AACgpCHlImN0b3IAoFopaSNhbmdsZQBCorIi+wYAAAAA/wZhAHIAAKDPKXEidWFsAACgtCJwAIABRFRWAAoHEQcYB+8kd25WZWN0b3IAoFEpZSRlVmVjdG9yAACgYCnlImN0b3JCoL8hYQByAACgWCnlImN0b3JCoLwhYQByAACgUilpAGcAaAB0AGEAcgByAG8A9wDMAnMAAANFRkdMU1Q/B0cHTgdUB1gHXwfxJXVhbEdyZWF0ZXIAoNoidSRsbEVxdWFsAACgZiJyI2VhdGVyAACgdiLlIXNzAKChKuwkYW50RXF1YWwAoH0qaSJsZGUAAKByInIAAOA12A/dZaDYIuYjdGFycm93AKDaIWkiZG90AD9hgAFucHcAege1B7kHZwAAAkxSbHKCB5QHmwerB+UhZnQAAUFSiAeNB3Iicm93AACg9SfpJGdodEFycm93AKD3J+kkZ2h0QXJyb3cAoPYn5SFmdAABYXLcAqEHaQBnAGgAdABhAHIAcgBvAPcA5wJpAGcAaAB0AGEAcgByAG8A9wDuAmYAAOA12EPdZQByAAABTFK/B8YHZSRmdEFycm93AACgmSHpJGdodEFycm93AKCYIYABY2h0ANMH1QfXB/IAWgYAoLAh8iFva0FhAKBqIgAEYWNlZmlvc3XpB+wH7gf/BwMICQgOCBEIcAAAoAUpeQAcZAABZGzyB/kHaSR1bVNwYWNlAACgXyBsI2ludHJmAACgMyFyAADgNdgQ3e4jdXNQbHVzAKATInAAZgAA4DXYRN1jAPIA/gecY4AESmFjZWZvc3R1ACEIJAgoCDUIgQiFCDsKQApHCmMAeQAKZGMidXRlAENhgAFhZXkALggxCDQI8iFvbkdh5CFpbEVhHWSAAWdzdwA7CGEIfQjhInRpdmWAAU1UVgBECEwIWQhlJWRpdW1TcGFjZQAAoAsgaABpAAABY25SCFMIawBTAHAAYQBjAOUASwhlAHIAeQBUAGgAaQDuAFQI9CFlZAABR0xnCHUIcgBlAGEAdABlAHIARwByAGUAYQB0AGUA8gDrBGUAcwBzAEwAZQBzAPMA2wdMImluZQAKYHIAAOA12BHdAAJCbnB0jAiRCJkInAhyImVhawAAoGAgwiZyZWFraW5nU3BhY2WgYGYAAKAVIUOq7CqzCMIIzQgAAOcIGwkAAAAAAAAtCQAAbwkAAIcJAACdCcAJGQoAADQKAAFvdbYIvAjuI2dydWVudACgYiJwIkNhcAAAoG0ibyh1YmxlVmVydGljYWxCYXIAAKAmIoABbHF4ANII1wjhCOUibWVudACgCSL1IWFsVKBgImkibGRlAADgQiI4A2kic3RzAACgBCJyI2VhdGVyAACjbyJFRkdMU1T1CPoIAgkJCQ0JFQlxInVhbAAAoHEidSRsbEVxdWFsAADgZyI4A3IjZWF0ZXIAAOBrIjgD5SFzcwCgeSLsJGFudEVxdWFsAOB+KjgDaSJsZGUAAKB1IvUhbXBEASAJJwnvI3duSHVtcADgTiI4A3EidWFsAADgTyI4A2UAAAFmczEJRgn0JFRyaWFuZ2xlQqLqIj0JAAAAAEIJYQByAADgzyk4A3EidWFsAACg7CJzAICibiJFR0xTVABRCVYJXAlhCWkJcSJ1YWwAAKBwInIjZWF0ZXIAAKB4IuUhc3MA4GoiOAPsJGFudEVxdWFsAOB9KjgDaSJsZGUAAKB0IuUic3RlZAABR0x1CX8J8iZlYXRlckdyZWF0ZXIA4KIqOAPlI3NzTGVzcwDgoSo4A/IjZWNlZGVzAKGAIkVTjwmVCXEidWFsAADgryo4A+wkYW50RXF1YWwAoOAiAAFlaaAJqQl2JmVyc2VFbGVtZW50AACgDCLnJWh0VHJpYW5nbGVCousitgkAAAAAuwlhAHIAAODQKTgDcSJ1YWwAAKDtIgABcXXDCeAJdSNhcmVTdQAAAWJwywnVCfMhZXRF4I8iOANxInVhbAAAoOIi5SJyc2V0ReCQIjgDcSJ1YWwAAKDjIoABYmNwAOYJ8AkNCvMhZXRF4IIi0iBxInVhbAAAoIgi4yJlZWRzgKGBIkVTVAD6CQAKBwpxInVhbAAA4LAqOAPsJGFudEVxdWFsAKDhImkibGRlAADgfyI4A+UicnNldEXggyLSIHEidWFsAACgiSJpImxkZQCAoUEiRUZUACIKJwouCnEidWFsAACgRCJ1JGxsRXF1YWwAAKBHImkibGRlAACgSSJlJXJ0aWNhbEJhcgAAoCQiYwByAADgNdip3GkAbABkAGUAO4DRANFAnWMAB0VhY2RmZ21vcHJzdHV2XgphCmgKcgp2CnoKgQqRCpYKqwqtCrsKyArNCuwhaWdSYWMAdQB0AGUAO4DTANNAAAFpeWwKcQpyAGMAO4DUANRAHmRiImxhYwBQYXIAAOA12BLdcgBhAHYAZQA7gNIA0kCAAWFlaQCHCooKjQpjAHIATGFnAGEAqWNjInJvbgCfY3AAZgAA4DXYRt3lI25DdXJseQABRFGeCqYKbyV1YmxlUXVvdGUAAKAcIHUib3RlAACgGCAAoFQqAAFjbLEKtQpyAADgNdiq3GEAcwBoADuA2ADYQGkAbAHACsUKZABlADuA1QDVQGUAcwAAoDcqbQBsADuA1gDWQGUAcgAAAUJQ0wrmCgABYXLXCtoKcgAAoD4gYQBjAAABZWvgCuIKAKDeI2UAdAAAoLQjYSVyZW50aGVzaXMAAKDcI4AEYWNmaGlsb3JzAP0KAwsFCwkLCwsMCxELIwtaC3IjdGlhbEQAAKACInkAH2RyAADgNdgT3WkApmOgY/Ujc01pbnVzsWAAAWlwFQsgC24AYwBhAHIAZQBwAGwAYQBuAOUACgVmAACgGSGAobsqZWlvACoLRQtJC+MiZWRlc4CheiJFU1QANAs5C0ALcSJ1YWwAAKCvKuwkYW50RXF1YWwAoHwiaSJsZGUAAKB+Im0AZQAAoDMgAAFkcE0LUQv1IWN0AKAPIm8jcnRpb24AYaA3ImwAAKAdIgABY2leC2ILcgAA4DXYq9yoYwACVWZvc2oLbwtzC3cLTwBUADuAIgAiQHIAAOA12BTdcABmAACgGiFjAHIAAOA12KzcAAZCRWFjZWZoaW9yc3WPC5MLlwupC7YL2AvbC90LhQyTDJoMowzhIXJyAKAQKUcAO4CuAK5AgAFjbnIAnQugC6ML9SF0ZVRhZwAAoOsncgB0oKAhbAAAoBYpgAFhZXkArwuyC7UL8iFvblhh5CFpbFZhIGR2oBwhZSJyc2UAAAFFVb8LzwsAAWxxwwvIC+UibWVudACgCyL1JGlsaWJyaXVtAKDLIXAmRXF1aWxpYnJpdW0AAKBvKXIAAKAcIW8AoWPnIWh0AARBQ0RGVFVWYewLCgwQDDIMNwxeDHwM9gIAAW5y8Av4C2clbGVCcmFja2V0AACg6SfyIW93AKGSIUJM/wsDDGEAcgAAoOUhZSRmdEFycm93AACgxCFlI2lsaW5nAACgCSNvAPUBFgwAAB4MYiVsZUJyYWNrZXQAAKDnJ24A1AEjDAAAKgxlJGVWZWN0b3IAAKBdKeUiY3RvckKgwiFhAHIAAKBVKWwib29yAACgCyMAAWVyOwxLDGUAAKGiIkFWQQxGDHIicm93AACgpiHlImN0b3IAoFspaSNhbmdsZQBCorMiVgwAAAAAWgxhAHIAAKDQKXEidWFsAACgtSJwAIABRFRWAGUMbAxzDO8kd25WZWN0b3IAoE8pZSRlVmVjdG9yAACgXCnlImN0b3JCoL4hYQByAACgVCnlImN0b3JCoMAhYQByAACgUykAAXB1iQyMDGYAAKAdIe4kZEltcGxpZXMAoHAp6SRnaHRhcnJvdwCg2yEAAWNongyhDHIAAKAbIQCgsSHsJGVEZWxheWVkAKD0KYAGSE9hY2ZoaW1vcXN0dQC/DMgMzAzQDOIM5gwKDQ0NFA0ZDU8NVA1YDQABQ2PDDMYMyCFjeSlkeQAoZEYiVGN5ACxkYyJ1dGUAWmEAorwqYWVpedgM2wzeDOEM8iFvbmBh5CFpbF5hcgBjAFxhIWRyAADgNdgW3e8hcnQAAkRMUlXvDPYM/QwEDW8kd25BcnJvdwAAoJMhZSRmdEFycm93AACgkCHpJGdodEFycm93AKCSIXAjQXJyb3cAAKCRIechbWGjY+EkbGxDaXJjbGUAoBgicABmAADgNdhK3XICHw0AAAAAIg10AACgGiLhIXJlgKGhJUlTVQAqDTINSg3uJXRlcnNlY3Rpb24AoJMidQAAAWJwNw1ADfMhZXRFoI8icSJ1YWwAAKCRIuUicnNldEWgkCJxInVhbAAAoJIibiJpb24AAKCUImMAcgAA4DXYrtxhAHIAAKDGIgACYmNtcF8Nag2ODZANc6DQImUAdABFoNAicSJ1YWwAAKCGIgABY2huDYkNZSJlZHMAgKF7IkVTVAB4DX0NhA1xInVhbAAAoLAq7CRhbnRFcXVhbACgfSJpImxkZQAAoH8iVABoAGEA9ADHCwCgESIAodEiZXOVDZ8NciJzZXQARaCDInEidWFsAACghyJlAHQAAKDRIoAFSFJTYWNmaGlvcnMAtQ27Db8NyA3ODdsN3w3+DRgOHQ4jDk8AUgBOADuA3gDeQMEhREUAoCIhAAFIY8MNxg1jAHkAC2R5ACZkAAFidcwNzQ0JYKRjgAFhZXkA1A3XDdoN8iFvbmRh5CFpbGJhImRyAADgNdgX3QABZWnjDe4N8gHoDQAA7Q3lImZvcmUAoDQiYQCYYwABY27yDfkNayNTcGFjZQAA4F8gCiDTInBhY2UAoAkg7CFkZYChPCJFRlQABw4MDhMOcSJ1YWwAAKBDInUkbGxFcXVhbAAAoEUiaSJsZGUAAKBIInAAZgAA4DXYS93pI3BsZURvdACg2yAAAWN0Jw4rDnIAAOA12K/c8iFva2Zh4QpFDlYOYA5qDgAAbg5yDgAAAAAAAAAAAAB5DnwOqA6zDgAADg8RDxYPGg8AAWNySA5ODnUAdABlADuA2gDaQHIAb6CfIeMhaXIAoEkpcgDjAVsOAABdDnkADmR2AGUAbGEAAWl5Yw5oDnIAYwA7gNsA20AjZGIibGFjAHBhcgAA4DXYGN1yAGEAdgBlADuA2QDZQOEhY3JqYQABZGl/Dp8OZQByAAABQlCFDpcOAAFhcokOiw5yAF9gYQBjAAABZWuRDpMOAKDfI2UAdAAAoLUjYSVyZW50aGVzaXMAAKDdI28AbgBQoMMi7CF1cwCgjiIAAWdwqw6uDm8AbgByYWYAAOA12EzdAARBREVUYWRwc78O0g7ZDuEOBQPqDvMOBw9yInJvdwDCoZEhyA4AAMwOYQByAACgEilvJHduQXJyb3cAAKDFIW8kd25BcnJvdwAAoJUhcSV1aWxpYnJpdW0AAKBuKWUAZQBBoKUiciJyb3cAAKClIW8AdwBuAGEAcgByAG8A9wAQA2UAcgAAAUxS+Q4AD2UkZnRBcnJvdwAAoJYh6SRnaHRBcnJvdwCglyFpAGyg0gNvAG4ApWPpIW5nbmFjAHIAAOA12LDcaSJsZGUAaGFtAGwAO4DcANxAgAREYmNkZWZvc3YALQ8xDzUPNw89D3IPdg97D4AP4SFzaACgqyJhAHIAAKDrKnkAEmThIXNobKCpIgCg5ioAAWVyQQ9DDwCgwSKAAWJ0eQBJD00Paw9hAHIAAKAWIGmgFiDjIWFsAAJCTFNUWA9cD18PZg9hAHIAAKAjIukhbmV8YGUkcGFyYXRvcgAAoFgnaSJsZGUAAKBAItQkaGluU3BhY2UAoAogcgAA4DXYGd1wAGYAAOA12E3dYwByAADgNdix3GQiYXNoAACgqiKAAmNlZm9zAI4PkQ+VD5kPng/pIXJjdGHkIWdlAKDAInIAAOA12BrdcABmAADgNdhO3WMAcgAA4DXYstwAAmZpb3OqD64Prw+0D3IAAOA12BvdnmNwAGYAAOA12E/dYwByAADgNdiz3IAEQUlVYWNmb3N1AMgPyw/OD9EP2A/gD+QP6Q/uD2MAeQAvZGMAeQAHZGMAeQAuZGMAdQB0AGUAO4DdAN1AAAFpedwP3w9yAGMAdmErZHIAAOA12BzdcABmAADgNdhQ3WMAcgAA4DXYtNxtAGwAeGEABEhhY2RlZm9z/g8BEAUQDRAQEB0QIBAkEGMAeQAWZGMidXRlAHlhAAFheQkQDBDyIW9ufWEXZG8AdAB7YfIBFRAAABwQbwBXAGkAZAB0AOgAVAhhAJZjcgAAoCghcABmAACgJCFjAHIAAOA12LXc4QtCEEkQTRAAAGcQbRByEAAAAAAAAAAAeRCKEJcQ8hD9EAAAGxEhETIROREAAD4RYwB1AHQAZQA7gOEA4UByImV2ZQADYYCiPiJFZGl1eQBWEFkQWxBgEGUQAOA+IjMDAKA/InIAYwA7gOIA4kB0AGUAO4C0ALRAMGRsAGkAZwA7gOYA5kByoGEgAOA12B7dcgBhAHYAZQA7gOAA4EAAAWVwfBCGEAABZnCAEIQQ8yF5bQCgNSHoAIMQaABhALFjAAFhcI0QWwAAAWNskRCTEHIAAWFnAACgPypkApwQAAAAALEQAKInImFkc3ajEKcQqRCuEG4AZAAAoFUqAKBcKmwib3BlAACgWCoAoFoqAKMgImVsbXJzersQvRDAEN0Q5RDtEACgpCllAACgICJzAGQAYaAhImEEzhDQENIQ1BDWENgQ2hDcEACgqCkAoKkpAKCqKQCgqykAoKwpAKCtKQCgrikAoK8pdAB2oB8iYgBkoL4iAKCdKQABcHTpEOwQaAAAoCIixWDhIXJyAKB8IwABZ3D1EPgQbwBuAAVhZgAA4DXYUt0Ao0giRWFlaW9wBxEJEQ0RDxESERQRAKBwKuMhaXIAoG8qAKBKImQAAKBLInMAJ2DyIW94ZaBIIvEADhFpAG4AZwA7gOUA5UCAAWN0eQAmESoRKxFyAADgNdi23CpgbQBwAGWgSCLxAPgBaQBsAGQAZQA7gOMA40BtAGwAO4DkAORAAAFjaUERRxFvAG4AaQBuAPQA6AFuAHQAAKARKgAITmFiY2RlZmlrbG5vcHJzdWQRaBGXEZ8RpxGrEdIR1hErEjASexKKEn0RThNbE3oTbwB0AACg7SoAAWNybBGJEWsAAAJjZXBzdBF4EX0RghHvIW5nAKBMInAjc2lsb24A9mNyImltZQAAoDUgaQBtAGWgPSJxAACgzSJ2AY0RkRFlAGUAAKC9ImUAZABnoAUjZQAAoAUjcgBrAHSgtSPiIXJrAKC2IwABb3mjEaYRbgDnAHcRMWTxIXVvAKAeIIACY21wcnQAtBG5Eb4RwRHFEeEhdXPloDUi5ABwInR5dgAAoLApcwDpAH0RbgBvAPUA6gCAAWFodwDLEcwRzhGyYwCgNiHlIWVuAKBsInIAAOA12B/dZwCAA2Nvc3R1dncA4xHyEQUSEhIhEiYSKRKAAWFpdQDpEesR7xHwAKMFcgBjAACg7yVwAACgwyKAAWRwdAD4EfwRABJvAHQAAKAAKuwhdXMAoAEqaSJtZXMAAKACKnECCxIAAAAADxLjIXVwAKAGKmEAcgAAoAUm8iNpYW5nbGUAAWR1GhIeEu8hd24AoL0lcAAAoLMlcCJsdXMAAKAEKmUA5QBCD+UAkg9hInJvdwAAoA0pgAFha28ANhJoEncSAAFjbjoSZRJrAIABbHN0AEESRxJNEm8jemVuZ2UAAKDrKXEAdQBhAHIA5QBcBPIjaWFuZ2xlgKG0JWRscgBYElwSYBLvIXduAKC+JeUhZnQAoMIlaSJnaHQAAKC4JWsAAKAjJLEBbRIAAHUSsgFxEgAAcxIAoJIlAKCRJTQAAKCTJWMAawAAoIglAAFlb38ShxJx4D0A5SD1IWl2AOBhIuUgdAAAoBAjAAJwdHd4kRKVEpsSnxJmAADgNdhT3XSgpSJvAG0AAKClIvQhaWUAoMgiAAZESFVWYmRobXB0dXayEsES0RLgEvcS+xIKExoTHxMjEygTNxMAAkxSbHK5ErsSvRK/EgCgVyUAoFQlAKBWJQCgUyUAolAlRFVkdckSyxLNEs8SAKBmJQCgaSUAoGQlAKBnJQACTFJsctgS2hLcEt4SAKBdJQCgWiUAoFwlAKBZJQCjUSVITFJobHLrEu0S7xLxEvMS9RIAoGwlAKBjJQCgYCUAoGslAKBiJQCgXyVvAHgAAKDJKQACTFJscgITBBMGEwgTAKBVJQCgUiUAoBAlAKAMJQCiACVEVWR1EhMUExYTGBMAoGUlAKBoJQCgLCUAoDQlaSJudXMAAKCfIuwhdXMAoJ4iaSJtZXMAAKCgIgACTFJsci8TMRMzEzUTAKBbJQCgWCUAoBglAKAUJQCjAiVITFJobHJCE0QTRhNIE0oTTBMAoGolAKBhJQCgXiUAoDwlAKAkJQCgHCUAAWV2UhNVE3YA5QD5AGIAYQByADuApgCmQAACY2Vpb2ITZhNqE24TcgAA4DXYt9xtAGkAAKBPIG0A5aA9IogRbAAAoVwAYmh0E3YTAKDFKfMhdWIAoMgnbAF+E4QTbABloCIgdAAAoCIgcAAAoU4iRWWJE4sTAKCuKvGgTyI8BeEMqRMAAN8TABQDFB8UAAAjFDQUAAAAAIUUAAAAAI0UAAAAANcU4xT3FPsUAACIFQAAlhWAAWNwcgCuE7ET1RP1IXRlB2GAoikiYWJjZHMAuxO/E8QTzhPSE24AZAAAoEQqciJjdXAAAKBJKgABYXXIE8sTcAAAoEsqcAAAoEcqbwB0AACgQCoA4CkiAP4AAWVv2RPcE3QAAKBBIO4ABAUAAmFlaXXlE+8T9RP4E/AB6hMAAO0TcwAAoE0qbwBuAA1hZABpAGwAO4DnAOdAcgBjAAlhcABzAHOgTCptAACgUCpvAHQAC2GAAWRtbgAIFA0UEhRpAGwAO4C4ALhAcCJ0eXYAAKCyKXQAAIGiADtlGBQZFKJAcgBkAG8A9ABiAXIAAOA12CDdgAFjZWkAKBQqFDIUeQBHZGMAawBtoBMn4SFyawCgEyfHY3IAAKPLJUVjZWZtcz8UQRRHFHcUfBSAFACgwykAocYCZWxGFEkUcQAAoFciZQBhAlAUAAAAAGAUciJyb3cAAAFsclYUWhTlIWZ0AKC6IWkiZ2h0AACguyGAAlJTYWNkAGgUaRRrFG8UcxSuYACgyCRzAHQAAKCbIukhcmMAoJoi4SFzaACgnSJuImludAAAoBAqaQBkAACg7yrjIWlyAKDCKfUhYnN1oGMmaQB0AACgYybsApMUmhS2FAAAwxRvAG4AZaA6APGgVCKrAG0CnxQAAAAAoxRhAHSgLABAYAChASJmbKcUqRTuABMNZQAAAW14rhSyFOUhbnQAoAEiZQDzANIB5wG6FAAAwBRkoEUibwB0AACgbSpuAPQAzAGAAWZyeQDIFMsUzhQA4DXYVN1vAOQA1wEAgakAO3MeAdMUcgAAoBchAAFhb9oU3hRyAHIAAKC1IXMAcwAAoBcnAAFjdeYU6hRyAADgNdi43AABYnDuFPIUZaDPKgCg0SploNAqAKDSKuQhb3QAoO8igANkZWxwcnZ3AAYVEBUbFSEVRBVlFYQV4SFycgABbHIMFQ4VAKA4KQCgNSlwAhYVAAAAABkVcgAAoN4iYwAAoN8i4SFycnCgtiEAoD0pgKIqImJjZG9zACsVMBU6FT4VQRVyImNhcAAAoEgqAAFhdTQVNxVwAACgRipwAACgSipvAHQAAKCNInIAAKBFKgDgKiIA/gACYWxydksVURVuFXMVcgByAG2gtyEAoDwpeQCAAWV2dwBYFWUVaRVxAHACXxUAAAAAYxVyAGUA4wAXFXUA4wAZFWUAZQAAoM4iZSJkZ2UAAKDPImUAbgA7gKQApEBlI2Fycm93AAABbHJ7FX8V5SFmdACgtiFpImdodAAAoLchZQDkAG0VAAFjaYsVkRVvAG4AaQBuAPQAkwFuAHQAAKAxImwiY3R5AACgLSOACUFIYWJjZGVmaGlqbG9yc3R1d3oAuBW7Fb8V1RXgFegV+RUKFhUWHxZUFlcWZRbFFtsW7xb7FgUXChdyAPIAtAJhAHIAAKBlKQACZ2xyc8YVyhXOFdAV5yFlcgCgICDlIXRoAKA4IfIA9QxoAHagECAAoKMiawHZFd4VYSJyb3cAAKAPKWEA4wBfAgABYXnkFecV8iFvbg9hNGQAoUYhYW/tFfQVAAFnciEC8RVyAACgyiF0InNlcQAAoHcqgAFnbG0A/xUCFgUWO4CwALBAdABhALRjcCJ0eXYAAKCxKQABaXIOFhIW8yFodACgfykA4DXYId1hAHIAAAFschsWHRYAoMMhAKDCIYACYWVnc3YAKBauAjYWOhY+Fm0AAKHEIm9zLhY0Fm4AZABzoMQi9SFpdACgZiZhIm1tYQDdY2kAbgAAoPIiAKH3AGlvQxZRFmQAZQAAgfcAO29KFksW90BuI3RpbWVzAACgxyJuAPgAUBZjAHkAUmRjAG8CXhYAAAAAYhZyAG4AAKAeI28AcAAAoA0jgAJscHR1dwBuFnEWdRaSFp4W7CFhciRgZgAA4DXYVd0AotkCZW1wc30WhBaJFo0WcQBkoFAibwB0AACgUSJpIm51cwAAoDgi7CF1cwCgFCLxInVhcmUAoKEiYgBsAGUAYgBhAHIAdwBlAGQAZwDlANcAbgCAAWFkaAClFqoWtBZyAHIAbwD3APUMbwB3AG4AYQByAHIAbwB3APMA8xVhI3Jwb29uAAABbHK8FsAWZQBmAPQAHBZpAGcAaAD0AB4WYgHJFs8WawBhAHIAbwD3AJILbwLUFgAAAADYFnIAbgAAoB8jbwBwAACgDCOAAWNvdADhFukW7BYAAXJ55RboFgDgNdi53FVkbAAAoPYp8iFvaxFhAAFkcvMW9xZvAHQAAKDxImkA5qC/JVsSAAFhaP8WAhdyAPIANQNhAPIA1wvhIm5nbGUAoKYpAAFjaQ4XEBd5AF9k5yJyYXJyAKD/JwAJRGFjZGVmZ2xtbm9wcXJzdHV4MRc4F0YXWxcyBF4XaRd5F40XrBe0F78X2RcVGCEYLRg1GEAYAAFEbzUXgRZvAPQA+BUAAWNzPBdCF3UAdABlADuA6QDpQPQhZXIAoG4qAAJhaW95TRdQF1YXWhfyIW9uG2FyAGOgViI7gOoA6kDsIW9uAKBVIk1kbwB0ABdhAAFEcmIXZhdvAHQAAKBSIgDgNdgi3XKhmipuF3QXYQB2AGUAO4DoAOhAZKCWKm8AdAAAoJgqgKGZKmlscwCAF4UXhxfuInRlcnMAoOcjAKATIWSglSpvAHQAAKCXKoABYXBzAJMXlheiF2MAcgATYXQAeQBzogUinxcAAAAAoRdlAHQAAKAFInAAMaADIDMBqRerFwCgBCAAoAUgAAFnc7AXsRdLYXAAAKACIAABZ3C4F7sXbwBuABlhZgAA4DXYVt2AAWFscwDFF8sXzxdyAHOg1SJsAACg4yl1AHMAAKBxKmkAAKG1A2x21RfYF28AbgC1Y/VjAAJjc3V24BfoF/0XEBgAAWlv5BdWF3IAYwAAoFYiaQLuFwAAAADwF+0ADQThIW50AAFnbPUX+Rd0AHIAAKCWKuUhc3MAoJUqgAFhZWkAAxgGGAoYbABzAD1gcwB0AACgXyJ2AESgYSJEAACgeCrwImFyc2wAoOUpAAFEYRkYHRhvAHQAAKBTInIAcgAAoHEpgAFjZGkAJxgqGO0XcgAAoC8hbwD0AIwCAAFhaDEYMhi3YzuA8ADwQAABbXI5GD0YbAA7gOsA60BvAACgrCCAAWNpcABGGEgYSxhsACFgcwD0ACwEAAFlb08YVxhjAHQAYQB0AGkAbwDuABoEbgBlAG4AdABpAGEAbADlADME4Ql1GAAAgRgAAIMYiBgAAAAAoRilGAAAqhgAALsYvhjRGAAA1xgnGWwAbABpAG4AZwBkAG8AdABzAGUA8QBlF3kARGRtImFsZQAAoEAmgAFpbHIAjRiRGJ0Y7CFpZwCgA/tpApcYAAAAAJoYZwAAoAD7aQBnAACgBPsA4DXYI93sIWlnAKAB++whaWcA4GYAagCAAWFsdACvGLIYthh0AACgbSZpAGcAAKAC+24AcwAAoLElbwBmAJJh8AHCGAAAxhhmAADgNdhX3QABYWvJGMwYbADsAGsEdqDUIgCg2SphI3J0aW50AACgDSoAAWFv2hgiGQABY3PeGB8ZsQPnGP0YBRkSGRUZAAAdGbID7xjyGPQY9xj5GAAA+xg7gL0AvUAAoFMhO4C8ALxAAKBVIQCgWSEAoFshswEBGQAAAxkAoFQhAKBWIbQCCxkOGQAAAAAQGTuAvgC+QACgVyEAoFwhNQAAoFghtgEZGQAAGxkAoFohAKBdITgAAKBeIWwAAKBEIHcAbgAAoCIjYwByAADgNdi73IAIRWFiY2RlZmdpamxub3JzdHYARhlKGVoZXhlmGWkZkhmWGZkZnRmgGa0ZxhnLGc8Z4BkjGmygZyIAoIwqgAFjbXAAUBlTGVgZ9SF0ZfVhbQBhAOSgswM6FgCghipyImV2ZQAfYQABaXliGWUZcgBjAB1hM2RvAHQAIWGAoWUibHFzAMYEcBl6GfGhZSLOBAAAdhlsAGEAbgD0AN8EgKF+KmNkbACBGYQZjBljAACgqSpvAHQAb6CAKmyggioAoIQqZeDbIgD+cwAAoJQqcgAA4DXYJN3noGsirATtIWVsAKA3IWMAeQBTZIChdyJFYWoApxmpGasZAKCSKgCgpSoAoKQqAAJFYWVztBm2Gb0ZwhkAoGkicABwoIoq8iFveACgiipxoIgq8aCIKrUZaQBtAACg5yJwAGYAAOA12FjdYQB2AOUAYwIAAWNp0xnWGXIAAKAKIW0AAKFzImVs3BneGQCgjioAoJAqAIM+ADtjZGxxco0E6xn0GfgZ/BkBGgABY2nvGfEZAKCnKnIAAKB6Km8AdAAAoNci0CFhcgCglSl1ImVzdAAAoHwqgAJhZGVscwAKGvQZFhrVBCAa8AEPGgAAFBpwAHIAbwD4AFkZcgAAoHgpcQAAAWxxxAQbGmwAZQBzAPMASRlpAO0A5AQAAWVuJxouGnIjdG5lcXEAAOBpIgD+xQAsGgAFQWFiY2Vma29zeUAaQxpmGmoabRqDGocalhrCGtMacgDyAMwCAAJpbG1yShpOGlAaVBpyAHMA8ABxD2YAvWBpAGwA9AASBQABZHJYGlsaYwB5AEpkAKGUIWN3YBpkGmkAcgAAoEgpAKCtIWEAcgAAoA8h6SFyYyVhgAFhbHIAcxp7Gn8a8iF0c3WgZSZpAHQAAKBlJuwhaXAAoCYg4yFvbgCguSJyAADgNdgl3XMAAAFld4wakRphInJvdwAAoCUpYSJyb3cAAKAmKYACYW1vcHIAnxqjGqcauhq+GnIAcgAAoP8h9CFodACgOyJrAAABbHKsGrMaZSRmdGFycm93AACgqSHpJGdodGFycm93AKCqIWYAAOA12Fnd4iFhcgCgFSCAAWNsdADIGswa0BpyAADgNdi93GEAcwDoAGka8iFvaydhAAFicNca2xr1IWxsAKBDIOghZW4AoBAg4Qr2GgAA/RoAAAgbExsaGwAAIRs7GwAAAAA+G2IbmRuVG6sbAACyG80b0htjAHUAdABlADuA7QDtQAChYyBpeQEbBhtyAGMAO4DuAO5AOGQAAWN4CxsNG3kANWRjAGwAO4ChAKFAAAFmcssCFhsA4DXYJt1yAGEAdgBlADuA7ADsQIChSCFpbm8AJxsyGzYbAAFpbisbLxtuAHQAAKAMKnQAAKAtIuYhaW4AoNwpdABhAACgKSHsIWlnM2GAAWFvcABDG1sbXhuAAWNndABJG0sbWRtyACthgAFlbHAAcQVRG1UbaQBuAOUAyAVhAHIA9AByBWgAMWFmAACgtyJlAGQAtWEAoggiY2ZvdGkbbRt1G3kb4SFyZQCgBSFpAG4AdKAeImkAZQAAoN0pZABvAPQAWxsAoisiY2VscIEbhRuPG5QbYQBsAACguiIAAWdyiRuNG2UAcgDzACMQ4wCCG2EicmhrAACgFyryIW9kAKA8KgACY2dwdJ8boRukG6gbeQBRZG8AbgAvYWYAAOA12FrdYQC5Y3UAZQBzAHQAO4C/AL9AAAFjabUbuRtyAADgNdi+3G4AAKIIIkVkc3bCG8QbyBvQAwCg+SJvAHQAAKD1Inag9CIAoPMiaaBiIOwhZGUpYesB1hsAANkbYwB5AFZkbAA7gO8A70AAA2NmbW9zdeYb7hvyG/Ub+hsFHAABaXnqG+0bcgBjADVhOWRyAADgNdgn3eEhdGg3YnAAZgAA4DXYW93jAf8bAAADHHIAAOA12L/c8iFjeVhk6yFjeVRkAARhY2ZnaGpvcxUcGhwiHCYcKhwtHDAcNRzwIXBhdqC6A/BjAAFleR4cIRzkIWls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ZmdobG1vcHJzdHV3CiwNLBEsHSwnLDEsQCxLLFIsYix6LIQsjyzLLOgs7Sz/LAotcgDyAAkDYQByAACgYykAAWNyFSwbLHUAdABlADuA+gD6QPIACQ1yAOMBIywAACUseQBeZHYAZQBtYQABaXkrLDAscgBjADuA+wD7QENkgAFhYmgANyw6LD0scgDyANEO7CFhY3FhYQDyAOAOAAFpckQsSCzzIWh0AKB+KQDgNdgy3XIAYQB2AGUAO4D5APlAYQFWLF8scgAAAWxyWixcLACgvyEAoL4hbABrAACggCUAAWN0Zix2LG8CbCwAAAAAcyxyAG4AZaAcI3IAAKAcI28AcAAAoA8jcgBpAACg+CUAAWFsfiyBLGMAcgBrYTuAqACoQAABZ3CILIssbwBuAHNhZgAA4DXYZt0AA2FkaGxzdZksniynLLgsuyzFLHIAcgBvAPcACQ1vAHcAbgBhAHIAcgBvAPcA2A5hI3Jwb29uAAABbHKvLLMsZQBmAPQAWyxpAGcAaAD0AF0sdQDzAKYOaQAAocUDaGzBLMIs0mNvAG4AxWPwI2Fycm93cwCgyCGAAWNpdADRLOEs5CxvAtcsAAAAAN4scgBuAGWgHSNyAACgHSNvAHAAAKAOI24AZwBvYXIAaQAAoPklYwByAADgNdjK3IABZGlyAPMs9yz6LG8AdAAAoPAi7CFkZWlhaQBmoLUlAKC0JQABYW0DLQYtcgDyAMosbAA7gPwA/EDhIm5nbGUAoKcpgAdBQkRhY2RlZmxub3Byc3oAJy0qLTAtNC2bLZ0toS2/LcMtxy3TLdgt3C3gLfwtcgDyABADYQByAHag6CoAoOkqYQBzAOgA/gIAAW5yOC08LechcnQAoJwpgANla25wcnN0AJkpSC1NLVQtXi1iLYItYQBwAHAA4QAaHG8AdABoAGkAbgDnAKEXgAFoaXIAoSmzJFotbwBwAPQAdCVooJUh7wD4JgABaXVmLWotZwBtAOEAuygAAWJwbi14LXMjZXRuZXEAceCKIgD+AODLKgD+cyNldG5lcQBx4IsiAP4A4MwqAP4AAWhyhi2KLWUAdADhABIraSNhbmdsZQAAAWxyki2WLeUhZnQAoLIiaSJnaHQAAKCzInkAMmThIXNoAKCiIoABZWxyAKcttC24LWKiKCKuLQAAAACyLWEAcgAAoLsicQAAoFoi7CFpcACg7iIAAWJ0vC1eD2EA8gBfD3IAAOA12DPddAByAOkAlS1zAHUAAAFicM0t0C0A4IIi0iAA4IMi0iBwAGYAAOA12GfdcgBvAPAAWQt0AHIA6QCaLQABY3XkLegtcgAA4DXYy9wAAWJw7C30LW4AAAFFZXUt8S0A4IoiAP5uAAABRWV/LfktAOCLIgD+6SJnemFnAKCaKYADY2Vmb3BycwANLhAuJS4pLiMuLi40LukhcmN1YQABZGkULiEuAAFiZxguHC5hAHIAAKBfKmUAcaAnIgCgWSLlIXJwAKAYIXIAAOA12DTdcABmAADgNdho3WWgQCJhAHQA6ABqD2MAcgAA4DXYzNzjCuQRUC4AAFQuAABYLmIuAAAAAGMubS5wLnQuAAAAAIguki4AAJouJxIqEnQAcgDpAB0ScgAA4DXYNd0AAUFhWy5eLnIA8gDnAnIA8gCTB75jAAFBYWYuaS5yAPIA4AJyAPIAjAdhAPAAeh5pAHMAAKD7IoABZHB0APgReS6DLgABZmx9LoAuAOA12GnddQDzAP8RaQBtAOUABBIAAUFhiy6OLnIA8gDuAnIA8gCaBwABY3GVLgoScgAA4DXYzdwAAXB0nS6hLmwAdQDzACUScgDpACASAARhY2VmaW9zdbEuvC7ELsguzC7PLtQu2S5jAAABdXm2LrsudABlADuA/QD9QE9kAAFpecAuwy5yAGMAd2FLZG4AO4ClAKVAcgAA4DXYNt1jAHkAV2RwAGYAAOA12GrdYwByAADgNdjO3AABY23dLt8ueQBOZGwAO4D/AP9AAAVhY2RlZmhpb3N38y73Lv8uAi8MLxAvEy8YLx0vIi9jInV0ZQB6YQABYXn7Lv4u8iFvbn5hN2RvAHQAfGEAAWV0Bi8KL3QAcgDmAB8QYQC2Y3IAAOA12DfdYwB5ADZk5yJyYXJyAKDdIXAAZgAA4DXYa91jAHIAAOA12M/cAAFqbiYvKC8AoA0gagAAoAwg");
   }
 });
 
-// node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/generated/decode-data-xml.js
+// node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/generated/decode-data-xml.js
 var xmlDecodeTree;
 var init_decode_data_xml = __esm({
-  "node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/generated/decode-data-xml.js"() {
+  "node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/generated/decode-data-xml.js"() {
     init_decode_shared();
     xmlDecodeTree = /* @__PURE__ */ decodeBase64("AAJhZ2xxBwARABMAFQBtAg0AAAAAAA8AcAAmYG8AcwAnYHQAPmB0ADxg9SFvdCJg");
   }
 });
 
-// node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/internal/bin-trie-flags.js
+// node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/internal/bin-trie-flags.js
 var BinTrieFlags;
 var init_bin_trie_flags = __esm({
-  "node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/internal/bin-trie-flags.js"() {
+  "node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/internal/bin-trie-flags.js"() {
     (function(BinTrieFlags2) {
       BinTrieFlags2[BinTrieFlags2["VALUE_LENGTH"] = 49152] = "VALUE_LENGTH";
       BinTrieFlags2[BinTrieFlags2["FLAG13"] = 8192] = "FLAG13";
@@ -28071,7 +28082,7 @@ var init_bin_trie_flags = __esm({
   }
 });
 
-// node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/decode.js
+// node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/decode.js
 function isNumber(code) {
   return code >= CharCodes.ZERO && code <= CharCodes.NINE;
 }
@@ -28114,7 +28125,7 @@ function determineBranch(decodeTree, current, nodeIndex, char) {
 }
 var CharCodes, TO_LOWER_BIT, EntityDecoderState, DecodingMode, EntityDecoder;
 var init_decode = __esm({
-  "node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/decode.js"() {
+  "node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/decode.js"() {
     init_decode_codepoint();
     init_bin_trie_flags();
     init_decode_data_html();
@@ -28447,7 +28458,7 @@ var init_decode = __esm({
   }
 });
 
-// node_modules/sanitize-html/node_modules/htmlparser2/dist/Tokenizer.js
+// node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/dist/Tokenizer.js
 function isWhitespace(c) {
   return c === CharCodes2.Space || c === CharCodes2.NewLine || c === CharCodes2.Tab || c === CharCodes2.FormFeed || c === CharCodes2.CarriageReturn;
 }
@@ -28459,7 +28470,7 @@ function isASCIIAlpha(c) {
 }
 var CharCodes2, State, QuoteType, Sequences, specialStartSequences, Tokenizer;
 var init_Tokenizer = __esm({
-  "node_modules/sanitize-html/node_modules/htmlparser2/dist/Tokenizer.js"() {
+  "node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/dist/Tokenizer.js"() {
     init_decode();
     (function(CharCodes3) {
       CharCodes3[CharCodes3["Tab"] = 9] = "Tab";
@@ -29405,10 +29416,10 @@ var init_Tokenizer = __esm({
   }
 });
 
-// node_modules/sanitize-html/node_modules/htmlparser2/dist/Parser.js
+// node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/dist/Parser.js
 var fromCodePoint, formTags, pTag, headingTags, tableSectionTags, ddtTags, rtpTags, openImpliesClose, DOCUMENT_TYPE, voidElements, foreignContextElements, htmlIntegrationElements, svgTagNameAdjustments, ForeignContext, reNameEnd, Parser;
 var init_Parser = __esm({
-  "node_modules/sanitize-html/node_modules/htmlparser2/dist/Parser.js"() {
+  "node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/dist/Parser.js"() {
     init_Tokenizer();
     ({ fromCodePoint } = String);
     formTags = /* @__PURE__ */ new Set([
@@ -29989,7 +30000,7 @@ var init_Parser = __esm({
   }
 });
 
-// node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domelementtype/dist/index.js
+// node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domelementtype/dist/index.js
 var dist_exports = {};
 __export(dist_exports, {
   CDATA: () => CDATA,
@@ -30009,7 +30020,7 @@ function isTag(element) {
 }
 var ElementType, Root, Text, Directive, Comment, Script, Style, Tag, CDATA, Doctype;
 var init_dist = __esm({
-  "node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domelementtype/dist/index.js"() {
+  "node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domelementtype/dist/index.js"() {
     (function(ElementType2) {
       ElementType2["Root"] = "root";
       ElementType2["Text"] = "text";
@@ -30033,7 +30044,7 @@ var init_dist = __esm({
   }
 });
 
-// node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domhandler/dist/node.js
+// node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domhandler/dist/node.js
 function isTag2(node) {
   return isTag(node);
 }
@@ -30122,7 +30133,7 @@ function cloneChildren(childs) {
 }
 var Node, DataNode, Text2, Comment2, ProcessingInstruction, NodeWithChildren, CDATA2, Document, Element;
 var init_node = __esm({
-  "node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domhandler/dist/node.js"() {
+  "node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domhandler/dist/node.js"() {
     init_dist();
     Node = class {
       /** Parent of the node */
@@ -30313,10 +30324,10 @@ var init_node = __esm({
   }
 });
 
-// node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domhandler/dist/index.js
+// node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domhandler/dist/index.js
 var defaultOptions2, DomHandler;
 var init_dist2 = __esm({
-  "node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domhandler/dist/index.js"() {
+  "node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domhandler/dist/index.js"() {
     init_dist();
     init_node();
     init_node();
@@ -30467,7 +30478,7 @@ var init_dist2 = __esm({
   }
 });
 
-// node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/querying.js
+// node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/querying.js
 function filter(test, node, recurse = true, limit = Number.POSITIVE_INFINITY) {
   return find(test, Array.isArray(node) ? node : [node], recurse, limit);
 }
@@ -30536,12 +30547,12 @@ function findAll(test, nodes) {
   }
 }
 var init_querying = __esm({
-  "node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/querying.js"() {
+  "node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/querying.js"() {
     init_dist2();
   }
 });
 
-// node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/legacy.js
+// node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/legacy.js
 function getAttribCheck(attrib, value) {
   if (typeof value === "function") {
     return (element) => isTag2(element) && value(element.attribs[attrib]);
@@ -30582,7 +30593,7 @@ function getElementsByTagType(type, nodes, recurse = true, limit = Number.POSITI
 }
 var Checks;
 var init_legacy = __esm({
-  "node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/legacy.js"() {
+  "node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/legacy.js"() {
     init_dist2();
     init_querying();
     Checks = {
@@ -30611,7 +30622,7 @@ var init_legacy = __esm({
   }
 });
 
-// node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/escape.js
+// node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/escape.js
 function encodeXML(input) {
   let out;
   let last = 0;
@@ -30659,7 +30670,7 @@ function getEscaper(regex, map2) {
 }
 var xmlCodeMap, getCodePoint, XML_BITSET_VALUE, escapeAttribute, escapeText;
 var init_escape = __esm({
-  "node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/escape.js"() {
+  "node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/escape.js"() {
     xmlCodeMap = /* @__PURE__ */ new Map([
       [34, "&quot;"],
       [38, "&amp;"],
@@ -30686,10 +30697,10 @@ var init_escape = __esm({
   }
 });
 
-// node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/index.js
+// node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/index.js
 var EntityLevel, EncodingMode;
 var init_dist3 = __esm({
-  "node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/index.js"() {
+  "node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/entities/dist/index.js"() {
     init_escape();
     (function(EntityLevel2) {
       EntityLevel2[EntityLevel2["XML"] = 0] = "XML";
@@ -30705,16 +30716,16 @@ var init_dist3 = __esm({
   }
 });
 
-// node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/node_modules/dom-serializer/dist/foreign-names.js
+// node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/node_modules/dom-serializer/dist/foreign-names.js
 var elementNames, attributeNames;
 var init_foreign_names = __esm({
-  "node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/node_modules/dom-serializer/dist/foreign-names.js"() {
+  "node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/node_modules/dom-serializer/dist/foreign-names.js"() {
     elementNames = new Map("altGlyph altGlyphDef altGlyphItem animateColor animateMotion animateTransform clipPath feBlend feColorMatrix feComponentTransfer feComposite feConvolveMatrix feDiffuseLighting feDisplacementMap feDistantLight feDropShadow feFlood feFuncA feFuncB feFuncG feFuncR feGaussianBlur feImage feMerge feMergeNode feMorphology feOffset fePointLight feSpecularLighting feSpotLight feTile feTurbulence foreignObject glyphRef linearGradient radialGradient textPath".split(" ").map((name) => [name.toLowerCase(), name]));
     attributeNames = new Map("definitionURL attributeName attributeType baseFrequency baseProfile calcMode clipPathUnits diffuseConstant edgeMode filterUnits glyphRef gradientTransform gradientUnits kernelMatrix kernelUnitLength keyPoints keySplines keyTimes lengthAdjust limitingConeAngle markerHeight markerUnits markerWidth maskContentUnits maskUnits numOctaves pathLength patternContentUnits patternTransform patternUnits pointsAtX pointsAtY pointsAtZ preserveAlpha preserveAspectRatio primitiveUnits refX refY repeatCount repeatDur requiredExtensions requiredFeatures specularConstant specularExponent spreadMethod startOffset stdDeviation stitchTiles surfaceScale systemLanguage tableValues targetX targetY textLength viewBox viewTarget xChannelSelector yChannelSelector zoomAndPan".split(" ").map((name) => [name.toLowerCase(), name]));
   }
 });
 
-// node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/node_modules/dom-serializer/dist/index.js
+// node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/node_modules/dom-serializer/dist/index.js
 function render(node, options = {}) {
   const nodes = "length" in node ? node : [node];
   const xmlMode = options.xmlMode ?? false;
@@ -30800,14 +30811,14 @@ function formatAttributes(attributes, options, xmlMode) {
     if (!Object.hasOwn(attributes, key))
       continue;
     const value = attributes[key];
-    const k2 = isForeign ? attributeNames.get(key) ?? key : key;
-    result += !showEmpty && (value == null || value === "") ? ` ${k2}` : ` ${k2}="${encode3(value == null ? "" : String(value))}"`;
+    const k3 = isForeign ? attributeNames.get(key) ?? key : key;
+    result += !showEmpty && (value == null || value === "") ? ` ${k3}` : ` ${k3}="${encode3(value == null ? "" : String(value))}"`;
   }
   return result;
 }
 var unencodedElements, voidElements2, foreignElements, foreignModeIntegrationPoints, dist_default;
 var init_dist4 = __esm({
-  "node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/node_modules/dom-serializer/dist/index.js"() {
+  "node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/node_modules/dom-serializer/dist/index.js"() {
     init_dist();
     init_dist3();
     init_foreign_names();
@@ -30819,7 +30830,7 @@ var init_dist4 = __esm({
   }
 });
 
-// node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/stringify.js
+// node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/stringify.js
 function getOuterHTML(node, options) {
   return dist_default(node, options);
 }
@@ -30858,14 +30869,14 @@ function innerText(node) {
   return "";
 }
 var init_stringify = __esm({
-  "node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/stringify.js"() {
+  "node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/stringify.js"() {
     init_dist4();
     init_dist();
     init_dist2();
   }
 });
 
-// node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/feeds.js
+// node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/feeds.js
 function getFeed(document2) {
   const feedRoot = getOneElement(isValidFeed, document2);
   return feedRoot ? feedRoot.name === "feed" ? getAtomFeed(feedRoot) : getRssFeed(feedRoot) : null;
@@ -30975,7 +30986,7 @@ function isValidFeed(value) {
 }
 var MEDIA_KEYS_STRING, MEDIA_KEYS_INT;
 var init_feeds = __esm({
-  "node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/feeds.js"() {
+  "node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/feeds.js"() {
     init_legacy();
     init_stringify();
     MEDIA_KEYS_STRING = ["url", "type", "lang"];
@@ -30992,7 +31003,7 @@ var init_feeds = __esm({
   }
 });
 
-// node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/helpers.js
+// node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/helpers.js
 function removeSubsets(nodes) {
   let index = nodes.length;
   while (--index >= 0) {
@@ -31065,7 +31076,7 @@ function uniqueSort(nodes) {
 }
 var DocumentPosition;
 var init_helpers = __esm({
-  "node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/helpers.js"() {
+  "node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/helpers.js"() {
     init_dist2();
     (function(DocumentPosition2) {
       DocumentPosition2[DocumentPosition2["DISCONNECTED"] = 1] = "DISCONNECTED";
@@ -31077,7 +31088,7 @@ var init_helpers = __esm({
   }
 });
 
-// node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/manipulation.js
+// node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/manipulation.js
 function removeElement(element) {
   if (element.prev)
     element.prev.next = element.next;
@@ -31172,11 +31183,11 @@ function prepend(element, previous) {
   element.prev = previous;
 }
 var init_manipulation = __esm({
-  "node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/manipulation.js"() {
+  "node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/manipulation.js"() {
   }
 });
 
-// node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/traversal.js
+// node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/traversal.js
 function getChildren(element) {
   return hasChildren(element) ? element.children : [];
 }
@@ -31223,12 +31234,12 @@ function prevElementSibling(element) {
   return prev;
 }
 var init_traversal = __esm({
-  "node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/traversal.js"() {
+  "node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/traversal.js"() {
     init_dist2();
   }
 });
 
-// node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/index.js
+// node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/index.js
 var dist_exports2 = {};
 __export(dist_exports2, {
   DocumentPosition: () => DocumentPosition,
@@ -31268,7 +31279,7 @@ __export(dist_exports2, {
   uniqueSort: () => uniqueSort
 });
 var init_dist5 = __esm({
-  "node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/index.js"() {
+  "node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/node_modules/domutils/dist/index.js"() {
     init_feeds();
     init_helpers();
     init_legacy();
@@ -31279,7 +31290,7 @@ var init_dist5 = __esm({
   }
 });
 
-// node_modules/sanitize-html/node_modules/htmlparser2/dist/index.js
+// node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/dist/index.js
 var dist_exports3 = {};
 __export(dist_exports3, {
   DefaultHandler: () => DomHandler,
@@ -31308,7 +31319,7 @@ function parseFeed(feed, options = parseFeedDefaultOptions) {
 }
 var parseFeedDefaultOptions;
 var init_dist6 = __esm({
-  "node_modules/sanitize-html/node_modules/htmlparser2/dist/index.js"() {
+  "node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/node_modules/htmlparser2/dist/index.js"() {
     init_Parser();
     init_Parser();
     init_dist2();
@@ -31322,9 +31333,9 @@ var init_dist6 = __esm({
   }
 });
 
-// node_modules/escape-string-regexp/index.js
+// node_modules/.bun/escape-string-regexp@4.0.0/node_modules/escape-string-regexp/index.js
 var require_escape_string_regexp = __commonJS({
-  "node_modules/escape-string-regexp/index.js"(exports2, module2) {
+  "node_modules/.bun/escape-string-regexp@4.0.0/node_modules/escape-string-regexp/index.js"(exports2, module2) {
     "use strict";
     module2.exports = (string4) => {
       if (typeof string4 !== "string") {
@@ -31335,9 +31346,9 @@ var require_escape_string_regexp = __commonJS({
   }
 });
 
-// node_modules/is-plain-object/dist/is-plain-object.js
+// node_modules/.bun/is-plain-object@5.1.0/node_modules/is-plain-object/dist/is-plain-object.js
 var require_is_plain_object = __commonJS({
-  "node_modules/is-plain-object/dist/is-plain-object.js"(exports2) {
+  "node_modules/.bun/is-plain-object@5.1.0/node_modules/is-plain-object/dist/is-plain-object.js"(exports2) {
     "use strict";
     function isObject2(o) {
       return Object.prototype.toString.call(o) === "[object Object]";
@@ -31358,9 +31369,9 @@ var require_is_plain_object = __commonJS({
   }
 });
 
-// node_modules/deepmerge/dist/cjs.js
+// node_modules/.bun/deepmerge@4.3.1/node_modules/deepmerge/dist/cjs.js
 var require_cjs = __commonJS({
-  "node_modules/deepmerge/dist/cjs.js"(exports2, module2) {
+  "node_modules/.bun/deepmerge@4.3.1/node_modules/deepmerge/dist/cjs.js"(exports2, module2) {
     "use strict";
     var isMergeableObject = function isMergeableObject2(value) {
       return isNonNullObject(value) && !isSpecial(value);
@@ -31461,9 +31472,9 @@ var require_cjs = __commonJS({
   }
 });
 
-// node_modules/parse-srcset/src/parse-srcset.js
+// node_modules/.bun/parse-srcset@1.0.2/node_modules/parse-srcset/src/parse-srcset.js
 var require_parse_srcset = __commonJS({
-  "node_modules/parse-srcset/src/parse-srcset.js"(exports2, module2) {
+  "node_modules/.bun/parse-srcset@1.0.2/node_modules/parse-srcset/src/parse-srcset.js"(exports2, module2) {
     (function(root, factory) {
       if (typeof define === "function" && define.amd) {
         define([], factory);
@@ -31561,7 +31572,7 @@ var require_parse_srcset = __commonJS({
           }
         }
         function parseDescriptors() {
-          var pError = false, w2, d3, h2, i, candidate = {}, desc, lastChar, value, intVal, floatVal;
+          var pError = false, w2, d2, h2, i, candidate = {}, desc, lastChar, value, intVal, floatVal;
           for (i = 0; i < descriptors.length; i++) {
             desc = descriptors[i];
             lastChar = desc[desc.length - 1];
@@ -31569,7 +31580,7 @@ var require_parse_srcset = __commonJS({
             intVal = parseInt(value, 10);
             floatVal = parseFloat(value);
             if (regexNonNegativeInteger.test(value) && lastChar === "w") {
-              if (w2 || d3) {
+              if (w2 || d2) {
                 pError = true;
               }
               if (intVal === 0) {
@@ -31578,16 +31589,16 @@ var require_parse_srcset = __commonJS({
                 w2 = intVal;
               }
             } else if (regexFloatingPoint.test(value) && lastChar === "x") {
-              if (w2 || d3 || h2) {
+              if (w2 || d2 || h2) {
                 pError = true;
               }
               if (floatVal < 0) {
                 pError = true;
               } else {
-                d3 = floatVal;
+                d2 = floatVal;
               }
             } else if (regexNonNegativeInteger.test(value) && lastChar === "h") {
-              if (h2 || d3) {
+              if (h2 || d2) {
                 pError = true;
               }
               if (intVal === 0) {
@@ -31604,8 +31615,8 @@ var require_parse_srcset = __commonJS({
             if (w2) {
               candidate.w = w2;
             }
-            if (d3) {
-              candidate.d = d3;
+            if (d2) {
+              candidate.d = d2;
             }
             if (h2) {
               candidate.h = h2;
@@ -31620,9 +31631,9 @@ var require_parse_srcset = __commonJS({
   }
 });
 
-// node_modules/picocolors/picocolors.js
+// node_modules/.bun/picocolors@1.1.1/node_modules/picocolors/picocolors.js
 var require_picocolors = __commonJS({
-  "node_modules/picocolors/picocolors.js"(exports2, module2) {
+  "node_modules/.bun/picocolors@1.1.1/node_modules/picocolors/picocolors.js"(exports2, module2) {
     var p2 = process || {};
     var argv = p2.argv || [];
     var env = p2.env || {};
@@ -31692,9 +31703,9 @@ var require_picocolors = __commonJS({
   }
 });
 
-// node_modules/postcss/lib/tokenize.js
+// node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/tokenize.js
 var require_tokenize = __commonJS({
-  "node_modules/postcss/lib/tokenize.js"(exports2, module2) {
+  "node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/tokenize.js"(exports2, module2) {
     "use strict";
     var SINGLE_QUOTE = "'".charCodeAt(0);
     var DOUBLE_QUOTE = '"'.charCodeAt(0);
@@ -31911,9 +31922,9 @@ var require_tokenize = __commonJS({
   }
 });
 
-// node_modules/postcss/lib/terminal-highlight.js
+// node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/terminal-highlight.js
 var require_terminal_highlight = __commonJS({
-  "node_modules/postcss/lib/terminal-highlight.js"(exports2, module2) {
+  "node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/terminal-highlight.js"(exports2, module2) {
     "use strict";
     var pico = require_picocolors();
     var tokenizer = require_tokenize();
@@ -31973,9 +31984,9 @@ var require_terminal_highlight = __commonJS({
   }
 });
 
-// node_modules/postcss/lib/css-syntax-error.js
+// node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/css-syntax-error.js
 var require_css_syntax_error = __commonJS({
-  "node_modules/postcss/lib/css-syntax-error.js"(exports2, module2) {
+  "node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/css-syntax-error.js"(exports2, module2) {
     "use strict";
     var pico = require_picocolors();
     var terminalHighlight = require_terminal_highlight();
@@ -32070,9 +32081,9 @@ var require_css_syntax_error = __commonJS({
   }
 });
 
-// node_modules/postcss/lib/stringifier.js
+// node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/stringifier.js
 var require_stringifier = __commonJS({
-  "node_modules/postcss/lib/stringifier.js"(exports2, module2) {
+  "node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/stringifier.js"(exports2, module2) {
     "use strict";
     var STYLE_TAG = /(<)(\/?style\b)/gi;
     var COMMENT_OPEN = /(<)(!--)/g;
@@ -32110,6 +32121,11 @@ var require_stringifier = __commonJS({
       }
       return name + afterName + params;
     }
+    function isCustomProperty(node) {
+      if (!node.prop.startsWith("--")) return false;
+      let before = node.raws.before;
+      return typeof before === "undefined" || !/\S$/.test(before);
+    }
     function pushBody(str, stack, node) {
       let nodes = node.nodes;
       let last = nodes.length - 1;
@@ -32122,7 +32138,7 @@ var require_stringifier = __commonJS({
       for (let i = nodes.length - 1; i >= 0; i--) {
         let child = nodes[i];
         let childSemicolon = last !== i || semicolon;
-        if (!childSemicolon && i < nodes.length - 1 && (child.type === "atrule" && !child.nodes || child.type === "decl" && child.prop.startsWith("--"))) {
+        if (!childSemicolon && i < nodes.length - 1 && (child.type === "atrule" && !child.nodes || child.type === "decl" && isCustomProperty(child))) {
           childSemicolon = true;
         }
         stack.push({
@@ -32449,9 +32465,9 @@ var require_stringifier = __commonJS({
   }
 });
 
-// node_modules/postcss/lib/stringify.js
+// node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/stringify.js
 var require_stringify = __commonJS({
-  "node_modules/postcss/lib/stringify.js"(exports2, module2) {
+  "node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/stringify.js"(exports2, module2) {
     "use strict";
     var Stringifier = require_stringifier();
     function stringify(node, builder) {
@@ -32463,18 +32479,18 @@ var require_stringify = __commonJS({
   }
 });
 
-// node_modules/postcss/lib/symbols.js
+// node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/symbols.js
 var require_symbols = __commonJS({
-  "node_modules/postcss/lib/symbols.js"(exports2, module2) {
+  "node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/symbols.js"(exports2, module2) {
     "use strict";
     module2.exports.isClean = /* @__PURE__ */ Symbol("isClean");
     module2.exports.my = /* @__PURE__ */ Symbol("my");
   }
 });
 
-// node_modules/postcss/lib/node.js
+// node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/node.js
 var require_node = __commonJS({
-  "node_modules/postcss/lib/node.js"(exports2, module2) {
+  "node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/node.js"(exports2, module2) {
     "use strict";
     var CssSyntaxError = require_css_syntax_error();
     var Stringifier = require_stringifier();
@@ -32887,9 +32903,9 @@ var require_node = __commonJS({
   }
 });
 
-// node_modules/postcss/lib/comment.js
+// node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/comment.js
 var require_comment = __commonJS({
-  "node_modules/postcss/lib/comment.js"(exports2, module2) {
+  "node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/comment.js"(exports2, module2) {
     "use strict";
     var Node2 = require_node();
     var Comment3 = class extends Node2 {
@@ -32903,9 +32919,9 @@ var require_comment = __commonJS({
   }
 });
 
-// node_modules/postcss/lib/declaration.js
+// node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/declaration.js
 var require_declaration = __commonJS({
-  "node_modules/postcss/lib/declaration.js"(exports2, module2) {
+  "node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/declaration.js"(exports2, module2) {
     "use strict";
     var Node2 = require_node();
     var Declaration = class extends Node2 {
@@ -32925,9 +32941,9 @@ var require_declaration = __commonJS({
   }
 });
 
-// node_modules/postcss/lib/container.js
+// node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/container.js
 var require_container = __commonJS({
-  "node_modules/postcss/lib/container.js"(exports2, module2) {
+  "node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/container.js"(exports2, module2) {
     "use strict";
     var Comment3 = require_comment();
     var Declaration = require_declaration();
@@ -33347,9 +33363,9 @@ var require_container = __commonJS({
   }
 });
 
-// node_modules/postcss/lib/at-rule.js
+// node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/at-rule.js
 var require_at_rule = __commonJS({
-  "node_modules/postcss/lib/at-rule.js"(exports2, module2) {
+  "node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/at-rule.js"(exports2, module2) {
     "use strict";
     var Container = require_container();
     var AtRule = class extends Container {
@@ -33372,9 +33388,9 @@ var require_at_rule = __commonJS({
   }
 });
 
-// node_modules/postcss/lib/document.js
+// node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/document.js
 var require_document = __commonJS({
-  "node_modules/postcss/lib/document.js"(exports2, module2) {
+  "node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/document.js"(exports2, module2) {
     "use strict";
     var Container = require_container();
     var LazyResult;
@@ -33402,9 +33418,9 @@ var require_document = __commonJS({
   }
 });
 
-// node_modules/nanoid/non-secure/index.cjs
+// node_modules/.bun/nanoid@3.3.18/node_modules/nanoid/non-secure/index.cjs
 var require_non_secure = __commonJS({
-  "node_modules/nanoid/non-secure/index.cjs"(exports2, module2) {
+  "node_modules/.bun/nanoid@3.3.18/node_modules/nanoid/non-secure/index.cjs"(exports2, module2) {
     var urlAlphabet = "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict";
     var customAlphabet = (alphabet, defaultSize = 21) => {
       return (size = defaultSize) => {
@@ -33428,9 +33444,9 @@ var require_non_secure = __commonJS({
   }
 });
 
-// node_modules/source-map-js/lib/base64.js
+// node_modules/.bun/source-map-js@1.2.1/node_modules/source-map-js/lib/base64.js
 var require_base64 = __commonJS({
-  "node_modules/source-map-js/lib/base64.js"(exports2) {
+  "node_modules/.bun/source-map-js@1.2.1/node_modules/source-map-js/lib/base64.js"(exports2) {
     var intToCharMap = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".split("");
     exports2.encode = function(number4) {
       if (0 <= number4 && number4 < intToCharMap.length) {
@@ -33469,9 +33485,9 @@ var require_base64 = __commonJS({
   }
 });
 
-// node_modules/source-map-js/lib/base64-vlq.js
+// node_modules/.bun/source-map-js@1.2.1/node_modules/source-map-js/lib/base64-vlq.js
 var require_base64_vlq = __commonJS({
-  "node_modules/source-map-js/lib/base64-vlq.js"(exports2) {
+  "node_modules/.bun/source-map-js@1.2.1/node_modules/source-map-js/lib/base64-vlq.js"(exports2) {
     var base643 = require_base64();
     var VLQ_BASE_SHIFT = 5;
     var VLQ_BASE = 1 << VLQ_BASE_SHIFT;
@@ -33523,9 +33539,9 @@ var require_base64_vlq = __commonJS({
   }
 });
 
-// node_modules/source-map-js/lib/util.js
+// node_modules/.bun/source-map-js@1.2.1/node_modules/source-map-js/lib/util.js
 var require_util3 = __commonJS({
-  "node_modules/source-map-js/lib/util.js"(exports2) {
+  "node_modules/.bun/source-map-js@1.2.1/node_modules/source-map-js/lib/util.js"(exports2) {
     function getArg(aArgs, aName, aDefaultValue) {
       if (aName in aArgs) {
         return aArgs[aName];
@@ -33903,9 +33919,9 @@ var require_util3 = __commonJS({
   }
 });
 
-// node_modules/source-map-js/lib/array-set.js
+// node_modules/.bun/source-map-js@1.2.1/node_modules/source-map-js/lib/array-set.js
 var require_array_set = __commonJS({
-  "node_modules/source-map-js/lib/array-set.js"(exports2) {
+  "node_modules/.bun/source-map-js@1.2.1/node_modules/source-map-js/lib/array-set.js"(exports2) {
     var util2 = require_util3();
     var has = Object.prototype.hasOwnProperty;
     var hasNativeMap = typeof Map !== "undefined";
@@ -33973,9 +33989,9 @@ var require_array_set = __commonJS({
   }
 });
 
-// node_modules/source-map-js/lib/mapping-list.js
+// node_modules/.bun/source-map-js@1.2.1/node_modules/source-map-js/lib/mapping-list.js
 var require_mapping_list = __commonJS({
-  "node_modules/source-map-js/lib/mapping-list.js"(exports2) {
+  "node_modules/.bun/source-map-js@1.2.1/node_modules/source-map-js/lib/mapping-list.js"(exports2) {
     var util2 = require_util3();
     function generatedPositionAfter(mappingA, mappingB) {
       var lineA = mappingA.generatedLine;
@@ -34012,9 +34028,9 @@ var require_mapping_list = __commonJS({
   }
 });
 
-// node_modules/source-map-js/lib/source-map-generator.js
+// node_modules/.bun/source-map-js@1.2.1/node_modules/source-map-js/lib/source-map-generator.js
 var require_source_map_generator = __commonJS({
-  "node_modules/source-map-js/lib/source-map-generator.js"(exports2) {
+  "node_modules/.bun/source-map-js@1.2.1/node_modules/source-map-js/lib/source-map-generator.js"(exports2) {
     var base64VLQ = require_base64_vlq();
     var util2 = require_util3();
     var ArraySet = require_array_set().ArraySet;
@@ -34305,9 +34321,9 @@ var require_source_map_generator = __commonJS({
   }
 });
 
-// node_modules/source-map-js/lib/binary-search.js
+// node_modules/.bun/source-map-js@1.2.1/node_modules/source-map-js/lib/binary-search.js
 var require_binary_search = __commonJS({
-  "node_modules/source-map-js/lib/binary-search.js"(exports2) {
+  "node_modules/.bun/source-map-js@1.2.1/node_modules/source-map-js/lib/binary-search.js"(exports2) {
     exports2.GREATEST_LOWER_BOUND = 1;
     exports2.LEAST_UPPER_BOUND = 2;
     function recursiveSearch(aLow, aHigh, aNeedle, aHaystack, aCompare, aBias) {
@@ -34361,9 +34377,9 @@ var require_binary_search = __commonJS({
   }
 });
 
-// node_modules/source-map-js/lib/quick-sort.js
+// node_modules/.bun/source-map-js@1.2.1/node_modules/source-map-js/lib/quick-sort.js
 var require_quick_sort = __commonJS({
-  "node_modules/source-map-js/lib/quick-sort.js"(exports2) {
+  "node_modules/.bun/source-map-js@1.2.1/node_modules/source-map-js/lib/quick-sort.js"(exports2) {
     function SortTemplate(comparator) {
       function swap(ary, x2, y2) {
         var temp = ary[x2];
@@ -34410,9 +34426,9 @@ var require_quick_sort = __commonJS({
   }
 });
 
-// node_modules/source-map-js/lib/source-map-consumer.js
+// node_modules/.bun/source-map-js@1.2.1/node_modules/source-map-js/lib/source-map-consumer.js
 var require_source_map_consumer = __commonJS({
-  "node_modules/source-map-js/lib/source-map-consumer.js"(exports2) {
+  "node_modules/.bun/source-map-js@1.2.1/node_modules/source-map-js/lib/source-map-consumer.js"(exports2) {
     var util2 = require_util3();
     var binarySearch = require_binary_search();
     var ArraySet = require_array_set().ArraySet;
@@ -35057,9 +35073,9 @@ var require_source_map_consumer = __commonJS({
   }
 });
 
-// node_modules/source-map-js/lib/source-node.js
+// node_modules/.bun/source-map-js@1.2.1/node_modules/source-map-js/lib/source-node.js
 var require_source_node = __commonJS({
-  "node_modules/source-map-js/lib/source-node.js"(exports2) {
+  "node_modules/.bun/source-map-js@1.2.1/node_modules/source-map-js/lib/source-node.js"(exports2) {
     var SourceMapGenerator = require_source_map_generator().SourceMapGenerator;
     var util2 = require_util3();
     var REGEX_NEWLINE = /(\r?\n)/;
@@ -35322,18 +35338,18 @@ var require_source_node = __commonJS({
   }
 });
 
-// node_modules/source-map-js/source-map.js
+// node_modules/.bun/source-map-js@1.2.1/node_modules/source-map-js/source-map.js
 var require_source_map = __commonJS({
-  "node_modules/source-map-js/source-map.js"(exports2) {
+  "node_modules/.bun/source-map-js@1.2.1/node_modules/source-map-js/source-map.js"(exports2) {
     exports2.SourceMapGenerator = require_source_map_generator().SourceMapGenerator;
     exports2.SourceMapConsumer = require_source_map_consumer().SourceMapConsumer;
     exports2.SourceNode = require_source_node().SourceNode;
   }
 });
 
-// node_modules/postcss/lib/previous-map.js
+// node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/previous-map.js
 var require_previous_map = __commonJS({
-  "node_modules/postcss/lib/previous-map.js"(exports2, module2) {
+  "node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/previous-map.js"(exports2, module2) {
     "use strict";
     var { existsSync: existsSync2, readFileSync: readFileSync2, realpathSync: realpathSync3 } = require("fs");
     var { dirname: dirname3, isAbsolute: isAbsolute3, join: join2, relative: relative2, sep: sep2 } = require("path");
@@ -35476,9 +35492,9 @@ var require_previous_map = __commonJS({
   }
 });
 
-// node_modules/postcss/lib/input.js
+// node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/input.js
 var require_input = __commonJS({
-  "node_modules/postcss/lib/input.js"(exports2, module2) {
+  "node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/input.js"(exports2, module2) {
     "use strict";
     var { nanoid: nanoid3 } = require_non_secure();
     var { isAbsolute: isAbsolute3, resolve: resolve4 } = require("path");
@@ -35710,9 +35726,9 @@ var require_input = __commonJS({
   }
 });
 
-// node_modules/postcss/lib/root.js
+// node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/root.js
 var require_root = __commonJS({
-  "node_modules/postcss/lib/root.js"(exports2, module2) {
+  "node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/root.js"(exports2, module2) {
     "use strict";
     var Container = require_container();
     var LazyResult;
@@ -35772,9 +35788,9 @@ var require_root = __commonJS({
   }
 });
 
-// node_modules/postcss/lib/list.js
+// node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/list.js
 var require_list = __commonJS({
-  "node_modules/postcss/lib/list.js"(exports2, module2) {
+  "node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/list.js"(exports2, module2) {
     "use strict";
     var list = {
       comma(string4) {
@@ -35813,14 +35829,16 @@ var require_list = __commonJS({
             if (separators.includes(letter)) split = true;
           }
           if (split) {
-            if (current !== "") array2.push(current.trim());
+            let value2 = current.trim();
+            if (last || value2 !== "") array2.push(value2);
             current = "";
             split = false;
           } else {
             current += letter;
           }
         }
-        if (last || current !== "") array2.push(current.trim());
+        let value = current.trim();
+        if (last || value !== "") array2.push(value);
         return array2;
       }
     };
@@ -35829,9 +35847,9 @@ var require_list = __commonJS({
   }
 });
 
-// node_modules/postcss/lib/rule.js
+// node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/rule.js
 var require_rule = __commonJS({
-  "node_modules/postcss/lib/rule.js"(exports2, module2) {
+  "node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/rule.js"(exports2, module2) {
     "use strict";
     var Container = require_container();
     var list = require_list();
@@ -35856,9 +35874,9 @@ var require_rule = __commonJS({
   }
 });
 
-// node_modules/postcss/lib/fromJSON.js
+// node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/fromJSON.js
 var require_fromJSON = __commonJS({
-  "node_modules/postcss/lib/fromJSON.js"(exports2, module2) {
+  "node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/fromJSON.js"(exports2, module2) {
     "use strict";
     var AtRule = require_at_rule();
     var Comment3 = require_comment();
@@ -35950,9 +35968,9 @@ var require_fromJSON = __commonJS({
   }
 });
 
-// node_modules/postcss/lib/map-generator.js
+// node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/map-generator.js
 var require_map_generator = __commonJS({
-  "node_modules/postcss/lib/map-generator.js"(exports2, module2) {
+  "node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/map-generator.js"(exports2, module2) {
     "use strict";
     var { dirname: dirname3, relative: relative2, resolve: resolve4, sep: sep2 } = require("path");
     var { SourceMapConsumer, SourceMapGenerator } = require_source_map();
@@ -36016,9 +36034,10 @@ var require_map_generator = __commonJS({
             }
           }
         } else if (this.css) {
+          let annotation = "/*# sourceMappingURL=";
           let startIndex;
-          while ((startIndex = this.css.lastIndexOf("/*#")) !== -1) {
-            let endIndex = this.css.indexOf("*/", startIndex + 3);
+          while ((startIndex = this.css.lastIndexOf(annotation)) !== -1) {
+            let endIndex = this.css.indexOf("*/", startIndex + annotation.length);
             if (endIndex === -1) break;
             while (startIndex > 0 && this.css[startIndex - 1] === "\n") {
               startIndex--;
@@ -36275,9 +36294,9 @@ var require_map_generator = __commonJS({
   }
 });
 
-// node_modules/postcss/lib/parser.js
+// node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/parser.js
 var require_parser = __commonJS({
-  "node_modules/postcss/lib/parser.js"(exports2, module2) {
+  "node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/parser.js"(exports2, module2) {
     "use strict";
     var AtRule = require_at_rule();
     var Comment3 = require_comment();
@@ -36586,7 +36605,7 @@ var require_parser = __commonJS({
             prev.raws.ownSemicolon = this.spaces;
             this.spaces = "";
             prev.source.end = this.getPosition(token2[2]);
-            prev.source.end.offset += prev.raws.ownSemicolon.length;
+            prev.source.end.offset++;
           }
         }
       }
@@ -36815,9 +36834,9 @@ var require_parser = __commonJS({
   }
 });
 
-// node_modules/postcss/lib/parse.js
+// node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/parse.js
 var require_parse = __commonJS({
-  "node_modules/postcss/lib/parse.js"(exports2, module2) {
+  "node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/parse.js"(exports2, module2) {
     "use strict";
     var Container = require_container();
     var Input = require_input();
@@ -36849,9 +36868,9 @@ var require_parse = __commonJS({
   }
 });
 
-// node_modules/postcss/lib/warning.js
+// node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/warning.js
 var require_warning = __commonJS({
-  "node_modules/postcss/lib/warning.js"(exports2, module2) {
+  "node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/warning.js"(exports2, module2) {
     "use strict";
     var Container = require_container();
     var { my } = require_symbols();
@@ -36890,9 +36909,9 @@ var require_warning = __commonJS({
   }
 });
 
-// node_modules/postcss/lib/result.js
+// node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/result.js
 var require_result = __commonJS({
-  "node_modules/postcss/lib/result.js"(exports2, module2) {
+  "node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/result.js"(exports2, module2) {
     "use strict";
     var Warning = require_warning();
     var Result = class {
@@ -36929,9 +36948,9 @@ var require_result = __commonJS({
   }
 });
 
-// node_modules/postcss/lib/warn-once.js
+// node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/warn-once.js
 var require_warn_once = __commonJS({
-  "node_modules/postcss/lib/warn-once.js"(exports2, module2) {
+  "node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/warn-once.js"(exports2, module2) {
     "use strict";
     var printed = {};
     module2.exports = function warnOnce(message) {
@@ -36944,9 +36963,9 @@ var require_warn_once = __commonJS({
   }
 });
 
-// node_modules/postcss/lib/lazy-result.js
+// node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/lazy-result.js
 var require_lazy_result = __commonJS({
-  "node_modules/postcss/lib/lazy-result.js"(exports2, module2) {
+  "node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/lazy-result.js"(exports2, module2) {
     "use strict";
     var Container = require_container();
     var Document2 = require_document();
@@ -37471,9 +37490,9 @@ var require_lazy_result = __commonJS({
   }
 });
 
-// node_modules/postcss/lib/no-work-result.js
+// node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/no-work-result.js
 var require_no_work_result = __commonJS({
-  "node_modules/postcss/lib/no-work-result.js"(exports2, module2) {
+  "node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/no-work-result.js"(exports2, module2) {
     "use strict";
     var MapGenerator = require_map_generator();
     var parse3 = require_parse();
@@ -37586,9 +37605,9 @@ var require_no_work_result = __commonJS({
   }
 });
 
-// node_modules/postcss/lib/processor.js
+// node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/processor.js
 var require_processor = __commonJS({
-  "node_modules/postcss/lib/processor.js"(exports2, module2) {
+  "node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/processor.js"(exports2, module2) {
     "use strict";
     var Document2 = require_document();
     var LazyResult = require_lazy_result();
@@ -37596,7 +37615,7 @@ var require_processor = __commonJS({
     var Root2 = require_root();
     var Processor = class {
       constructor(plugins = []) {
-        this.version = "8.5.26";
+        this.version = "8.5.28";
         this.plugins = this.normalize(plugins);
       }
       normalize(plugins) {
@@ -37644,9 +37663,9 @@ var require_processor = __commonJS({
   }
 });
 
-// node_modules/postcss/lib/postcss.js
+// node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/postcss.js
 var require_postcss = __commonJS({
-  "node_modules/postcss/lib/postcss.js"(exports2, module2) {
+  "node_modules/.bun/postcss@8.5.28/node_modules/postcss/lib/postcss.js"(exports2, module2) {
     "use strict";
     var AtRule = require_at_rule();
     var Comment3 = require_comment();
@@ -37680,7 +37699,7 @@ var require_postcss = __commonJS({
           console.warn(
             name + ": postcss.plugin was deprecated. Migration guide:\nhttps://evilmartians.com/chronicles/postcss-8-plugin-migration"
           );
-          if (process.env.LANG && process.env.LANG.startsWith("cn")) {
+          if (process.env.LANG && process.env.LANG.startsWith("zh")) {
             console.warn(
               name + ": 里面 postcss.plugin 被弃用. 迁移指南:\nhttps://www.w3ctech.com/topic/2226"
             );
@@ -37732,14 +37751,14 @@ var require_postcss = __commonJS({
   }
 });
 
-// node_modules/dayjs/dayjs.min.js
+// node_modules/.bun/dayjs@1.11.23/node_modules/dayjs/dayjs.min.js
 var require_dayjs_min = __commonJS({
-  "node_modules/dayjs/dayjs.min.js"(exports2, module2) {
+  "node_modules/.bun/dayjs@1.11.23/node_modules/dayjs/dayjs.min.js"(exports2, module2) {
     !(function(t, e) {
       "object" == typeof exports2 && "undefined" != typeof module2 ? module2.exports = e() : "function" == typeof define && define.amd ? define(e) : (t = "undefined" != typeof globalThis ? globalThis : t || self).dayjs = e();
     })(exports2, (function() {
       "use strict";
-      var t = 1e3, e = 6e4, n = 36e5, r2 = "millisecond", i = "second", s = "minute", u2 = "hour", a = "day", o = "week", c = "month", f3 = "quarter", h2 = "year", d3 = "date", l3 = "Invalid Date", $2 = /^(\d{4})[-/]?(\d{1,2})?[-/]?(\d{0,2})[Tt\s]*(\d{1,2})?:?(\d{1,2})?:?(\d{1,2})?[.:]?(\d+)?$/, y2 = /\[([^\]]+)]|YYYY|YY|M{1,4}|D{1,2}|d{1,4}|H{1,2}|h{1,2}|a|A|m{1,2}|s{1,2}|Z{1,2}|SSS/g, M2 = { name: "en", weekdays: "Sunday_Monday_Tuesday_Wednesday_Thursday_Friday_Saturday".split("_"), months: "January_February_March_April_May_June_July_August_September_October_November_December".split("_"), ordinal: function(t2) {
+      var t = 1e3, e = 6e4, n = 36e5, r2 = "millisecond", i = "second", s = "minute", u2 = "hour", a = "day", o = "week", c = "month", f3 = "quarter", h2 = "year", d2 = "date", l3 = "Invalid Date", $2 = /^(\d{4})[-/]?(\d{1,2})?[-/]?(\d{0,2})[Tt\s]*(\d{1,2})?:?(\d{1,2})?:?(\d{1,2})?[.:]?(\d+)?$/, y2 = /\[([^\]]+)]|YYYY|YY|M{1,4}|D{1,2}|d{1,4}|H{1,2}|h{1,2}|a|A|m{1,2}|s{1,2}|Z{1,2}|SSS/g, M3 = { name: "en", weekdays: "Sunday_Monday_Tuesday_Wednesday_Thursday_Friday_Saturday".split("_"), months: "January_February_March_April_May_June_July_August_September_October_November_December".split("_"), ordinal: function(t2) {
         var e2 = ["th", "st", "nd", "rd"], n2 = t2 % 100;
         return "[" + t2 + (e2[(n2 - 20) % 10] || e2[n2] || e2[0]) + "]";
       } }, m3 = function(t2, e2, n2) {
@@ -37755,11 +37774,11 @@ var require_dayjs_min = __commonJS({
       }, a: function(t2) {
         return t2 < 0 ? Math.ceil(t2) || 0 : Math.floor(t2);
       }, p: function(t2) {
-        return { M: c, y: h2, w: o, d: a, D: d3, h: u2, m: s, s: i, ms: r2, Q: f3 }[t2] || String(t2 || "").toLowerCase().replace(/s$/, "");
+        return { M: c, y: h2, w: o, d: a, D: d2, h: u2, m: s, s: i, ms: r2, Q: f3 }[t2] || String(t2 || "").toLowerCase().replace(/s$/, "");
       }, u: function(t2) {
         return void 0 === t2;
       } }, g = "en", D = {};
-      D[g] = M2;
+      D[g] = M3;
       var p2 = "$isDayjsObject", S2 = function(t2) {
         return t2 instanceof _3 || !(!t2 || !t2[p2]);
       }, w2 = function t2(e2, n2, r3) {
@@ -37775,19 +37794,19 @@ var require_dayjs_min = __commonJS({
           D[a2] = e2, i2 = a2;
         }
         return !r3 && i2 && (g = i2), i2 || !r3 && g;
-      }, O3 = function(t2, e2) {
+      }, O2 = function(t2, e2) {
         if (S2(t2)) return t2.clone();
         var n2 = "object" == typeof e2 ? e2 : {};
         return n2.date = t2, n2.args = arguments, new _3(n2);
       }, b2 = v3;
       b2.l = w2, b2.i = S2, b2.w = function(t2, e2) {
-        return O3(t2, { locale: e2.$L, utc: e2.$u, x: e2.$x, $offset: e2.$offset });
+        return O2(t2, { locale: e2.$L, utc: e2.$u, x: e2.$x, $offset: e2.$offset });
       };
       var _3 = (function() {
-        function M3(t2) {
+        function M4(t2) {
           this.$L = w2(t2.locale, null, true), this.parse(t2), this.$x = this.$x || t2.x || {}, this[p2] = true;
         }
-        var m4 = M3.prototype;
+        var m4 = M4.prototype;
         return m4.parse = function(t2) {
           this.$d = (function(t3) {
             var e2 = t3.date, n2 = t3.utc;
@@ -37811,12 +37830,12 @@ var require_dayjs_min = __commonJS({
         }, m4.isValid = function() {
           return !(this.$d.toString() === l3);
         }, m4.isSame = function(t2, e2) {
-          var n2 = O3(t2);
+          var n2 = O2(t2);
           return this.startOf(e2) <= n2 && n2 <= this.endOf(e2);
         }, m4.isAfter = function(t2, e2) {
-          return O3(t2) < this.startOf(e2);
+          return O2(t2) < this.startOf(e2);
         }, m4.isBefore = function(t2, e2) {
-          return this.endOf(e2) < O3(t2);
+          return this.endOf(e2) < O2(t2);
         }, m4.$g = function(t2, e2, n2) {
           return b2.u(t2) ? this[e2] : this.set(n2, t2);
         }, m4.unix = function() {
@@ -37829,17 +37848,17 @@ var require_dayjs_min = __commonJS({
             return r3 ? i2 : i2.endOf(a);
           }, $3 = function(t3, e3) {
             return b2.w(n2.toDate()[t3].apply(n2.toDate("s"), (r3 ? [0, 0, 0, 0] : [23, 59, 59, 999]).slice(e3)), n2);
-          }, y3 = this.$W, M4 = this.$M, m5 = this.$D, v4 = "set" + (this.$u ? "UTC" : "");
+          }, y3 = this.$W, M5 = this.$M, m5 = this.$D, v4 = "set" + (this.$u ? "UTC" : "");
           switch (f4) {
             case h2:
               return r3 ? l4(1, 0) : l4(31, 11);
             case c:
-              return r3 ? l4(1, M4) : l4(0, M4 + 1);
+              return r3 ? l4(1, M5) : l4(0, M5 + 1);
             case o:
               var g2 = this.$locale().weekStart || 0, D2 = (y3 < g2 ? y3 + 7 : y3) - g2;
-              return l4(r3 ? m5 - D2 : m5 + (6 - D2), M4);
+              return l4(r3 ? m5 - D2 : m5 + (6 - D2), M5);
             case a:
-            case d3:
+            case d2:
               return $3(v4 + "Hours", 0);
             case u2:
               return $3(v4 + "Minutes", 1);
@@ -37853,10 +37872,10 @@ var require_dayjs_min = __commonJS({
         }, m4.endOf = function(t2) {
           return this.startOf(t2, false);
         }, m4.$set = function(t2, e2) {
-          var n2, o2 = b2.p(t2), f4 = "set" + (this.$u ? "UTC" : ""), l4 = (n2 = {}, n2[a] = f4 + "Date", n2[d3] = f4 + "Date", n2[c] = f4 + "Month", n2[h2] = f4 + "FullYear", n2[u2] = f4 + "Hours", n2[s] = f4 + "Minutes", n2[i] = f4 + "Seconds", n2[r2] = f4 + "Milliseconds", n2)[o2], $3 = o2 === a ? this.$D + (e2 - this.$W) : e2;
+          var n2, o2 = b2.p(t2), f4 = "set" + (this.$u ? "UTC" : ""), l4 = (n2 = {}, n2[a] = f4 + "Date", n2[d2] = f4 + "Date", n2[c] = f4 + "Month", n2[h2] = f4 + "FullYear", n2[u2] = f4 + "Hours", n2[s] = f4 + "Minutes", n2[i] = f4 + "Seconds", n2[r2] = f4 + "Milliseconds", n2)[o2], $3 = o2 === a ? this.$D + (e2 - this.$W) : e2;
           if (o2 === c || o2 === h2) {
-            var y3 = this.clone().set(d3, 1);
-            y3.$d[l4]($3), y3.init(), this.$d = y3.set(d3, Math.min(this.$D, y3.daysInMonth())).$d;
+            var y3 = this.clone().set(d2, 1);
+            y3.$d[l4]($3), y3.init(), this.$d = y3.set(d2, Math.min(this.$D, y3.daysInMonth())).$d;
           } else l4 && this.$d[l4]($3);
           return this.init(), this;
         }, m4.set = function(t2, e2) {
@@ -37864,17 +37883,17 @@ var require_dayjs_min = __commonJS({
         }, m4.get = function(t2) {
           return this[b2.p(t2)]();
         }, m4.add = function(r3, f4) {
-          var d4, l4 = this;
+          var d3, l4 = this;
           r3 = Number(r3);
           var $3 = b2.p(f4), y3 = function(t2) {
-            var e2 = O3(l4);
+            var e2 = O2(l4);
             return b2.w(e2.date(e2.date() + Math.round(t2 * r3)), l4);
           };
           if ($3 === c) return this.set(c, this.$M + r3);
           if ($3 === h2) return this.set(h2, this.$y + r3);
           if ($3 === a) return y3(1);
           if ($3 === o) return y3(7);
-          var M4 = (d4 = {}, d4[s] = e, d4[u2] = n, d4[i] = t, d4)[$3] || 1, m5 = this.$d.getTime() + r3 * M4;
+          var M5 = (d3 = {}, d3[s] = e, d3[u2] = n, d3[i] = t, d3)[$3] || 1, m5 = this.$d.getTime() + r3 * M5;
           return b2.w(m5, this);
         }, m4.subtract = function(t2, e2) {
           return this.add(-1 * t2, e2);
@@ -37883,7 +37902,7 @@ var require_dayjs_min = __commonJS({
           if (!this.isValid()) return n2.invalidDate || l3;
           var r3 = t2 || "YYYY-MM-DDTHH:mm:ssZ", i2 = b2.z(this), s2 = this.$H, u3 = this.$m, a2 = this.$M, o2 = n2.weekdays, c2 = n2.months, f4 = n2.meridiem, h3 = function(t3, n3, i3, s3) {
             return t3 && (t3[n3] || t3(e2, r3)) || i3[n3].slice(0, s3);
-          }, d4 = function(t3) {
+          }, d3 = function(t3) {
             return b2.s(s2 % 12 || 12, t3, "0");
           }, $3 = f4 || function(t3, e3, n3) {
             var r4 = t3 < 12 ? "AM" : "PM";
@@ -37921,9 +37940,9 @@ var require_dayjs_min = __commonJS({
                 case "HH":
                   return b2.s(s2, 2, "0");
                 case "h":
-                  return d4(1);
+                  return d3(1);
                 case "hh":
-                  return d4(2);
+                  return d3(2);
                 case "a":
                   return $3(s2, u3, true);
                 case "A":
@@ -37946,11 +37965,11 @@ var require_dayjs_min = __commonJS({
           }));
         }, m4.utcOffset = function() {
           return 15 * -Math.round(this.$d.getTimezoneOffset() / 15);
-        }, m4.diff = function(r3, d4, l4) {
-          var $3, y3 = this, M4 = b2.p(d4), m5 = O3(r3), v4 = (m5.utcOffset() - this.utcOffset()) * e, g2 = this - m5, D2 = function() {
+        }, m4.diff = function(r3, d3, l4) {
+          var $3, y3 = this, M5 = b2.p(d3), m5 = O2(r3), v4 = (m5.utcOffset() - this.utcOffset()) * e, g2 = this - m5, D2 = function() {
             return b2.m(y3, m5);
           };
-          switch (M4) {
+          switch (M5) {
             case h2:
               $3 = D2() / 12;
               break;
@@ -37997,24 +38016,24 @@ var require_dayjs_min = __commonJS({
           return this.$d.toISOString();
         }, m4.toString = function() {
           return this.$d.toUTCString();
-        }, M3;
+        }, M4;
       })(), Y3 = _3.prototype;
-      return O3.prototype = Y3, [["$ms", r2], ["$s", i], ["$m", s], ["$H", u2], ["$W", a], ["$M", c], ["$y", h2], ["$D", d3]].forEach((function(t2) {
+      return O2.prototype = Y3, [["$ms", r2], ["$s", i], ["$m", s], ["$H", u2], ["$W", a], ["$M", c], ["$y", h2], ["$D", d2]].forEach((function(t2) {
         Y3[t2[1]] = function(e2) {
           return this.$g(e2, t2[0], t2[1]);
         };
-      })), O3.extend = function(t2, e2) {
-        return t2.$i || (t2(e2, _3, O3), t2.$i = true), O3;
-      }, O3.locale = w2, O3.isDayjs = S2, O3.unix = function(t2) {
-        return O3(1e3 * t2);
-      }, O3.en = D[g], O3.Ls = D, O3.p = {}, O3;
+      })), O2.extend = function(t2, e2) {
+        return t2.$i || (t2(e2, _3, O2), t2.$i = true), O2;
+      }, O2.locale = w2, O2.isDayjs = S2, O2.unix = function(t2) {
+        return O2(1e3 * t2);
+      }, O2.en = D[g], O2.Ls = D, O2.p = {}, O2;
     }));
   }
 });
 
-// node_modules/launder/index.js
+// node_modules/.bun/launder@1.7.1/node_modules/launder/index.js
 var require_launder = __commonJS({
-  "node_modules/launder/index.js"(exports2, module2) {
+  "node_modules/.bun/launder@1.7.1/node_modules/launder/index.js"(exports2, module2) {
     var dayjs = require_dayjs_min();
     function cleanHref(href) {
       href = href.replace(/[\x00-\x20]+/g, "");
@@ -38273,11 +38292,11 @@ var require_launder = __commonJS({
               return (now || /* @__PURE__ */ new Date()).getFullYear() + "-" + self2.padInteger(components[0], 2) + "-" + self2.padInteger(components[1], 2);
             } else if (components.length === 3) {
               if (components[2] < 100) {
-                const d3 = now || /* @__PURE__ */ new Date();
-                const nowYear = d3.getFullYear() % 100;
-                const nowCentury = d3.getFullYear() - nowYear;
+                const d2 = now || /* @__PURE__ */ new Date();
+                const nowYear = d2.getFullYear() % 100;
+                const nowCentury = d2.getFullYear() - nowYear;
                 let theirYear = parseInt(components[2]) + nowCentury;
-                if (theirYear - d3.getFullYear() > 50) {
+                if (theirYear - d2.getFullYear() > 50) {
                   theirYear -= 100;
                 }
                 components[2] = theirYear;
@@ -38381,9 +38400,9 @@ var require_launder = __commonJS({
   }
 });
 
-// node_modules/sanitize-html/index.js
+// node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/index.js
 var require_sanitize_html = __commonJS({
-  "node_modules/sanitize-html/index.js"(exports2, module2) {
+  "node_modules/.bun/sanitize-html@2.17.7/node_modules/sanitize-html/index.js"(exports2, module2) {
     var htmlparser = (init_dist6(), __toCommonJS(dist_exports3));
     var escapeStringRegexp = require_escape_string_regexp();
     var { isPlainObject: isPlainObject3 } = require_is_plain_object();
@@ -39417,10 +39436,10 @@ and ensure you are accounting for this risk.
   }
 });
 
-// node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
 var import_node_process = __toESM(require("node:process"), 1);
 
-// node_modules/@modelcontextprotocol/sdk/dist/esm/types.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js
 init_v4();
 var LATEST_PROTOCOL_VERSION = "2025-11-25";
 var SUPPORTED_PROTOCOL_VERSIONS = [LATEST_PROTOCOL_VERSION, "2025-06-18", "2025-03-26", "2024-11-05", "2024-10-07"];
@@ -40952,7 +40971,7 @@ var UrlElicitationRequiredError = class extends McpError {
   }
 };
 
-// node_modules/@modelcontextprotocol/sdk/dist/esm/shared/stdio.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/stdio.js
 var STDIO_DEFAULT_MAX_BUFFER_SIZE = 10 * 1024 * 1024;
 var ReadBuffer = class {
   constructor(options) {
@@ -40989,7 +41008,7 @@ function serializeMessage(message) {
   return JSON.stringify(message) + "\n";
 }
 
-// node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
 var StdioServerTransport = class {
   constructor(_stdin = import_node_process.default.stdin, _stdout = import_node_process.default.stdout, options) {
     this._stdin = _stdin;
@@ -41939,10 +41958,10 @@ var util;
     return obj;
   };
   util2.getValidEnumValues = (obj) => {
-    const validKeys = util2.objectKeys(obj).filter((k2) => typeof obj[obj[k2]] !== "number");
+    const validKeys = util2.objectKeys(obj).filter((k3) => typeof obj[obj[k3]] !== "number");
     const filtered = {};
-    for (const k2 of validKeys) {
-      filtered[k2] = obj[k2];
+    for (const k3 of validKeys) {
+      filtered[k3] = obj[k3];
     }
     return util2.objectValues(filtered);
   };
@@ -45853,7 +45872,7 @@ function object2(shape, params) {
 init_json_schema_processors();
 init_locales();
 
-// node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-compat.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-compat.js
 function isZ4Schema(s) {
   const schema = s;
   return !!schema._zod;
@@ -46013,12 +46032,12 @@ function getLiteralValue(schema) {
   return void 0;
 }
 
-// node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/interfaces.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/interfaces.js
 function isTerminal(status) {
   return status === "completed" || status === "failed" || status === "cancelled";
 }
 
-// node_modules/zod-to-json-schema/dist/esm/Options.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/Options.js
 var ignoreOverride = /* @__PURE__ */ Symbol("Let zodToJsonSchema decide on which parser to use");
 var defaultOptions = {
   name: void 0,
@@ -46052,7 +46071,7 @@ var getDefaultOptions = (options) => typeof options === "string" ? {
   ...options
 };
 
-// node_modules/zod-to-json-schema/dist/esm/Refs.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/Refs.js
 var getRefs = (options) => {
   const _options = getDefaultOptions(options);
   const currentPath = _options.name !== void 0 ? [..._options.basePath, _options.definitionPath, _options.name] : _options.basePath;
@@ -46073,7 +46092,7 @@ var getRefs = (options) => {
   };
 };
 
-// node_modules/zod-to-json-schema/dist/esm/errorMessages.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/errorMessages.js
 function addErrorMessage(res, key, errorMessage2, refs) {
   if (!refs?.errorMessages)
     return;
@@ -46089,7 +46108,7 @@ function setResponseValueAndErrors(res, key, value, errorMessage2, refs) {
   addErrorMessage(res, key, errorMessage2, refs);
 }
 
-// node_modules/zod-to-json-schema/dist/esm/getRelativePath.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/getRelativePath.js
 var getRelativePath = (pathA, pathB) => {
   let i = 0;
   for (; i < pathA.length && i < pathB.length; i++) {
@@ -46099,7 +46118,7 @@ var getRelativePath = (pathA, pathB) => {
   return [(pathA.length - i).toString(), ...pathB.slice(i)].join("/");
 };
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/any.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/any.js
 function parseAnyDef(refs) {
   if (refs.target !== "openAi") {
     return {};
@@ -46115,7 +46134,7 @@ function parseAnyDef(refs) {
   };
 }
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/array.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/array.js
 function parseArrayDef(def, refs) {
   const res = {
     type: "array"
@@ -46139,7 +46158,7 @@ function parseArrayDef(def, refs) {
   return res;
 }
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/bigint.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/bigint.js
 function parseBigintDef(def, refs) {
   const res = {
     type: "integer",
@@ -46185,24 +46204,24 @@ function parseBigintDef(def, refs) {
   return res;
 }
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/boolean.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/boolean.js
 function parseBooleanDef() {
   return {
     type: "boolean"
   };
 }
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/branded.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/branded.js
 function parseBrandedDef(_def, refs) {
   return parseDef(_def.type._def, refs);
 }
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/catch.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/catch.js
 var parseCatchDef = (def, refs) => {
   return parseDef(def.innerType._def, refs);
 };
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/date.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/date.js
 function parseDateDef(def, refs, overrideDateStrategy) {
   const strategy = overrideDateStrategy ?? refs.dateStrategy;
   if (Array.isArray(strategy)) {
@@ -46261,7 +46280,7 @@ var integerDateParser = (def, refs) => {
   return res;
 };
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/default.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/default.js
 function parseDefaultDef(_def, refs) {
   return {
     ...parseDef(_def.innerType._def, refs),
@@ -46269,12 +46288,12 @@ function parseDefaultDef(_def, refs) {
   };
 }
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/effects.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/effects.js
 function parseEffectsDef(_def, refs) {
   return refs.effectStrategy === "input" ? parseDef(_def.schema._def, refs) : parseAnyDef(refs);
 }
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/enum.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/enum.js
 function parseEnumDef(def) {
   return {
     type: "string",
@@ -46282,7 +46301,7 @@ function parseEnumDef(def) {
   };
 }
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/intersection.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/intersection.js
 var isJsonSchema7AllOfType = (type) => {
   if ("type" in type && type.type === "string")
     return false;
@@ -46324,7 +46343,7 @@ function parseIntersectionDef(def, refs) {
   } : void 0;
 }
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/literal.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/literal.js
 function parseLiteralDef(def, refs) {
   const parsedType2 = typeof def.value;
   if (parsedType2 !== "bigint" && parsedType2 !== "number" && parsedType2 !== "boolean" && parsedType2 !== "string") {
@@ -46344,7 +46363,7 @@ function parseLiteralDef(def, refs) {
   };
 }
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/string.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/string.js
 var emojiRegex2 = void 0;
 var zodPatterns = {
   /**
@@ -46669,7 +46688,7 @@ function stringifyRegExpWithFlags(regex, refs) {
   return pattern;
 }
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/record.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/record.js
 function parseRecordDef(def, refs) {
   if (refs.target === "openAi") {
     console.warn("Warning: OpenAI may not support records in schemas! Try an array of key-value pairs instead.");
@@ -46721,7 +46740,7 @@ function parseRecordDef(def, refs) {
   return schema;
 }
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/map.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/map.js
 function parseMapDef(def, refs) {
   if (refs.mapStrategy === "record") {
     return parseRecordDef(def, refs);
@@ -46746,7 +46765,7 @@ function parseMapDef(def, refs) {
   };
 }
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/nativeEnum.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/nativeEnum.js
 function parseNativeEnumDef(def) {
   const object3 = def.values;
   const actualKeys = Object.keys(def.values).filter((key) => {
@@ -46760,7 +46779,7 @@ function parseNativeEnumDef(def) {
   };
 }
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/never.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/never.js
 function parseNeverDef(refs) {
   return refs.target === "openAi" ? void 0 : {
     not: parseAnyDef({
@@ -46770,7 +46789,7 @@ function parseNeverDef(refs) {
   };
 }
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/null.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/null.js
 function parseNullDef(refs) {
   return refs.target === "openApi3" ? {
     enum: ["null"],
@@ -46780,7 +46799,7 @@ function parseNullDef(refs) {
   };
 }
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/union.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/union.js
 var primitiveMappings = {
   ZodString: "string",
   ZodNumber: "number",
@@ -46848,7 +46867,7 @@ var asAnyOf = (def, refs) => {
   return anyOf.length ? { anyOf } : void 0;
 };
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/nullable.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/nullable.js
 function parseNullableDef(def, refs) {
   if (["ZodString", "ZodNumber", "ZodBigInt", "ZodBoolean", "ZodNull"].includes(def.innerType._def.typeName) && (!def.innerType._def.checks || !def.innerType._def.checks.length)) {
     if (refs.target === "openApi3") {
@@ -46880,7 +46899,7 @@ function parseNullableDef(def, refs) {
   return base && { anyOf: [base, { type: "null" }] };
 }
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/number.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/number.js
 function parseNumberDef(def, refs) {
   const res = {
     type: "number"
@@ -46929,7 +46948,7 @@ function parseNumberDef(def, refs) {
   return res;
 }
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/object.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/object.js
 function parseObjectDef(def, refs) {
   const forceOptionalIntoNullable = refs.target === "openAi";
   const result = {
@@ -46999,7 +47018,7 @@ function safeIsOptional(schema) {
   }
 }
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/optional.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/optional.js
 var parseOptionalDef = (def, refs) => {
   if (refs.currentPath.toString() === refs.propertyPath?.toString()) {
     return parseDef(def.innerType._def, refs);
@@ -47018,7 +47037,7 @@ var parseOptionalDef = (def, refs) => {
   } : parseAnyDef(refs);
 };
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/pipeline.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/pipeline.js
 var parsePipelineDef = (def, refs) => {
   if (refs.pipeStrategy === "input") {
     return parseDef(def.in._def, refs);
@@ -47038,12 +47057,12 @@ var parsePipelineDef = (def, refs) => {
   };
 };
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/promise.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/promise.js
 function parsePromiseDef(def, refs) {
   return parseDef(def.type._def, refs);
 }
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/set.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/set.js
 function parseSetDef(def, refs) {
   const items = parseDef(def.valueType._def, {
     ...refs,
@@ -47063,7 +47082,7 @@ function parseSetDef(def, refs) {
   return schema;
 }
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/tuple.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/tuple.js
 function parseTupleDef(def, refs) {
   if (def.rest) {
     return {
@@ -47091,24 +47110,24 @@ function parseTupleDef(def, refs) {
   }
 }
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/undefined.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/undefined.js
 function parseUndefinedDef(refs) {
   return {
     not: parseAnyDef(refs)
   };
 }
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/unknown.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/unknown.js
 function parseUnknownDef(refs) {
   return parseAnyDef(refs);
 }
 
-// node_modules/zod-to-json-schema/dist/esm/parsers/readonly.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parsers/readonly.js
 var parseReadonlyDef = (def, refs) => {
   return parseDef(def.innerType._def, refs);
 };
 
-// node_modules/zod-to-json-schema/dist/esm/selectParser.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/selectParser.js
 var selectParser = (def, typeName, refs) => {
   switch (typeName) {
     case ZodFirstPartyTypeKind2.ZodString:
@@ -47184,7 +47203,7 @@ var selectParser = (def, typeName, refs) => {
   }
 };
 
-// node_modules/zod-to-json-schema/dist/esm/parseDef.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/parseDef.js
 function parseDef(def, refs, forceResolution = false) {
   const seenItem = refs.seen.get(def);
   if (refs.override) {
@@ -47240,7 +47259,7 @@ var addMeta = (def, refs, jsonSchema) => {
   return jsonSchema;
 };
 
-// node_modules/zod-to-json-schema/dist/esm/zodToJsonSchema.js
+// node_modules/.bun/zod-to-json-schema@3.25.2+ab3ed8e9421bfd7b/node_modules/zod-to-json-schema/dist/esm/zodToJsonSchema.js
 var zodToJsonSchema = (schema, options) => {
   const refs = getRefs(options);
   let definitions = typeof options === "object" && options.definitions ? Object.entries(options.definitions).reduce((acc, [name2, schema2]) => ({
@@ -47302,7 +47321,7 @@ var zodToJsonSchema = (schema, options) => {
   return combined;
 };
 
-// node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-json-schema-compat.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-json-schema-compat.js
 function mapMiniTarget(t) {
   if (!t)
     return "draft-7";
@@ -47344,7 +47363,7 @@ function parseWithCompat(schema, data) {
   return result.data;
 }
 
-// node_modules/@modelcontextprotocol/sdk/dist/esm/shared/protocol.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/protocol.js
 var DEFAULT_REQUEST_TIMEOUT_MSEC = 6e4;
 var Protocol = class {
   constructor(_options) {
@@ -48284,21 +48303,21 @@ function isPlainObject2(value) {
 function mergeCapabilities(base, additional) {
   const result = { ...base };
   for (const key in additional) {
-    const k2 = key;
-    const addValue = additional[k2];
+    const k3 = key;
+    const addValue = additional[k3];
     if (addValue === void 0)
       continue;
-    const baseValue = result[k2];
+    const baseValue = result[k3];
     if (isPlainObject2(baseValue) && isPlainObject2(addValue)) {
-      result[k2] = { ...baseValue, ...addValue };
+      result[k3] = { ...baseValue, ...addValue };
     } else {
-      result[k2] = addValue;
+      result[k3] = addValue;
     }
   }
   return result;
 }
 
-// node_modules/@modelcontextprotocol/ext-apps/dist/src/server/index.js
+// node_modules/.bun/@modelcontextprotocol+ext-apps@1.7.5+39990eba01f13ebc/node_modules/@modelcontextprotocol/ext-apps/dist/src/server/index.js
 init_v4();
 var r = ((Z2) => typeof require < "u" ? require : typeof Proxy < "u" ? new Proxy(Z2, { get: ($2, J2) => (typeof require < "u" ? require : $2)[J2] }) : Z2)(function(Z2) {
   if (typeof require < "u") return require.apply(this, arguments);
@@ -48746,7 +48765,7 @@ function registerFlowZoneAppTools(server2, registry2) {
   }
 }
 
-// node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js
 var import_ajv = __toESM(require_ajv(), 1);
 var import_ajv_formats = __toESM(require_dist(), 1);
 function createDefaultAjvInstance() {
@@ -48814,7 +48833,7 @@ var AjvJsonSchemaValidator = class {
   }
 };
 
-// node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/server.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/server.js
 var ExperimentalServerTasks = class {
   constructor(_server) {
     this._server = _server;
@@ -49027,7 +49046,7 @@ var ExperimentalServerTasks = class {
   }
 };
 
-// node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/helpers.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/helpers.js
 function assertToolsCallTaskCapability(requests, method, entityName) {
   if (!requests) {
     throw new Error(`${entityName} does not support task creation (required for ${method})`);
@@ -49062,7 +49081,7 @@ function assertClientRequestTaskCapability(requests, method, entityName) {
   }
 }
 
-// node_modules/@modelcontextprotocol/sdk/dist/esm/server/index.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/dist/esm/server/index.js
 var Server = class extends Protocol {
   /**
    * Initializes this server with the given name and version information.
@@ -49433,7 +49452,7 @@ var Server = class extends Protocol {
   }
 };
 
-// node_modules/@modelcontextprotocol/sdk/dist/esm/server/completable.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/dist/esm/server/completable.js
 var COMPLETABLE_SYMBOL = /* @__PURE__ */ Symbol.for("mcp.completable");
 function isCompletable(schema) {
   return !!schema && typeof schema === "object" && COMPLETABLE_SYMBOL in schema;
@@ -49447,7 +49466,7 @@ var McpZodTypeKind;
   McpZodTypeKind2["Completable"] = "McpCompletable";
 })(McpZodTypeKind || (McpZodTypeKind = {}));
 
-// node_modules/@modelcontextprotocol/sdk/dist/esm/shared/toolNameValidation.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/toolNameValidation.js
 var TOOL_NAME_REGEX = /^[A-Za-z0-9._-]{1,128}$/;
 function validateToolName(name) {
   const warnings = [];
@@ -49505,7 +49524,7 @@ function validateAndWarnToolName(name) {
   return result.isValid;
 }
 
-// node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/mcp-server.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/mcp-server.js
 var ExperimentalMcpServerTasks = class {
   constructor(_mcpServer) {
     this._mcpServer = _mcpServer;
@@ -49520,7 +49539,7 @@ var ExperimentalMcpServerTasks = class {
   }
 };
 
-// node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js
+// node_modules/.bun/@modelcontextprotocol+sdk@1.30.0+759ce506b1ed1a42/node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js
 var McpServer = class {
   constructor(serverInfo, options) {
     this._registeredResources = {};
@@ -51064,111 +51083,111 @@ var DefaultMarkdownPathPolicy = class {
 // packages/markdown-node/src/render.ts
 var import_node_crypto2 = require("node:crypto");
 
-// node_modules/marked/lib/marked.esm.js
-function C2() {
+// node_modules/.bun/marked@18.0.11/node_modules/marked/lib/marked.esm.js
+function A2() {
   return { async: false, breaks: false, extensions: null, gfm: true, hooks: null, pedantic: false, renderer: null, silent: false, tokenizer: null, walkTokens: null };
 }
-var R2 = C2();
+var R2 = A2();
 function j2(l3) {
   R2 = l3;
 }
 var z2 = { exec: () => null };
-function A2(l3) {
+function I2(l3) {
   let e = [];
   return (t) => {
     let n = Math.max(0, Math.min(3, t - 1)), s = e[n];
     return s || (s = l3(n), e[n] = s), s;
   };
 }
-function d2(l3, e = "") {
+function k2(l3, e = "") {
   let t = typeof l3 == "string" ? l3 : l3.source, n = { replace: (s, r2) => {
     let i = typeof r2 == "string" ? r2 : r2.source;
     return i = i.replace(m2.caret, "$1"), t = t.replace(s, i), n;
   }, getRegex: () => new RegExp(t, e) };
   return n;
 }
-var Te = ((l3 = "") => {
+var Oe = ((l3 = "") => {
   try {
     return !!new RegExp("(?<=1)(?<!1)" + l3);
   } catch {
     return false;
   }
 })();
-var m2 = { codeRemoveIndent: /^(?: {1,4}| {0,3}\t)/gm, outputLinkReplace: /\\([\[\]])/g, indentCodeCompensation: /^(\s+)(?:```)/, beginningSpace: /^\s+/, endingHash: /#$/, startingSpaceChar: /^ /, endingSpaceChar: / $/, nonSpaceChar: /[^ ]/, newLineCharGlobal: /\n/g, tabCharGlobal: /\t/g, multipleSpaceGlobal: /\s+/g, blankLine: /^[ \t]*$/, doubleBlankLine: /\n[ \t]*\n[ \t]*$/, blockquoteStart: /^ {0,3}>/, blockquoteSetextReplace: /\n {0,3}((?:=+|-+) *)(?=\n|$)/g, blockquoteSetextReplace2: /^ {0,3}>[ \t]?/gm, listReplaceNesting: /^ {1,4}(?=( {4})*[^ ])/g, listIsTask: /^\[[ xX]\] +\S/, listReplaceTask: /^\[[ xX]\] +/, listTaskCheckbox: /\[[ xX]\]/, anyLine: /\n.*\n/, hrefBrackets: /^<(.*)>$/, tableDelimiter: /[:|]/, tableAlignChars: /^\||\| *$/g, tableRowBlankLine: /\n[ \t]*$/, tableAlignRight: /^ *-+: *$/, tableAlignCenter: /^ *:-+: *$/, tableAlignLeft: /^ *:-+ *$/, startATag: /^<a /i, endATag: /^<\/a>/i, startPreScriptTag: /^<(pre|code|kbd|script)(\s|>)/i, endPreScriptTag: /^<\/(pre|code|kbd|script)(\s|>)/i, startAngleBracket: /^</, endAngleBracket: />$/, pedanticHrefTitle: /^([^'"]*[^\s])\s+(['"])(.*)\2/, unicodeAlphaNumeric: /[\p{L}\p{N}]/u, escapeTest: /[&<>"']/, escapeReplace: /[&<>"']/g, escapeTestNoEncode: /[<>"']|&(?!(#\d{1,7}|#[Xx][a-fA-F0-9]{1,6}|\w+);)/, escapeReplaceNoEncode: /[<>"']|&(?!(#\d{1,7}|#[Xx][a-fA-F0-9]{1,6}|\w+);)/g, caret: /(^|[^\[])\^/g, percentDecode: /%25/g, findPipe: /\|/g, splitPipe: / \|/, slashPipe: /\\\|/g, carriageReturn: /\r\n|\r/g, spaceLine: /^ +$/gm, notSpaceStart: /^\S*/, endingNewline: /\n$/, listItemRegex: (l3) => new RegExp(`^( {0,3}${l3})((?:[	 ][^\\n]*)?(?:\\n|$))`), nextBulletRegex: A2((l3) => new RegExp(`^ {0,${l3}}(?:[*+-]|\\d{1,9}[.)])((?:[ 	][^\\n]*)?(?:\\n|$))`)), hrRegex: A2((l3) => new RegExp(`^ {0,${l3}}((?:- *){3,}|(?:_ *){3,}|(?:\\* *){3,})(?:\\n+|$)`)), fencesBeginRegex: A2((l3) => new RegExp(`^ {0,${l3}}(?:\`\`\`|~~~)`)), headingBeginRegex: A2((l3) => new RegExp(`^ {0,${l3}}#`)), htmlBeginRegex: A2((l3) => new RegExp(`^ {0,${l3}}<(?:[a-z].*>|!--)`, "i")), blockquoteBeginRegex: A2((l3) => new RegExp(`^ {0,${l3}}>`)) };
-var Oe = /^(?:[ \t]*(?:\n|$))+/;
+var m2 = { codeRemoveIndent: /^(?: {1,4}| {0,3}\t)/gm, outputLinkReplace: /\\([\[\]])/g, indentCodeCompensation: /^(\s+)(?:```)/, beginningSpace: /^\s+/, endingHash: /#$/, startingSpaceChar: /^ /, endingSpaceChar: / $/, nonSpaceChar: /[^ ]/, newLineCharGlobal: /\n/g, tabCharGlobal: /\t/g, multipleSpaceGlobal: /\s+/g, blankLine: /^[ \t]*$/, doubleBlankLine: /\n[ \t]*\n[ \t]*$/, blockquoteStart: /^ {0,3}>/, blockquoteSetextReplace: /\n {0,3}((?:=+|-+) *)(?=\n|$)/g, blockquoteSetextReplace2: /^ {0,3}>[ \t]?/gm, listReplaceNesting: /^ {1,4}(?=( {4})*[^ ])/g, listIsTask: /^\[[ xX]\] +\S/, listReplaceTask: /^\[[ xX]\] +/, listTaskCheckbox: /\[[ xX]\]/, anyLine: /\n.*\n/, hrefBrackets: /^<(.*)>$/, tableDelimiter: /[:|]/, tableAlignChars: /^\||\| *$/g, tableRowBlankLine: /\n[ \t]*$/, tableAlignRight: /^ *-+: *$/, tableAlignCenter: /^ *:-+: *$/, tableAlignLeft: /^ *:-+ *$/, startATag: /^<a /i, endATag: /^<\/a>/i, startPreScriptTag: /^<(pre|code|kbd|script)(\s|>)/i, endPreScriptTag: /^<\/(pre|code|kbd|script)(\s|>)/i, startAngleBracket: /^</, endAngleBracket: />$/, pedanticHrefTitle: /^([^'"]*[^\s])\s+(['"])(.*)\2/, unicodeAlphaNumeric: /[\p{L}\p{N}]/u, escapeTest: /[&<>"']/, escapeReplace: /[&<>"']/g, escapeTestNoEncode: /[<>"']|&(?!(#\d{1,7}|#[Xx][a-fA-F0-9]{1,6}|\w+);)/, escapeReplaceNoEncode: /[<>"']|&(?!(#\d{1,7}|#[Xx][a-fA-F0-9]{1,6}|\w+);)/g, caret: /(^|[^\[])\^/g, percentDecode: /%25/g, findPipe: /\|/g, splitPipe: / \|/, slashPipe: /\\\|/g, carriageReturn: /\r\n|\r/g, spaceLine: /^ +$/gm, notSpaceStart: /^\S*/, endingNewline: /\n$/, listItemRegex: (l3) => new RegExp(`^( {0,3}${l3})((?:[	 ][^\\n]*)?(?:\\n|$))`), nextBulletRegex: I2((l3) => new RegExp(`^ {0,${l3}}(?:[*+-]|\\d{1,9}[.)])((?:[ 	][^\\n]*)?(?:\\n|$))`)), hrRegex: I2((l3) => new RegExp(`^ {0,${l3}}((?:- *){3,}|(?:_ *){3,}|(?:\\* *){3,})(?:\\n+|$)`)), fencesBeginRegex: I2((l3) => new RegExp(`^ {0,${l3}}(?:\`\`\`|~~~)`)), headingBeginRegex: I2((l3) => new RegExp(`^ {0,${l3}}#`)), htmlBeginRegex: I2((l3) => new RegExp(`^ {0,${l3}}<(?:[a-z].*>|!--)`, "i")), blockquoteBeginRegex: I2((l3) => new RegExp(`^ {0,${l3}}>`)) };
+var Te = /^(?:[ \t]*(?:\n|$))+/;
 var we = /^((?: {4}| {0,3}\t)[^\n]+(?:\n(?:[ \t]*(?:\n|$))*)?)+/;
 var ye = /^ {0,3}(`{3,}(?=[^`\n]*(?:\n|$))|~{3,})([^\n]*)(?:\n|$)(?:|([\s\S]*?)(?:\n|$))(?: {0,3}\1[~`]* *(?=\n|$)|$)/;
 var q = /^ {0,3}((?:-[\t ]*){3,}|(?:_[ \t]*){3,}|(?:\*[ \t]*){3,})(?:\n+|$)/;
 var Pe = /^ {0,3}(#{1,6})(?=\s|$)(.*)(?:\n+|$)/;
 var U2 = / {0,3}(?:[*+-]|\d{1,9}[.)])/;
 var oe = /^(?!bull |blockCode|fences|blockquote|heading|html|table)((?:.|\n(?!\s*?\n|bull |blockCode|fences|blockquote|heading|html|table))+?)\n {0,3}(=+|-+) *(?:\n+|$)/;
-var ae = d2(oe).replace(/bull/g, U2).replace(/blockCode/g, /(?: {4}| {0,3}\t)/).replace(/fences/g, / {0,3}(?:`{3,}|~{3,})/).replace(/blockquote/g, / {0,3}>/).replace(/heading/g, / {0,3}#{1,6}(?:\s|$)/).replace(/html/g, / {0,3}<[^\n>]+>\n/).replace(/\|table/g, "").getRegex();
-var Se = d2(oe).replace(/bull/g, U2).replace(/blockCode/g, /(?: {4}| {0,3}\t)/).replace(/fences/g, / {0,3}(?:`{3,}|~{3,})/).replace(/blockquote/g, / {0,3}>/).replace(/heading/g, / {0,3}#{1,6}(?:\s|$)/).replace(/html/g, / {0,3}<[^\n>]+>\n/).replace(/table/g, / {0,3}\|?(?:[:\- ]*\|)+[\:\- ]*\n/).getRegex();
+var ae = k2(oe).replace(/bull/g, U2).replace(/blockCode/g, /(?: {4}| {0,3}\t)/).replace(/fences/g, / {0,3}(?:`{3,}|~{3,})/).replace(/blockquote/g, / {0,3}>/).replace(/heading/g, / {0,3}#{1,6}(?:\s|$)/).replace(/html/g, / {0,3}<[^\n>]+>\n/).replace(/\|table/g, "").getRegex();
+var Se = k2(oe).replace(/bull/g, U2).replace(/blockCode/g, /(?: {4}| {0,3}\t)/).replace(/fences/g, / {0,3}(?:`{3,}|~{3,})/).replace(/blockquote/g, / {0,3}>/).replace(/heading/g, / {0,3}#{1,6}(?:\s|$)/).replace(/html/g, / {0,3}<[^\n>]+>\n/).replace(/table/g, / {0,3}\|?(?:[:\- ]*\|)+[\:\- ]*\n/).getRegex();
 var K2 = /^([^\n]+(?:\n(?!hr|heading|lheading|blockquote|fences|list|html|table|[ \t]+\n)[^\n]+)*)/;
 var _e = /^[^\n]+/;
 var W = /(?!\s*\])(?:\\[\s\S]|[^\[\]\\])+/;
-var $e = d2(/^ {0,3}\[(label)\]: *(?:\n[ \t]*)?([^<\s][^\s]*|<.*?>)(?:(?: +(?:\n[ \t]*)?| *\n[ \t]*)(title))? *(?:\n+|$)/).replace("label", W).replace("title", /(?:"(?:\\"?|[^"\\])*"|'[^'\n]*(?:\n[^'\n]+)*\n?'|\([^()]*\))/).getRegex();
-var Le = d2(/^(bull)([ \t][^\n]*?)?(?:\n|$)/).replace(/bull/g, U2).getRegex();
+var $e = k2(/^ {0,3}\[(label)\]: *(?:\n[ \t]*)?([^<\s][^\s]*|<.*?>)(?:(?: +(?:\n[ \t]*)?| *\n[ \t]*)(title))? *(?:\n+|$)/).replace("label", W).replace("title", /(?:"(?:\\"?|[^"\\])*"|'[^'\n]*(?:\n[^'\n]+)*\n?'|\([^()]*\))/).getRegex();
+var Le = k2(/^(bull)([ \t][^\n]*?)?(?:\n|$)/).replace(/bull/g, U2).getRegex();
 var Q = "address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|meta|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul";
 var X = /<!--(?:-?>|[\s\S]*?(?:-->|$))/;
-var Me = d2("^ {0,3}(?:<(script|pre|style|textarea)[\\s>][\\s\\S]*?(?:</\\1>[^\\n]*\\n*|$)|comment[^\\n]*(\\n+|$)|<\\?[\\s\\S]*?(?:\\?>[^\\n]*\\n*|$)|<![A-Z][\\s\\S]*?(?:>[^\\n]*\\n*|$)|<!\\[CDATA\\[[\\s\\S]*?(?:\\]\\]>[^\\n]*\\n*|$)|</?(tag)(?: +|\\n|/?>)[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$)|<(?!script|pre|style|textarea)([a-z][\\w-]*)(?:attribute)*? */?>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$)|</(?!script|pre|style|textarea)[a-z][\\w-]*\\s*>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$))", "i").replace("comment", X).replace("tag", Q).replace("attribute", / +[a-zA-Z:_][\w.:-]*(?: *= *"[^"\n]*"| *= *'[^'\n]*'| *= *[^\s"'=<>`]+)?/).getRegex();
-var le = (l3) => d2(K2).replace("hr", q).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("|lheading", "").replace("|table", "").replace("blockquote", " {0,3}>").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*(?:\\n|$))|~~~)[^\\n]*(?:\\n|$)").replace("list", l3).replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Q).getRegex();
+var Ee = k2("^ {0,3}(?:<(script|pre|style|textarea)[\\s>][\\s\\S]*?(?:</\\1>[^\\n]*\\n*|$)|comment[^\\n]*(\\n+|$)|<\\?[\\s\\S]*?(?:\\?>[^\\n]*\\n*|$)|<![A-Z][\\s\\S]*?(?:>[^\\n]*\\n*|$)|<!\\[CDATA\\[[\\s\\S]*?(?:\\]\\]>[^\\n]*\\n*|$)|</?(tag)(?: +|\\n|/?>)[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$)|<(?!script|pre|style|textarea)([a-z][\\w-]*)(?:attribute)*? */?>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$)|</(?!script|pre|style|textarea)[a-z][\\w-]*\\s*>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$))", "i").replace("comment", X).replace("tag", Q).replace("attribute", / +[a-zA-Z:_][\w.:-]*(?: *= *"[^"\n]*"| *= *'[^'\n]*'| *= *[^\s"'=<>`]+)?/).getRegex();
+var le = (l3) => k2(K2).replace("hr", q).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("|lheading", "").replace("|table", "").replace("blockquote", " {0,3}>").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*(?:\\n|$))|~~~)[^\\n]*(?:\\n|$)").replace("list", l3).replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Q).getRegex();
 var ze = le(/ {0,3}(?:[*+-]|1[.)])[ \t]+[^ \t\n]/);
-var Ee = le(/ {0,3}(?:[*+-]|\d{1,9}[.)])(?:[ \t]|\n|$)/);
-var Ce = d2(/^( {0,3}> ?(paragraph|[^\n]*)(?:\n|$))+/).replace("paragraph", Ee).getRegex();
-var J = { blockquote: Ce, code: we, def: $e, fences: ye, heading: Pe, hr: q, html: Me, lheading: ae, list: Le, newline: Oe, paragraph: ze, table: z2, text: _e };
-var se = d2("^ *([^\\n ].*)\\n {0,3}((?:\\| *)?:?-+:? *(?:\\| *:?-+:? *)*(?:\\| *)?)(?:\\n((?:(?! *\\n|hr|heading|blockquote|code|fences|list|html).*(?:\\n|$))*)\\n*|$)").replace("hr", q).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("blockquote", " {0,3}>").replace("code", "(?: {4}| {0,3}	)[^\\n]").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*(?:\\n|$))|~~~)[^\\n]*(?:\\n|$)").replace("list", " {0,3}(?:[*+-]|1[.)])[ \\t]").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Q).getRegex();
-var Ae = { ...J, lheading: Se, table: se, paragraph: d2(K2).replace("hr", q).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("|lheading", "").replace("table", se).replace("blockquote", " {0,3}>").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*(?:\\n|$))|~~~)[^\\n]*(?:\\n|$)").replace("list", " {0,3}(?:[*+-]|1[.)])[ \\t]+[^ \\t\\n]").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Q).getRegex() };
-var Ie = { ...J, html: d2(`^ *(?:comment *(?:\\n|\\s*$)|<(tag)[\\s\\S]+?</\\1> *(?:\\n{2,}|\\s*$)|<tag(?:"[^"]*"|'[^']*'|\\s[^'"/>\\s]*)*?/?> *(?:\\n{2,}|\\s*$))`).replace("comment", X).replace(/tag/g, "(?!(?:a|em|strong|small|s|cite|q|dfn|abbr|data|time|code|var|samp|kbd|sub|sup|i|b|u|mark|ruby|rt|rp|bdi|bdo|span|br|wbr|ins|del|img)\\b)\\w+(?!:|[^\\w\\s@]*@)\\b").getRegex(), def: /^ *\[([^\]]+)\]: *<?([^\s>]+)>?(?: +(["(][^\n]+[")]))? *(?:\n+|$)/, heading: /^(#{1,6})(.*)(?:\n+|$)/, fences: z2, lheading: /^(.+?)\n {0,3}(=+|-+) *(?:\n+|$)/, paragraph: d2(K2).replace("hr", q).replace("heading", ` *#{1,6} *[^
+var Me = le(/ {0,3}(?:[*+-]|\d{1,9}[.)])(?:[ \t]|\n|$)/);
+var Ae = k2(/^( {0,3}> ?(paragraph|[^\n]*)(?:\n|$))+/).replace("paragraph", Me).getRegex();
+var J = { blockquote: Ae, code: we, def: $e, fences: ye, heading: Pe, hr: q, html: Ee, lheading: ae, list: Le, newline: Te, paragraph: ze, table: z2, text: _e };
+var se = k2("^ *([^\\n ].*)\\n {0,3}((?:\\| *)?:?-+:? *(?:\\| *:?-+:? *)*(?:\\| *)?)(?:\\n((?:(?! *\\n|hr|heading|blockquote|code|fences|list|html).*(?:\\n|$))*)\\n*|$)").replace("hr", q).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("blockquote", " {0,3}>").replace("code", "(?: {4}| {0,3}	)[^\\n]").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*(?:\\n|$))|~~~)[^\\n]*(?:\\n|$)").replace("list", " {0,3}(?:[*+-]|1[.)])[ \\t]").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Q).getRegex();
+var Ie = { ...J, lheading: Se, table: se, paragraph: k2(K2).replace("hr", q).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("|lheading", "").replace("table", se).replace("blockquote", " {0,3}>").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*(?:\\n|$))|~~~)[^\\n]*(?:\\n|$)").replace("list", " {0,3}(?:[*+-]|1[.)])[ \\t]+[^ \\t\\n]").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Q).getRegex() };
+var Ce = { ...J, html: k2(`^ *(?:comment *(?:\\n|\\s*$)|<(tag)[\\s\\S]+?</\\1> *(?:\\n{2,}|\\s*$)|<tag(?:"[^"]*"|'[^']*'|\\s[^'"/>\\s]*)*?/?> *(?:\\n{2,}|\\s*$))`).replace("comment", X).replace(/tag/g, "(?!(?:a|em|strong|small|s|cite|q|dfn|abbr|data|time|code|var|samp|kbd|sub|sup|i|b|u|mark|ruby|rt|rp|bdi|bdo|span|br|wbr|ins|del|img)\\b)\\w+(?!:|[^\\w\\s@]*@)\\b").getRegex(), def: /^ *\[([^\]]+)\]: *<?([^\s>]+)>?(?: +(["(][^\n]+[")]))? *(?:\n+|$)/, heading: /^(#{1,6})(.*)(?:\n+|$)/, fences: z2, lheading: /^(.+?)\n {0,3}(=+|-+) *(?:\n+|$)/, paragraph: k2(K2).replace("hr", q).replace("heading", ` *#{1,6} *[^
 ]`).replace("lheading", ae).replace("|table", "").replace("blockquote", " {0,3}>").replace("|fences", "").replace("|list", "").replace("|html", "").replace("|tag", "").getRegex() };
 var Be = /^\\([!"#$%&'()*+,\-./:;<=>?@\[\]\\^_`{|}~])/;
 var De = /^(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/;
-var pe = /^( {2,}|\\)\n(?!\s*$)/;
+var ue = /^( {2,}|\\)\n(?!\s*$)/;
 var qe = /^(`+|[^`])(?:(?= {2,}\n)|[\s\S]*?(?:(?=[\\<!\[`*_]|\b_|$)|[^ ](?= {2,}\n)))/;
 var _2 = /[\p{P}\p{S}]/u;
-var I2 = /[\s\p{P}\p{S}]/u;
+var C2 = /[\s\p{P}\p{S}]/u;
 var v2 = /[^\s\p{P}\p{S}]/u;
-var ve = d2(/^((?![*_])punctSpace)/, "u").replace(/punctSpace/g, I2).getRegex();
+var ve = k2(/^((?![*_])punctSpace)/, "u").replace(/punctSpace/g, C2).getRegex();
 var He = /[\p{Pi}\p{Ps}"']/u;
-var ue = /(?!~)[\p{P}\p{S}]/u;
+var pe = /(?!~)[\p{P}\p{S}]/u;
 var Ze = /(?!~)[\s\p{P}\p{S}]/u;
 var Ge = /(?:[^\s\p{P}\p{S}]|~)/u;
-var Qe = d2(/link|precode-code|html/, "g").replace("link", /\[(?:[^\[\]`]|(?<a>`+)[^`]+\k<a>(?!`))*?\]\((?:\\[\s\S]|[^\\\(\)]|\((?:\\[\s\S]|[^\\\(\)])*\))*\)/).replace("precode-", Te ? "(?<!`)()" : "(^^|[^`])").replace("code", /(?<b>`+)[^`]+\k<b>(?!`)/).replace("html", /<(?! )[^<>]*?>/).getRegex();
+var Qe = k2(/link|precode-code|html/, "g").replace("link", /\[(?:[^\[\]`]|(?<a>`+)[^`]+\k<a>(?!`))*?\]\((?:\\[\s\S]|[^\\\(\)]|\((?:\\[\s\S]|[^\\\(\)])*\))*\)/).replace("precode-", Oe ? "(?<!`)()" : "(^^|[^`])").replace("code", /(?<b>`+)[^`]+\k<b>(?!`)/).replace("html", /<(?! )[^<>]*?>/).getRegex();
 var ce = /^(?:\*+(?:((?!\*)punct)|([^\s*]))?)|^_+(?:((?!_)punct)|([^\s_]))?/;
-var Ne = d2(ce, "u").replace(/punct/g, _2).getRegex();
-var je = d2(ce, "u").replace(/punct/g, ue).getRegex();
+var Ne = k2(ce, "u").replace(/punct/g, _2).getRegex();
+var je = k2(ce, "u").replace(/punct/g, pe).getRegex();
 var Fe = /^(?:\*+(?:((?!\*)(?!openQuote)punct)|([^\s*]))?)|^_+(?:((?!_)(?!openQuote)punct)|([^\s_]))?/;
-var Ue = d2(Fe, "u").replace(/openQuote/g, He).replace(/punct/g, _2).getRegex();
+var Ue = k2(Fe, "u").replace(/openQuote/g, He).replace(/punct/g, _2).getRegex();
 var he = "^[^_*]*?__[^_*]*?\\*[^_*]*?(?=__)|[^*]+(?=[^*])|(?!\\*)punct(\\*+)(?=[\\s]|$)|notPunctSpace(\\*+)(?!\\*)(?=punctSpace|$)|(?!\\*)punctSpace(\\*+)(?=notPunctSpace)|[\\s](\\*+)(?!\\*)(?=punct)|(?!\\*)punct(\\*+)(?!\\*)(?=punct)|notPunctSpace(\\*+)(?=notPunctSpace)";
-var Ke = d2(he, "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, I2).replace(/punct/g, _2).getRegex();
-var We = d2(he, "gu").replace(/notPunctSpace/g, Ge).replace(/punctSpace/g, Ze).replace(/punct/g, ue).getRegex();
+var Ke = k2(he, "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, C2).replace(/punct/g, _2).getRegex();
+var We = k2(he, "gu").replace(/notPunctSpace/g, Ge).replace(/punctSpace/g, Ze).replace(/punct/g, pe).getRegex();
 var Xe = "^[^_*]*?__[^_*]*?\\*[^_*]*?(?=__)|[^*]+(?=[^*])|(?!\\*)punct(\\*+)(?=[\\s]|$)|notPunctSpace(\\*+)(?!\\*)(?=punctSpace|$)|(?!\\*)[\\s](\\*+)(?=notPunctSpace)|[\\s](\\*+)(?!\\*)(?=punct)|(?!\\*)punct(\\*+)(?!\\*)(?=punct)|(?:(?!\\*)punct|notPunctSpace)(\\*+)(?!\\*)(?=notPunctSpace)";
-var Je = d2(Xe, "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, I2).replace(/punct/g, _2).getRegex();
-var Ve = d2("^[^_*]*?\\*\\*[^_*]*?_[^_*]*?(?=\\*\\*)|[^_]+(?=[^_])|(?!_)punct(_+)(?=[\\s]|$)|notPunctSpace(_+)(?!_)(?=punctSpace|$)|(?!_)punctSpace(_+)(?=notPunctSpace)|[\\s](_+)(?!_)(?=punct)|(?!_)punct(_+)(?!_)(?=punct)", "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, I2).replace(/punct/g, _2).getRegex();
+var Je = k2(Xe, "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, C2).replace(/punct/g, _2).getRegex();
+var Ve = k2("^[^_*]*?\\*\\*[^_*]*?_[^_*]*?(?=\\*\\*)|[^_]+(?=[^_])|(?!_)punct(_+)(?=[\\s]|$)|notPunctSpace(_+)(?!_)(?=punctSpace|$)|(?!_)punctSpace(_+)(?=notPunctSpace)|[\\s](_+)(?!_)(?=punct)|(?!_)punct(_+)(?!_)(?=punct)", "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, C2).replace(/punct/g, _2).getRegex();
 var Ye = "^[^_*]*?\\*\\*[^_*]*?_[^_*]*?(?=\\*\\*)|[^_]+(?=[^_])|(?!_)punct(_+)(?=[\\s]|$)|notPunctSpace(_+)(?!_)(?=punctSpace|$)|(?!_)[\\s](_+)(?=notPunctSpace)|[\\s](_+)(?!_)(?=punct)|(?!_)punct(_+)(?!_)(?=punct)|(?:(?!_)punct|notPunctSpace)(_+)(?!_)(?=notPunctSpace)";
-var et = d2(Ye, "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, I2).replace(/punct/g, _2).getRegex();
-var tt = d2(/^~~?(?:((?!~)punct)|[^\s~])/, "u").replace(/punct/g, _2).getRegex();
+var et = k2(Ye, "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, C2).replace(/punct/g, _2).getRegex();
+var tt = k2(/^~~?(?:((?!~)punct)|[^\s~])/, "u").replace(/punct/g, _2).getRegex();
 var nt = "^[^~]+(?=[^~])|(?!~)punct(~~?)(?=[\\s]|$)|notPunctSpace(~~?)(?!~)(?=punctSpace|$)|(?!~)punctSpace(~~?)(?=notPunctSpace)|[\\s](~~?)(?!~)(?=punct)|(?!~)punct(~~?)(?!~)(?=punct)|notPunctSpace(~~?)(?=notPunctSpace)";
-var rt = d2(nt, "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, I2).replace(/punct/g, _2).getRegex();
-var st = d2(/\\(punct)/, "gu").replace(/punct/g, _2).getRegex();
-var it = d2(/^<(scheme:[^\s\x00-\x1f<>]*|email)>/).replace("scheme", /[a-zA-Z][a-zA-Z0-9+.-]{1,31}/).replace("email", /[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+(@)[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+(?![-_])/).getRegex();
-var ot = d2(X).replace("(?:-->|$)", "-->").getRegex();
-var at = d2("^comment|^</[a-zA-Z][\\w:-]*\\s*>|^<[a-zA-Z][\\w-]*(?:attribute)*?\\s*/?>|^<\\?[\\s\\S]*?\\?>|^<![a-zA-Z]+\\s[\\s\\S]*?>|^<!\\[CDATA\\[[\\s\\S]*?\\]\\]>").replace("comment", ot).replace("attribute", /\s+[a-zA-Z:_][\w.:-]*(?:\s*=\s*"[^"]*"|\s*=\s*'[^']*'|\s*=\s*[^\s"'=<>`]+)?/).getRegex();
+var rt = k2(nt, "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, C2).replace(/punct/g, _2).getRegex();
+var st = k2(/\\(punct)/, "gu").replace(/punct/g, _2).getRegex();
+var it = k2(/^<(scheme:[^\s\x00-\x1f<>]*|email)>/).replace("scheme", /[a-zA-Z][a-zA-Z0-9+.-]{1,31}/).replace("email", /[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+(@)[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+(?![-_])/).getRegex();
+var ot = k2(X).replace("(?:-->|$)", "-->").getRegex();
+var at = k2("^comment|^</[a-zA-Z][\\w:-]*\\s*>|^<[a-zA-Z][\\w-]*(?:attribute)*?\\s*/?>|^<\\?[\\s\\S]*?\\?>|^<![a-zA-Z]+\\s[\\s\\S]*?>|^<!\\[CDATA\\[[\\s\\S]*?\\]\\]>").replace("comment", ot).replace("attribute", /\s+[a-zA-Z:_][\w.:-]*(?:\s*=\s*"[^"]*"|\s*=\s*'[^']*'|\s*=\s*[^\s"'=<>`]+)?/).getRegex();
 var G = /(?:\[(?:\\[\s\S]|[^\[\]\\])*\]|\\[\s\S]|`+(?!`)[^`]*?`+(?!`)|``+(?=\])|[^\[\]\\`])*?/;
-var lt = d2(/^!?\[(label)\]\(\s*(href)(?:(?:[ \t]+(?:\n[ \t]*)?|\n[ \t]*)(title))?\s*\)/).replace("label", G).replace("href", /<(?:\\.|[^\n<>\\])+>|[^ \t\n\x00-\x1f]+|(?=\))/).replace("title", /"(?:\\"?|[^"\\])*"|'(?:\\'?|[^'\\])*'|\((?:\\\)?|[^)\\])*\)/).getRegex();
-var de = d2(/^!?\[(label)\]\[(ref)\]/).replace("label", G).replace("ref", W).getRegex();
-var ke = d2(/^!?\[(ref)\](?:\[\])?/).replace("ref", W).getRegex();
-var pt = d2("reflink|nolink(?!\\()", "g").replace("reflink", de).replace("nolink", ke).getRegex();
+var lt = k2(/^!?\[(label)\]\(\s*(href)(?:(?:[ \t]+(?:\n[ \t]*)?|\n[ \t]*)(title))?\s*\)/).replace("label", G).replace("href", /<(?:\\.|[^\n<>\\])+>|[^ \t\n\x00-\x1f]+|(?=\))/).replace("title", /"(?:\\"?|[^"\\])*"|'(?:\\'?|[^'\\])*'|\((?:\\\)?|[^)\\])*\)/).getRegex();
+var ke = k2(/^!?\[(label)\]\[(ref)\]/).replace("label", G).replace("ref", W).getRegex();
+var de = k2(/^!?\[(ref)\](?:\[\])?/).replace("ref", W).getRegex();
+var ut = k2("reflink|nolink(?!\\()", "g").replace("reflink", ke).replace("nolink", de).getRegex();
 var ie = /[hH][tT][tT][pP][sS]?|[fF][tT][pP]/;
-var V = { _backpedal: z2, anyPunctuation: st, autolink: it, blockSkip: Qe, br: pe, code: De, del: z2, delLDelim: z2, delRDelim: z2, emStrongLDelim: Ne, emStrongRDelimAst: Ke, emStrongRDelimUnd: Ve, escape: Be, link: lt, nolink: ke, punctuation: ve, reflink: de, reflinkSearch: pt, tag: at, text: qe, url: z2 };
-var ut = { ...V, emStrongLDelim: Ue, emStrongRDelimAst: Je, emStrongRDelimUnd: et, link: d2(/^!?\[(label)\]\((.*?)\)/).replace("label", G).getRegex(), reflink: d2(/^!?\[(label)\]\s*\[([^\]]*)\]/).replace("label", G).getRegex() };
-var F = { ...V, emStrongRDelimAst: We, emStrongLDelim: je, delLDelim: tt, delRDelim: rt, url: d2(/^((?:protocol):\/\/|www\.)(?:[a-zA-Z0-9\-]+\.?)+[^\s<]*|^email/).replace("protocol", ie).replace("email", /[A-Za-z0-9._+-]+(@)[a-zA-Z0-9-_]+(?:\.[a-zA-Z0-9-_]*[a-zA-Z0-9])+(?![-_])/).getRegex(), _backpedal: /(?:[^?!.,:;*_'"~()&]+|\([^)]*\)|&(?![a-zA-Z0-9]+;$)|[?!.,:;*_'"~)]+(?!$))+/, del: /^(~~?)(?=[^\s~])((?:\\[\s\S]|[^\\])*?(?:\\[\s\S]|[^\s~\\]))\1(?=[^~]|$)/, text: d2(/^(`+|~+|[^`~])(?:(?=[`~])|(?= {2,}\n)|(?=[a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-]+@)|[\s\S]*?(?:(?=[\\<!\[`*~_]|\b_|protocol:\/\/|www\.|$)|[^ ](?= {2,}\n)|[^a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-](?=[a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-]+@)))/).replace("protocol", ie).getRegex() };
-var ct = { ...F, br: d2(pe).replace("{2,}", "*").getRegex(), text: d2(F.text).replace("\\b_", "\\b_| {2,}\\n").replace(/\{2,\}/g, "*").getRegex() };
-var H2 = { normal: J, gfm: Ae, pedantic: Ie };
-var B = { normal: V, gfm: F, breaks: ct, pedantic: ut };
+var V = { _backpedal: z2, anyPunctuation: st, autolink: it, blockSkip: Qe, br: ue, code: De, del: z2, delLDelim: z2, delRDelim: z2, emStrongLDelim: Ne, emStrongRDelimAst: Ke, emStrongRDelimUnd: Ve, escape: Be, link: lt, nolink: de, punctuation: ve, reflink: ke, reflinkSearch: ut, tag: at, text: qe, url: z2 };
+var pt = { ...V, emStrongLDelim: Ue, emStrongRDelimAst: Je, emStrongRDelimUnd: et, link: k2(/^!?\[(label)\]\((.*?)\)/).replace("label", G).getRegex(), reflink: k2(/^!?\[(label)\]\s*\[([^\]]*)\]/).replace("label", G).getRegex() };
+var F = { ...V, emStrongRDelimAst: We, emStrongLDelim: je, delLDelim: tt, delRDelim: rt, url: k2(/^((?:protocol):\/\/|www\.)(?:[a-zA-Z0-9\-]+\.?)+[^\s<]*|^email/).replace("protocol", ie).replace("email", /[A-Za-z0-9._+-]+(@)[a-zA-Z0-9-_]+(?:\.[a-zA-Z0-9-_]*[a-zA-Z0-9])+(?![-_])/).getRegex(), _backpedal: /(?:[^?!.,:;*_'"~()&]+|\([^)]*\)|&(?![a-zA-Z0-9]+;$)|[?!.,:;*_'"~)]+(?!$))+/, del: /^(~~?)(?=[^\s~])((?:\\[\s\S]|[^\\])*?(?:\\[\s\S]|[^\s~\\]))\1(?=[^~]|$)/, text: k2(/^(`+|~+|[^`~])(?:(?=[`~])|(?= {2,}\n)|(?=[a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-]+@)|[\s\S]*?(?:(?=[\\<!\[`*~_]|\b_|protocol:\/\/|www\.|$)|[^ ](?= {2,}\n)|[^a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-](?=[a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-]+@)))/).replace("protocol", ie).getRegex() };
+var ct = { ...F, br: k2(ue).replace("{2,}", "*").getRegex(), text: k2(F.text).replace("\\b_", "\\b_| {2,}\\n").replace(/\{2,\}/g, "*").getRegex() };
+var H2 = { normal: J, gfm: Ie, pedantic: Ce };
+var B = { normal: V, gfm: F, breaks: ct, pedantic: pt };
 var ht = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 var ge = (l3) => ht[l3];
-function O2(l3, e) {
+function T2(l3, e) {
   if (e) {
     if (m2.escapeTest.test(l3)) return l3.replace(m2.escapeReplace, ge);
   } else if (m2.escapeTestNoEncode.test(l3)) return l3.replace(m2.escapeReplaceNoEncode, ge);
@@ -51184,9 +51203,9 @@ function Y2(l3) {
 }
 function ee(l3, e) {
   let t = l3.replace(m2.findPipe, (r2, i, o) => {
-    let p2 = false, a = i;
-    for (; --a >= 0 && o[a] === "\\"; ) p2 = !p2;
-    return p2 ? "|" : " |";
+    let u2 = false, a = i;
+    for (; --a >= 0 && o[a] === "\\"; ) u2 = !u2;
+    return u2 ? "|" : " |";
   }), n = t.split(m2.splitPipe), s = 0;
   if (n[0].trim() || n.shift(), n.length > 0 && !n.at(-1)?.trim() && n.pop(), e) if (n.length > e) n.splice(e);
   else for (; n.length < e; ) n.push("");
@@ -51229,12 +51248,21 @@ function me(l3, e = 0) {
   return n;
 }
 function xe(l3, e, t, n, s) {
-  let r2 = e.href, i = e.title || null, o = l3[1].replace(s.other.outputLinkReplace, "$1");
+  let r2 = e.href, i = e.title || null, o = l3[1].replace(s.other.outputLinkReplace, "$1"), u2 = l3[0].charAt(0) === "!";
   n.state.inLink = true;
-  let p2 = { type: l3[0].charAt(0) === "!" ? "image" : "link", raw: t, href: r2, title: i, text: o, tokens: n.inlineTokens(o) };
-  return n.state.inLink = false, p2;
+  let a = n.state.linkEmitted, p2 = n.state.inRawBlock;
+  n.state.linkEmitted = false;
+  let c = n.inlineTokens(o), h2 = n.state.linkEmitted;
+  if (n.state.linkEmitted = a, n.state.inLink = false, !u2) {
+    if (h2) {
+      n.state.inRawBlock = p2;
+      return;
+    }
+    n.state.linkEmitted = true;
+  }
+  return { type: u2 ? "image" : "link", raw: t, href: r2, title: i, text: o, tokens: c };
 }
-function dt(l3, e, t) {
+function kt(l3, e, t) {
   let n = l3.match(t.other.indentCodeCompensation);
   if (n === null) return e;
   let s = n[1];
@@ -51268,7 +51296,7 @@ var y = class {
   fences(e) {
     let t = this.rules.block.fences.exec(e);
     if (t) {
-      let n = t[0], s = dt(n, t[3] || "", this.rules);
+      let n = t[0], s = kt(n, t[3] || "", this.rules);
       return { type: "code", raw: n, lang: t[2] ? t[2].trim().replace(this.rules.inline.anyPunctuation, "$1") : t[2], text: s };
     }
   }
@@ -51296,33 +51324,33 @@ var y = class {
 `).split(`
 `), s = "", r2 = "", i = [];
       for (; n.length > 0; ) {
-        let o = false, p2 = [], a;
-        for (a = 0; a < n.length; a++) if (this.rules.other.blockquoteStart.test(n[a])) p2.push(n[a]), o = true;
-        else if (!o) p2.push(n[a]);
+        let o = false, u2 = [], a;
+        for (a = 0; a < n.length; a++) if (this.rules.other.blockquoteStart.test(n[a])) u2.push(n[a]), o = true;
+        else if (!o) u2.push(n[a]);
         else break;
         n = n.slice(a);
-        let u2 = p2.join(`
-`), c = u2.replace(this.rules.other.blockquoteSetextReplace, `
+        let p2 = u2.join(`
+`), c = p2.replace(this.rules.other.blockquoteSetextReplace, `
     $1`).replace(this.rules.other.blockquoteSetextReplace2, "");
         s = s ? `${s}
-${u2}` : u2, r2 = r2 ? `${r2}
+${p2}` : p2, r2 = r2 ? `${r2}
 ${c}` : c;
         let h2 = this.lexer.state.top;
         if (this.lexer.state.top = true, this.lexer.blockTokens(c, i, true), this.lexer.state.top = h2, n.length === 0) break;
-        let k2 = i.at(-1);
-        if (k2?.type === "code") break;
-        if (k2?.type === "blockquote") {
-          let T2 = k2, g = n.join(`
-`), w2 = T2.raw + `
-` + g.replace(this.rules.other.blockquoteSetextReplace2, ""), M2 = this.blockquote(w2);
-          i[i.length - 1] = M2, s = `${s}
-${g}`, r2 = r2.substring(0, r2.length - T2.text.length) + M2.text;
+        let d2 = i.at(-1);
+        if (d2?.type === "code") break;
+        if (d2?.type === "blockquote") {
+          let O2 = d2, g = n.join(`
+`), w2 = O2.raw + `
+` + g.replace(this.rules.other.blockquoteSetextReplace2, ""), E2 = this.blockquote(w2);
+          i[i.length - 1] = E2, s = `${s}
+${g}`, r2 = r2.substring(0, r2.length - O2.text.length) + E2.text;
           break;
-        } else if (k2?.type === "list") {
-          let T2 = k2, g = T2.raw + `
+        } else if (d2?.type === "list") {
+          let O2 = d2, g = O2.raw + `
 ` + n.join(`
 `), w2 = this.list(g);
-          i[i.length - 1] = w2, s = s.substring(0, s.length - k2.raw.length) + w2.raw, r2 = r2.substring(0, r2.length - T2.raw.length) + w2.raw, n = g.substring(i.at(-1).raw.length).split(`
+          i[i.length - 1] = w2, s = s.substring(0, s.length - d2.raw.length) + w2.raw, r2 = r2.substring(0, r2.length - O2.raw.length) + w2.raw, n = g.substring(i.at(-1).raw.length).split(`
 `);
           continue;
         }
@@ -51337,44 +51365,44 @@ ${g}`, r2 = r2.substring(0, r2.length - T2.text.length) + M2.text;
       n = s ? `\\d{1,9}\\${n.slice(-1)}` : `\\${n}`, this.options.pedantic && (n = s ? n : "[*+-]");
       let i = this.rules.other.listItemRegex(n), o = false;
       for (; e; ) {
-        let a = false, u2 = "", c = "";
+        let a = false, p2 = "", c = "";
         if (!(t = i.exec(e)) || this.rules.block.hr.test(e)) break;
-        u2 = t[0], e = e.substring(u2.length);
+        p2 = t[0], e = e.substring(p2.length);
         let h2 = me(t[2].split(`
-`, 1)[0], t[1].length), k2 = e.split(`
-`, 1)[0], T2 = !h2.trim(), g = 0;
-        if (this.options.pedantic ? (g = 2, c = h2.trimStart()) : T2 ? g = t[1].length + 1 : (g = h2.search(this.rules.other.nonSpaceChar), g = g > 4 ? 1 : g, c = h2.slice(g), g += t[1].length), T2 && this.rules.other.blankLine.test(k2) && (u2 += k2 + `
-`, e = e.substring(k2.length + 1), a = true), !a) {
-          let w2 = this.rules.other.nextBulletRegex(g), M2 = this.rules.other.hrRegex(g), ne = this.rules.other.fencesBeginRegex(g), re = this.rules.other.headingBeginRegex(g), be = this.rules.other.htmlBeginRegex(g), Re = this.rules.other.blockquoteBeginRegex(g);
+`, 1)[0], t[1].length), d2 = e.split(`
+`, 1)[0], O2 = !h2.trim(), g = 0;
+        if (this.options.pedantic ? (g = 2, c = h2.trimStart()) : O2 ? g = t[1].length + 1 : (g = h2.search(this.rules.other.nonSpaceChar), g = g > 4 ? 1 : g, c = h2.slice(g), g += t[1].length), O2 && this.rules.other.blankLine.test(d2) && (p2 += d2 + `
+`, e = e.substring(d2.length + 1), a = true), !a) {
+          let w2 = this.rules.other.nextBulletRegex(g), E2 = this.rules.other.hrRegex(g), ne = this.rules.other.fencesBeginRegex(g), re = this.rules.other.headingBeginRegex(g), be = this.rules.other.htmlBeginRegex(g), Re = this.rules.other.blockquoteBeginRegex(g);
           for (; e; ) {
             let N = e.split(`
 `, 1)[0], D;
-            if (k2 = N, this.options.pedantic ? (k2 = k2.replace(this.rules.other.listReplaceNesting, "  "), D = k2) : D = k2.replace(this.rules.other.tabCharGlobal, "    "), ne.test(k2) || re.test(k2) || be.test(k2) || Re.test(k2) || w2.test(k2) || M2.test(k2)) break;
-            if (D.search(this.rules.other.nonSpaceChar) >= g || !k2.trim()) c += `
+            if (d2 = N, this.options.pedantic ? (d2 = d2.replace(this.rules.other.listReplaceNesting, "  "), D = d2) : D = d2.replace(this.rules.other.tabCharGlobal, "    "), ne.test(d2) || re.test(d2) || be.test(d2) || Re.test(d2) || w2.test(d2) || E2.test(d2)) break;
+            if (D.search(this.rules.other.nonSpaceChar) >= g || !d2.trim()) c += `
 ` + D.slice(g);
             else {
-              if (T2 || h2.replace(this.rules.other.tabCharGlobal, "    ").search(this.rules.other.nonSpaceChar) >= 4 || ne.test(h2) || re.test(h2) || M2.test(h2)) break;
+              if (O2 || h2.replace(this.rules.other.tabCharGlobal, "    ").search(this.rules.other.nonSpaceChar) >= 4 || ne.test(h2) || re.test(h2) || E2.test(h2)) break;
               c += `
-` + k2;
+` + d2;
             }
-            T2 = !k2.trim(), u2 += N + `
+            O2 = !d2.trim(), p2 += N + `
 `, e = e.substring(N.length + 1), h2 = D.slice(g);
           }
         }
-        r2.loose || (o ? r2.loose = true : this.rules.other.doubleBlankLine.test(u2) && (o = true)), r2.items.push({ type: "list_item", raw: u2, task: !!this.options.gfm && this.rules.other.listIsTask.test(c), loose: false, text: c, tokens: [] }), r2.raw += u2;
+        r2.loose || (o ? r2.loose = true : this.rules.other.doubleBlankLine.test(p2) && (o = true)), r2.items.push({ type: "list_item", raw: p2, task: !!this.options.gfm && this.rules.other.listIsTask.test(c), loose: false, text: c, tokens: [] }), r2.raw += p2;
       }
-      let p2 = r2.items.at(-1);
-      if (p2) p2.raw = p2.raw.trimEnd(), p2.text = p2.text.trimEnd();
+      let u2 = r2.items.at(-1);
+      if (u2) u2.raw = u2.raw.trimEnd(), u2.text = u2.text.trimEnd();
       else return;
       r2.raw = r2.raw.trimEnd();
       for (let a of r2.items) if (this.lexer.state.top = false, a.tokens = this.lexer.blockTokens(a.text, []), !r2.loose) {
-        let u2 = a.tokens.filter((h2) => h2.type === "space"), c = u2.length > 0 && u2.some((h2) => this.rules.other.anyLine.test(h2.raw));
+        let p2 = a.tokens.filter((h2) => h2.type === "space"), c = p2.length > 0 && p2.some((h2) => this.rules.other.anyLine.test(h2.raw));
         r2.loose = c;
       }
       for (let a of r2.items) {
-        let u2 = a.tokens[0];
-        if (a.task && (u2?.type === "text" || u2?.type === "paragraph")) {
-          a.text = a.text.replace(this.rules.other.listReplaceTask, ""), u2.raw = u2.raw.replace(this.rules.other.listReplaceTask, ""), u2.text = u2.text.replace(this.rules.other.listReplaceTask, "");
+        let p2 = a.tokens[0];
+        if (a.task && (p2?.type === "text" || p2?.type === "paragraph")) {
+          a.text = a.text.replace(this.rules.other.listReplaceTask, ""), p2.raw = p2.raw.replace(this.rules.other.listReplaceTask, ""), p2.text = p2.text.replace(this.rules.other.listReplaceTask, "");
           for (let h2 = this.lexer.inlineQueue.length - 1; h2 >= 0; h2--) if (this.rules.other.listIsTask.test(this.lexer.inlineQueue[h2].src)) {
             this.lexer.inlineQueue[h2].src = this.lexer.inlineQueue[h2].src.replace(this.rules.other.listReplaceTask, "");
             break;
@@ -51388,7 +51416,7 @@ ${g}`, r2 = r2.substring(0, r2.length - T2.text.length) + M2.text;
       }
       if (r2.loose) for (let a of r2.items) {
         a.loose = true;
-        for (let u2 of a.tokens) u2.type === "text" && (u2.type = "paragraph");
+        for (let p2 of a.tokens) p2.type === "text" && (p2.type = "paragraph");
       }
       return r2;
     }
@@ -51417,7 +51445,7 @@ ${g}`, r2 = r2.substring(0, r2.length - T2.text.length) + M2.text;
     if (n.length === s.length) {
       for (let o of s) this.rules.other.tableAlignRight.test(o) ? i.align.push("right") : this.rules.other.tableAlignCenter.test(o) ? i.align.push("center") : this.rules.other.tableAlignLeft.test(o) ? i.align.push("left") : i.align.push(null);
       for (let o = 0; o < n.length; o++) i.header.push({ text: n[o], tokens: this.lexer.inline(n[o]), header: true, align: i.align[o] });
-      for (let o of r2) i.rows.push(ee(o, i.header.length).map((p2, a) => ({ text: p2, tokens: this.lexer.inline(p2), header: false, align: i.align[a] })));
+      for (let o of r2) i.rows.push(ee(o, i.header.length).map((u2, a) => ({ text: u2, tokens: this.lexer.inline(u2), header: false, align: i.align[a] })));
       return i;
     }
   }
@@ -51461,8 +51489,8 @@ ${g}`, r2 = r2.substring(0, r2.length - T2.text.length) + M2.text;
         let i = fe(t[2], "()");
         if (i === -2) return;
         if (i > -1) {
-          let p2 = (t[0].indexOf("!") === 0 ? 5 : 4) + t[1].length + i;
-          t[2] = t[2].substring(0, i), t[0] = t[0].substring(0, p2).trim(), t[3] = "";
+          let u2 = (t[0].indexOf("!") === 0 ? 5 : 4) + t[1].length + i;
+          t[2] = t[2].substring(0, i), t[0] = t[0].substring(0, u2).trim(), t[3] = "";
         }
       }
       let s = t[2], r2 = "";
@@ -51488,25 +51516,25 @@ ${g}`, r2 = r2.substring(0, r2.length - T2.text.length) + M2.text;
     let s = this.rules.inline.emStrongLDelim.exec(e);
     if (!s || !s[1] && !s[2] && !s[3] && !s[4] || s[4] && n.match(this.rules.other.unicodeAlphaNumeric)) return;
     if (!(s[1] || s[3] || "") || !n || this.rules.inline.punctuation.exec(n)) {
-      let i = [...s[0]].length - 1, o, p2, a = i, u2 = 0, c = s[0][0], h2 = n === c, k2 = c === "*" ? this.rules.inline.emStrongRDelimAst : this.rules.inline.emStrongRDelimUnd;
-      for (k2.lastIndex = 0, t = t.slice(-1 * e.length + i); (s = k2.exec(t)) !== null; ) {
+      let i = [...s[0]].length - 1, o, u2, a = i, p2 = 0, c = s[0][0], h2 = n === c, d2 = c === "*" ? this.rules.inline.emStrongRDelimAst : this.rules.inline.emStrongRDelimUnd;
+      for (d2.lastIndex = 0, t = t.slice(-1 * e.length + i); (s = d2.exec(t)) !== null; ) {
         if (o = s[1] || s[2] || s[3] || s[4] || s[5] || s[6], !o) continue;
-        if (p2 = [...o].length, s[3] || s[4]) {
-          a += p2;
+        if (u2 = [...o].length, s[3] || s[4]) {
+          a += u2;
           continue;
         } else if (s[5] || s[6]) {
-          if (i % 3 && !((i + p2) % 3)) {
-            u2 += p2;
+          if (i % 3 && !((i + u2) % 3)) {
+            p2 += u2;
             continue;
           }
           if (h2) break;
         }
-        if (a -= p2, a > 0) continue;
-        p2 = Math.min(p2, p2 + a + u2);
-        let T2 = [...s[0]][0].length, g = e.slice(0, i + s.index + T2 + p2);
-        if (Math.min(i, p2) % 2) {
-          let M2 = g.slice(1, -1);
-          return { type: "em", raw: g, text: M2, tokens: this.lexer.inlineTokens(M2) };
+        if (a -= u2, a > 0) continue;
+        u2 = Math.min(u2, u2 + a + p2);
+        let O2 = [...s[0]][0].length, g = e.slice(0, i + s.index + O2 + u2);
+        if (Math.min(i, u2) % 2) {
+          let E2 = g.slice(1, -1);
+          return { type: "em", raw: g, text: E2, tokens: this.lexer.inlineTokens(E2) };
         }
         let w2 = g.slice(2, -2);
         return { type: "strong", raw: g, text: w2, tokens: this.lexer.inlineTokens(w2) };
@@ -51528,17 +51556,17 @@ ${g}`, r2 = r2.substring(0, r2.length - T2.text.length) + M2.text;
     let s = this.rules.inline.delLDelim.exec(e);
     if (!s) return;
     if (!(s[1] || "") || !n || this.rules.inline.punctuation.exec(n)) {
-      let i = [...s[0]].length - 1, o, p2, a = i, u2 = this.rules.inline.delRDelim;
-      for (u2.lastIndex = 0, t = t.slice(-1 * e.length + i); (s = u2.exec(t)) !== null; ) {
-        if (o = s[1] || s[2] || s[3] || s[4] || s[5] || s[6], !o || (p2 = [...o].length, p2 !== i)) continue;
+      let i = [...s[0]].length - 1, o, u2, a = i, p2 = this.rules.inline.delRDelim;
+      for (p2.lastIndex = 0, t = t.slice(-1 * e.length + i); (s = p2.exec(t)) !== null; ) {
+        if (o = s[1] || s[2] || s[3] || s[4] || s[5] || s[6], !o || (u2 = [...o].length, u2 !== i)) continue;
         if (s[3] || s[4]) {
-          a += p2;
+          a += u2;
           continue;
         }
-        if (a -= p2, a > 0) continue;
-        p2 = Math.min(p2, p2 + a);
-        let c = [...s[0]][0].length, h2 = e.slice(0, i + s.index + c + p2), k2 = h2.slice(i, -i);
-        return { type: "del", raw: h2, text: k2, tokens: this.lexer.inlineTokens(k2) };
+        if (a -= u2, a > 0) continue;
+        u2 = Math.min(u2, u2 + a);
+        let c = [...s[0]][0].length, h2 = e.slice(0, i + s.index + c + u2), d2 = h2.slice(i, -i);
+        return { type: "del", raw: h2, text: d2, tokens: this.lexer.inlineTokens(d2) };
       }
     }
   }
@@ -51579,7 +51607,7 @@ var x = class l {
   inlineQueue;
   tokenizer;
   constructor(e) {
-    this.tokens = [], this.tokens.links = /* @__PURE__ */ Object.create(null), this.options = e || R2, this.options.tokenizer = this.options.tokenizer || new y(), this.tokenizer = this.options.tokenizer, this.tokenizer.options = this.options, this.tokenizer.lexer = this, this.inlineQueue = [], this.state = { inLink: false, inRawBlock: false, top: true };
+    this.tokens = [], this.tokens.links = /* @__PURE__ */ Object.create(null), this.options = e || R2, this.options.tokenizer = this.options.tokenizer || new y(), this.tokenizer = this.options.tokenizer, this.tokenizer.options = this.options, this.tokenizer.lexer = this, this.inlineQueue = [], this.state = { inLink: false, inRawBlock: false, linkEmitted: false, top: true };
     let t = { other: m2, block: H2.normal, inline: B.normal };
     this.options.pedantic ? (t.block = H2.pedantic, t.inline = B.pedantic) : this.options.gfm && (t.block = H2.gfm, this.options.breaks ? t.inline = B.breaks : t.inline = B.gfm), this.tokenizer.rules = t;
   }
@@ -51671,9 +51699,9 @@ var x = class l {
       }
       let i = e;
       if (this.options.extensions?.startBlock) {
-        let o = 1 / 0, p2 = e.slice(1), a;
-        this.options.extensions.startBlock.forEach((u2) => {
-          a = u2.call({ lexer: this }, p2), typeof a == "number" && a >= 0 && (o = Math.min(o, a));
+        let o = 1 / 0, u2 = e.slice(1), a;
+        this.options.extensions.startBlock.forEach((p2) => {
+          a = p2.call({ lexer: this }, u2), typeof a == "number" && a >= 0 && (o = Math.min(o, a));
         }), o < 1 / 0 && o >= 0 && (i = e.substring(0, o + 1));
       }
       if (this.state.top && (r2 = this.tokenizer.paragraph(i))) {
@@ -51703,16 +51731,34 @@ var x = class l {
   inline(e, t = []) {
     return this.inlineQueue.push({ src: e, tokens: t }), t;
   }
+  linkInText(e) {
+    if (!e.includes("[")) return false;
+    let t = this.tokenizer.rules.inline.link;
+    for (let n of e.matchAll(this.tokenizer.rules.inline.blockSkip)) if (t.test(n[0]) && e.charAt(n.index - 1) !== "!") return true;
+    for (let n of e.matchAll(this.tokenizer.rules.inline.reflinkSearch)) {
+      let s = n[0], r2 = s.lastIndexOf("[");
+      if (!(s.charAt(0) === "!" || !Object.hasOwn(this.tokens.links, s.slice(r2 + 1, -1))) && !(r2 > 1 && this.linkInText(s.slice(1, r2 - 1)))) return true;
+    }
+    return false;
+  }
   inlineTokens(e, t = []) {
     this.tokenizer.lexer = this;
     let n = e;
-    if (this.tokens.links) {
-      let o = Object.keys(this.tokens.links);
-      o.length > 0 && (n = n.replace(this.tokenizer.rules.inline.reflinkSearch, (p2) => o.includes(p2.slice(p2.lastIndexOf("[") + 1, -1)) ? "[" + "a".repeat(p2.length - 2) + "]" : p2));
+    if (this.tokens.links && e.includes("[")) {
+      let o = this.tokenizer.rules.inline.reflinkSearch, u2 = (a) => {
+        let p2 = a.lastIndexOf("[");
+        if (!Object.hasOwn(this.tokens.links, a.slice(p2 + 1, -1))) return a;
+        if (p2 > 1 && a.charAt(0) !== "!") {
+          let c = a.slice(1, p2 - 1);
+          if (this.linkInText(c)) return "[" + c.replace(o, u2) + "][" + "a".repeat(a.length - p2 - 2) + "]";
+        }
+        return "[" + "a".repeat(a.length - 2) + "]";
+      };
+      n = n.replace(o, u2);
     }
-    n = n.replace(this.tokenizer.rules.inline.anyPunctuation, (o) => "+".repeat(o.length)), n = n.replace(this.tokenizer.rules.inline.blockSkip, (o, p2, a) => {
-      let u2 = a ? a.length : 0;
-      return o.slice(0, u2) + "[" + "a".repeat(o.length - u2 - 2) + "]";
+    n = n.replace(this.tokenizer.rules.inline.anyPunctuation, (o) => "+".repeat(o.length)), n = n.replace(this.tokenizer.rules.inline.blockSkip, (o, u2, a) => {
+      let p2 = a ? a.length : 0;
+      return o.slice(0, p2) + "[" + "a".repeat(o.length - p2 - 2) + "]";
     }), n = this.options.hooks?.emStrongMask?.call({ lexer: this }, n) ?? n;
     let s = false, r2 = "", i = 1 / 0;
     for (; e; ) {
@@ -51766,14 +51812,14 @@ var x = class l {
         e = e.substring(o.raw.length), t.push(o);
         continue;
       }
-      let p2 = e;
+      let u2 = e;
       if (this.options.extensions?.startInline) {
-        let a = 1 / 0, u2 = e.slice(1), c;
+        let a = 1 / 0, p2 = e.slice(1), c;
         this.options.extensions.startInline.forEach((h2) => {
-          c = h2.call({ lexer: this }, u2), typeof c == "number" && c >= 0 && (a = Math.min(a, c));
-        }), a < 1 / 0 && a >= 0 && (p2 = e.substring(0, a + 1));
+          c = h2.call({ lexer: this }, p2), typeof c == "number" && c >= 0 && (a = Math.min(a, c));
+        }), a < 1 / 0 && a >= 0 && (u2 = e.substring(0, a + 1));
       }
-      if (o = this.tokenizer.inlineText(p2)) {
+      if (o = this.tokenizer.inlineText(u2)) {
         e = e.substring(o.raw.length), o.raw.slice(-1) !== "_" && (r2 = o.raw.slice(-1)), s = true;
         let a = t.at(-1);
         a?.type === "text" ? (a.raw += o.raw, a.text += o.text) : t.push(o);
@@ -51804,8 +51850,8 @@ var P2 = class {
   code({ text: e, lang: t, escaped: n }) {
     let s = (t || "").match(m2.notSpaceStart)?.[0], r2 = e.replace(m2.endingNewline, "") + `
 `;
-    return s ? '<pre><code class="language-' + O2(s) + '">' + (n ? r2 : O2(r2, true)) + `</code></pre>
-` : "<pre><code>" + (n ? r2 : O2(r2, true)) + `</code></pre>
+    return s ? '<pre><code class="language-' + T2(s) + '">' + (n ? r2 : T2(r2, true)) + `</code></pre>
+` : "<pre><code>" + (n ? r2 : T2(r2, true)) + `</code></pre>
 `;
   }
   blockquote({ tokens: e }) {
@@ -51830,8 +51876,8 @@ ${this.parser.parse(e)}</blockquote>
   list(e) {
     let t = e.ordered, n = e.start, s = "";
     for (let o = 0; o < e.items.length; o++) {
-      let p2 = e.items[o];
-      s += this.listitem(p2);
+      let u2 = e.items[o];
+      s += this.listitem(u2);
     }
     let r2 = t ? "ol" : "ul", i = t && n !== 1 ? ' start="' + n + '"' : "";
     return "<" + r2 + i + `>
@@ -51883,7 +51929,7 @@ ${e}</tr>
     return `<em>${this.parser.parseInline(e)}</em>`;
   }
   codespan({ text: e }) {
-    return `<code>${O2(e, true)}</code>`;
+    return `<code>${T2(e, true)}</code>`;
   }
   br(e) {
     return "<br>";
@@ -51896,18 +51942,18 @@ ${e}</tr>
     if (r2 === null) return s;
     e = r2;
     let i = '<a href="' + e + '"';
-    return t && (i += ' title="' + O2(t) + '"'), i += ">" + s + "</a>", i;
+    return t && (i += ' title="' + T2(t) + '"'), i += ">" + s + "</a>", i;
   }
   image({ href: e, title: t, text: n, tokens: s }) {
     s && (n = this.parser.parseInline(s, this.parser.textRenderer));
     let r2 = Y2(e);
-    if (r2 === null) return O2(n);
+    if (r2 === null) return T2(n);
     e = r2;
-    let i = `<img src="${e}" alt="${O2(n)}"`;
-    return t && (i += ` title="${O2(t)}"`), i += ">", i;
+    let i = `<img src="${e}" alt="${T2(n)}"`;
+    return t && (i += ` title="${T2(t)}"`), i += ">", i;
   }
   text(e) {
-    return "tokens" in e && e.tokens ? this.parser.parseInline(e.tokens) : "escaped" in e && e.escaped ? e.text : O2(e.text);
+    return "tokens" in e && e.tokens ? this.parser.parseInline(e.tokens) : "escaped" in e && e.escaped ? e.text : T2(e.text);
   }
 };
 var L = class {
@@ -52122,7 +52168,7 @@ var S = class {
   }
 };
 var Z = class {
-  defaults = C2();
+  defaults = A2();
   options = this.setOptions;
   parse = this.parseMarkdown(true);
   parseInline = this.parseMarkdown(false);
@@ -52168,8 +52214,8 @@ var Z = class {
         if ("renderer" in r2) {
           let i = t.renderers[r2.name];
           i ? t.renderers[r2.name] = function(...o) {
-            let p2 = r2.renderer.apply(this, o);
-            return p2 === false && (p2 = i.apply(this, o)), p2;
+            let u2 = r2.renderer.apply(this, o);
+            return u2 === false && (u2 = i.apply(this, o)), u2;
           } : t.renderers[r2.name] = r2.renderer;
         }
         if ("tokenizer" in r2) {
@@ -52183,10 +52229,10 @@ var Z = class {
         for (let i in n.renderer) {
           if (!(i in r2)) throw new Error(`renderer '${i}' does not exist`);
           if (["options", "parser"].includes(i)) continue;
-          let o = i, p2 = n.renderer[o], a = r2[o];
-          r2[o] = (...u2) => {
-            let c = p2.apply(r2, u2);
-            return c === false && (c = a.apply(r2, u2)), c || "";
+          let o = i, u2 = n.renderer[o], a = r2[o];
+          r2[o] = (...p2) => {
+            let c = u2.apply(r2, p2);
+            return c === false && (c = a.apply(r2, p2)), c || "";
           };
         }
         s.renderer = r2;
@@ -52196,10 +52242,10 @@ var Z = class {
         for (let i in n.tokenizer) {
           if (!(i in r2)) throw new Error(`tokenizer '${i}' does not exist`);
           if (["options", "rules", "lexer"].includes(i)) continue;
-          let o = i, p2 = n.tokenizer[o], a = r2[o];
-          r2[o] = (...u2) => {
-            let c = p2.apply(r2, u2);
-            return c === false && (c = a.apply(r2, u2)), c;
+          let o = i, u2 = n.tokenizer[o], a = r2[o];
+          r2[o] = (...p2) => {
+            let c = u2.apply(r2, p2);
+            return c === false && (c = a.apply(r2, p2)), c;
           };
         }
         s.tokenizer = r2;
@@ -52209,21 +52255,21 @@ var Z = class {
         for (let i in n.hooks) {
           if (!(i in r2)) throw new Error(`hook '${i}' does not exist`);
           if (["options", "block"].includes(i)) continue;
-          let o = i, p2 = n.hooks[o], a = r2[o];
-          S.passThroughHooks.has(i) ? r2[o] = (u2) => {
+          let o = i, u2 = n.hooks[o], a = r2[o];
+          S.passThroughHooks.has(i) ? r2[o] = (p2) => {
             if (this.defaults.async && S.passThroughHooksRespectAsync.has(i)) return (async () => {
-              let h2 = await p2.call(r2, u2);
+              let h2 = await u2.call(r2, p2);
               return a.call(r2, h2);
             })();
-            let c = p2.call(r2, u2);
+            let c = u2.call(r2, p2);
             return a.call(r2, c);
-          } : r2[o] = (...u2) => {
+          } : r2[o] = (...p2) => {
             if (this.defaults.async) return (async () => {
-              let h2 = await p2.apply(r2, u2);
-              return h2 === false && (h2 = await a.apply(r2, u2)), h2;
+              let h2 = await u2.apply(r2, p2);
+              return h2 === false && (h2 = await a.apply(r2, p2)), h2;
             })();
-            let c = p2.apply(r2, u2);
-            return c === false && (c = a.apply(r2, u2)), c;
+            let c = u2.apply(r2, p2);
+            return c === false && (c = a.apply(r2, p2)), c;
           };
         }
         s.hooks = r2;
@@ -52231,8 +52277,8 @@ var Z = class {
       if (n.walkTokens) {
         let r2 = this.defaults.walkTokens, i = n.walkTokens;
         s.walkTokens = function(o) {
-          let p2 = [];
-          return p2.push(i.call(this, o)), r2 && (p2 = p2.concat(r2.call(this, o))), p2;
+          let u2 = [];
+          return u2.push(i.call(this, o)), r2 && (u2 = u2.concat(r2.call(this, o))), u2;
         };
       }
       this.defaults = { ...this.defaults, ...s };
@@ -52254,10 +52300,10 @@ var Z = class {
       if (typeof n > "u" || n === null) return o(new Error("marked(): input parameter is undefined or null"));
       if (typeof n != "string") return o(new Error("marked(): input parameter is of type " + Object.prototype.toString.call(n) + ", string expected"));
       if (i.hooks && (i.hooks.options = i, i.hooks.block = e), i.async) return (async () => {
-        let p2 = i.hooks ? await i.hooks.preprocess(n) : n, u2 = await (i.hooks ? await i.hooks.provideLexer(e) : e ? x.lex : x.lexInline)(p2, i), c = i.hooks ? await i.hooks.processAllTokens(u2) : u2;
+        let u2 = i.hooks ? await i.hooks.preprocess(n) : n, p2 = await (i.hooks ? await i.hooks.provideLexer(e) : e ? x.lex : x.lexInline)(u2, i), c = i.hooks ? await i.hooks.processAllTokens(p2) : p2;
         i.walkTokens && await Promise.all(this.walkTokens(c, i.walkTokens));
-        let k2 = await (i.hooks ? await i.hooks.provideParser(e) : e ? b.parse : b.parseInline)(c, i);
-        return i.hooks ? await i.hooks.postprocess(k2) : k2;
+        let d2 = await (i.hooks ? await i.hooks.provideParser(e) : e ? b.parse : b.parseInline)(c, i);
+        return i.hooks ? await i.hooks.postprocess(d2) : d2;
       })().catch(o);
       try {
         i.hooks && (n = i.hooks.preprocess(n));
@@ -52265,8 +52311,8 @@ var Z = class {
         i.hooks && (a = i.hooks.processAllTokens(a)), i.walkTokens && this.walkTokens(a, i.walkTokens);
         let c = (i.hooks ? i.hooks.provideParser(e) : e ? b.parse : b.parseInline)(a, i);
         return i.hooks && (c = i.hooks.postprocess(c)), c;
-      } catch (p2) {
-        return o(p2);
+      } catch (u2) {
+        return o(u2);
       }
     };
   }
@@ -52274,7 +52320,7 @@ var Z = class {
     return (n) => {
       if (n.message += `
 Please report this to https://github.com/markedjs/marked.`, e) {
-        let s = "<p>An error occurred:</p><pre>" + O2(n.message + "", true) + "</pre>";
+        let s = "<p>An error occurred:</p><pre>" + T2(n.message + "", true) + "</pre>";
         return t ? Promise.resolve(s) : s;
       }
       if (t) return Promise.reject(n);
@@ -52282,23 +52328,23 @@ Please report this to https://github.com/markedjs/marked.`, e) {
     };
   }
 };
-var E2 = new Z();
+var M2 = new Z();
 function f2(l3, e) {
-  return E2.parse(l3, e);
+  return M2.parse(l3, e);
 }
 f2.options = f2.setOptions = function(l3) {
-  return E2.setOptions(l3), f2.defaults = E2.defaults, j2(f2.defaults), f2;
+  return M2.setOptions(l3), f2.defaults = M2.defaults, j2(f2.defaults), f2;
 };
-f2.getDefaults = C2;
+f2.getDefaults = A2;
 f2.defaults = R2;
-function kt(...l3) {
-  return E2.use(...l3), f2.defaults = E2.defaults, j2(f2.defaults), f2;
+function dt(...l3) {
+  return M2.use(...l3), f2.defaults = M2.defaults, j2(f2.defaults), f2;
 }
-f2.use = kt;
+f2.use = dt;
 f2.walkTokens = function(l3, e) {
-  return E2.walkTokens(l3, e);
+  return M2.walkTokens(l3, e);
 };
-f2.parseInline = E2.parseInline;
+f2.parseInline = M2.parseInline;
 f2.Parser = b;
 f2.parser = b.parse;
 f2.Renderer = P2;
@@ -52313,7 +52359,7 @@ var rn = f2.setOptions;
 var sn = f2.walkTokens;
 var on = f2.parseInline;
 var ln = b.parse;
-var pn = x.lex;
+var un = x.lex;
 
 // packages/markdown-node/src/render.ts
 var import_sanitize_html = __toESM(require_sanitize_html(), 1);
@@ -53173,6 +53219,7 @@ var DynaDashboardSchema = external_exports.object({
   name: external_exports.string().trim().min(1).max(96),
   description: external_exports.string().trim().max(500),
   archived: external_exports.boolean(),
+  doneRetentionHours: external_exports.number().int().min(1).max(8760).default(24),
   createdAt: TimestampSchema2,
   updatedAt: TimestampSchema2
 }).strict();
@@ -53237,6 +53284,44 @@ var DynaItemContextSchema = DynaMaterializedItemSchema.extend({
   }).strict().optional(),
   annotations: external_exports.array(DynaAnnotationSchema).max(20)
 }).strict();
+var DynaArchiveReasonSchema = external_exports.enum([
+  "completed",
+  "invalid",
+  "duplicate",
+  "no_action_needed",
+  "superseded",
+  "other"
+]);
+var DynaArchiveStateSchema = external_exports.object({
+  id: external_exports.uuid(),
+  reason: DynaArchiveReasonSchema,
+  reasonDetail: external_exports.string().trim().min(1).max(500).optional(),
+  mode: external_exports.enum(["manual", "automatic"]),
+  archivedAt: TimestampSchema2,
+  completedAt: TimestampSchema2.optional(),
+  workflowStateAtArchive: external_exports.enum(["todo", "executing", "paused", "attention", "completed"]),
+  wasCompleted: external_exports.boolean(),
+  changedSinceArchive: external_exports.boolean()
+}).strict();
+var DynaItemHistorySchema = external_exports.object({
+  itemId: external_exports.uuid(),
+  archives: external_exports.array(
+    DynaArchiveStateSchema.extend({
+      restoredAt: TimestampSchema2.optional(),
+      priorityAtArchive: DynaPrioritySchema,
+      sequenceAtArchive: external_exports.number().int().nonnegative().optional(),
+      outcomeAtArchive: external_exports.string().trim().min(1).max(200).optional()
+    }).strict()
+  ).max(100),
+  organization: external_exports.array(
+    external_exports.object({
+      action: external_exports.enum(["bump", "lower", "earlier", "later", "resequence"]),
+      priority: DynaPrioritySchema,
+      sequence: external_exports.number().int().nonnegative().optional(),
+      createdAt: TimestampSchema2
+    }).strict()
+  ).max(200)
+}).strict();
 var DynaActionItemContextSchema = external_exports.object({
   id: external_exports.uuid(),
   title: external_exports.string().trim().min(1).max(200),
@@ -53293,6 +53378,7 @@ var DynaCardSchema = external_exports.object({
   canMoveEarlier: external_exports.boolean(),
   canMoveLater: external_exports.boolean(),
   workflowState: external_exports.enum(["todo", "executing", "paused", "attention", "completed"]),
+  completedAt: TimestampSchema2.optional(),
   outcome: external_exports.string().trim().min(1).max(200).optional(),
   followUpOfItemId: external_exports.uuid().optional(),
   attention: external_exports.string().trim().min(1).max(500).optional(),
@@ -53300,20 +53386,23 @@ var DynaCardSchema = external_exports.object({
   nextSteps: external_exports.array(DynaNextStepSchema).max(4),
   enrichmentState: external_exports.enum(["active", "stale"]).optional(),
   annotations: external_exports.array(DynaAnnotationSchema).max(20),
-  linkedTasks: external_exports.array(DynaTaskStatusSchema).max(8)
+  linkedTasks: external_exports.array(DynaTaskStatusSchema).max(8),
+  archive: DynaArchiveStateSchema.optional()
 }).strict();
 var DynaDashboardSnapshotSchema = external_exports.object({
   schema: external_exports.literal("dyna/snapshot-v4"),
   dashboard: DynaDashboardSchema,
   generatedAt: TimestampSchema2,
   query: external_exports.string().max(500),
+  scope: external_exports.enum(["active", "archive"]).default("active"),
   revision: external_exports.number().int().nonnegative(),
   freshness: external_exports.enum(["fresh", "aging", "stale"]),
   counts: external_exports.object({
     critical: external_exports.number().int().nonnegative(),
     high: external_exports.number().int().nonnegative(),
     leadership: external_exports.number().int().nonnegative(),
-    total: external_exports.number().int().nonnegative()
+    total: external_exports.number().int().nonnegative(),
+    archived: external_exports.number().int().nonnegative().default(0)
   }).strict(),
   schedules: external_exports.array(DynaPublisherSchema).max(50),
   cards: external_exports.array(DynaCardSchema).max(200)
@@ -53334,7 +53423,7 @@ var VIEW_TTL_MS = 30 * 24 * 60 * 60 * 1e3;
 var ACTION_TTL_MS = 10 * 60 * 1e3;
 var CLAIM_LEASE_MS = 5 * 60 * 1e3;
 var MAX_CLOCK_SKEW_MS = 5 * 60 * 1e3;
-var DYNA_SCHEMA_VERSION = 4;
+var DYNA_SCHEMA_VERSION = 5;
 var MAX_DASHBOARDS = 100;
 var MAX_PUBLISHERS = 100;
 var MAX_SCHEDULES_PER_DASHBOARD = 50;
@@ -53343,7 +53432,21 @@ var MAX_PUBLIC_FAILURE_LENGTH = 500;
 var MAX_FAILURE_SANITIZATION_INPUT = 4096;
 var LEGACY_COMPLETION_OUTCOME = "Completed before outcome tracking; refresh this task for details.";
 var LEGACY_UNSPECIFIED_FAILURE = "An earlier operation reported an unspecified failure.";
-var DYNA_ELIGIBLE_CTE = `
+function dynaEligibleCte(scope = "active") {
+  const membership = scope === "archive" ? `JOIN item_archive_events ar ON ar.item_id = i.id
+          AND ar.dashboard_id = ? AND ar.restored_at IS NULL
+         JOIN dashboard_publishers dp ON dp.dashboard_id = ar.dashboard_id
+          AND dp.publisher_id = i.publisher_id
+         LEFT JOIN publisher_items pi ON pi.item_id = i.id AND pi.publisher_id = i.publisher_id` : `JOIN publisher_items pi ON pi.item_id = i.id
+         JOIN dashboard_publishers dp ON dp.publisher_id = pi.publisher_id
+         LEFT JOIN item_archive_events ar ON ar.item_id = i.id
+          AND ar.dashboard_id = dp.dashboard_id AND ar.restored_at IS NULL`;
+  const visibility = scope === "archive" ? "1 = 1" : `(pi.active = 1 OR EXISTS (
+          SELECT 1 FROM item_archive_events restored
+          WHERE restored.dashboard_id = dp.dashboard_id AND restored.item_id = i.id
+            AND restored.restored_at IS NOT NULL
+        )) AND ar.id IS NULL AND dp.dashboard_id = ?`;
+  return `
   WITH eligible AS (
     SELECT DISTINCT i.*,
       CASE WHEN e.base_fingerprint = i.fingerprint THEN e.summary END AS enrichment_summary,
@@ -53363,6 +53466,14 @@ var DYNA_ELIGIBLE_CTE = `
       e.version AS enrichment_version,
       p.priority_override AS preference_priority,
       p.sequence AS preference_sequence,
+      ar.id AS archive_id,
+      ar.reason AS archive_reason,
+      ar.reason_detail AS archive_reason_detail,
+      ar.mode AS archive_mode,
+      ar.archived_at AS archive_archived_at,
+      ar.completed_at AS archive_completed_at,
+      ar.workflow_state AS archive_workflow_state,
+      ar.fingerprint_at_archive AS archive_fingerprint,
       CASE
         WHEN p.priority_override IS NOT NULL THEN p.priority_override
         WHEN e.base_fingerprint = i.fingerprint AND e.leadership_score >= 75
@@ -53397,11 +53508,10 @@ var DYNA_ELIGIBLE_CTE = `
         ELSE 'attention'
       END AS workflow_state
     FROM items i
-    JOIN publisher_items pi ON pi.item_id = i.id AND pi.active = 1
-    JOIN dashboard_publishers dp ON dp.publisher_id = pi.publisher_id
+    ${membership}
     LEFT JOIN item_enrichments e ON e.item_id = i.id
     LEFT JOIN item_preferences p ON p.item_id = i.id AND p.dashboard_id = dp.dashboard_id
-    WHERE dp.dashboard_id = ?
+    WHERE ${visibility}
   ), ranked AS (
     SELECT *, ROW_NUMBER() OVER (
       PARTITION BY identity_key ORDER BY source_updated_ms DESC, updated_at DESC, id
@@ -53428,6 +53538,8 @@ var DYNA_ELIGIBLE_CTE = `
     FROM deduplicated
   )
 `;
+}
+var DYNA_ELIGIBLE_CTE = dynaEligibleCte("active");
 function token() {
   return (0, import_node_crypto5.randomBytes)(32).toString("base64url");
 }
@@ -53680,6 +53792,7 @@ var DynaStore = class {
       CREATE TABLE IF NOT EXISTS dashboards (
         id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL,
         archived INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 0,
+        done_retention_hours INTEGER NOT NULL DEFAULT 24,
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS publishers (
@@ -53743,6 +53856,38 @@ var DynaStore = class {
         priority_override TEXT, sequence INTEGER, updated_at TEXT NOT NULL,
         PRIMARY KEY (dashboard_id, item_id)
       );
+      CREATE TABLE IF NOT EXISTS item_preference_events (
+        id TEXT PRIMARY KEY,
+        dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
+        item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        action TEXT NOT NULL CHECK (action IN ('bump', 'lower', 'earlier', 'later', 'resequence')),
+        priority TEXT NOT NULL CHECK (priority IN ('critical', 'high', 'normal', 'low')),
+        sequence INTEGER, created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS item_archive_events (
+        id TEXT PRIMARY KEY,
+        dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
+        item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        reason TEXT NOT NULL CHECK (reason IN (
+          'completed', 'invalid', 'duplicate', 'no_action_needed', 'superseded', 'other'
+        )),
+        reason_detail TEXT,
+        mode TEXT NOT NULL CHECK (mode IN ('manual', 'automatic')),
+        archived_at TEXT NOT NULL, archived_at_ms INTEGER NOT NULL,
+        fingerprint_at_archive TEXT NOT NULL,
+        workflow_state TEXT NOT NULL CHECK (workflow_state IN (
+          'todo', 'executing', 'paused', 'attention', 'completed'
+        )),
+        completed_at TEXT, completed_at_ms INTEGER,
+        outcome_at_archive TEXT,
+        priority_at_archive TEXT NOT NULL CHECK (
+          priority_at_archive IN ('critical', 'high', 'normal', 'low')
+        ),
+        sequence_at_archive INTEGER,
+        client_request_id TEXT, request_hash TEXT,
+        restored_at TEXT, restored_at_ms INTEGER,
+        restore_request_id TEXT, restore_request_hash TEXT
+      );
       CREATE TABLE IF NOT EXISTS todo_requests (
         dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
         client_request_id TEXT NOT NULL, request_hash TEXT NOT NULL,
@@ -53777,6 +53922,18 @@ var DynaStore = class {
       CREATE TABLE IF NOT EXISTS audit_events (
         id TEXT PRIMARY KEY, event_kind TEXT NOT NULL, entity_id TEXT NOT NULL, created_at TEXT NOT NULL
       );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_dyna_open_archive
+        ON item_archive_events(dashboard_id, item_id) WHERE restored_at IS NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_dyna_archive_request
+        ON item_archive_events(dashboard_id, client_request_id)
+        WHERE client_request_id IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_dyna_restore_request
+        ON item_archive_events(dashboard_id, restore_request_id)
+        WHERE restore_request_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_dyna_archive_dashboard_time
+        ON item_archive_events(dashboard_id, restored_at, archived_at_ms DESC);
+      CREATE INDEX IF NOT EXISTS idx_dyna_preference_history
+        ON item_preference_events(dashboard_id, item_id, created_at DESC);
     `);
   }
   #migrateSchema() {
@@ -53859,7 +54016,7 @@ var DynaStore = class {
         this.#assertDatabaseIntegrity();
         this.#database.exec("PRAGMA user_version = 2;");
       });
-    } else if (startingVersion !== 2 && startingVersion !== 3) {
+    } else if (startingVersion !== 2 && startingVersion !== 3 && startingVersion !== 4) {
       throw new Error("The Dyna database schema version is unsupported.");
     }
     const versionTwoRow = this.#one(this.#database.prepare("PRAGMA user_version"));
@@ -53908,22 +54065,42 @@ var DynaStore = class {
         this.#database.exec("PRAGMA user_version = 3;");
       });
     const versionThreeRow = this.#one(this.#database.prepare("PRAGMA user_version"));
-    if (!versionThreeRow || requiredNumber(versionThreeRow, "user_version") !== 3) {
+    if (!versionThreeRow) {
+      throw new Error("Dyna could not complete its database schema migration.");
+    }
+    if (requiredNumber(versionThreeRow, "user_version") === 3)
+      this.#transaction(() => {
+        const publisherColumns = new Set(
+          this.#database.prepare("PRAGMA table_info(publishers)").all().map(
+            (row) => requiredString(row, "name")
+          )
+        );
+        if (!publisherColumns.has("local_cli_enabled")) {
+          this.#database.exec(
+            "ALTER TABLE publishers ADD COLUMN local_cli_enabled INTEGER NOT NULL DEFAULT 0 CHECK (local_cli_enabled IN (0, 1))"
+          );
+        }
+        this.#assertDatabaseIntegrity();
+        this.#database.exec("PRAGMA user_version = 4;");
+      });
+    const versionFourRow = this.#one(this.#database.prepare("PRAGMA user_version"));
+    if (!versionFourRow || requiredNumber(versionFourRow, "user_version") !== 4) {
       throw new Error("Dyna could not complete its database schema migration.");
     }
     this.#transaction(() => {
-      const publisherColumns = new Set(
-        this.#database.prepare("PRAGMA table_info(publishers)").all().map(
+      const dashboardColumns = new Set(
+        this.#database.prepare("PRAGMA table_info(dashboards)").all().map(
           (row) => requiredString(row, "name")
         )
       );
-      if (!publisherColumns.has("local_cli_enabled")) {
+      if (!dashboardColumns.has("done_retention_hours")) {
         this.#database.exec(
-          "ALTER TABLE publishers ADD COLUMN local_cli_enabled INTEGER NOT NULL DEFAULT 0 CHECK (local_cli_enabled IN (0, 1))"
+          "ALTER TABLE dashboards ADD COLUMN done_retention_hours INTEGER NOT NULL DEFAULT 24"
         );
       }
+      this.#createSchema();
       this.#assertDatabaseIntegrity();
-      this.#database.exec("PRAGMA user_version = 4;");
+      this.#database.exec("PRAGMA user_version = 5;");
     });
     const migratedVersion = this.#one(this.#database.prepare("PRAGMA user_version"));
     if (!migratedVersion || requiredNumber(migratedVersion, "user_version") !== DYNA_SCHEMA_VERSION) {
@@ -53932,6 +54109,9 @@ var DynaStore = class {
   }
   #migrateUnversionedSchema() {
     const additions = {
+      dashboards: {
+        done_retention_hours: "INTEGER NOT NULL DEFAULT 24"
+      },
       publishers: {
         schedule_id: "TEXT",
         schedule_title: "TEXT",
@@ -54206,21 +54386,29 @@ var DynaStore = class {
       );
     }
   }
-  createDashboard(name, description) {
+  createDashboard(name, description, doneRetentionHours = 24) {
     const instant = this.#now();
     const dashboard = DynaDashboardSchema.parse({
       id: (0, import_node_crypto5.randomUUID)(),
       name,
       description,
       archived: false,
+      doneRetentionHours,
       createdAt: instant,
       updatedAt: instant
     });
     return this.#transaction(() => {
       this.#assertDashboardCapacity();
       this.#database.prepare(
-        "INSERT INTO dashboards (id, name, description, archived, revision, created_at, updated_at) VALUES (?, ?, ?, 0, 0, ?, ?)"
-      ).run(dashboard.id, dashboard.name, dashboard.description, instant, instant);
+        "INSERT INTO dashboards (id, name, description, archived, revision, done_retention_hours, created_at, updated_at) VALUES (?, ?, ?, 0, 0, ?, ?, ?)"
+      ).run(
+        dashboard.id,
+        dashboard.name,
+        dashboard.description,
+        dashboard.doneRetentionHours,
+        instant,
+        instant
+      );
       return dashboard;
     });
   }
@@ -54228,8 +54416,15 @@ var DynaStore = class {
     const current = this.getDashboard(id);
     const updated = DynaDashboardSchema.parse({ ...current, ...values, updatedAt: this.#now() });
     this.#database.prepare(
-      "UPDATE dashboards SET name = ?, description = ?, archived = ?, revision = revision + 1, updated_at = ? WHERE id = ?"
-    ).run(updated.name, updated.description, updated.archived ? 1 : 0, updated.updatedAt, id);
+      "UPDATE dashboards SET name = ?, description = ?, archived = ?, done_retention_hours = ?, revision = revision + 1, updated_at = ? WHERE id = ?"
+    ).run(
+      updated.name,
+      updated.description,
+      updated.archived ? 1 : 0,
+      updated.doneRetentionHours,
+      updated.updatedAt,
+      id
+    );
     return updated;
   }
   purgeDashboard(id, confirmation) {
@@ -54251,13 +54446,13 @@ var DynaStore = class {
   }
   listDashboards() {
     return this.#database.prepare(
-      "SELECT id, name, description, archived, created_at, updated_at FROM dashboards ORDER BY archived, updated_at DESC"
+      "SELECT id, name, description, archived, done_retention_hours, created_at, updated_at FROM dashboards ORDER BY archived, updated_at DESC"
     ).all().map((row) => this.#dashboardFromRow(row));
   }
   getDashboard(id) {
     const row = this.#one(
       this.#database.prepare(
-        "SELECT id, name, description, archived, created_at, updated_at FROM dashboards WHERE id = ?"
+        "SELECT id, name, description, archived, done_retention_hours, created_at, updated_at FROM dashboards WHERE id = ?"
       ),
       id
     );
@@ -54270,6 +54465,7 @@ var DynaStore = class {
       name: requiredString(row, "name"),
       description: requiredString(row, "description"),
       archived: requiredNumber(row, "archived") === 1,
+      doneRetentionHours: requiredNumber(row, "done_retention_hours"),
       createdAt: requiredString(row, "created_at"),
       updatedAt: requiredString(row, "updated_at")
     });
@@ -55023,16 +55219,9 @@ var DynaStore = class {
         mapping = { publisher_id: publisherId2 };
       }
       if (parsed.followUpOfItemId) {
-        const parent = this.#one(
-          this.#database.prepare(`
-            SELECT 1 AS present FROM publisher_items pi
-            JOIN dashboard_publishers dp ON dp.publisher_id = pi.publisher_id
-            WHERE dp.dashboard_id = ? AND pi.item_id = ? AND pi.active = 1
-          `),
-          dashboardId,
-          parsed.followUpOfItemId
-        );
-        if (!parent) throw new Error("The follow-up source is outside this dashboard view.");
+        if (!this.#dashboardContainsItem(dashboardId, parsed.followUpOfItemId)) {
+          throw new Error("The follow-up source is outside this dashboard view.");
+        }
       }
       const publisherId = requiredString(mapping, "publisher_id");
       const todoId = (0, import_node_crypto5.randomUUID)();
@@ -55141,6 +55330,11 @@ var DynaStore = class {
                priority_override = excluded.priority_override,
                sequence = NULL, updated_at = excluded.updated_at`
         ).run(dashboardId, itemId, targetPriority, instant);
+        this.#database.prepare(
+          `INSERT INTO item_preference_events (
+               id, dashboard_id, item_id, action, priority, sequence, created_at
+             ) VALUES (?, ?, ?, ?, ?, NULL, ?)`
+        ).run((0, import_node_crypto5.randomUUID)(), dashboardId, itemId, action, targetPriority, instant);
       } else {
         const otherIndex = action === "earlier" ? index - 1 : index + 1;
         if (index < 0 || otherIndex < 0 || otherIndex >= group.length) return { changed: false };
@@ -55156,13 +55350,187 @@ var DynaStore = class {
              updated_at = excluded.updated_at`
         );
         group.forEach((candidate, position) => {
-          updateSequence.run(dashboardId, requiredString(candidate, "id"), position * 100, instant);
+          const candidateId = requiredString(candidate, "id");
+          const sequence = position * 100;
+          updateSequence.run(dashboardId, candidateId, sequence, instant);
+          this.#database.prepare(
+            `INSERT INTO item_preference_events (
+                 id, dashboard_id, item_id, action, priority, sequence, created_at
+               ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+          ).run(
+            (0, import_node_crypto5.randomUUID)(),
+            dashboardId,
+            candidateId,
+            candidateId === itemId ? action : "resequence",
+            currentPriority,
+            sequence,
+            instant
+          );
         });
       }
       this.#touchDashboards([dashboardId], instant);
       this.#audit(`item.organized.${action}`, itemId, instant);
       return { changed: true };
     });
+  }
+  archiveItem(viewToken, itemId, values) {
+    const dashboardId = this.authorizeView(viewToken, itemId);
+    const reason = DynaArchiveReasonSchema.parse(values.reason);
+    const reasonDetail = values.reasonDetail?.trim();
+    if (reason === "other" && !reasonDetail) {
+      throw new Error("Other archive reasons require a short explanation.");
+    }
+    if (reason !== "other" && reasonDetail) {
+      throw new Error("Archive reason details are only accepted for Other.");
+    }
+    if (reasonDetail && reasonDetail.length > 500) {
+      throw new Error("Archive reason details cannot exceed 500 characters.");
+    }
+    const requestHash = sha256(
+      JSON.stringify([
+        "dyna/archive-v1",
+        itemId,
+        reason,
+        reasonDetail ?? null,
+        values.expectedRevision,
+        values.expectedFingerprint
+      ])
+    );
+    return this.#transaction(() => {
+      const retry = this.#one(
+        this.#database.prepare(
+          "SELECT * FROM item_archive_events WHERE dashboard_id = ? AND client_request_id = ?"
+        ),
+        dashboardId,
+        values.clientRequestId
+      );
+      if (retry) {
+        if (requiredString(retry, "request_hash") !== requestHash) {
+          throw new Error("The archive request ID was already used for different input.");
+        }
+        return this.#archiveResultFromRow(retry);
+      }
+      const revision = this.#one(
+        this.#database.prepare("SELECT revision FROM dashboards WHERE id = ?"),
+        dashboardId
+      );
+      if (!revision || requiredNumber(revision, "revision") !== values.expectedRevision) {
+        throw new Error("The Dyna dashboard changed; refresh before archiving this item.");
+      }
+      const row = this.#one(
+        this.#database.prepare(`${DYNA_ELIGIBLE_CTE} SELECT * FROM positioned WHERE id = ?`),
+        dashboardId,
+        itemId
+      );
+      if (!row || requiredString(row, "fingerprint") !== values.expectedFingerprint) {
+        throw new Error("The Dyna item changed or is no longer active; refresh before archiving.");
+      }
+      const workflowState = requiredWorkflowState(row);
+      if (reason === "completed" && workflowState !== "completed") {
+        throw new Error("Only completed work can use the Completed archive disposition.");
+      }
+      const result = this.#insertArchiveEvent(
+        dashboardId,
+        row,
+        reason,
+        reasonDetail,
+        "manual",
+        values.clientRequestId,
+        requestHash
+      );
+      const instant = result.archivedAt;
+      this.#touchDashboards([dashboardId], instant);
+      this.#audit(`item.archived.${reason}.manual`, itemId, instant);
+      return result;
+    });
+  }
+  restoreItem(viewToken, itemId, values) {
+    const dashboardId = this.authorizeView(viewToken, itemId);
+    const requestHash = sha256(
+      JSON.stringify([
+        "dyna/restore-v1",
+        itemId,
+        values.expectedRevision,
+        values.expectedFingerprint
+      ])
+    );
+    return this.#transaction(() => {
+      const retry = this.#one(
+        this.#database.prepare(
+          "SELECT * FROM item_archive_events WHERE dashboard_id = ? AND restore_request_id = ?"
+        ),
+        dashboardId,
+        values.clientRequestId
+      );
+      if (retry) {
+        if (requiredString(retry, "restore_request_hash") !== requestHash) {
+          throw new Error("The restore request ID was already used for different input.");
+        }
+        return {
+          itemId,
+          restoredAt: requiredString(retry, "restored_at")
+        };
+      }
+      const revision = this.#one(
+        this.#database.prepare("SELECT revision FROM dashboards WHERE id = ?"),
+        dashboardId
+      );
+      const item = this.#itemBaseRow(itemId);
+      if (!revision || requiredNumber(revision, "revision") !== values.expectedRevision || requiredString(item, "fingerprint") !== values.expectedFingerprint) {
+        throw new Error("The Dyna dashboard changed; refresh before restoring this item.");
+      }
+      const archive = this.#one(
+        this.#database.prepare(
+          "SELECT * FROM item_archive_events WHERE dashboard_id = ? AND item_id = ? AND restored_at IS NULL"
+        ),
+        dashboardId,
+        itemId
+      );
+      if (!archive) throw new Error("The Dyna item is not currently archived.");
+      const instant = this.#now();
+      this.#database.prepare(
+        `UPDATE item_archive_events
+           SET restored_at = ?, restored_at_ms = ?, restore_request_id = ?, restore_request_hash = ?
+           WHERE id = ? AND restored_at IS NULL`
+      ).run(
+        instant,
+        this.#nowMs(),
+        values.clientRequestId,
+        requestHash,
+        requiredString(archive, "id")
+      );
+      this.#touchDashboards([dashboardId], instant);
+      this.#audit("item.restored", itemId, instant);
+      return { itemId, restoredAt: instant };
+    });
+  }
+  itemHistory(dashboardId, itemId) {
+    this.getDashboard(dashboardId);
+    if (!this.#dashboardContainsItem(dashboardId, itemId)) {
+      throw new Error("The Dyna item is outside this dashboard.");
+    }
+    const archives = this.#database.prepare(
+      `SELECT history.*, i.fingerprint FROM item_archive_events history
+           JOIN items i ON i.id = history.item_id
+           WHERE history.dashboard_id = ? AND history.item_id = ?
+           ORDER BY archived_at_ms DESC LIMIT 100`
+    ).all(dashboardId, itemId).map((row) => ({
+      ...this.#archiveStateFromRow(row),
+      ...optionalString(row, "restored_at") ? { restoredAt: optionalString(row, "restored_at") } : {},
+      priorityAtArchive: DynaPrioritySchema.parse(requiredString(row, "priority_at_archive")),
+      ...typeof row["sequence_at_archive"] === "number" ? { sequenceAtArchive: requiredNumber(row, "sequence_at_archive") } : {},
+      ...optionalString(row, "outcome_at_archive") ? { outcomeAtArchive: optionalString(row, "outcome_at_archive") } : {}
+    }));
+    const organization = this.#database.prepare(
+      `SELECT action, priority, sequence, created_at FROM item_preference_events
+           WHERE dashboard_id = ? AND item_id = ? ORDER BY created_at DESC, id DESC LIMIT 200`
+    ).all(dashboardId, itemId).map((row) => ({
+      action: requiredString(row, "action"),
+      priority: DynaPrioritySchema.parse(requiredString(row, "priority")),
+      ...typeof row["sequence"] === "number" ? { sequence: requiredNumber(row, "sequence") } : {},
+      createdAt: requiredString(row, "created_at")
+    }));
+    return DynaItemHistorySchema.parse({ itemId, archives, organization });
   }
   applyEnrichment(itemId, values) {
     const dueAt = values.dueAt ? normalizeTimestamp(values.dueAt).iso : void 0;
@@ -55230,6 +55598,135 @@ var DynaStore = class {
       this.#audit("item.enriched", itemId, instant);
     });
   }
+  #insertArchiveEvent(dashboardId, row, reason, reasonDetail, mode, clientRequestId, requestHash) {
+    const itemId = requiredString(row, "id");
+    const workflowState = requiredWorkflowState(row);
+    const completedRow = this.#one(
+      this.#database.prepare(
+        `SELECT MAX(status_updated_ms) AS completed_at_ms
+         FROM task_bindings WHERE item_id = ? AND state = 'succeeded'`
+      ),
+      itemId
+    );
+    const completedAtMs = workflowState === "completed" && typeof completedRow?.["completed_at_ms"] === "number" ? requiredNumber(completedRow, "completed_at_ms") : void 0;
+    const outcomeRow = workflowState === "completed" ? this.#one(
+      this.#database.prepare(
+        `SELECT outcome FROM task_bindings
+               WHERE item_id = ? AND state = 'succeeded' AND outcome IS NOT NULL
+               ORDER BY status_updated_ms DESC, task_id, host_id LIMIT 1`
+      ),
+      itemId
+    ) : void 0;
+    const archiveId = (0, import_node_crypto5.randomUUID)();
+    const archivedAt = this.#now();
+    this.#database.prepare(
+      `INSERT INTO item_archive_events (
+           id, dashboard_id, item_id, reason, reason_detail, mode,
+           archived_at, archived_at_ms, fingerprint_at_archive, workflow_state,
+           completed_at, completed_at_ms, outcome_at_archive,
+           priority_at_archive, sequence_at_archive, client_request_id, request_hash
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      archiveId,
+      dashboardId,
+      itemId,
+      reason,
+      reasonDetail ?? null,
+      mode,
+      archivedAt,
+      this.#nowMs(),
+      requiredString(row, "fingerprint"),
+      workflowState,
+      completedAtMs === void 0 ? null : new Date(completedAtMs).toISOString(),
+      completedAtMs ?? null,
+      outcomeRow ? optionalString(outcomeRow, "outcome") ?? null : null,
+      requiredString(row, "effective_priority"),
+      typeof row["preference_sequence"] === "number" ? requiredNumber(row, "preference_sequence") : null,
+      clientRequestId ?? null,
+      requestHash ?? null
+    );
+    return { archiveId, itemId, archivedAt, reason, mode };
+  }
+  #archiveExpiredCompleted(dashboardId) {
+    this.#transaction(() => {
+      const dashboard = this.#one(
+        this.#database.prepare("SELECT done_retention_hours FROM dashboards WHERE id = ?"),
+        dashboardId
+      );
+      if (!dashboard) throw new Error("Dyna dashboard was not found.");
+      const cutoff = this.#nowMs() - requiredNumber(dashboard, "done_retention_hours") * 60 * 60 * 1e3;
+      const rows = this.#database.prepare(
+        `${DYNA_ELIGIBLE_CTE}
+           SELECT * FROM positioned
+           WHERE workflow_state = 'completed'
+             AND MAX(
+               COALESCE((
+                 SELECT MAX(t.status_updated_ms) FROM task_bindings t
+                 WHERE t.item_id = positioned.id AND t.state = 'succeeded'
+               ), source_updated_ms),
+               COALESCE((
+                 SELECT MAX(history.restored_at_ms) FROM item_archive_events history
+                 WHERE history.dashboard_id = ? AND history.item_id = positioned.id
+               ), 0)
+             ) <= ?`
+      ).all(dashboardId, dashboardId, cutoff);
+      if (rows.length === 0) return;
+      const instant = this.#now();
+      for (const row of rows) {
+        const result = this.#insertArchiveEvent(
+          dashboardId,
+          row,
+          "completed",
+          void 0,
+          "automatic"
+        );
+        this.#audit("item.archived.completed.automatic", result.itemId, instant);
+      }
+      this.#touchDashboards([dashboardId], instant);
+    });
+  }
+  #archiveResultFromRow(row) {
+    return {
+      archiveId: requiredString(row, "id"),
+      itemId: requiredString(row, "item_id"),
+      archivedAt: requiredString(row, "archived_at"),
+      reason: DynaArchiveReasonSchema.parse(requiredString(row, "reason")),
+      mode: requiredString(row, "mode")
+    };
+  }
+  #archiveStateFromRow(row, prefix = "") {
+    const key = (name) => `${prefix}${name}`;
+    const workflowState = requiredString(row, key("workflow_state"));
+    return DynaArchiveStateSchema.parse({
+      id: requiredString(row, key("id")),
+      reason: requiredString(row, key("reason")),
+      ...optionalString(row, key("reason_detail")) ? { reasonDetail: optionalString(row, key("reason_detail")) } : {},
+      mode: requiredString(row, key("mode")),
+      archivedAt: requiredString(row, key("archived_at")),
+      ...optionalString(row, key("completed_at")) ? { completedAt: optionalString(row, key("completed_at")) } : {},
+      workflowStateAtArchive: workflowState,
+      wasCompleted: workflowState === "completed",
+      changedSinceArchive: requiredString(row, "fingerprint") !== requiredString(row, prefix ? "archive_fingerprint" : "fingerprint_at_archive")
+    });
+  }
+  #dashboardContainsItem(dashboardId, itemId) {
+    return Boolean(
+      this.#one(
+        this.#database.prepare(
+          `SELECT 1 AS present FROM publisher_items pi
+           JOIN dashboard_publishers dp ON dp.publisher_id = pi.publisher_id
+           WHERE dp.dashboard_id = ? AND pi.item_id = ? AND (
+             pi.active = 1 OR EXISTS (
+               SELECT 1 FROM item_archive_events history
+               WHERE history.dashboard_id = dp.dashboard_id AND history.item_id = pi.item_id
+             )
+           )`
+        ),
+        dashboardId,
+        itemId
+      )
+    );
+  }
   createView(dashboardId) {
     this.getDashboard(dashboardId);
     const value = token();
@@ -55251,21 +55748,15 @@ var DynaStore = class {
     }
     const dashboardId = requiredString(row, "dashboard_id");
     if (itemId) {
-      const membership = this.#one(
-        this.#database.prepare(`
-          SELECT 1 AS present FROM publisher_items pi
-          JOIN dashboard_publishers dp ON dp.publisher_id = pi.publisher_id
-          WHERE dp.dashboard_id = ? AND pi.item_id = ? AND pi.active = 1
-        `),
-        dashboardId,
-        itemId
-      );
-      if (!membership) throw new Error("The Dyna item is outside this dashboard view.");
+      if (!this.#dashboardContainsItem(dashboardId, itemId)) {
+        throw new Error("The Dyna item is outside this dashboard view.");
+      }
     }
     this.#database.prepare("UPDATE view_sessions SET expires_at = ? WHERE token_hash = ?").run(new Date(this.#nowMs() + VIEW_TTL_MS).toISOString(), hash2);
     return dashboardId;
   }
-  snapshot(dashboardId, searchQuery = "") {
+  snapshot(dashboardId, searchQuery = "", scope = "active") {
+    this.#archiveExpiredCompleted(dashboardId);
     return this.#readTransaction(() => {
       const query = searchQuery.trim().slice(0, 500);
       const terms = [...new Set(query.toLocaleLowerCase().split(/\s+/u).filter(Boolean))].slice(
@@ -55283,7 +55774,8 @@ var DynaStore = class {
               COALESCE(enrichment_priority_reason, '') || ' ' ||
               COALESCE(enrichment_labels, '') || ' ' || COALESCE(enrichment_people, '') || ' ' ||
               COALESCE(enrichment_attention, '') || ' ' || COALESCE(enrichment_plan, '') || ' ' ||
-              COALESCE(enrichment_next_steps, '')
+              COALESCE(enrichment_next_steps, '') || ' ' || COALESCE(archive_reason, '') || ' ' ||
+              COALESCE(archive_reason_detail, '')
             ), ?) > 0
             OR EXISTS (
               SELECT 1 FROM annotations a
@@ -55315,8 +55807,16 @@ var DynaStore = class {
         ...searchValues
       );
       if (!countRow) throw new Error("Dyna could not count dashboard items.");
+      const archiveCountRow = this.#one(
+        this.#database.prepare(`${dynaEligibleCte("archive")}
+          SELECT COUNT(*) AS total FROM positioned WHERE 1 = 1 ${searchClause}`),
+        dashboardId,
+        ...searchValues
+      );
+      if (!archiveCountRow) throw new Error("Dyna could not count archived dashboard items.");
+      const selectedCte = scope === "archive" ? dynaEligibleCte("archive") : DYNA_ELIGIBLE_CTE;
       const rows = this.#database.prepare(
-        `${DYNA_ELIGIBLE_CTE}
+        `${selectedCte}
           SELECT * FROM positioned WHERE 1 = 1 ${searchClause}
           ORDER BY
             CASE effective_priority
@@ -55347,21 +55847,23 @@ var DynaStore = class {
         dashboard,
         generatedAt: this.#now(),
         query,
+        scope,
         revision: revisionRow ? requiredNumber(revisionRow, "revision") : 0,
         freshness,
         counts: {
           critical: criticalCount,
           high: highCount,
           leadership: leadershipCount,
-          total: requiredNumber(countRow, "total")
+          total: requiredNumber(countRow, "total"),
+          archived: requiredNumber(archiveCountRow, "total")
         },
         schedules,
         cards
       });
     });
   }
-  snapshotForView(viewToken, query = "") {
-    return this.snapshot(this.authorizeView(viewToken), query);
+  snapshotForView(viewToken, query = "", scope = "active") {
+    return this.snapshot(this.authorizeView(viewToken), query, scope);
   }
   itemContext(itemId) {
     return DynaItemContextSchema.parse({
@@ -56051,6 +56553,10 @@ var DynaStore = class {
       const linkedTasks = tasks.get(id) ?? [];
       const workflowState = requiredWorkflowState(row);
       const completedTask = workflowState === "completed" ? linkedTasks.find((task) => task.state === "succeeded") : void 0;
+      const completedAt = workflowState === "completed" ? linkedTasks.reduce(
+        (latest, task) => task.state === "succeeded" && (!latest || task.statusUpdatedAt > latest) ? task.statusUpdatedAt : latest,
+        void 0
+      ) : void 0;
       const leadershipPriority = effectiveDynaPriority(item.priority, item.people);
       const storedPriority = optionalString(row, "preference_priority");
       const manualPriority = storedPriority ? DynaPrioritySchema.parse(storedPriority) : void 0;
@@ -56076,6 +56582,7 @@ var DynaStore = class {
         canMoveEarlier: requiredNumber(row, "priority_position") > 1,
         canMoveLater: requiredNumber(row, "priority_position") < requiredNumber(row, "priority_count"),
         workflowState,
+        ...completedAt ? { completedAt } : {},
         ...workflowState === "completed" && completedTask?.outcome ? { outcome: completedTask.outcome } : {},
         ...optionalString(row, "follow_up_of_item_id") ? { followUpOfItemId: optionalString(row, "follow_up_of_item_id") } : {},
         ...item.attention ? { attention: item.attention } : {},
@@ -56083,7 +56590,8 @@ var DynaStore = class {
         nextSteps: item.nextSteps,
         ...item.enrichment ? { enrichmentState: item.enrichment.state } : {},
         annotations: annotations.get(id) ?? [],
-        linkedTasks
+        linkedTasks,
+        ...optionalString(row, "archive_id") ? { archive: this.#archiveStateFromRow(row, "archive_") } : {}
       };
     });
   }
@@ -56108,7 +56616,12 @@ var DynaStore = class {
       `
         SELECT DISTINCT dp.dashboard_id FROM dashboard_publishers dp
         JOIN publisher_items pi ON pi.publisher_id = dp.publisher_id
-        WHERE pi.item_id = ? AND pi.active = 1
+        WHERE pi.item_id = ? AND (
+          pi.active = 1 OR EXISTS (
+            SELECT 1 FROM item_archive_events history
+            WHERE history.dashboard_id = dp.dashboard_id AND history.item_id = pi.item_id
+          )
+        )
       `
     ).all(itemId).map((row) => requiredString(row, "dashboard_id"));
     this.#touchDashboards(dashboards, instant);
@@ -56140,8 +56653,8 @@ var DynaService = class {
     };
     return DynaUiPayloadSchema.parse(payload);
   }
-  refresh(viewToken, query = "") {
-    const snapshot = this.store.snapshotForView(viewToken, query);
+  refresh(viewToken, query = "", scope = "active") {
+    const snapshot = this.store.snapshotForView(viewToken, query, scope);
     return DynaUiPayloadSchema.parse({
       schema: "dyna/ui-v6",
       viewToken,
@@ -56169,7 +56682,8 @@ var DashboardIdSchema = external_exports.object({ dashboardId: external_exports.
 var ViewTokenSchema = external_exports.object({
   viewToken: external_exports.string().min(32).max(128),
   currentRevision: external_exports.number().int().nonnegative().optional(),
-  query: external_exports.string().trim().max(500).optional()
+  query: external_exports.string().trim().max(500).optional(),
+  scope: external_exports.enum(["active", "archive"]).default("active")
 }).strict();
 var AddAnnotationInputSchema = external_exports.object({
   viewToken: external_exports.string().min(32).max(128),
@@ -56201,7 +56715,8 @@ var SearchItemSchema = external_exports.object({
   plan: external_exports.array(external_exports.string().trim().min(1).max(200)).max(4),
   nextSteps: external_exports.array(DynaNextStepSchema).max(4),
   outcome: external_exports.string().trim().min(1).max(200).optional(),
-  linkedTasks: external_exports.array(DynaTaskStatusSchema).max(8)
+  linkedTasks: external_exports.array(DynaTaskStatusSchema).max(8),
+  archive: DynaArchiveStateSchema.optional()
 }).strict();
 var PublisherCreationResultSchema = external_exports.discriminatedUnion("credentialHandling", [
   external_exports.object({
@@ -56259,13 +56774,94 @@ function appTools(service) {
         idempotentHint: true
       },
       handler(input) {
-        const { viewToken, currentRevision, query } = ViewTokenSchema.parse(input);
-        const payload = service.refresh(viewToken, query);
+        const { viewToken, currentRevision, query, scope } = ViewTokenSchema.parse(input);
+        const payload = service.refresh(viewToken, query, scope);
         const changed = currentRevision !== payload.snapshot.revision;
         return {
           structuredContent: { revision: payload.snapshot.revision, changed },
           content: [],
           _meta: { dynaDashboard: payload }
+        };
+      }
+    },
+    {
+      name: "dyna_archive_item",
+      title: "Archive Dyna item",
+      description: "Retry-safely archive an item in this dashboard with an explicit disposition.",
+      inputSchema: external_exports.object({
+        viewToken: external_exports.string().min(32).max(128),
+        itemId: external_exports.uuid(),
+        reason: DynaArchiveReasonSchema,
+        reasonDetail: external_exports.string().trim().min(1).max(500).optional(),
+        expectedRevision: external_exports.number().int().nonnegative(),
+        expectedFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
+        clientRequestId: external_exports.uuid()
+      }).strict(),
+      outputSchema: external_exports.object({
+        archiveId: external_exports.uuid(),
+        itemId: external_exports.uuid(),
+        archivedAt: external_exports.iso.datetime({ offset: true }),
+        reason: DynaArchiveReasonSchema,
+        mode: external_exports.literal("manual")
+      }).strict(),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+        idempotentHint: true
+      },
+      handler(input) {
+        const parsed = external_exports.object({
+          viewToken: external_exports.string().min(32).max(128),
+          itemId: external_exports.uuid(),
+          reason: DynaArchiveReasonSchema,
+          reasonDetail: external_exports.string().trim().min(1).max(500).optional(),
+          expectedRevision: external_exports.number().int().nonnegative(),
+          expectedFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
+          clientRequestId: external_exports.uuid()
+        }).strict().parse(input);
+        const result = service.store.archiveItem(parsed.viewToken, parsed.itemId, {
+          reason: parsed.reason,
+          ...parsed.reasonDetail ? { reasonDetail: parsed.reasonDetail } : {},
+          expectedRevision: parsed.expectedRevision,
+          expectedFingerprint: parsed.expectedFingerprint,
+          clientRequestId: parsed.clientRequestId
+        });
+        return {
+          structuredContent: { ...result },
+          content: []
+        };
+      }
+    },
+    {
+      name: "dyna_restore_item",
+      title: "Restore Dyna item",
+      description: "Retry-safely restore one archived item to its current active lifecycle stage.",
+      inputSchema: external_exports.object({
+        viewToken: external_exports.string().min(32).max(128),
+        itemId: external_exports.uuid(),
+        expectedRevision: external_exports.number().int().nonnegative(),
+        expectedFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
+        clientRequestId: external_exports.uuid()
+      }).strict(),
+      outputSchema: external_exports.object({ itemId: external_exports.uuid(), restoredAt: external_exports.iso.datetime({ offset: true }) }).strict(),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+        idempotentHint: true
+      },
+      handler(input) {
+        const parsed = external_exports.object({
+          viewToken: external_exports.string().min(32).max(128),
+          itemId: external_exports.uuid(),
+          expectedRevision: external_exports.number().int().nonnegative(),
+          expectedFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
+          clientRequestId: external_exports.uuid()
+        }).strict().parse(input);
+        return {
+          structuredContent: service.store.restoreItem(parsed.viewToken, parsed.itemId, parsed),
+          content: []
         };
       }
     },
@@ -56460,7 +57056,8 @@ function createDynaPlugin(options = {}) {
         description: "Create one persistent executive dashboard that can receive multiple scheduled publishers.",
         inputSchema: external_exports.object({
           name: external_exports.string().trim().min(1).max(96),
-          description: external_exports.string().trim().max(500).default("")
+          description: external_exports.string().trim().max(500).default(""),
+          doneRetentionHours: external_exports.number().int().min(1).max(8760).default(24)
         }).strict(),
         outputSchema: DynaDashboardSchema,
         risk: { readOnly: false, destructive: false, openWorld: false, idempotent: false },
@@ -56469,9 +57066,14 @@ function createDynaPlugin(options = {}) {
           execute(input) {
             const parsed = external_exports.object({
               name: external_exports.string().trim().min(1).max(96),
-              description: external_exports.string().trim().max(500).default("")
+              description: external_exports.string().trim().max(500).default(""),
+              doneRetentionHours: external_exports.number().int().min(1).max(8760).default(24)
             }).strict().parse(input);
-            const dashboard = service.store.createDashboard(parsed.name, parsed.description);
+            const dashboard = service.store.createDashboard(
+              parsed.name,
+              parsed.description,
+              parsed.doneRetentionHours
+            );
             return { result: dashboard };
           }
         }
@@ -56484,7 +57086,8 @@ function createDynaPlugin(options = {}) {
           dashboardId: external_exports.uuid(),
           name: external_exports.string().trim().min(1).max(96).optional(),
           description: external_exports.string().trim().max(500).optional(),
-          archived: external_exports.boolean().optional()
+          archived: external_exports.boolean().optional(),
+          doneRetentionHours: external_exports.number().int().min(1).max(8760).optional()
         }).strict(),
         outputSchema: DynaDashboardSchema,
         risk: { readOnly: false, destructive: true, openWorld: false, idempotent: true },
@@ -56495,12 +57098,14 @@ function createDynaPlugin(options = {}) {
               dashboardId: external_exports.uuid(),
               name: external_exports.string().trim().min(1).max(96).optional(),
               description: external_exports.string().trim().max(500).optional(),
-              archived: external_exports.boolean().optional()
+              archived: external_exports.boolean().optional(),
+              doneRetentionHours: external_exports.number().int().min(1).max(8760).optional()
             }).strict().parse(input);
             const dashboard = service.store.updateDashboard(parsed.dashboardId, {
               ...parsed.name !== void 0 ? { name: parsed.name } : {},
               ...parsed.description !== void 0 ? { description: parsed.description } : {},
-              ...parsed.archived !== void 0 ? { archived: parsed.archived } : {}
+              ...parsed.archived !== void 0 ? { archived: parsed.archived } : {},
+              ...parsed.doneRetentionHours !== void 0 ? { doneRetentionHours: parsed.doneRetentionHours } : {}
             });
             return { result: dashboard };
           }
@@ -56542,7 +57147,8 @@ function createDynaPlugin(options = {}) {
         description: "Return a bounded actionable dashboard brief and stable item IDs for enrichment, task attachment, or clients without component UI.",
         inputSchema: external_exports.object({
           dashboardId: external_exports.uuid(),
-          query: external_exports.string().trim().max(500).default("")
+          query: external_exports.string().trim().max(500).default(""),
+          scope: external_exports.enum(["active", "archive"]).default("active")
         }).strict(),
         outputSchema: external_exports.object({
           dashboard: DynaDashboardSchema,
@@ -56555,14 +57161,18 @@ function createDynaPlugin(options = {}) {
         executor: {
           kind: "module",
           execute(input) {
-            const { dashboardId, query } = external_exports.object({ dashboardId: external_exports.uuid(), query: external_exports.string().trim().max(500).default("") }).strict().parse(input);
-            const snapshot = service.store.snapshot(dashboardId, query);
+            const { dashboardId, query, scope } = external_exports.object({
+              dashboardId: external_exports.uuid(),
+              query: external_exports.string().trim().max(500).default(""),
+              scope: external_exports.enum(["active", "archive"]).default("active")
+            }).strict().parse(input);
+            const snapshot = service.store.snapshot(dashboardId, query, scope);
             return {
               result: {
                 dashboard: snapshot.dashboard,
                 revision: snapshot.revision,
                 freshness: snapshot.freshness,
-                total: snapshot.counts.total,
+                total: scope === "archive" ? snapshot.counts.archived : snapshot.counts.total,
                 items: snapshot.cards.slice(0, 20).map((card) => ({
                   itemId: card.id,
                   fingerprint: card.fingerprint,
@@ -56578,7 +57188,8 @@ function createDynaPlugin(options = {}) {
                   plan: card.plan,
                   nextSteps: card.nextSteps,
                   ...card.outcome ? { outcome: card.outcome } : {},
-                  linkedTasks: card.linkedTasks
+                  linkedTasks: card.linkedTasks,
+                  ...card.archive ? { archive: card.archive } : {}
                 }))
               }
             };
@@ -56923,6 +57534,21 @@ function createDynaPlugin(options = {}) {
           execute(input) {
             const { itemId } = external_exports.object({ itemId: external_exports.uuid() }).strict().parse(input);
             return { result: service.store.itemContext(itemId) };
+          }
+        }
+      },
+      {
+        id: "get-item-history",
+        title: "Get Dyna item history",
+        description: "Read dashboard-local archive dispositions, restorations, and priority ordering history for retrospective reporting.",
+        inputSchema: external_exports.object({ dashboardId: external_exports.uuid(), itemId: external_exports.uuid() }).strict(),
+        outputSchema: DynaItemHistorySchema,
+        risk: { readOnly: true, destructive: false, openWorld: false, idempotent: true },
+        executor: {
+          kind: "module",
+          execute(input) {
+            const { dashboardId, itemId } = external_exports.object({ dashboardId: external_exports.uuid(), itemId: external_exports.uuid() }).strict().parse(input);
+            return { result: service.store.itemHistory(dashboardId, itemId) };
           }
         }
       },

@@ -34,8 +34,8 @@ export class DynaService {
     return DynaUiPayloadSchema.parse(payload);
   }
 
-  refresh(viewToken: string, query = ""): DynaUiPayload {
-    const snapshot = this.store.snapshotForView(viewToken, query);
+  refresh(viewToken: string, query = "", scope: "active" | "archive" = "active"): DynaUiPayload {
+    const snapshot = this.store.snapshotForView(viewToken, query, scope);
     return DynaUiPayloadSchema.parse({
       schema: "dyna/ui-v6",
       viewToken,

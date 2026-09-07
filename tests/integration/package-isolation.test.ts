@@ -118,7 +118,7 @@ describe("isolated shipping package", () => {
     await client.connect(transport);
     try {
       expect(client.getServerVersion()?.name).toBe("flowzone");
-      expect((await client.listTools()).tools).toHaveLength(14);
+      expect((await client.listTools()).tools).toHaveLength(16);
       const resource = await client.readResource({ uri: "ui://flowzone/v5.html" });
       const content = resource.contents[0];
       expect(content && "text" in content ? content.text : "").toContain(">Submit<");

@@ -3,6 +3,25 @@ import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 
 describe("DynaStore lifecycle", () => {
+  test("archives completed and disposed work without deleting its evidence", () => {
+    const fixture = resolve(import.meta.dir, "archive-lifecycle-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      retentionDefault: true,
+      retentionConfigurable: true,
+      recentDoneVisible: true,
+      automaticArchive: true,
+      activeCountsExcludeArchived: true,
+      manualDisposition: true,
+      evidencePreserved: true,
+      changedDoesNotReactivate: true,
+      followUpLinked: true,
+      restoredWithHistory: true,
+      priorityHistory: true,
+    });
+  });
+
   test("publishes through the same-user local CLI boundary without prompt secrets", () => {
     const fixture = resolve(import.meta.dir, "local-cli-publisher-node-fixture.mjs");
     const result = spawnSync("node", [fixture], { encoding: "utf8" });

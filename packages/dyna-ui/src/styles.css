@@ -6,38 +6,69 @@
 @import "../../../node_modules/@openai/apps-sdk-ui/dist/es/styles/globals.css";
 @source "../../../node_modules/@openai/apps-sdk-ui";
 
+@font-face {
+  font-family: "Oxanium Variable";
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url("../../../node_modules/@fontsource-variable/oxanium/files/oxanium-latin-wght-normal.woff2")
+    format("woff2");
+}
+
+@font-face {
+  font-family: "Geist Mono Variable";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("../../../node_modules/@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2")
+    format("woff2");
+}
+
 :root {
   color-scheme: light;
-  --d-canvas: var(--color-surface, #f7f8f8);
-  --d-surface: var(--color-surface-elevated, #ffffff);
-  --d-surface-muted: var(--color-surface-secondary, #f0f3f4);
-  --d-text: var(--color-text-primary, #172126);
-  --d-muted: var(--color-text-secondary, #647078);
-  --d-border: var(--color-border-subtle, #dfe4e6);
-  --d-border-strong: var(--color-border-strong, #aeb9be);
-  --d-ring: var(--color-ring, #2457d6);
-  --d-critical: #a8322d;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.5 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --chart-3: oklch(0.55 0.22 263);
+  --font-sans: "Oxanium Variable", ui-sans-serif, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, monospace;
+  --d-canvas: var(--background);
+  --d-surface: var(--card);
+  --d-surface-muted: var(--muted);
+  --d-text: var(--foreground);
+  --d-muted: var(--muted-foreground);
+  --d-border: var(--border);
+  --d-border-strong: var(--input);
+  --d-ring: var(--ring);
+  --d-critical: var(--destructive);
   --d-high: var(--color-text-warning, #a9571e);
-  --d-normal: var(--color-text-info, #2457d6);
-  --d-low: var(--color-text-secondary, #738087);
+  --d-normal: var(--chart-3);
+  --d-low: var(--muted-foreground);
   --d-success: var(--color-text-success, #257a55);
   --d-deadline: #87411b;
+  --control-size-sm: 2rem;
+  --control-font-size-md: 13px;
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --d-canvas: var(--color-surface, #0e1417);
-  --d-surface: var(--color-surface-elevated, #182126);
-  --d-surface-muted: var(--color-surface-secondary, #202b30);
-  --d-text: var(--color-text-primary, #edf2f3);
-  --d-muted: var(--color-text-secondary, #aeb9bd);
-  --d-border: var(--color-border-subtle, #2c393e);
-  --d-border-strong: var(--color-border-strong, #536168);
-  --d-ring: var(--color-ring, #8da9ff);
-  --d-critical: #ff9b96;
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --border: oklch(0.275 0 0);
+  --input: oklch(0.325 0 0);
+  --ring: oklch(0.556 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
   --d-high: var(--color-text-warning, #f1ad72);
-  --d-normal: var(--color-text-info, #8da9ff);
-  --d-low: var(--color-text-secondary, #a8b2b7);
+  --d-low: var(--muted-foreground);
   --d-success: var(--color-text-success, #79d6a7);
   --d-deadline: #ffb77f;
 }
@@ -61,13 +92,7 @@ html {
 
 body {
   overflow-x: hidden;
-  font-family:
-    ui-sans-serif,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI Variable",
-    "Segoe UI",
-    sans-serif;
+  font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
 }
 
@@ -75,7 +100,7 @@ button,
 input,
 textarea,
 select {
-  font: inherit;
+  font-family: inherit;
 }
 
 .dyna {
@@ -233,6 +258,7 @@ select {
 .dyna-tabs button:focus-visible,
 .dyna-row-main:focus-visible,
 .dyna-row-primary:focus-visible,
+.dyna-stat:focus-visible,
 .dyna-source-link:focus-visible,
 .dyna-action-link:focus-visible,
 .dyna-card:focus-visible,
@@ -440,6 +466,22 @@ select {
   display: inline-flex;
   gap: 4px;
   align-items: baseline;
+  padding: 2px;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.dyna-meta,
+.dyna-stat,
+.dyna-row-time,
+.dyna-row-workflow {
+  font-family: var(--font-mono);
+}
+
+.dyna-stat[aria-pressed="true"] {
+  box-shadow: inset 0 -1px 0 var(--d-ring);
 }
 
 .dyna-stat strong {
@@ -453,7 +495,7 @@ select {
   font-size: 12px;
 }
 
-.dyna-stat[data-condition="blocked"] strong {
+.dyna-stat[data-filter="blocked"] strong {
   color: var(--d-critical);
 }
 
@@ -539,6 +581,7 @@ select {
 
 .dyna-card-row {
   min-width: 0;
+  cursor: pointer;
 }
 
 .dyna .dyna-row-main {
@@ -576,13 +619,20 @@ select {
   text-transform: capitalize;
 }
 
-.dyna-source-mark,
 .dyna-row-status,
 .dyna-row-person {
   overflow: hidden;
   max-width: 45%;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.dyna-source-favicon {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  stroke: var(--d-surface);
+  stroke-width: 0.55px;
 }
 
 .dyna-row-time {
@@ -684,20 +734,15 @@ select {
 .dyna-row-primary {
   display: inline-flex;
   flex: 0 0 auto;
-  gap: 2px;
   align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-height: 28px;
+  padding: 0;
   color: var(--d-text);
   border: 0;
   background: transparent;
   cursor: pointer;
-  font-size: 12px;
-  font-weight: 680;
-  white-space: nowrap;
-}
-
-.dyna-row-primary:hover {
-  text-decoration: underline;
-  text-underline-offset: 2px;
 }
 
 .dyna-row-workflow {
@@ -706,6 +751,10 @@ select {
   overflow: hidden;
   border: 1px solid var(--d-border);
   border-radius: 4px;
+}
+
+.dyna-card[data-presentation="pipeline"] .dyna-row-workflow {
+  display: none;
 }
 
 .dyna-row-workflow span {
@@ -925,6 +974,7 @@ select {
 
 .dyna-schedule > .dyna-meta {
   grid-column: 1 / -1;
+  line-height: 1.3;
   overflow-wrap: anywhere;
 }
 
@@ -999,7 +1049,7 @@ select {
 
 .dyna-inspector h2 {
   margin: 0;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 690;
   line-height: 1.25;
   letter-spacing: -0.018em;
@@ -1065,6 +1115,54 @@ select {
   overscroll-behavior: contain;
   padding: 14px max(14px, env(safe-area-inset-right), var(--d-safe-right, 0px)) 18px
     max(14px, env(safe-area-inset-left), var(--d-safe-left, 0px));
+}
+
+.dyna-archive-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0 8px;
+  border-bottom: 1px solid var(--d-border);
+}
+
+.dyna-archive-heading h2,
+.dyna-archive-heading p {
+  margin: 0;
+}
+
+.dyna-archive-heading h2 {
+  font-size: 14px;
+}
+
+.dyna-archive-heading p {
+  margin-top: 2px;
+  color: var(--d-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.dyna-archive-heading > span {
+  color: var(--d-muted);
+  font: 12px/1.4 var(--d-font-mono);
+}
+
+.dyna-archive-notice {
+  display: grid;
+  gap: 4px;
+  padding: 9px 11px;
+  border-left: 3px solid var(--d-muted);
+  background: var(--d-surface-muted);
+  font-size: 12px;
+}
+
+.dyna-archive-notice[data-changed="true"] {
+  border-left-color: var(--d-high);
+}
+
+.dyna-archive-notice p {
+  margin: 0;
+  color: var(--d-muted);
 }
 
 .dyna-attention {
@@ -1460,6 +1558,14 @@ select {
   padding: 14px 15px 9px;
 }
 
+.dyna-sheet-header p,
+.dyna-modal-note {
+  margin: 4px 0 0;
+  color: var(--d-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .dyna-sheet h2 {
   margin: 0;
   font-size: 17px;
@@ -1521,6 +1627,22 @@ select {
   background: var(--d-text);
   color: var(--d-canvas);
   font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  pointer-events: none;
+}
+
+.dyna-toast button {
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-weight: 700;
+  pointer-events: auto;
 }
 
 @media (min-width: 980px) {
@@ -1557,8 +1679,10 @@ select {
 :root[data-touch="true"] .dyna select,
 :root[data-touch="true"] .dyna textarea,
 :root[data-touch="true"] .dyna summary,
+:root[data-touch="true"] .dyna .dyna-source-link,
 :root[data-touch="true"] .dyna-inspector-layer button,
 :root[data-touch="true"] .dyna-inspector-layer summary,
+:root[data-touch="true"] .dyna-inspector-layer .dyna-action-link,
 :root[data-touch="true"] .dyna-dialog button,
 :root[data-touch="true"] .dyna-dialog input,
 :root[data-touch="true"] .dyna-dialog select,
@@ -1574,6 +1698,13 @@ select {
   display: flex;
 }
 
+:root[data-touch="true"] .dyna-inspector-footer .dyna-inspector-actions {
+  display: flex;
+  width: 100%;
+  padding-top: 0;
+  border-top: 0;
+}
+
 :root[data-touch="true"] .dyna-inspector-scroll {
   padding-bottom: max(78px, calc(env(safe-area-inset-bottom) + 66px));
 }
@@ -1585,25 +1716,13 @@ select {
 :root[data-touch="true"] .dyna-search-clear,
 :root[data-touch="true"] .dyna-inspector-close,
 :root[data-touch="true"] .dyna-commandbar button[aria-label="Add to-do"],
+:root[data-touch="true"] .dyna-row-primary,
 :root[data-touch="true"] .dyna-more-trigger {
   min-width: 44px !important;
   min-height: 44px !important;
 }
 
-@media (max-width: 560px), (pointer: coarse) {
-  .dyna {
-    padding-top: max(6px, env(safe-area-inset-top), var(--d-safe-top, 0px));
-  }
-
-  .dyna-description {
-    display: none;
-  }
-
-  .dyna-commandbar {
-    grid-template-columns: auto minmax(0, 1fr) auto auto;
-  }
-
-  .dyna-tabs button,
+@media (pointer: coarse) {
   .dyna button,
   .dyna input,
   .dyna select,
@@ -1615,23 +1734,13 @@ select {
   .dyna-dialog input,
   .dyna-dialog select,
   .dyna-dialog textarea,
-  .dyna-source-health > summary,
-  .dyna-context-details > summary {
+  .dyna-source-link,
+  .dyna-action-link {
     min-height: 44px;
-  }
-
-  .dyna-add-label {
-    display: none;
   }
 
   .dyna .dyna-row-main {
     min-height: 82px;
-  }
-
-  .dyna-filter-field select,
-  .dyna-filter-actions button,
-  .dyna-filters > summary {
-    min-height: 44px;
   }
 
   .dyna-search-control {
@@ -1641,17 +1750,23 @@ select {
   .dyna-search-clear,
   .dyna-inspector-close,
   .dyna-commandbar button[aria-label="Add to-do"],
+  .dyna-row-primary,
   .dyna-more-trigger {
     min-width: 44px !important;
     min-height: 44px !important;
   }
-
-  .dyna-inspector-footer .dyna-actions > * {
-    flex: 1 1 auto;
-  }
 }
 
 @media (max-width: 560px) {
+  .dyna {
+    padding-top: max(6px, env(safe-area-inset-top), var(--d-safe-top, 0px));
+  }
+
+  .dyna-description,
+  .dyna-add-label {
+    display: none;
+  }
+
   .dyna-commandbar {
     grid-template-areas:
       "tabs filters add"
@@ -1697,14 +1812,14 @@ select {
     left: auto;
   }
 
-  .dyna-source-link {
-    min-height: 44px;
-  }
-
   .dyna-overflow-menu {
     right: auto;
     left: 0;
     width: min(210px, calc(100vw - 28px));
+  }
+
+  .dyna-inspector-footer .dyna-actions > * {
+    flex: 1 1 auto;
   }
 }
 

@@ -103,6 +103,8 @@ describe("checked-in Node stdio bundle", () => {
         "recover_markdown_review_document",
         "load_markdown_review_image_chunk",
         "dyna_get_snapshot",
+        "dyna_archive_item",
+        "dyna_restore_item",
         "dyna_add_annotation",
         "dyna_add_todo",
         "dyna_organize_item",

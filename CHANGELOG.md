@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added Dyna's durable item archive lifecycle: configurable Done retention (24 hours by default), automatic expiry on dashboard access, explicit active-item dispositions, immediate undo, later restore, archive search, append-only priority/order and archive history, changed-since-archive detection, and linked follow-ups that leave the original evidence unchanged.
+- Advanced Dyna's SQLite schema to v5 while keeping the existing strict snapshot/UI wire identifiers backward-compatible through defaulted archive fields.
+
 - Advanced Dyna to the incompatible `dyna/ui-v6` and `dyna/snapshot-v4` wires plus SQLite schema v4, persisting latest per-source run health and local CLI publisher state while preserving failed slices during partial refreshes.
 - Added the bundled `flowzone-publish` CLI for schema-valid scheduled publication with a fixed publisher ID and no prompt secret, using the explicit same-user local trust boundary.
 - Disabled PTY input echo in `flowzone-publish` and added a real PTY regression test so scheduled source records never enter terminal output.

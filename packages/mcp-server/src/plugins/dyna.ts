@@ -3,9 +3,12 @@ import {
   DynaActionKindSchema,
   DynaActionRequestSchema,
   DynaActionStateSchema,
+  DynaArchiveReasonSchema,
+  DynaArchiveStateSchema,
   DynaCredentialModeSchema,
   DynaDashboardSchema,
   DynaItemContextSchema,
+  DynaItemHistorySchema,
   DynaNextStepSchema,
   DynaPersonSignalSchema,
   DynaPrioritySchema,
@@ -32,6 +35,7 @@ const ViewTokenSchema = z
     viewToken: z.string().min(32).max(128),
     currentRevision: z.number().int().nonnegative().optional(),
     query: z.string().trim().max(500).optional(),
+    scope: z.enum(["active", "archive"]).default("active"),
   })
   .strict();
 const AddAnnotationInputSchema = z
@@ -72,6 +76,7 @@ const SearchItemSchema = z
     nextSteps: z.array(DynaNextStepSchema).max(4),
     outcome: z.string().trim().min(1).max(200).optional(),
     linkedTasks: z.array(DynaTaskStatusSchema).max(8),
+    archive: DynaArchiveStateSchema.optional(),
   })
   .strict();
 const PublisherCreationResultSchema = z.discriminatedUnion("credentialHandling", [
@@ -152,13 +157,108 @@ function appTools(service: DynaService): readonly FlowZoneAppTool[] {
         idempotentHint: true,
       },
       handler(input) {
-        const { viewToken, currentRevision, query } = ViewTokenSchema.parse(input);
-        const payload = service.refresh(viewToken, query);
+        const { viewToken, currentRevision, query, scope } = ViewTokenSchema.parse(input);
+        const payload = service.refresh(viewToken, query, scope);
         const changed = currentRevision !== payload.snapshot.revision;
         return {
           structuredContent: { revision: payload.snapshot.revision, changed },
           content: [],
           _meta: { dynaDashboard: payload },
+        };
+      },
+    },
+    {
+      name: "dyna_archive_item",
+      title: "Archive Dyna item",
+      description: "Retry-safely archive an item in this dashboard with an explicit disposition.",
+      inputSchema: z
+        .object({
+          viewToken: z.string().min(32).max(128),
+          itemId: z.uuid(),
+          reason: DynaArchiveReasonSchema,
+          reasonDetail: z.string().trim().min(1).max(500).optional(),
+          expectedRevision: z.number().int().nonnegative(),
+          expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+          clientRequestId: z.uuid(),
+        })
+        .strict(),
+      outputSchema: z
+        .object({
+          archiveId: z.uuid(),
+          itemId: z.uuid(),
+          archivedAt: z.iso.datetime({ offset: true }),
+          reason: DynaArchiveReasonSchema,
+          mode: z.literal("manual"),
+        })
+        .strict(),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+        idempotentHint: true,
+      },
+      handler(input) {
+        const parsed = z
+          .object({
+            viewToken: z.string().min(32).max(128),
+            itemId: z.uuid(),
+            reason: DynaArchiveReasonSchema,
+            reasonDetail: z.string().trim().min(1).max(500).optional(),
+            expectedRevision: z.number().int().nonnegative(),
+            expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+            clientRequestId: z.uuid(),
+          })
+          .strict()
+          .parse(input);
+        const result = service.store.archiveItem(parsed.viewToken, parsed.itemId, {
+          reason: parsed.reason,
+          ...(parsed.reasonDetail ? { reasonDetail: parsed.reasonDetail } : {}),
+          expectedRevision: parsed.expectedRevision,
+          expectedFingerprint: parsed.expectedFingerprint,
+          clientRequestId: parsed.clientRequestId,
+        });
+        return {
+          structuredContent: { ...result },
+          content: [],
+        };
+      },
+    },
+    {
+      name: "dyna_restore_item",
+      title: "Restore Dyna item",
+      description: "Retry-safely restore one archived item to its current active lifecycle stage.",
+      inputSchema: z
+        .object({
+          viewToken: z.string().min(32).max(128),
+          itemId: z.uuid(),
+          expectedRevision: z.number().int().nonnegative(),
+          expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+          clientRequestId: z.uuid(),
+        })
+        .strict(),
+      outputSchema: z
+        .object({ itemId: z.uuid(), restoredAt: z.iso.datetime({ offset: true }) })
+        .strict(),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+        idempotentHint: true,
+      },
+      handler(input) {
+        const parsed = z
+          .object({
+            viewToken: z.string().min(32).max(128),
+            itemId: z.uuid(),
+            expectedRevision: z.number().int().nonnegative(),
+            expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+            clientRequestId: z.uuid(),
+          })
+          .strict()
+          .parse(input);
+        return {
+          structuredContent: service.store.restoreItem(parsed.viewToken, parsed.itemId, parsed),
+          content: [],
         };
       },
     },
@@ -389,6 +489,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
           .object({
             name: z.string().trim().min(1).max(96),
             description: z.string().trim().max(500).default(""),
+            doneRetentionHours: z.number().int().min(1).max(8_760).default(24),
           })
           .strict(),
         outputSchema: DynaDashboardSchema,
@@ -400,10 +501,15 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
               .object({
                 name: z.string().trim().min(1).max(96),
                 description: z.string().trim().max(500).default(""),
+                doneRetentionHours: z.number().int().min(1).max(8_760).default(24),
               })
               .strict()
               .parse(input);
-            const dashboard = service.store.createDashboard(parsed.name, parsed.description);
+            const dashboard = service.store.createDashboard(
+              parsed.name,
+              parsed.description,
+              parsed.doneRetentionHours,
+            );
             return { result: dashboard };
           },
         },
@@ -418,6 +524,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
             name: z.string().trim().min(1).max(96).optional(),
             description: z.string().trim().max(500).optional(),
             archived: z.boolean().optional(),
+            doneRetentionHours: z.number().int().min(1).max(8_760).optional(),
           })
           .strict(),
         outputSchema: DynaDashboardSchema,
@@ -431,6 +538,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
                 name: z.string().trim().min(1).max(96).optional(),
                 description: z.string().trim().max(500).optional(),
                 archived: z.boolean().optional(),
+                doneRetentionHours: z.number().int().min(1).max(8_760).optional(),
               })
               .strict()
               .parse(input);
@@ -438,6 +546,9 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
               ...(parsed.name !== undefined ? { name: parsed.name } : {}),
               ...(parsed.description !== undefined ? { description: parsed.description } : {}),
               ...(parsed.archived !== undefined ? { archived: parsed.archived } : {}),
+              ...(parsed.doneRetentionHours !== undefined
+                ? { doneRetentionHours: parsed.doneRetentionHours }
+                : {}),
             });
             return { result: dashboard };
           },
@@ -486,6 +597,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
           .object({
             dashboardId: z.uuid(),
             query: z.string().trim().max(500).default(""),
+            scope: z.enum(["active", "archive"]).default("active"),
           })
           .strict(),
         outputSchema: z
@@ -501,17 +613,21 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
         executor: {
           kind: "module",
           execute(input) {
-            const { dashboardId, query } = z
-              .object({ dashboardId: z.uuid(), query: z.string().trim().max(500).default("") })
+            const { dashboardId, query, scope } = z
+              .object({
+                dashboardId: z.uuid(),
+                query: z.string().trim().max(500).default(""),
+                scope: z.enum(["active", "archive"]).default("active"),
+              })
               .strict()
               .parse(input);
-            const snapshot = service.store.snapshot(dashboardId, query);
+            const snapshot = service.store.snapshot(dashboardId, query, scope);
             return {
               result: {
                 dashboard: snapshot.dashboard,
                 revision: snapshot.revision,
                 freshness: snapshot.freshness,
-                total: snapshot.counts.total,
+                total: scope === "archive" ? snapshot.counts.archived : snapshot.counts.total,
                 items: snapshot.cards.slice(0, 20).map((card) => ({
                   itemId: card.id,
                   fingerprint: card.fingerprint,
@@ -528,6 +644,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
                   nextSteps: card.nextSteps,
                   ...(card.outcome ? { outcome: card.outcome } : {}),
                   linkedTasks: card.linkedTasks,
+                  ...(card.archive ? { archive: card.archive } : {}),
                 })),
               },
             };
@@ -935,6 +1052,25 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
           execute(input) {
             const { itemId } = z.object({ itemId: z.uuid() }).strict().parse(input);
             return { result: service.store.itemContext(itemId) };
+          },
+        },
+      },
+      {
+        id: "get-item-history",
+        title: "Get Dyna item history",
+        description:
+          "Read dashboard-local archive dispositions, restorations, and priority ordering history for retrospective reporting.",
+        inputSchema: z.object({ dashboardId: z.uuid(), itemId: z.uuid() }).strict(),
+        outputSchema: DynaItemHistorySchema,
+        risk: { readOnly: true, destructive: false, openWorld: false, idempotent: true },
+        executor: {
+          kind: "module",
+          execute(input) {
+            const { dashboardId, itemId } = z
+              .object({ dashboardId: z.uuid(), itemId: z.uuid() })
+              .strict()
+              .parse(input);
+            return { result: service.store.itemHistory(dashboardId, itemId) };
           },
         },
       },

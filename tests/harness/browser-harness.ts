@@ -162,13 +162,42 @@ async function createDynaFixture(
       channelId: "architecture",
       messageId: "decision-42",
     },
-    { source: "twg", contextId: "splunk.atlassian.net", resultType: "work", recordId: "JIRA-4242" },
+    { source: "twg", contextId: "splunk.atlassian.net", resultType: "jira", recordId: "JIRA-4242" },
+    {
+      source: "gitlab",
+      instanceId: "gitlab.com",
+      projectPath: "team/project",
+      iid: 42,
+      entityType: "merge_request",
+    },
+    {
+      source: "slack",
+      workspaceId: fixtureId,
+      channelId: "releases",
+      messageId: "release-decision",
+    },
+    {
+      source: "twg",
+      contextId: "splunk.atlassian.net",
+      resultType: "confluence",
+      recordId: "4243",
+    },
+    {
+      source: "twg",
+      contextId: "splunk.atlassian.net",
+      resultType: "bitbucket",
+      recordId: "pull-request-4244",
+    },
+    { source: "codex", taskId: "fixture-codex-task" },
   ] as const;
   const requiredSourceSlices = [
     { source: "scm", sourceScope: "team/project" },
     { source: "outlook", sourceScope: "team/project" },
     { source: "messaging", sourceScope: "team/project" },
     { source: "twg", sourceScope: "team/project" },
+    { source: "gitlab", sourceScope: "team/project" },
+    { source: "slack", sourceScope: "team/project" },
+    { source: "codex", sourceScope: "team/project" },
   ] as const;
   const createdDashboard = await client.callTool({
     name: "flowzone",
@@ -250,9 +279,13 @@ async function createDynaFixture(
                   ? { ...source, entityId: `fixture-pr-${String(index)}` }
                   : source.source === "outlook"
                     ? { ...source, messageId: `quarterly-plan-${String(index)}` }
-                    : source.source === "messaging"
+                    : source.source === "messaging" || source.source === "slack"
                       ? { ...source, messageId: `decision-${String(index)}` }
-                      : { ...source, recordId: `JIRA-${String(4_242 + index)}` };
+                      : source.source === "gitlab"
+                        ? { ...source, iid: index + 1 }
+                        : source.source === "twg"
+                          ? { ...source, recordId: `record-${String(4_242 + index)}` }
+                          : { ...source, taskId: `fixture-codex-task-${String(index)}` };
               return {
                 externalId: `fixture:${String(index)}`,
                 sourceRef,

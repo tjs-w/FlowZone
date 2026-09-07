@@ -11,7 +11,7 @@ const databasePath = join(directory, "future.sqlite3");
 
 try {
   const future = new DatabaseSync(databasePath);
-  future.exec("PRAGMA user_version = 5");
+  future.exec("PRAGMA user_version = 6");
   future.close();
   chmodSync(databasePath, 0o600);
 
@@ -21,7 +21,7 @@ try {
   );
 
   const unchanged = new DatabaseSync(databasePath, { readOnly: true });
-  assert.equal(unchanged.prepare("PRAGMA user_version").get().user_version, 5);
+  assert.equal(unchanged.prepare("PRAGMA user_version").get().user_version, 6);
   assert.equal(unchanged.prepare("PRAGMA journal_mode").get().journal_mode, "delete");
   assert.equal(
     unchanged.prepare("SELECT COUNT(*) AS total FROM sqlite_schema WHERE type = 'table'").get()

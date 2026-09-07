@@ -17,10 +17,13 @@ import {
   DynaActionKindSchema,
   DynaActionRequestSchema,
   DynaAnnotationSchema,
+  DynaArchiveReasonSchema,
+  DynaArchiveStateSchema,
   DynaCredentialModeSchema,
   DynaDashboardSchema,
   DynaDashboardSnapshotSchema,
   DynaItemContextSchema,
+  DynaItemHistorySchema,
   DynaMaterializedItemSchema,
   DynaPrioritySchema,
   DynaPublishSourceSlicesSchema,
@@ -35,10 +38,12 @@ import {
   dynaSourceLabel,
   effectiveDynaPriority,
   type DynaCard,
+  type DynaArchiveReason,
   type DynaCredentialMode,
   type DynaDashboard,
   type DynaDashboardSnapshot,
   type DynaItemContext,
+  type DynaItemHistory,
   type DynaPublishedItem,
   type DynaPublishSourceSlice,
   type DynaPublisher,
@@ -55,7 +60,7 @@ const VIEW_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
 const ACTION_TTL_MS = 10 * 60 * 1_000;
 const CLAIM_LEASE_MS = 5 * 60 * 1_000;
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1_000;
-const DYNA_SCHEMA_VERSION = 4;
+const DYNA_SCHEMA_VERSION = 5;
 const MAX_DASHBOARDS = 100;
 const MAX_PUBLISHERS = 100;
 const MAX_SCHEDULES_PER_DASHBOARD = 50;
@@ -66,7 +71,27 @@ const LEGACY_COMPLETION_OUTCOME =
   "Completed before outcome tracking; refresh this task for details.";
 const LEGACY_UNSPECIFIED_FAILURE = "An earlier operation reported an unspecified failure.";
 
-const DYNA_ELIGIBLE_CTE = `
+function dynaEligibleCte(scope: "active" | "archive" = "active"): string {
+  const membership =
+    scope === "archive"
+      ? `JOIN item_archive_events ar ON ar.item_id = i.id
+          AND ar.dashboard_id = ? AND ar.restored_at IS NULL
+         JOIN dashboard_publishers dp ON dp.dashboard_id = ar.dashboard_id
+          AND dp.publisher_id = i.publisher_id
+         LEFT JOIN publisher_items pi ON pi.item_id = i.id AND pi.publisher_id = i.publisher_id`
+      : `JOIN publisher_items pi ON pi.item_id = i.id
+         JOIN dashboard_publishers dp ON dp.publisher_id = pi.publisher_id
+         LEFT JOIN item_archive_events ar ON ar.item_id = i.id
+          AND ar.dashboard_id = dp.dashboard_id AND ar.restored_at IS NULL`;
+  const visibility =
+    scope === "archive"
+      ? "1 = 1"
+      : `(pi.active = 1 OR EXISTS (
+          SELECT 1 FROM item_archive_events restored
+          WHERE restored.dashboard_id = dp.dashboard_id AND restored.item_id = i.id
+            AND restored.restored_at IS NOT NULL
+        )) AND ar.id IS NULL AND dp.dashboard_id = ?`;
+  return `
   WITH eligible AS (
     SELECT DISTINCT i.*,
       CASE WHEN e.base_fingerprint = i.fingerprint THEN e.summary END AS enrichment_summary,
@@ -86,6 +111,14 @@ const DYNA_ELIGIBLE_CTE = `
       e.version AS enrichment_version,
       p.priority_override AS preference_priority,
       p.sequence AS preference_sequence,
+      ar.id AS archive_id,
+      ar.reason AS archive_reason,
+      ar.reason_detail AS archive_reason_detail,
+      ar.mode AS archive_mode,
+      ar.archived_at AS archive_archived_at,
+      ar.completed_at AS archive_completed_at,
+      ar.workflow_state AS archive_workflow_state,
+      ar.fingerprint_at_archive AS archive_fingerprint,
       CASE
         WHEN p.priority_override IS NOT NULL THEN p.priority_override
         WHEN e.base_fingerprint = i.fingerprint AND e.leadership_score >= 75
@@ -120,11 +153,10 @@ const DYNA_ELIGIBLE_CTE = `
         ELSE 'attention'
       END AS workflow_state
     FROM items i
-    JOIN publisher_items pi ON pi.item_id = i.id AND pi.active = 1
-    JOIN dashboard_publishers dp ON dp.publisher_id = pi.publisher_id
+    ${membership}
     LEFT JOIN item_enrichments e ON e.item_id = i.id
     LEFT JOIN item_preferences p ON p.item_id = i.id AND p.dashboard_id = dp.dashboard_id
-    WHERE dp.dashboard_id = ?
+    WHERE ${visibility}
   ), ranked AS (
     SELECT *, ROW_NUMBER() OVER (
       PARTITION BY identity_key ORDER BY source_updated_ms DESC, updated_at DESC, id
@@ -151,6 +183,9 @@ const DYNA_ELIGIBLE_CTE = `
     FROM deduplicated
   )
 `;
+}
+
+const DYNA_ELIGIBLE_CTE = dynaEligibleCte("active");
 
 export interface DynaPublishResult {
   readonly accepted: number;
@@ -167,6 +202,16 @@ export interface DynaPublishOptions {
   readonly failureMessage?: string;
   readonly sourceSlices?: readonly DynaPublishSourceSlice[];
 }
+
+export interface DynaArchiveResult {
+  readonly archiveId: string;
+  readonly itemId: string;
+  readonly archivedAt: string;
+  readonly reason: DynaArchiveReason;
+  readonly mode: "manual" | "automatic";
+}
+
+type DynaSnapshotScope = "active" | "archive";
 
 function token(): string {
   return randomBytes(32).toString("base64url");
@@ -502,6 +547,7 @@ export class DynaStore {
       CREATE TABLE IF NOT EXISTS dashboards (
         id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL,
         archived INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 0,
+        done_retention_hours INTEGER NOT NULL DEFAULT 24,
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS publishers (
@@ -565,6 +611,38 @@ export class DynaStore {
         priority_override TEXT, sequence INTEGER, updated_at TEXT NOT NULL,
         PRIMARY KEY (dashboard_id, item_id)
       );
+      CREATE TABLE IF NOT EXISTS item_preference_events (
+        id TEXT PRIMARY KEY,
+        dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
+        item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        action TEXT NOT NULL CHECK (action IN ('bump', 'lower', 'earlier', 'later', 'resequence')),
+        priority TEXT NOT NULL CHECK (priority IN ('critical', 'high', 'normal', 'low')),
+        sequence INTEGER, created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS item_archive_events (
+        id TEXT PRIMARY KEY,
+        dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
+        item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        reason TEXT NOT NULL CHECK (reason IN (
+          'completed', 'invalid', 'duplicate', 'no_action_needed', 'superseded', 'other'
+        )),
+        reason_detail TEXT,
+        mode TEXT NOT NULL CHECK (mode IN ('manual', 'automatic')),
+        archived_at TEXT NOT NULL, archived_at_ms INTEGER NOT NULL,
+        fingerprint_at_archive TEXT NOT NULL,
+        workflow_state TEXT NOT NULL CHECK (workflow_state IN (
+          'todo', 'executing', 'paused', 'attention', 'completed'
+        )),
+        completed_at TEXT, completed_at_ms INTEGER,
+        outcome_at_archive TEXT,
+        priority_at_archive TEXT NOT NULL CHECK (
+          priority_at_archive IN ('critical', 'high', 'normal', 'low')
+        ),
+        sequence_at_archive INTEGER,
+        client_request_id TEXT, request_hash TEXT,
+        restored_at TEXT, restored_at_ms INTEGER,
+        restore_request_id TEXT, restore_request_hash TEXT
+      );
       CREATE TABLE IF NOT EXISTS todo_requests (
         dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
         client_request_id TEXT NOT NULL, request_hash TEXT NOT NULL,
@@ -599,6 +677,18 @@ export class DynaStore {
       CREATE TABLE IF NOT EXISTS audit_events (
         id TEXT PRIMARY KEY, event_kind TEXT NOT NULL, entity_id TEXT NOT NULL, created_at TEXT NOT NULL
       );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_dyna_open_archive
+        ON item_archive_events(dashboard_id, item_id) WHERE restored_at IS NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_dyna_archive_request
+        ON item_archive_events(dashboard_id, client_request_id)
+        WHERE client_request_id IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_dyna_restore_request
+        ON item_archive_events(dashboard_id, restore_request_id)
+        WHERE restore_request_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_dyna_archive_dashboard_time
+        ON item_archive_events(dashboard_id, restored_at, archived_at_ms DESC);
+      CREATE INDEX IF NOT EXISTS idx_dyna_preference_history
+        ON item_preference_events(dashboard_id, item_id, created_at DESC);
     `);
   }
 
@@ -684,7 +774,7 @@ export class DynaStore {
         this.#assertDatabaseIntegrity();
         this.#database.exec("PRAGMA user_version = 2;");
       });
-    } else if (startingVersion !== 2 && startingVersion !== 3) {
+    } else if (startingVersion !== 2 && startingVersion !== 3 && startingVersion !== 4) {
       throw new Error("The Dyna database schema version is unsupported.");
     }
 
@@ -740,22 +830,42 @@ export class DynaStore {
         this.#database.exec("PRAGMA user_version = 3;");
       });
     const versionThreeRow = this.#one(this.#database.prepare("PRAGMA user_version"));
-    if (!versionThreeRow || requiredNumber(versionThreeRow, "user_version") !== 3) {
+    if (!versionThreeRow) {
+      throw new Error("Dyna could not complete its database schema migration.");
+    }
+    if (requiredNumber(versionThreeRow, "user_version") === 3)
+      this.#transaction(() => {
+        const publisherColumns = new Set(
+          (this.#database.prepare("PRAGMA table_info(publishers)").all() as SqlRow[]).map((row) =>
+            requiredString(row, "name"),
+          ),
+        );
+        if (!publisherColumns.has("local_cli_enabled")) {
+          this.#database.exec(
+            "ALTER TABLE publishers ADD COLUMN local_cli_enabled INTEGER NOT NULL DEFAULT 0 CHECK (local_cli_enabled IN (0, 1))",
+          );
+        }
+        this.#assertDatabaseIntegrity();
+        this.#database.exec("PRAGMA user_version = 4;");
+      });
+    const versionFourRow = this.#one(this.#database.prepare("PRAGMA user_version"));
+    if (!versionFourRow || requiredNumber(versionFourRow, "user_version") !== 4) {
       throw new Error("Dyna could not complete its database schema migration.");
     }
     this.#transaction(() => {
-      const publisherColumns = new Set(
-        (this.#database.prepare("PRAGMA table_info(publishers)").all() as SqlRow[]).map((row) =>
+      const dashboardColumns = new Set(
+        (this.#database.prepare("PRAGMA table_info(dashboards)").all() as SqlRow[]).map((row) =>
           requiredString(row, "name"),
         ),
       );
-      if (!publisherColumns.has("local_cli_enabled")) {
+      if (!dashboardColumns.has("done_retention_hours")) {
         this.#database.exec(
-          "ALTER TABLE publishers ADD COLUMN local_cli_enabled INTEGER NOT NULL DEFAULT 0 CHECK (local_cli_enabled IN (0, 1))",
+          "ALTER TABLE dashboards ADD COLUMN done_retention_hours INTEGER NOT NULL DEFAULT 24",
         );
       }
+      this.#createSchema();
       this.#assertDatabaseIntegrity();
-      this.#database.exec("PRAGMA user_version = 4;");
+      this.#database.exec("PRAGMA user_version = 5;");
     });
     const migratedVersion = this.#one(this.#database.prepare("PRAGMA user_version"));
     if (
@@ -768,6 +878,9 @@ export class DynaStore {
 
   #migrateUnversionedSchema(): void {
     const additions: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+      dashboards: {
+        done_retention_hours: "INTEGER NOT NULL DEFAULT 24",
+      },
       publishers: {
         schedule_id: "TEXT",
         schedule_title: "TEXT",
@@ -1085,13 +1198,14 @@ export class DynaStore {
     }
   }
 
-  createDashboard(name: string, description: string): DynaDashboard {
+  createDashboard(name: string, description: string, doneRetentionHours = 24): DynaDashboard {
     const instant = this.#now();
     const dashboard = DynaDashboardSchema.parse({
       id: randomUUID(),
       name,
       description,
       archived: false,
+      doneRetentionHours,
       createdAt: instant,
       updatedAt: instant,
     });
@@ -1099,24 +1213,43 @@ export class DynaStore {
       this.#assertDashboardCapacity();
       this.#database
         .prepare(
-          "INSERT INTO dashboards (id, name, description, archived, revision, created_at, updated_at) VALUES (?, ?, ?, 0, 0, ?, ?)",
+          "INSERT INTO dashboards (id, name, description, archived, revision, done_retention_hours, created_at, updated_at) VALUES (?, ?, ?, 0, 0, ?, ?, ?)",
         )
-        .run(dashboard.id, dashboard.name, dashboard.description, instant, instant);
+        .run(
+          dashboard.id,
+          dashboard.name,
+          dashboard.description,
+          dashboard.doneRetentionHours,
+          instant,
+          instant,
+        );
       return dashboard;
     });
   }
 
   updateDashboard(
     id: string,
-    values: { readonly name?: string; readonly description?: string; readonly archived?: boolean },
+    values: {
+      readonly name?: string;
+      readonly description?: string;
+      readonly archived?: boolean;
+      readonly doneRetentionHours?: number;
+    },
   ): DynaDashboard {
     const current = this.getDashboard(id);
     const updated = DynaDashboardSchema.parse({ ...current, ...values, updatedAt: this.#now() });
     this.#database
       .prepare(
-        "UPDATE dashboards SET name = ?, description = ?, archived = ?, revision = revision + 1, updated_at = ? WHERE id = ?",
+        "UPDATE dashboards SET name = ?, description = ?, archived = ?, done_retention_hours = ?, revision = revision + 1, updated_at = ? WHERE id = ?",
       )
-      .run(updated.name, updated.description, updated.archived ? 1 : 0, updated.updatedAt, id);
+      .run(
+        updated.name,
+        updated.description,
+        updated.archived ? 1 : 0,
+        updated.doneRetentionHours,
+        updated.updatedAt,
+        id,
+      );
     return updated;
   }
 
@@ -1144,7 +1277,7 @@ export class DynaStore {
     return (
       this.#database
         .prepare(
-          "SELECT id, name, description, archived, created_at, updated_at FROM dashboards ORDER BY archived, updated_at DESC",
+          "SELECT id, name, description, archived, done_retention_hours, created_at, updated_at FROM dashboards ORDER BY archived, updated_at DESC",
         )
         .all() as SqlRow[]
     ).map((row) => this.#dashboardFromRow(row));
@@ -1153,7 +1286,7 @@ export class DynaStore {
   getDashboard(id: string): DynaDashboard {
     const row = this.#one(
       this.#database.prepare(
-        "SELECT id, name, description, archived, created_at, updated_at FROM dashboards WHERE id = ?",
+        "SELECT id, name, description, archived, done_retention_hours, created_at, updated_at FROM dashboards WHERE id = ?",
       ),
       id,
     );
@@ -1167,6 +1300,7 @@ export class DynaStore {
       name: requiredString(row, "name"),
       description: requiredString(row, "description"),
       archived: requiredNumber(row, "archived") === 1,
+      doneRetentionHours: requiredNumber(row, "done_retention_hours"),
       createdAt: requiredString(row, "created_at"),
       updatedAt: requiredString(row, "updated_at"),
     });
@@ -2100,16 +2234,9 @@ export class DynaStore {
         mapping = { publisher_id: publisherId };
       }
       if (parsed.followUpOfItemId) {
-        const parent = this.#one(
-          this.#database.prepare(`
-            SELECT 1 AS present FROM publisher_items pi
-            JOIN dashboard_publishers dp ON dp.publisher_id = pi.publisher_id
-            WHERE dp.dashboard_id = ? AND pi.item_id = ? AND pi.active = 1
-          `),
-          dashboardId,
-          parsed.followUpOfItemId,
-        );
-        if (!parent) throw new Error("The follow-up source is outside this dashboard view.");
+        if (!this.#dashboardContainsItem(dashboardId, parsed.followUpOfItemId)) {
+          throw new Error("The follow-up source is outside this dashboard view.");
+        }
       }
       const publisherId = requiredString(mapping, "publisher_id");
       const todoId = randomUUID();
@@ -2239,6 +2366,13 @@ export class DynaStore {
                sequence = NULL, updated_at = excluded.updated_at`,
           )
           .run(dashboardId, itemId, targetPriority, instant);
+        this.#database
+          .prepare(
+            `INSERT INTO item_preference_events (
+               id, dashboard_id, item_id, action, priority, sequence, created_at
+             ) VALUES (?, ?, ?, ?, ?, NULL, ?)`,
+          )
+          .run(randomUUID(), dashboardId, itemId, action, targetPriority, instant);
       } else {
         const otherIndex = action === "earlier" ? index - 1 : index + 1;
         if (index < 0 || otherIndex < 0 || otherIndex >= group.length) return { changed: false };
@@ -2254,13 +2388,231 @@ export class DynaStore {
              updated_at = excluded.updated_at`,
         );
         group.forEach((candidate, position) => {
-          updateSequence.run(dashboardId, requiredString(candidate, "id"), position * 100, instant);
+          const candidateId = requiredString(candidate, "id");
+          const sequence = position * 100;
+          updateSequence.run(dashboardId, candidateId, sequence, instant);
+          this.#database
+            .prepare(
+              `INSERT INTO item_preference_events (
+                 id, dashboard_id, item_id, action, priority, sequence, created_at
+               ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .run(
+              randomUUID(),
+              dashboardId,
+              candidateId,
+              candidateId === itemId ? action : "resequence",
+              currentPriority,
+              sequence,
+              instant,
+            );
         });
       }
       this.#touchDashboards([dashboardId], instant);
       this.#audit(`item.organized.${action}`, itemId, instant);
       return { changed: true };
     });
+  }
+
+  archiveItem(
+    viewToken: string,
+    itemId: string,
+    values: {
+      readonly reason: DynaArchiveReason;
+      readonly reasonDetail?: string;
+      readonly expectedRevision: number;
+      readonly expectedFingerprint: string;
+      readonly clientRequestId: string;
+    },
+  ): DynaArchiveResult {
+    const dashboardId = this.authorizeView(viewToken, itemId);
+    const reason = DynaArchiveReasonSchema.parse(values.reason);
+    const reasonDetail = values.reasonDetail?.trim();
+    if (reason === "other" && !reasonDetail) {
+      throw new Error("Other archive reasons require a short explanation.");
+    }
+    if (reason !== "other" && reasonDetail) {
+      throw new Error("Archive reason details are only accepted for Other.");
+    }
+    if (reasonDetail && reasonDetail.length > 500) {
+      throw new Error("Archive reason details cannot exceed 500 characters.");
+    }
+    const requestHash = sha256(
+      JSON.stringify([
+        "dyna/archive-v1",
+        itemId,
+        reason,
+        reasonDetail ?? null,
+        values.expectedRevision,
+        values.expectedFingerprint,
+      ]),
+    );
+    return this.#transaction(() => {
+      const retry = this.#one(
+        this.#database.prepare(
+          "SELECT * FROM item_archive_events WHERE dashboard_id = ? AND client_request_id = ?",
+        ),
+        dashboardId,
+        values.clientRequestId,
+      );
+      if (retry) {
+        if (requiredString(retry, "request_hash") !== requestHash) {
+          throw new Error("The archive request ID was already used for different input.");
+        }
+        return this.#archiveResultFromRow(retry);
+      }
+      const revision = this.#one(
+        this.#database.prepare("SELECT revision FROM dashboards WHERE id = ?"),
+        dashboardId,
+      );
+      if (!revision || requiredNumber(revision, "revision") !== values.expectedRevision) {
+        throw new Error("The Dyna dashboard changed; refresh before archiving this item.");
+      }
+      const row = this.#one(
+        this.#database.prepare(`${DYNA_ELIGIBLE_CTE} SELECT * FROM positioned WHERE id = ?`),
+        dashboardId,
+        itemId,
+      );
+      if (!row || requiredString(row, "fingerprint") !== values.expectedFingerprint) {
+        throw new Error("The Dyna item changed or is no longer active; refresh before archiving.");
+      }
+      const workflowState = requiredWorkflowState(row);
+      if (reason === "completed" && workflowState !== "completed") {
+        throw new Error("Only completed work can use the Completed archive disposition.");
+      }
+      const result = this.#insertArchiveEvent(
+        dashboardId,
+        row,
+        reason,
+        reasonDetail,
+        "manual",
+        values.clientRequestId,
+        requestHash,
+      );
+      const instant = result.archivedAt;
+      this.#touchDashboards([dashboardId], instant);
+      this.#audit(`item.archived.${reason}.manual`, itemId, instant);
+      return result;
+    });
+  }
+
+  restoreItem(
+    viewToken: string,
+    itemId: string,
+    values: {
+      readonly expectedRevision: number;
+      readonly expectedFingerprint: string;
+      readonly clientRequestId: string;
+    },
+  ): { readonly itemId: string; readonly restoredAt: string } {
+    const dashboardId = this.authorizeView(viewToken, itemId);
+    const requestHash = sha256(
+      JSON.stringify([
+        "dyna/restore-v1",
+        itemId,
+        values.expectedRevision,
+        values.expectedFingerprint,
+      ]),
+    );
+    return this.#transaction(() => {
+      const retry = this.#one(
+        this.#database.prepare(
+          "SELECT * FROM item_archive_events WHERE dashboard_id = ? AND restore_request_id = ?",
+        ),
+        dashboardId,
+        values.clientRequestId,
+      );
+      if (retry) {
+        if (requiredString(retry, "restore_request_hash") !== requestHash) {
+          throw new Error("The restore request ID was already used for different input.");
+        }
+        return {
+          itemId,
+          restoredAt: requiredString(retry, "restored_at"),
+        };
+      }
+      const revision = this.#one(
+        this.#database.prepare("SELECT revision FROM dashboards WHERE id = ?"),
+        dashboardId,
+      );
+      const item = this.#itemBaseRow(itemId);
+      if (
+        !revision ||
+        requiredNumber(revision, "revision") !== values.expectedRevision ||
+        requiredString(item, "fingerprint") !== values.expectedFingerprint
+      ) {
+        throw new Error("The Dyna dashboard changed; refresh before restoring this item.");
+      }
+      const archive = this.#one(
+        this.#database.prepare(
+          "SELECT * FROM item_archive_events WHERE dashboard_id = ? AND item_id = ? AND restored_at IS NULL",
+        ),
+        dashboardId,
+        itemId,
+      );
+      if (!archive) throw new Error("The Dyna item is not currently archived.");
+      const instant = this.#now();
+      this.#database
+        .prepare(
+          `UPDATE item_archive_events
+           SET restored_at = ?, restored_at_ms = ?, restore_request_id = ?, restore_request_hash = ?
+           WHERE id = ? AND restored_at IS NULL`,
+        )
+        .run(
+          instant,
+          this.#nowMs(),
+          values.clientRequestId,
+          requestHash,
+          requiredString(archive, "id"),
+        );
+      this.#touchDashboards([dashboardId], instant);
+      this.#audit("item.restored", itemId, instant);
+      return { itemId, restoredAt: instant };
+    });
+  }
+
+  itemHistory(dashboardId: string, itemId: string): DynaItemHistory {
+    this.getDashboard(dashboardId);
+    if (!this.#dashboardContainsItem(dashboardId, itemId)) {
+      throw new Error("The Dyna item is outside this dashboard.");
+    }
+    const archives = (
+      this.#database
+        .prepare(
+          `SELECT history.*, i.fingerprint FROM item_archive_events history
+           JOIN items i ON i.id = history.item_id
+           WHERE history.dashboard_id = ? AND history.item_id = ?
+           ORDER BY archived_at_ms DESC LIMIT 100`,
+        )
+        .all(dashboardId, itemId) as SqlRow[]
+    ).map((row) => ({
+      ...this.#archiveStateFromRow(row),
+      ...(optionalString(row, "restored_at")
+        ? { restoredAt: optionalString(row, "restored_at") }
+        : {}),
+      priorityAtArchive: DynaPrioritySchema.parse(requiredString(row, "priority_at_archive")),
+      ...(typeof row["sequence_at_archive"] === "number"
+        ? { sequenceAtArchive: requiredNumber(row, "sequence_at_archive") }
+        : {}),
+      ...(optionalString(row, "outcome_at_archive")
+        ? { outcomeAtArchive: optionalString(row, "outcome_at_archive") }
+        : {}),
+    }));
+    const organization = (
+      this.#database
+        .prepare(
+          `SELECT action, priority, sequence, created_at FROM item_preference_events
+           WHERE dashboard_id = ? AND item_id = ? ORDER BY created_at DESC, id DESC LIMIT 200`,
+        )
+        .all(dashboardId, itemId) as SqlRow[]
+    ).map((row) => ({
+      action: requiredString(row, "action") as
+        "bump" | "lower" | "earlier" | "later" | "resequence",
+      priority: DynaPrioritySchema.parse(requiredString(row, "priority")),
+      ...(typeof row["sequence"] === "number" ? { sequence: requiredNumber(row, "sequence") } : {}),
+      createdAt: requiredString(row, "created_at"),
+    }));
+    return DynaItemHistorySchema.parse({ itemId, archives, organization });
   }
 
   applyEnrichment(
@@ -2349,6 +2701,168 @@ export class DynaStore {
     });
   }
 
+  #insertArchiveEvent(
+    dashboardId: string,
+    row: SqlRow,
+    reason: DynaArchiveReason,
+    reasonDetail: string | undefined,
+    mode: "manual" | "automatic",
+    clientRequestId?: string,
+    requestHash?: string,
+  ): DynaArchiveResult {
+    const itemId = requiredString(row, "id");
+    const workflowState = requiredWorkflowState(row);
+    const completedRow = this.#one(
+      this.#database.prepare(
+        `SELECT MAX(status_updated_ms) AS completed_at_ms
+         FROM task_bindings WHERE item_id = ? AND state = 'succeeded'`,
+      ),
+      itemId,
+    );
+    const completedAtMs =
+      workflowState === "completed" && typeof completedRow?.["completed_at_ms"] === "number"
+        ? requiredNumber(completedRow, "completed_at_ms")
+        : undefined;
+    const outcomeRow =
+      workflowState === "completed"
+        ? this.#one(
+            this.#database.prepare(
+              `SELECT outcome FROM task_bindings
+               WHERE item_id = ? AND state = 'succeeded' AND outcome IS NOT NULL
+               ORDER BY status_updated_ms DESC, task_id, host_id LIMIT 1`,
+            ),
+            itemId,
+          )
+        : undefined;
+    const archiveId = randomUUID();
+    const archivedAt = this.#now();
+    this.#database
+      .prepare(
+        `INSERT INTO item_archive_events (
+           id, dashboard_id, item_id, reason, reason_detail, mode,
+           archived_at, archived_at_ms, fingerprint_at_archive, workflow_state,
+           completed_at, completed_at_ms, outcome_at_archive,
+           priority_at_archive, sequence_at_archive, client_request_id, request_hash
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        archiveId,
+        dashboardId,
+        itemId,
+        reason,
+        reasonDetail ?? null,
+        mode,
+        archivedAt,
+        this.#nowMs(),
+        requiredString(row, "fingerprint"),
+        workflowState,
+        completedAtMs === undefined ? null : new Date(completedAtMs).toISOString(),
+        completedAtMs ?? null,
+        outcomeRow ? (optionalString(outcomeRow, "outcome") ?? null) : null,
+        requiredString(row, "effective_priority"),
+        typeof row["preference_sequence"] === "number"
+          ? requiredNumber(row, "preference_sequence")
+          : null,
+        clientRequestId ?? null,
+        requestHash ?? null,
+      );
+    return { archiveId, itemId, archivedAt, reason, mode };
+  }
+
+  #archiveExpiredCompleted(dashboardId: string): void {
+    this.#transaction(() => {
+      const dashboard = this.#one(
+        this.#database.prepare("SELECT done_retention_hours FROM dashboards WHERE id = ?"),
+        dashboardId,
+      );
+      if (!dashboard) throw new Error("Dyna dashboard was not found.");
+      const cutoff =
+        this.#nowMs() - requiredNumber(dashboard, "done_retention_hours") * 60 * 60 * 1_000;
+      const rows = this.#database
+        .prepare(
+          `${DYNA_ELIGIBLE_CTE}
+           SELECT * FROM positioned
+           WHERE workflow_state = 'completed'
+             AND MAX(
+               COALESCE((
+                 SELECT MAX(t.status_updated_ms) FROM task_bindings t
+                 WHERE t.item_id = positioned.id AND t.state = 'succeeded'
+               ), source_updated_ms),
+               COALESCE((
+                 SELECT MAX(history.restored_at_ms) FROM item_archive_events history
+                 WHERE history.dashboard_id = ? AND history.item_id = positioned.id
+               ), 0)
+             ) <= ?`,
+        )
+        .all(dashboardId, dashboardId, cutoff) as SqlRow[];
+      if (rows.length === 0) return;
+      const instant = this.#now();
+      for (const row of rows) {
+        const result = this.#insertArchiveEvent(
+          dashboardId,
+          row,
+          "completed",
+          undefined,
+          "automatic",
+        );
+        this.#audit("item.archived.completed.automatic", result.itemId, instant);
+      }
+      this.#touchDashboards([dashboardId], instant);
+    });
+  }
+
+  #archiveResultFromRow(row: SqlRow): DynaArchiveResult {
+    return {
+      archiveId: requiredString(row, "id"),
+      itemId: requiredString(row, "item_id"),
+      archivedAt: requiredString(row, "archived_at"),
+      reason: DynaArchiveReasonSchema.parse(requiredString(row, "reason")),
+      mode: requiredString(row, "mode") as "manual" | "automatic",
+    };
+  }
+
+  #archiveStateFromRow(row: SqlRow, prefix = ""): z.infer<typeof DynaArchiveStateSchema> {
+    const key = (name: string) => `${prefix}${name}`;
+    const workflowState = requiredString(row, key("workflow_state")) as
+      "todo" | "executing" | "paused" | "attention" | "completed";
+    return DynaArchiveStateSchema.parse({
+      id: requiredString(row, key("id")),
+      reason: requiredString(row, key("reason")),
+      ...(optionalString(row, key("reason_detail"))
+        ? { reasonDetail: optionalString(row, key("reason_detail")) }
+        : {}),
+      mode: requiredString(row, key("mode")),
+      archivedAt: requiredString(row, key("archived_at")),
+      ...(optionalString(row, key("completed_at"))
+        ? { completedAt: optionalString(row, key("completed_at")) }
+        : {}),
+      workflowStateAtArchive: workflowState,
+      wasCompleted: workflowState === "completed",
+      changedSinceArchive:
+        requiredString(row, "fingerprint") !==
+        requiredString(row, prefix ? "archive_fingerprint" : "fingerprint_at_archive"),
+    });
+  }
+
+  #dashboardContainsItem(dashboardId: string, itemId: string): boolean {
+    return Boolean(
+      this.#one(
+        this.#database.prepare(
+          `SELECT 1 AS present FROM publisher_items pi
+           JOIN dashboard_publishers dp ON dp.publisher_id = pi.publisher_id
+           WHERE dp.dashboard_id = ? AND pi.item_id = ? AND (
+             pi.active = 1 OR EXISTS (
+               SELECT 1 FROM item_archive_events history
+               WHERE history.dashboard_id = dp.dashboard_id AND history.item_id = pi.item_id
+             )
+           )`,
+        ),
+        dashboardId,
+        itemId,
+      ),
+    );
+  }
+
   createView(dashboardId: string): string {
     this.getDashboard(dashboardId);
     const value = token();
@@ -2373,16 +2887,9 @@ export class DynaStore {
     }
     const dashboardId = requiredString(row, "dashboard_id");
     if (itemId) {
-      const membership = this.#one(
-        this.#database.prepare(`
-          SELECT 1 AS present FROM publisher_items pi
-          JOIN dashboard_publishers dp ON dp.publisher_id = pi.publisher_id
-          WHERE dp.dashboard_id = ? AND pi.item_id = ? AND pi.active = 1
-        `),
-        dashboardId,
-        itemId,
-      );
-      if (!membership) throw new Error("The Dyna item is outside this dashboard view.");
+      if (!this.#dashboardContainsItem(dashboardId, itemId)) {
+        throw new Error("The Dyna item is outside this dashboard view.");
+      }
     }
     this.#database
       .prepare("UPDATE view_sessions SET expires_at = ? WHERE token_hash = ?")
@@ -2390,7 +2897,12 @@ export class DynaStore {
     return dashboardId;
   }
 
-  snapshot(dashboardId: string, searchQuery = ""): DynaDashboardSnapshot {
+  snapshot(
+    dashboardId: string,
+    searchQuery = "",
+    scope: DynaSnapshotScope = "active",
+  ): DynaDashboardSnapshot {
+    this.#archiveExpiredCompleted(dashboardId);
     return this.#readTransaction(() => {
       const query = searchQuery.trim().slice(0, 500);
       const terms = [...new Set(query.toLocaleLowerCase().split(/\s+/u).filter(Boolean))].slice(
@@ -2409,7 +2921,8 @@ export class DynaStore {
               COALESCE(enrichment_priority_reason, '') || ' ' ||
               COALESCE(enrichment_labels, '') || ' ' || COALESCE(enrichment_people, '') || ' ' ||
               COALESCE(enrichment_attention, '') || ' ' || COALESCE(enrichment_plan, '') || ' ' ||
-              COALESCE(enrichment_next_steps, '')
+              COALESCE(enrichment_next_steps, '') || ' ' || COALESCE(archive_reason, '') || ' ' ||
+              COALESCE(archive_reason_detail, '')
             ), ?) > 0
             OR EXISTS (
               SELECT 1 FROM annotations a
@@ -2442,9 +2955,17 @@ export class DynaStore {
         ...searchValues,
       );
       if (!countRow) throw new Error("Dyna could not count dashboard items.");
+      const archiveCountRow = this.#one(
+        this.#database.prepare(`${dynaEligibleCte("archive")}
+          SELECT COUNT(*) AS total FROM positioned WHERE 1 = 1 ${searchClause}`),
+        dashboardId,
+        ...searchValues,
+      );
+      if (!archiveCountRow) throw new Error("Dyna could not count archived dashboard items.");
+      const selectedCte = scope === "archive" ? dynaEligibleCte("archive") : DYNA_ELIGIBLE_CTE;
       const rows = this.#database
         .prepare(
-          `${DYNA_ELIGIBLE_CTE}
+          `${selectedCte}
           SELECT * FROM positioned WHERE 1 = 1 ${searchClause}
           ORDER BY
             CASE effective_priority
@@ -2501,6 +3022,7 @@ export class DynaStore {
         dashboard,
         generatedAt: this.#now(),
         query,
+        scope,
         revision: revisionRow ? requiredNumber(revisionRow, "revision") : 0,
         freshness,
         counts: {
@@ -2508,6 +3030,7 @@ export class DynaStore {
           high: highCount,
           leadership: leadershipCount,
           total: requiredNumber(countRow, "total"),
+          archived: requiredNumber(archiveCountRow, "total"),
         },
         schedules,
         cards,
@@ -2515,8 +3038,12 @@ export class DynaStore {
     });
   }
 
-  snapshotForView(viewToken: string, query = ""): DynaDashboardSnapshot {
-    return this.snapshot(this.authorizeView(viewToken), query);
+  snapshotForView(
+    viewToken: string,
+    query = "",
+    scope: DynaSnapshotScope = "active",
+  ): DynaDashboardSnapshot {
+    return this.snapshot(this.authorizeView(viewToken), query, scope);
   }
 
   itemContext(itemId: string): DynaItemContext {
@@ -3386,6 +3913,16 @@ export class DynaStore {
         workflowState === "completed"
           ? linkedTasks.find((task) => task.state === "succeeded")
           : undefined;
+      const completedAt =
+        workflowState === "completed"
+          ? linkedTasks.reduce<string | undefined>(
+              (latest, task) =>
+                task.state === "succeeded" && (!latest || task.statusUpdatedAt > latest)
+                  ? task.statusUpdatedAt
+                  : latest,
+              undefined,
+            )
+          : undefined;
       const leadershipPriority = effectiveDynaPriority(item.priority, item.people);
       const storedPriority = optionalString(row, "preference_priority");
       const manualPriority = storedPriority ? DynaPrioritySchema.parse(storedPriority) : undefined;
@@ -3418,6 +3955,7 @@ export class DynaStore {
         canMoveLater:
           requiredNumber(row, "priority_position") < requiredNumber(row, "priority_count"),
         workflowState,
+        ...(completedAt ? { completedAt } : {}),
         ...(workflowState === "completed" && completedTask?.outcome
           ? { outcome: completedTask.outcome }
           : {}),
@@ -3430,6 +3968,9 @@ export class DynaStore {
         ...(item.enrichment ? { enrichmentState: item.enrichment.state } : {}),
         annotations: annotations.get(id) ?? [],
         linkedTasks,
+        ...(optionalString(row, "archive_id")
+          ? { archive: this.#archiveStateFromRow(row, "archive_") }
+          : {}),
       };
     });
   }
@@ -3465,7 +4006,12 @@ export class DynaStore {
           `
         SELECT DISTINCT dp.dashboard_id FROM dashboard_publishers dp
         JOIN publisher_items pi ON pi.publisher_id = dp.publisher_id
-        WHERE pi.item_id = ? AND pi.active = 1
+        WHERE pi.item_id = ? AND (
+          pi.active = 1 OR EXISTS (
+            SELECT 1 FROM item_archive_events history
+            WHERE history.dashboard_id = dp.dashboard_id AND history.item_id = pi.item_id
+          )
+        )
       `,
         )
         .all(itemId) as SqlRow[]

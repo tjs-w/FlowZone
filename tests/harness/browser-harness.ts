@@ -128,7 +128,7 @@ function resultRecord(value: unknown): Readonly<Record<string, unknown>> {
   return value as Readonly<Record<string, unknown>>;
 }
 
-const dynaResource = await client.readResource({ uri: "ui://flowzone/dyna/v8.html" });
+const dynaResource = await client.readResource({ uri: "ui://flowzone/dyna/v9.html" });
 const dynaResourceContent = dynaResource.contents[0];
 if (!dynaResourceContent || !("text" in dynaResourceContent)) {
   throw new Error("The Dyna HTML resource was not returned");
@@ -882,15 +882,23 @@ const dynaHostScript = (dynaResult: unknown) => `<script>
       } else if (request.method === "ui/open-link") {
         state.externalLinks.push(request.params.url);
         document.documentElement.dataset.dynaLastExternalLink = request.params.url;
+        document.documentElement.dataset.dynaExternalLinkCount = String(state.externalLinks.length);
       } else if (request.method === "ui/request-display-mode") {
         state.displayModeRequests.push(request.params);
         document.documentElement.dataset.dynaDisplayModeRequestCount = String(state.displayModeRequests.length);
-        if (query.get("display-mode-delay") === "1") {
-          await new Promise((resolveDelay) => setTimeout(resolveDelay, 1_000));
+        const requestedDelay = Number(query.get("display-mode-delay-ms"));
+        const displayModeDelay = Number.isFinite(requestedDelay)
+          ? Math.max(0, Math.min(requestedDelay, 5_000))
+          : query.get("display-mode-delay") === "1"
+            ? 1_000
+            : 0;
+        if (displayModeDelay > 0) {
+          await new Promise((resolveDelay) => setTimeout(resolveDelay, displayModeDelay));
         }
         if (query.get("display-mode-error") === "1") throw new Error("Display mode unavailable");
         const actualMode = query.get("display-mode-result") ?? request.params.mode;
         result = { mode: actualMode };
+        document.documentElement.dataset.dynaDisplayModeResponseCount = String(state.displayModeRequests.length);
         notify("ui/notifications/host-context-changed", { displayMode: actualMode });
       }
       respond(request.id, result);

@@ -1393,6 +1393,20 @@ const dynaComponents: DynaComponentCatalog = {
                   target="_blank"
                   rel="noopener noreferrer"
                   aria-label={`Open source: ${props.title}`}
+                  onClick={(event) => {
+                    if (
+                      event.button !== 0 ||
+                      event.metaKey ||
+                      event.ctrlKey ||
+                      event.shiftKey ||
+                      event.altKey ||
+                      !controller.externalLinks
+                    ) {
+                      return;
+                    }
+                    event.preventDefault();
+                    void controller.openExternal(props.sourceUrl ?? "");
+                  }}
                 >
                   <span>{props.title}</span>
                   <ExternalLink className="dyna-source-link-icon" aria-hidden="true" />
@@ -3413,25 +3427,6 @@ function DynaApp({ app }: { readonly app: App }) {
           <div className="dyna-empty" role="status">
             <strong>Loading dashboard</strong>
             <p>Connecting to the Dyna data source…</p>
-          </div>
-        </div>
-      </main>
-    );
-  }
-  if (initialExpansionPending) {
-    return (
-      <main className="dyna dyna-launching" data-display-mode={displayMode}>
-        <header className="dyna-header">
-          <div className="dyna-title-row">
-            <div className="dyna-heading">
-              <h1>{payload.snapshot.dashboard.name}</h1>
-            </div>
-          </div>
-        </header>
-        <div className="dyna-empty-wrap">
-          <div className="dyna-empty" role="status">
-            <strong>Opening expanded dashboard</strong>
-            <p>Requesting Codex&apos;s expanded app surface…</p>
           </div>
         </div>
       </main>

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Reworked Dyna's compact interactions with a Nord dark theme, a right in-flow inspector, centered keyboard-first notes, timestamped note history, direct archive/restore and context-copy actions, native selected-text menus, atomic drag placement plus a row-level Move fallback, clearer priority sections, and an uncluttered Archive tab; advanced the cache key to `ui://flowzone/dyna/v8.html`.
+- Reworked Dyna's compact interactions with a Nord dark theme, a right in-flow inspector, centered keyboard-first notes, timestamped note history, direct archive/restore and context-copy actions, host-delegated external item links with native right-click behavior, atomic drag placement plus a row-level Move fallback, clearer priority sections, and an uncluttered Archive tab; the dashboard now paints while host expansion is pending, and the cache key advances to `ui://flowzone/dyna/v9.html`.
 - Applied Oxanium explicitly to Dyna UI text and controls and retained Geist Mono for operational metadata with locally bundled variable fonts.
 - Added Dyna's durable item archive lifecycle: configurable Done retention (24 hours by default), automatic expiry on dashboard access, explicit active-item dispositions, immediate undo, later restore, archive search, append-only priority/order and archive history, changed-since-archive detection, and linked follow-ups that leave the original evidence unchanged.
 - Advanced Dyna's SQLite schema to v5 while keeping the existing strict snapshot/UI wire identifiers backward-compatible through defaulted archive fields.

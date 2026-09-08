@@ -277,7 +277,9 @@ test("adds an annotation and sends only an opaque Codex action request", async (
   expect(message).not.toContain("Create a new Codex task");
 });
 
-test("exposes originating records as native right-clickable links", async ({ page }) => {
+test("opens originating records externally while preserving native link behavior", async ({
+  page,
+}) => {
   const rowLink = page.getByRole("link", {
     name: "Open source: Review the release merge request",
   });
@@ -286,6 +288,12 @@ test("exposes originating records as native right-clickable links", async ({ pag
     "https://github.com/team/project/pull/fixture-pr-0",
   );
   await expect(rowLink).toHaveAttribute("target", "_blank");
+  await rowLink.click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-dyna-last-external-link",
+    "https://github.com/team/project/pull/fixture-pr-0",
+  );
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "1");
   expect(
     await rowLink.evaluate((node) => {
       window.getSelection()?.removeAllRanges();
@@ -338,6 +346,7 @@ test("exposes originating records as native right-clickable links", async ({ pag
     "data-dyna-last-external-link",
     "https://github.com/team/project/pull/fixture-pr-0",
   );
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "2");
   await expect(page.locator("html")).not.toHaveAttribute("data-dyna-message-count", /.+/);
 });
 
@@ -1582,19 +1591,23 @@ test("uses a non-modal side inspector in a wide inline-only host", async ({ page
   expect(accessibility.violations).toEqual([]);
 });
 
-test("shows only launch status while the automatic fullscreen response is delayed", async ({
+test("keeps the dashboard usable while the automatic fullscreen response is delayed", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1_280, height: 800 });
-  await page.goto("/dyna?many-items=1&display-mode-delay=1");
-  await expect(page.getByText("Opening expanded dashboard", { exact: true })).toBeVisible();
+  const startedAt = Date.now();
+  await page.goto("/dyna?many-items=1&display-mode-delay-ms=3000");
+  await expect(page.getByRole("heading", { name: "Executive Brief" })).toBeVisible();
+  expect(Date.now() - startedAt).toBeLessThan(2_500);
   await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "inline");
   await expect(page.locator("html")).toHaveAttribute("data-dyna-display-mode-request-count", "1");
-  await expect(page.getByRole("tab", { name: "Priority queue" })).toHaveCount(0);
-  await expect(page.getByRole("searchbox", { name: "Search dashboard" })).toHaveCount(0);
+  await expect(page.locator("html")).not.toHaveAttribute("data-dyna-display-mode-response-count");
+  await expect(page.getByRole("tab", { name: "Priority queue" })).toBeVisible();
+  await expect(page.getByRole("searchbox", { name: "Search dashboard" })).toBeVisible();
+  expect(await page.locator('.dyna-card[data-presentation="queue"]').count()).toBeGreaterThan(0);
 
   await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "fullscreen");
-  await expect(page.getByText("Opening expanded dashboard", { exact: true })).toBeHidden();
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-display-mode-response-count", "1");
   await expect(page.getByRole("tab", { name: "Priority queue" })).toBeVisible();
 });
 
@@ -1664,12 +1677,13 @@ test("preserves filters, selection, and detail scroll through refresh and host r
   );
 });
 
-test("waits for the host-selected expanded presentation after connection", async ({ page }) => {
-  await page.goto("/dyna?display-mode-delay=1");
-  await expect(page.getByText("Opening expanded dashboard", { exact: true })).toBeVisible();
-  await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "inline");
+test("adopts the host-selected expanded presentation after connection", async ({ page }) => {
+  await page.goto("/dyna?display-mode-delay-ms=3000");
+  await expect(page.getByRole("heading", { name: "Executive Brief" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Priority queue" })).toBeVisible();
   await expect(page.locator("html")).toHaveAttribute("data-dyna-display-mode-request-count", "1");
   await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "fullscreen");
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-display-mode-response-count", "1");
   await expect(page.getByRole("button", { name: "Open full dashboard" })).toBeHidden();
 });
 

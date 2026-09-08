@@ -55373,6 +55373,95 @@ var DynaStore = class {
       return { changed: true };
     });
   }
+  placeItem(viewToken, itemId, targetPriority, beforeItemId, expectedRevision, expectedFingerprint) {
+    const dashboardId = this.authorizeView(viewToken, itemId);
+    const instant = this.#now();
+    return this.#transaction(() => {
+      const revisionRow = this.#one(
+        this.#database.prepare("SELECT revision FROM dashboards WHERE id = ?"),
+        dashboardId
+      );
+      const itemRow = this.#itemBaseRow(itemId);
+      if (!revisionRow || requiredNumber(revisionRow, "revision") !== expectedRevision || requiredString(itemRow, "fingerprint") !== expectedFingerprint) {
+        throw new Error("The Dyna dashboard changed; refresh before moving this item.");
+      }
+      const positioned = this.#database.prepare(
+        `${DYNA_ELIGIBLE_CTE}
+          SELECT id, effective_priority, completed_group, priority_position
+          FROM positioned
+          ORDER BY completed_group, priority_position`
+      ).all(dashboardId);
+      const source = positioned.find((candidate) => requiredString(candidate, "id") === itemId);
+      if (!source || requiredNumber(source, "completed_group") !== 0) {
+        throw new Error("Only active queue items can be moved.");
+      }
+      const currentPriority = DynaPrioritySchema.parse(
+        requiredString(source, "effective_priority")
+      );
+      if (beforeItemId === itemId) return { changed: false };
+      const currentGroup = positioned.filter(
+        (candidate) => requiredNumber(candidate, "completed_group") === 0 && requiredString(candidate, "effective_priority") === currentPriority
+      );
+      const targetGroup = positioned.filter(
+        (candidate) => requiredNumber(candidate, "completed_group") === 0 && requiredString(candidate, "effective_priority") === targetPriority && requiredString(candidate, "id") !== itemId
+      );
+      const insertAt = beforeItemId ? targetGroup.findIndex((candidate) => requiredString(candidate, "id") === beforeItemId) : targetGroup.length;
+      if (beforeItemId && insertAt < 0) {
+        throw new Error("The queue drop target changed; refresh before moving this item.");
+      }
+      targetGroup.splice(insertAt, 0, source);
+      const currentIds = currentGroup.map((candidate) => requiredString(candidate, "id"));
+      const nextIds = targetGroup.map((candidate) => requiredString(candidate, "id"));
+      if (currentPriority === targetPriority && currentIds.join("\n") === nextIds.join("\n")) {
+        return { changed: false };
+      }
+      const setSourcePreference = this.#database.prepare(
+        `INSERT INTO item_preferences (
+           dashboard_id, item_id, priority_override, sequence, updated_at
+         ) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(dashboard_id, item_id) DO UPDATE SET
+           priority_override = excluded.priority_override,
+           sequence = excluded.sequence,
+           updated_at = excluded.updated_at`
+      );
+      const setSequence = this.#database.prepare(
+        `INSERT INTO item_preferences (dashboard_id, item_id, sequence, updated_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(dashboard_id, item_id) DO UPDATE SET
+           sequence = excluded.sequence, updated_at = excluded.updated_at`
+      );
+      const addEvent = this.#database.prepare(
+        `INSERT INTO item_preference_events (
+           id, dashboard_id, item_id, action, priority, sequence, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+      );
+      const priorities = ["critical", "high", "normal", "low"];
+      const originalPosition = currentIds.indexOf(itemId);
+      const nextPosition = nextIds.indexOf(itemId);
+      const sourceAction = currentPriority !== targetPriority ? priorities.indexOf(targetPriority) < priorities.indexOf(currentPriority) ? "bump" : "lower" : nextPosition < originalPosition ? "earlier" : "later";
+      targetGroup.forEach((candidate, position) => {
+        const candidateId = requiredString(candidate, "id");
+        const sequence = position * 100;
+        if (candidateId === itemId) {
+          setSourcePreference.run(dashboardId, candidateId, targetPriority, sequence, instant);
+        } else {
+          setSequence.run(dashboardId, candidateId, sequence, instant);
+        }
+        addEvent.run(
+          (0, import_node_crypto5.randomUUID)(),
+          dashboardId,
+          candidateId,
+          candidateId === itemId ? sourceAction : "resequence",
+          targetPriority,
+          sequence,
+          instant
+        );
+      });
+      this.#touchDashboards([dashboardId], instant);
+      this.#audit(`item.organized.${sourceAction}`, itemId, instant);
+      return { changed: true };
+    });
+  }
   archiveItem(viewToken, itemId, values) {
     const dashboardId = this.authorizeView(viewToken, itemId);
     const reason = DynaArchiveReasonSchema.parse(values.reason);
@@ -56677,7 +56766,7 @@ var DynaService = class {
 
 // packages/mcp-server/src/plugins/dyna.ts
 var DYNA_PLUGIN_ID = "dyna";
-var DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v7.html";
+var DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v8.html";
 var DashboardIdSchema = external_exports.object({ dashboardId: external_exports.uuid() }).strict();
 var ViewTokenSchema = external_exports.object({
   viewToken: external_exports.string().min(32).max(128),
@@ -56691,6 +56780,30 @@ var AddAnnotationInputSchema = external_exports.object({
   clientRequestId: external_exports.uuid(),
   body: external_exports.string().trim().min(1).max(1e3)
 }).strict();
+var OrganizeItemInputSchema = external_exports.object({
+  viewToken: external_exports.string().min(32).max(128),
+  itemId: external_exports.uuid(),
+  action: external_exports.enum(["bump", "lower", "earlier", "later", "place"]),
+  targetPriority: DynaPrioritySchema.optional(),
+  beforeItemId: external_exports.uuid().optional(),
+  expectedRevision: external_exports.number().int().nonnegative(),
+  expectedFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/)
+}).strict().superRefine((input, context) => {
+  if (input.action === "place" && !input.targetPriority) {
+    context.addIssue({
+      code: "custom",
+      path: ["targetPriority"],
+      message: "Drag placement requires a target priority."
+    });
+  }
+  if (input.action !== "place" && (input.targetPriority || input.beforeItemId)) {
+    context.addIssue({
+      code: "custom",
+      path: ["action"],
+      message: "Target placement is only accepted for drag placement."
+    });
+  }
+});
 var EmptyResultSchema2 = external_exports.object({ ok: external_exports.literal(true) }).strict();
 var DashboardListSchema = external_exports.object({ dashboards: external_exports.array(DynaDashboardSchema).max(100) }).strict();
 var IdentifierSchema3 = external_exports.string().trim().min(1).max(256);
@@ -56926,14 +57039,8 @@ function appTools(service) {
     {
       name: "dyna_organize_item",
       title: "Reprioritize Dyna item",
-      description: "Apply a user-controlled priority or sequence change with revision and fingerprint preconditions.",
-      inputSchema: external_exports.object({
-        viewToken: external_exports.string().min(32).max(128),
-        itemId: external_exports.uuid(),
-        action: external_exports.enum(["bump", "lower", "earlier", "later"]),
-        expectedRevision: external_exports.number().int().nonnegative(),
-        expectedFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/)
-      }).strict(),
+      description: "Apply a user-controlled priority, sequence, or direct queue placement with revision and fingerprint preconditions.",
+      inputSchema: OrganizeItemInputSchema,
       outputSchema: external_exports.object({ changed: external_exports.boolean() }).strict(),
       annotations: {
         readOnlyHint: false,
@@ -56942,14 +57049,15 @@ function appTools(service) {
         idempotentHint: false
       },
       handler(input) {
-        const parsed = external_exports.object({
-          viewToken: external_exports.string().min(32).max(128),
-          itemId: external_exports.uuid(),
-          action: external_exports.enum(["bump", "lower", "earlier", "later"]),
-          expectedRevision: external_exports.number().int().nonnegative(),
-          expectedFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/)
-        }).strict().parse(input);
-        const result = service.store.organizeItem(
+        const parsed = OrganizeItemInputSchema.parse(input);
+        const result = parsed.action === "place" && parsed.targetPriority ? service.store.placeItem(
+          parsed.viewToken,
+          parsed.itemId,
+          parsed.targetPriority,
+          parsed.beforeItemId,
+          parsed.expectedRevision,
+          parsed.expectedFingerprint
+        ) : service.store.organizeItem(
           parsed.viewToken,
           parsed.itemId,
           parsed.action,
@@ -57693,7 +57801,8 @@ function createBundledFlowZoneServer() {
         name: "FlowZone Dyna UI",
         resourceUri: DYNA_TEMPLATE_URI,
         assetLoader: dynaAssetLoader,
-        description: "Dyna is a responsive executive dashboard for prioritized scheduled signals and Codex actions."
+        description: "Dyna is a responsive executive dashboard for prioritized scheduled signals and Codex actions.",
+        permissions: { clipboardWrite: {} }
       }
     ],
     plugins: [createMarkdownReviewPlugin(), createDynaPlugin()]

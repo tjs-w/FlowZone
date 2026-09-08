@@ -70,6 +70,7 @@ describe("DynaStore lifecycle", () => {
       idempotent: true,
       aggregate: true,
       search: true,
+      dragPlacement: true,
     });
   });
 

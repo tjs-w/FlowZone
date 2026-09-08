@@ -40,13 +40,14 @@ describe("Dyna checked-in Node bundle", () => {
     try {
       const resources = await client.listResources();
       const dynaResource = resources.resources.find(
-        (resource) => resource.uri === "ui://flowzone/dyna/v7.html",
+        (resource) => resource.uri === "ui://flowzone/dyna/v8.html",
       );
       expect(dynaResource?._meta?.["ui"]).toEqual({
         prefersBorder: true,
         csp: { connectDomains: [], resourceDomains: [], frameDomains: [] },
+        permissions: { clipboardWrite: {} },
       });
-      const dynaHtml = await client.readResource({ uri: "ui://flowzone/dyna/v7.html" });
+      const dynaHtml = await client.readResource({ uri: "ui://flowzone/dyna/v8.html" });
       const dynaContent = dynaHtml.contents[0];
       expect(dynaContent && "text" in dynaContent ? dynaContent.text : "").toContain(
         'id="dyna-root"',

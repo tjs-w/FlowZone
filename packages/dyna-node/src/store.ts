@@ -54,6 +54,7 @@ import {
 import type { z } from "zod";
 
 type DynaActionKind = z.infer<typeof DynaActionKindSchema>;
+type DynaPriority = z.infer<typeof DynaPrioritySchema>;
 type SqlRow = Readonly<Record<string, unknown>>;
 
 const VIEW_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
@@ -2410,6 +2411,124 @@ export class DynaStore {
       }
       this.#touchDashboards([dashboardId], instant);
       this.#audit(`item.organized.${action}`, itemId, instant);
+      return { changed: true };
+    });
+  }
+
+  placeItem(
+    viewToken: string,
+    itemId: string,
+    targetPriority: DynaPriority,
+    beforeItemId: string | undefined,
+    expectedRevision: number,
+    expectedFingerprint: string,
+  ): { readonly changed: boolean } {
+    const dashboardId = this.authorizeView(viewToken, itemId);
+    const instant = this.#now();
+    return this.#transaction(() => {
+      const revisionRow = this.#one(
+        this.#database.prepare("SELECT revision FROM dashboards WHERE id = ?"),
+        dashboardId,
+      );
+      const itemRow = this.#itemBaseRow(itemId);
+      if (
+        !revisionRow ||
+        requiredNumber(revisionRow, "revision") !== expectedRevision ||
+        requiredString(itemRow, "fingerprint") !== expectedFingerprint
+      ) {
+        throw new Error("The Dyna dashboard changed; refresh before moving this item.");
+      }
+      const positioned = this.#database
+        .prepare(
+          `${DYNA_ELIGIBLE_CTE}
+          SELECT id, effective_priority, completed_group, priority_position
+          FROM positioned
+          ORDER BY completed_group, priority_position`,
+        )
+        .all(dashboardId) as SqlRow[];
+      const source = positioned.find((candidate) => requiredString(candidate, "id") === itemId);
+      if (!source || requiredNumber(source, "completed_group") !== 0) {
+        throw new Error("Only active queue items can be moved.");
+      }
+      const currentPriority = DynaPrioritySchema.parse(
+        requiredString(source, "effective_priority"),
+      );
+      if (beforeItemId === itemId) return { changed: false };
+      const currentGroup = positioned.filter(
+        (candidate) =>
+          requiredNumber(candidate, "completed_group") === 0 &&
+          requiredString(candidate, "effective_priority") === currentPriority,
+      );
+      const targetGroup = positioned.filter(
+        (candidate) =>
+          requiredNumber(candidate, "completed_group") === 0 &&
+          requiredString(candidate, "effective_priority") === targetPriority &&
+          requiredString(candidate, "id") !== itemId,
+      );
+      const insertAt = beforeItemId
+        ? targetGroup.findIndex((candidate) => requiredString(candidate, "id") === beforeItemId)
+        : targetGroup.length;
+      if (beforeItemId && insertAt < 0) {
+        throw new Error("The queue drop target changed; refresh before moving this item.");
+      }
+      targetGroup.splice(insertAt, 0, source);
+      const currentIds = currentGroup.map((candidate) => requiredString(candidate, "id"));
+      const nextIds = targetGroup.map((candidate) => requiredString(candidate, "id"));
+      if (currentPriority === targetPriority && currentIds.join("\n") === nextIds.join("\n")) {
+        return { changed: false };
+      }
+
+      const setSourcePreference = this.#database.prepare(
+        `INSERT INTO item_preferences (
+           dashboard_id, item_id, priority_override, sequence, updated_at
+         ) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(dashboard_id, item_id) DO UPDATE SET
+           priority_override = excluded.priority_override,
+           sequence = excluded.sequence,
+           updated_at = excluded.updated_at`,
+      );
+      const setSequence = this.#database.prepare(
+        `INSERT INTO item_preferences (dashboard_id, item_id, sequence, updated_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(dashboard_id, item_id) DO UPDATE SET
+           sequence = excluded.sequence, updated_at = excluded.updated_at`,
+      );
+      const addEvent = this.#database.prepare(
+        `INSERT INTO item_preference_events (
+           id, dashboard_id, item_id, action, priority, sequence, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      );
+      const priorities = ["critical", "high", "normal", "low"] as const;
+      const originalPosition = currentIds.indexOf(itemId);
+      const nextPosition = nextIds.indexOf(itemId);
+      const sourceAction =
+        currentPriority !== targetPriority
+          ? priorities.indexOf(targetPriority) < priorities.indexOf(currentPriority)
+            ? "bump"
+            : "lower"
+          : nextPosition < originalPosition
+            ? "earlier"
+            : "later";
+      targetGroup.forEach((candidate, position) => {
+        const candidateId = requiredString(candidate, "id");
+        const sequence = position * 100;
+        if (candidateId === itemId) {
+          setSourcePreference.run(dashboardId, candidateId, targetPriority, sequence, instant);
+        } else {
+          setSequence.run(dashboardId, candidateId, sequence, instant);
+        }
+        addEvent.run(
+          randomUUID(),
+          dashboardId,
+          candidateId,
+          candidateId === itemId ? sourceAction : "resequence",
+          targetPriority,
+          sequence,
+          instant,
+        );
+      });
+      this.#touchDashboards([dashboardId], instant);
+      this.#audit(`item.organized.${sourceAction}`, itemId, instant);
       return { changed: true };
     });
   }

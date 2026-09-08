@@ -128,7 +128,7 @@ function resultRecord(value: unknown): Readonly<Record<string, unknown>> {
   return value as Readonly<Record<string, unknown>>;
 }
 
-const dynaResource = await client.readResource({ uri: "ui://flowzone/dyna/v7.html" });
+const dynaResource = await client.readResource({ uri: "ui://flowzone/dyna/v8.html" });
 const dynaResourceContent = dynaResource.contents[0];
 if (!dynaResourceContent || !("text" in dynaResourceContent)) {
   throw new Error("The Dyna HTML resource was not returned");
@@ -204,7 +204,7 @@ async function createDynaFixture(
     arguments: {
       plugin: "dyna",
       action: "create-dashboard",
-      input: { name: "Executive brief", description: "Decisions and risks across your work" },
+      input: { name: "Executive Brief", description: "Decisions and risks across your work" },
     },
   });
   const dashboard = resultRecord(resultRecord(createdDashboard.structuredContent)["result"]);
@@ -750,6 +750,7 @@ const dynaHostScript = (dynaResult: unknown) => `<script>
     toolCalls: [],
     toolResults: [],
     externalLinks: [],
+    clipboardWrites: [],
     displayModeRequests: [],
     snapshotResults: 0,
     replayedToolResults: 0,
@@ -761,6 +762,31 @@ const dynaHostScript = (dynaResult: unknown) => `<script>
       notify("ui/notifications/tool-result", state.latestToolResult);
     }
   };
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: {
+      writeText(text) {
+        state.clipboardWrites.push(text);
+        document.documentElement.dataset.dynaClipboardWriteCount =
+          String(state.clipboardWrites.length);
+        return Promise.resolve();
+      }
+    }
+  });
+  Object.defineProperty(document, "execCommand", {
+    configurable: true,
+    value(command) {
+      if (command !== "copy") return false;
+      const active = document.activeElement;
+      const text = active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement
+        ? active.value.slice(active.selectionStart ?? 0, active.selectionEnd ?? 0)
+        : window.getSelection()?.toString() ?? "";
+      state.clipboardWrites.push(text);
+      document.documentElement.dataset.dynaClipboardWriteCount =
+        String(state.clipboardWrites.length);
+      return true;
+    }
+  });
   const respond = (id, result) => window.postMessage({ jsonrpc: "2.0", id, result }, "*");
   const notify = (method, params) => window.postMessage({ jsonrpc: "2.0", method, params }, "*");
   window.addEventListener("message", async (event) => {

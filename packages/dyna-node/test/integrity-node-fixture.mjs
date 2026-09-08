@@ -417,9 +417,39 @@ try {
     { changed: true },
   );
   assert.equal(store.snapshot(searchDashboard.id, "needle alpha").cards[0]?.priority, "high");
+  const beforePlacement = store.snapshot(searchDashboard.id, "needle");
+  const placedAlpha = beforePlacement.cards.find((card) => card.title === "Needle Alpha");
+  const placedBeta = beforePlacement.cards.find((card) => card.title === "Needle Beta");
+  assert.ok(placedAlpha);
+  assert.ok(placedBeta);
+  assert.deepEqual(
+    store.placeItem(
+      searchView,
+      placedBeta.id,
+      "high",
+      placedAlpha.id,
+      beforePlacement.revision,
+      placedBeta.fingerprint,
+    ),
+    { changed: true },
+  );
+  const afterPlacement = store.snapshot(searchDashboard.id, "needle");
+  assert.deepEqual(
+    afterPlacement.cards.map((card) => [card.title, card.priority]),
+    [
+      ["Needle Beta", "high"],
+      ["Needle Alpha", "high"],
+    ],
+  );
 
   globalThis.process.stdout.write(
-    JSON.stringify({ isolated: true, idempotent: true, aggregate: true, search: true }),
+    JSON.stringify({
+      isolated: true,
+      idempotent: true,
+      aggregate: true,
+      search: true,
+      dragPlacement: true,
+    }),
   );
 } finally {
   store.close();

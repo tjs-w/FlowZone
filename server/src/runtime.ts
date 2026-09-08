@@ -30,6 +30,7 @@ export function createBundledFlowZoneServer() {
         assetLoader: dynaAssetLoader,
         description:
           "Dyna is a responsive executive dashboard for prioritized scheduled signals and Codex actions.",
+        permissions: { clipboardWrite: {} },
       },
     ],
     plugins: [createMarkdownReviewPlugin(), createDynaPlugin()],

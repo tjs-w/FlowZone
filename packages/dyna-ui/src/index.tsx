@@ -4,10 +4,13 @@ import { Alert } from "@openai/apps-sdk-ui/components/Alert";
 import { Badge } from "@openai/apps-sdk-ui/components/Badge";
 import { Button } from "@openai/apps-sdk-ui/components/Button";
 import {
+  Archive,
   ArrowLeft,
   ChevronRight,
+  Copy,
   ExternalLink,
   Plus,
+  RestoreUntrash,
   Search,
   X,
 } from "@openai/apps-sdk-ui/components/Icon";
@@ -28,6 +31,7 @@ import {
 } from "@flowzone/dyna-contracts";
 import {
   createContext,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type RefObject,
   useCallback,
@@ -53,6 +57,7 @@ type ScrollSurface = DashboardView;
 type ArchiveReason = "invalid" | "duplicate" | "no_action_needed" | "superseded" | "other";
 
 const INLINE_SUMMARY_MAX_LENGTH = 240;
+const DYNA_DRAG_TYPE = "application/x-flowzone-dyna-item";
 
 type DynaHostContext = McpUiHostContext & {
   readonly locale?: string;
@@ -79,6 +84,14 @@ interface DynaUiController {
     action: "bump" | "lower" | "earlier" | "later",
     trigger: HTMLElement,
   ): Promise<void>;
+  place(
+    itemId: string,
+    fingerprint: string,
+    targetPriority: TodoPriority,
+    beforeItemId: string | undefined,
+    trigger: HTMLElement,
+  ): Promise<void>;
+  copyContext(card: CardViewProps): Promise<void>;
   archive(
     itemId: string,
     fingerprint: string,
@@ -86,7 +99,7 @@ interface DynaUiController {
     trigger: HTMLElement,
     reason?: "completed",
   ): void;
-  restore(itemId: string, fingerprint: string, trigger?: HTMLElement): Promise<void>;
+  restore(itemId: string, fingerprint: string, title: string, trigger: HTMLElement): void;
   request(
     itemId: string,
     fingerprint: string,
@@ -145,6 +158,36 @@ function relativeTime(value: string, locale?: string): string {
   const hours = Math.round(minutes / 60);
   if (Math.abs(hours) < 24) return formatter.format(hours, "hour");
   return formatter.format(Math.round(hours / 24), "day");
+}
+
+function exactDateTime(value: string, locale?: string): string {
+  return new Intl.DateTimeFormat(locale, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
+async function writeClipboardText(value: string): Promise<void> {
+  try {
+    const clipboard = Reflect.get(navigator, "clipboard") as Clipboard | undefined;
+    if (clipboard && typeof clipboard.writeText === "function") {
+      await clipboard.writeText(value);
+      return;
+    }
+  } catch {
+    // Fall through to the locally scoped legacy browser path.
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.inset = "0 auto auto -9999px";
+  document.body.append(textarea);
+  textarea.select();
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- Required for older host webviews without the Clipboard API.
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  if (!copied) throw new Error("Clipboard access is unavailable.");
 }
 
 function humanize(value: string): string {
@@ -353,6 +396,23 @@ function SourceFavicon({
   );
 }
 
+function readDragItem(
+  dataTransfer: DataTransfer,
+): { readonly itemId: string; readonly fingerprint: string } | undefined {
+  const raw = dataTransfer.getData(DYNA_DRAG_TYPE);
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as Readonly<Record<string, unknown>>;
+    return typeof parsed["itemId"] === "string" &&
+      typeof parsed["fingerprint"] === "string" &&
+      /^[a-f0-9]{64}$/.test(parsed["fingerprint"])
+      ? { itemId: parsed["itemId"], fingerprint: parsed["fingerprint"] }
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 interface ActionDescriptor {
   readonly name: ActionName;
   readonly label: string;
@@ -363,8 +423,10 @@ interface ActionDescriptor {
 type CardViewProps = Omit<DynaCard, "id" | "annotations" | "linkedTasks"> & {
   readonly itemId: string;
   readonly searchText: string;
-  readonly annotationCount: number;
-  readonly annotationPreview: readonly string[];
+  readonly annotationPreview: readonly {
+    readonly body: string;
+    readonly createdAt: string;
+  }[];
   readonly actions: readonly ActionDescriptor[];
   readonly workflowStage: WorkflowStage;
   readonly workflowCondition?: string;
@@ -385,7 +447,6 @@ interface DynaComponentCatalog {
       readonly freshness: DynaSnapshot["freshness"];
       readonly generatedAt: string;
       readonly revision: number;
-      readonly archivedCount: number;
       readonly sourceOptions: readonly string[];
       readonly sourceAttention: boolean;
     }>,
@@ -405,6 +466,7 @@ interface DynaComponentCatalog {
       readonly emptyMessage: string;
       readonly count: number;
       readonly attention?: boolean;
+      readonly priority?: TodoPriority;
     }>,
   ) => ReactNode;
   readonly QueueView: (args: ComponentArgs<Record<string, never>>) => ReactNode;
@@ -438,13 +500,69 @@ interface DynaComponentCatalog {
   readonly EmptyState: (args: ComponentArgs<{ readonly message: string }>) => ReactNode;
 }
 
-function InspectorActions({
+function OrganizationMenu({
   card,
-  menuTrigger,
+  trigger,
+  label,
 }: {
   readonly card: CardViewProps;
-  readonly menuTrigger: RefObject<HTMLElement | null>;
+  readonly trigger: RefObject<HTMLElement | null>;
+  readonly label: string;
 }) {
+  const controller = useController();
+  const organize = (
+    event: ReactMouseEvent<HTMLButtonElement>,
+    action: "bump" | "lower" | "earlier" | "later",
+  ) => {
+    event.currentTarget.closest("details")?.removeAttribute("open");
+    if (trigger.current) {
+      void controller.organize(card.itemId, card.fingerprint, action, trigger.current);
+    }
+  };
+  return (
+    <div className="dyna-overflow-menu" aria-label={label}>
+      <button
+        type="button"
+        disabled={controller.busy || controller.blocked || card.priority === "critical"}
+        onClick={(event) => {
+          organize(event, "bump");
+        }}
+      >
+        Raise priority
+      </button>
+      <button
+        type="button"
+        disabled={controller.busy || controller.blocked || card.priority === "low"}
+        onClick={(event) => {
+          organize(event, "lower");
+        }}
+      >
+        Lower priority
+      </button>
+      <div className="dyna-overflow-separator" role="separator" />
+      <button
+        type="button"
+        disabled={controller.busy || controller.blocked || !card.canMoveEarlier}
+        onClick={(event) => {
+          organize(event, "earlier");
+        }}
+      >
+        Move earlier in group
+      </button>
+      <button
+        type="button"
+        disabled={controller.busy || controller.blocked || !card.canMoveLater}
+        onClick={(event) => {
+          organize(event, "later");
+        }}
+      >
+        Move later in group
+      </button>
+    </div>
+  );
+}
+
+function InspectorActions({ card }: { readonly card: CardViewProps }) {
   const controller = useController();
   const primaryAction = card.actions.find(
     (action) => action.name === "create_codex_task" || action.name === "open_codex_task",
@@ -472,8 +590,9 @@ function InspectorActions({
       <div className="dyna-actions">
         {card.workflowStage === "completed" || card.archive ? (
           <Button
+            className="dyna-primary-action"
             color="primary"
-            size="sm"
+            size="xs"
             onClick={(event) => {
               controller.startTodo(
                 event.currentTarget,
@@ -489,9 +608,10 @@ function InspectorActions({
           </Button>
         ) : primaryAction ? (
           <Button
+            className="dyna-primary-action"
             data-dyna-action={`${card.itemId}:${primaryAction.name}`}
             color="primary"
-            size="sm"
+            size="xs"
             onClick={(event) => {
               runAction(primaryAction, event.currentTarget);
             }}
@@ -534,7 +654,7 @@ function InspectorActions({
           <Button
             data-dyna-action={`${card.itemId}:${sourceAction.name}`}
             color="secondary"
-            size="sm"
+            size="xs"
             variant="outline"
             onClick={(event) => {
               runAction(sourceAction, event.currentTarget);
@@ -547,10 +667,11 @@ function InspectorActions({
         ) : null}
         {noteAction ? (
           <Button
+            className="dyna-note-action"
             data-dyna-action={`${card.itemId}:${noteAction.name}`}
             data-dyna-annotation-item={card.itemId}
             color="secondary"
-            size="sm"
+            size="xs"
             variant="ghost"
             onClick={(event) => {
               runAction(noteAction, event.currentTarget);
@@ -560,150 +681,63 @@ function InspectorActions({
             Add note
           </Button>
         ) : null}
-        {card.annotationCount > 0 ? (
-          <span className="dyna-meta">
-            {card.annotationCount} note{card.annotationCount === 1 ? "" : "s"}
-          </span>
-        ) : null}
       </div>
-      <details className="dyna-overflow">
-        <summary
-          ref={menuTrigger}
-          className="dyna-more-trigger"
-          aria-label={`More actions for ${card.title}`}
-          aria-disabled={controller.busy || controller.blocked}
-          onClick={(event) => {
-            if (controller.busy || controller.blocked) event.preventDefault();
+      <div className="dyna-utility-actions">
+        <Button
+          className="dyna-icon-action"
+          color="secondary"
+          size="xs"
+          variant="ghost"
+          uniform
+          aria-label="Copy work prompt"
+          title="Copy work prompt"
+          data-dyna-copy-context={card.itemId}
+          onClick={() => {
+            void controller.copyContext(card);
           }}
         >
-          <span aria-hidden="true">•••</span>
-          <span className="dyna-visually-hidden">More actions</span>
-        </summary>
-        <div className="dyna-overflow-menu" aria-label="Item actions">
-          {card.archive ? (
-            <button
-              type="button"
-              onClick={(event) => {
-                event.currentTarget.closest("details")?.removeAttribute("open");
-                void controller.restore(
-                  card.itemId,
-                  card.fingerprint,
-                  menuTrigger.current ?? undefined,
-                );
-              }}
-            >
-              Restore to active board
-            </button>
-          ) : card.workflowStage === "completed" ? (
-            <button
-              type="button"
-              onClick={(event) => {
-                event.currentTarget.closest("details")?.removeAttribute("open");
-                if (menuTrigger.current) {
-                  controller.archive(
-                    card.itemId,
-                    card.fingerprint,
-                    card.title,
-                    menuTrigger.current,
-                    "completed",
-                  );
-                }
-              }}
-            >
-              Archive now
-            </button>
-          ) : (
-            <>
-              <button
-                type="button"
-                disabled={card.priority === "critical"}
-                onClick={(event) => {
-                  event.currentTarget.closest("details")?.removeAttribute("open");
-                  if (menuTrigger.current) {
-                    void controller.organize(
-                      card.itemId,
-                      card.fingerprint,
-                      "bump",
-                      menuTrigger.current,
-                    );
-                  }
-                }}
-              >
-                Raise priority
-              </button>
-              <button
-                type="button"
-                disabled={card.priority === "low"}
-                onClick={(event) => {
-                  event.currentTarget.closest("details")?.removeAttribute("open");
-                  if (menuTrigger.current) {
-                    void controller.organize(
-                      card.itemId,
-                      card.fingerprint,
-                      "lower",
-                      menuTrigger.current,
-                    );
-                  }
-                }}
-              >
-                Lower priority
-              </button>
-              <div className="dyna-overflow-separator" role="separator" />
-              <button
-                type="button"
-                disabled={!card.canMoveEarlier}
-                onClick={(event) => {
-                  event.currentTarget.closest("details")?.removeAttribute("open");
-                  if (menuTrigger.current) {
-                    void controller.organize(
-                      card.itemId,
-                      card.fingerprint,
-                      "earlier",
-                      menuTrigger.current,
-                    );
-                  }
-                }}
-              >
-                Move earlier in group
-              </button>
-              <button
-                type="button"
-                disabled={!card.canMoveLater}
-                onClick={(event) => {
-                  event.currentTarget.closest("details")?.removeAttribute("open");
-                  if (menuTrigger.current) {
-                    void controller.organize(
-                      card.itemId,
-                      card.fingerprint,
-                      "later",
-                      menuTrigger.current,
-                    );
-                  }
-                }}
-              >
-                Move later in group
-              </button>
-              <div className="dyna-overflow-separator" role="separator" />
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.currentTarget.closest("details")?.removeAttribute("open");
-                  if (menuTrigger.current) {
-                    controller.archive(
-                      card.itemId,
-                      card.fingerprint,
-                      card.title,
-                      menuTrigger.current,
-                    );
-                  }
-                }}
-              >
-                Archive…
-              </button>
-            </>
-          )}
-        </div>
-      </details>
+          <Copy className="dyna-icon" aria-hidden="true" />
+        </Button>
+        {card.archive ? (
+          <Button
+            className="dyna-icon-action"
+            color="secondary"
+            size="xs"
+            variant="ghost"
+            uniform
+            aria-label="Restore to active board"
+            title="Restore to active board"
+            onClick={(event) => {
+              controller.restore(card.itemId, card.fingerprint, card.title, event.currentTarget);
+            }}
+            disabled={controller.busy || controller.blocked}
+          >
+            <RestoreUntrash className="dyna-icon" aria-hidden="true" />
+          </Button>
+        ) : (
+          <Button
+            className="dyna-icon-action dyna-archive-action"
+            color="danger"
+            size="xs"
+            variant="ghost"
+            uniform
+            aria-label={card.workflowStage === "completed" ? "Archive now" : "Archive item"}
+            title={card.workflowStage === "completed" ? "Archive now" : "Archive item"}
+            onClick={(event) => {
+              controller.archive(
+                card.itemId,
+                card.fingerprint,
+                card.title,
+                event.currentTarget,
+                card.workflowStage === "completed" ? "completed" : undefined,
+              );
+            }}
+            disabled={controller.busy || controller.blocked}
+          >
+            <Archive className="dyna-icon" aria-hidden="true" />
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
@@ -859,7 +893,7 @@ const dynaComponents: DynaComponentCatalog = {
                   document.getElementById(`dyna-tab-${next}`)?.focus();
                 }}
               >
-                Archive{props.archivedCount > 0 ? ` ${props.archivedCount}` : ""}
+                Archive
               </button>
             </div>
             <div className="dyna-search">
@@ -945,9 +979,9 @@ const dynaComponents: DynaComponentCatalog = {
                     }}
                   >
                     <option value="all">All statuses</option>
-                    <option value="todo">To do</option>
+                    <option value="todo">To Do</option>
                     <option value="executing">In Codex</option>
-                    <option value="needs_you">Needs you</option>
+                    <option value="needs_you">Needs You</option>
                     <option value="blocked">Blocked</option>
                     <option value="completed">Done</option>
                   </select>
@@ -1044,7 +1078,8 @@ const dynaComponents: DynaComponentCatalog = {
   },
   Section: ({ props, children }) => {
     const controller = useController();
-    if (props.title === "Signal runs") {
+    const [dropActive, setDropActive] = useState(false);
+    if (props.title === "Signal Runs") {
       if (controller.condenseInline && !props.attention) return null;
       return (
         <details
@@ -1054,7 +1089,7 @@ const dynaComponents: DynaComponentCatalog = {
         >
           <summary>
             <ChevronRight className="dyna-disclosure" aria-hidden="true" />
-            {props.attention ? "Source health needs attention" : "Source health"}
+            {props.attention ? "Source Health Needs Attention" : "Source Health"}
             <span className="dyna-meta">
               {props.count} {props.count === 1 ? "run" : "runs"}
             </span>
@@ -1063,13 +1098,54 @@ const dynaComponents: DynaComponentCatalog = {
         </details>
       );
     }
+    const acceptsQueueDrop =
+      Boolean(props.priority) &&
+      controller.view === "queue" &&
+      !controller.condenseInline &&
+      !controller.busy &&
+      !controller.blocked;
     return (
-      <section className="dyna-section">
+      <section
+        className="dyna-section"
+        data-priority-group={props.priority}
+        data-drop-active={dropActive}
+        data-empty={props.count === 0}
+        onDragOver={(event) => {
+          if (!acceptsQueueDrop || !event.dataTransfer.types.includes(DYNA_DRAG_TYPE)) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+          setDropActive(true);
+        }}
+        onDragLeave={(event) => {
+          if (
+            event.relatedTarget instanceof Node &&
+            event.currentTarget.contains(event.relatedTarget)
+          ) {
+            return;
+          }
+          setDropActive(false);
+        }}
+        onDrop={(event) => {
+          setDropActive(false);
+          delete document.documentElement.dataset["dynaDragging"];
+          if (!acceptsQueueDrop || !props.priority) return;
+          const dragged = readDragItem(event.dataTransfer);
+          if (!dragged) return;
+          event.preventDefault();
+          void controller.place(
+            dragged.itemId,
+            dragged.fingerprint,
+            props.priority,
+            undefined,
+            event.currentTarget,
+          );
+        }}
+      >
         <header className="dyna-section-header">
           <h2>{props.title}</h2>
           <span className="dyna-section-count">{props.count}</span>
         </header>
-        {children}
+        {props.count > 0 ? children : <p className="dyna-priority-empty">{props.emptyMessage}</p>}
       </section>
     );
   },
@@ -1080,7 +1156,7 @@ const dynaComponents: DynaComponentCatalog = {
         id="dyna-panel-queue"
         className="dyna-view"
         role={controller.condenseInline ? "region" : "tabpanel"}
-        aria-label={controller.condenseInline ? "Top attention" : undefined}
+        aria-label={controller.condenseInline ? "Top Attention" : undefined}
         aria-labelledby={controller.condenseInline ? undefined : "dyna-tab-queue"}
       >
         {children}
@@ -1138,7 +1214,9 @@ const dynaComponents: DynaComponentCatalog = {
             <h2>Archive</h2>
             <p>Completed history and explicit dispositions. Nothing here counts as active work.</p>
           </div>
-          <span>{props.count}</span>
+          <span>
+            {props.count} archived {props.count === 1 ? "item" : "items"}
+          </span>
         </div>
         {children}
       </div>
@@ -1146,8 +1224,8 @@ const dynaComponents: DynaComponentCatalog = {
   },
   PriorityCard: ({ props, children }) => {
     const controller = useController();
-    const menuTrigger = useRef<HTMLElement | null>(null);
-    const desktopMenuTrigger = useRef<HTMLElement | null>(null);
+    const rowMoveTrigger = useRef<HTMLElement | null>(null);
+    const [dropActive, setDropActive] = useState(false);
     const presentation = controller.view;
     const selected = controller.selectedItemId === props.itemId;
     const inspectorTitleId = `dyna-inspector-title-${props.itemId}`;
@@ -1162,6 +1240,14 @@ const dynaComponents: DynaComponentCatalog = {
         ? `${humanize(sourceMark)} via TWG`
         : props.sourceLabel;
     const summaryNeedsDisclosure = props.summary.length > INLINE_SUMMARY_MAX_LENGTH;
+    const showPriority = presentation !== "queue" || controller.condenseInline;
+    const showQueueMove =
+      controller.view === "queue" &&
+      !controller.condenseInline &&
+      !props.archive &&
+      props.workflowStage !== "completed";
+    const canOrganize = showQueueMove && !controller.busy && !controller.blocked;
+    const canDrag = canOrganize && window.matchMedia("(pointer: fine)").matches;
     const priorityColor =
       props.priority === "critical"
         ? "danger"
@@ -1180,43 +1266,125 @@ const dynaComponents: DynaComponentCatalog = {
         data-workflow-state={props.workflowState}
         data-workflow-stage={props.workflowStage}
         data-selected={selected}
+        data-has-move={showQueueMove}
+        data-drop-active={dropActive}
+        onDragOver={(event) => {
+          if (!canDrag || !event.dataTransfer.types.includes(DYNA_DRAG_TYPE)) return;
+          event.preventDefault();
+          event.stopPropagation();
+          event.dataTransfer.dropEffect = "move";
+          setDropActive(true);
+        }}
+        onDragLeave={(event) => {
+          if (
+            event.relatedTarget instanceof Node &&
+            event.currentTarget.contains(event.relatedTarget)
+          ) {
+            return;
+          }
+          setDropActive(false);
+        }}
+        onDrop={(event) => {
+          setDropActive(false);
+          delete document.documentElement.dataset["dynaDragging"];
+          if (!canDrag) return;
+          const dragged = readDragItem(event.dataTransfer);
+          if (!dragged) return;
+          event.preventDefault();
+          event.stopPropagation();
+          if (dragged.itemId === props.itemId) return;
+          void controller.place(
+            dragged.itemId,
+            dragged.fingerprint,
+            props.priority,
+            props.itemId,
+            event.currentTarget,
+          );
+        }}
       >
         <div
           className="dyna-card-row"
           onClick={(event) => {
-            if (event.target instanceof Element && event.target.closest("a, button")) {
+            if (
+              event.target instanceof Element &&
+              event.target.closest("a, button, summary, .dyna-overflow-menu")
+            ) {
               return;
             }
-            const trigger = event.currentTarget.querySelector("button");
+            if (window.getSelection()?.toString().trim()) return;
+            const trigger = event.currentTarget.querySelector<HTMLElement>(
+              "[data-dyna-details-item]",
+            );
             if (trigger) void controller.openDetails(props.itemId, trigger);
           }}
         >
           <div className="dyna-row-main">
-            <div className="dyna-row-top">
-              <span className="dyna-priority-label">{props.priority}</span>
-              <span aria-hidden="true">·</span>
-              <SourceFavicon kind={sourceMark} label={sourceMarkLabel} />
-              <span aria-hidden="true">·</span>
-              <span className="dyna-row-status" data-workflow-stage={props.workflowStage}>
-                {statusLabel}
-              </span>
-              {props.workflowCondition ? (
-                <span
-                  className="dyna-row-condition"
-                  data-condition={
-                    props.workflowCondition === "Input needed" ? "waiting" : "blocked"
-                  }
-                >
-                  {props.workflowCondition}
-                </span>
-              ) : null}
-              <span className="dyna-row-time" data-has-deadline={Boolean(props.dueAt)}>
-                {props.dueAt
-                  ? `Due ${relativeTime(props.dueAt, controller.locale)}`
-                  : "No deadline"}
-              </span>
-            </div>
             <div className="dyna-row-heading">
+              {showQueueMove ? (
+                <details className="dyna-overflow dyna-row-organize">
+                  <summary
+                    ref={rowMoveTrigger}
+                    className="dyna-drag-handle"
+                    draggable={canDrag}
+                    data-dyna-drag-item={props.itemId}
+                    aria-label={`Move ${props.title}`}
+                    aria-disabled={!canOrganize}
+                    title="Drag to reorder · activate for move options · arrow keys also move"
+                    onClick={(event) => {
+                      if (!canOrganize) event.preventDefault();
+                    }}
+                    onDragStart={(event) => {
+                      document.documentElement.dataset["dynaDragging"] = "true";
+                      const value = JSON.stringify({
+                        itemId: props.itemId,
+                        fingerprint: props.fingerprint,
+                      });
+                      event.dataTransfer.effectAllowed = "move";
+                      event.dataTransfer.setData(DYNA_DRAG_TYPE, value);
+                      event.dataTransfer.setData("text/plain", props.itemId);
+                      const card = event.currentTarget.closest<HTMLElement>(".dyna-card");
+                      if (card) {
+                        card.dataset["dragging"] = "true";
+                        event.dataTransfer.setDragImage(card, 18, 18);
+                      }
+                    }}
+                    onDragEnd={(event) => {
+                      delete document.documentElement.dataset["dynaDragging"];
+                      const card = event.currentTarget.closest<HTMLElement>(".dyna-card");
+                      if (card) delete card.dataset["dragging"];
+                      setDropActive(false);
+                    }}
+                    onKeyDown={(event) => {
+                      const action = {
+                        ArrowUp: "earlier",
+                        ArrowDown: "later",
+                        ArrowLeft: "bump",
+                        ArrowRight: "lower",
+                      }[event.key] as "bump" | "lower" | "earlier" | "later" | undefined;
+                      if (!action || !canOrganize) return;
+                      if (
+                        (action === "bump" && props.priority === "critical") ||
+                        (action === "lower" && props.priority === "low") ||
+                        (action === "earlier" && !props.canMoveEarlier) ||
+                        (action === "later" && !props.canMoveLater)
+                      ) {
+                        return;
+                      }
+                      event.preventDefault();
+                      void controller.organize(
+                        props.itemId,
+                        props.fingerprint,
+                        action,
+                        event.currentTarget,
+                      );
+                    }}
+                  >
+                    ⠿
+                  </summary>
+                  <OrganizationMenu card={props} trigger={rowMoveTrigger} label="Move item" />
+                </details>
+              ) : null}
+              <SourceFavicon kind={sourceMark} label={sourceMarkLabel} />
               {props.sourceUrl ? (
                 <a
                   className="dyna-row-title dyna-source-link"
@@ -1224,15 +1392,7 @@ const dynaComponents: DynaComponentCatalog = {
                   href={props.sourceUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  aria-label={detailLabel}
-                  onClick={(event) => {
-                    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
-                      return;
-                    }
-                    event.preventDefault();
-                    event.stopPropagation();
-                    void controller.openDetails(props.itemId, event.currentTarget);
-                  }}
+                  aria-label={`Open source: ${props.title}`}
                 >
                   <span>{props.title}</span>
                   <ExternalLink className="dyna-source-link-icon" aria-hidden="true" />
@@ -1240,6 +1400,11 @@ const dynaComponents: DynaComponentCatalog = {
               ) : (
                 <span className="dyna-row-title">{props.title}</span>
               )}
+              {props.dueAt ? (
+                <span className="dyna-row-time" data-has-deadline="true">
+                  Due {relativeTime(props.dueAt, controller.locale)}
+                </span>
+              ) : null}
               <button
                 type="button"
                 className="dyna-row-primary"
@@ -1254,8 +1419,21 @@ const dynaComponents: DynaComponentCatalog = {
                 <ChevronRight className="dyna-row-chevron" aria-hidden="true" />
               </button>
             </div>
-            <div className="dyna-row-foot">
-              <span className="dyna-row-attention">{props.attention ?? props.priorityReason}</span>
+            <div className="dyna-row-top">
+              {showPriority ? <span className="dyna-priority-label">{props.priority}</span> : null}
+              <span className="dyna-row-status" data-workflow-stage={props.workflowStage}>
+                {statusLabel}
+              </span>
+              {props.workflowCondition ? (
+                <span
+                  className="dyna-row-condition"
+                  data-condition={
+                    props.workflowCondition === "Input needed" ? "waiting" : "blocked"
+                  }
+                >
+                  {props.workflowCondition}
+                </span>
+              ) : null}
               {lead ? (
                 <span
                   className="dyna-row-person"
@@ -1265,16 +1443,8 @@ const dynaComponents: DynaComponentCatalog = {
                 </span>
               ) : null}
             </div>
-            <div
-              className="dyna-row-workflow"
-              role="img"
-              aria-label={`Status: ${statusLabel}${props.workflowCondition ? `, ${props.workflowCondition}` : ""}`}
-            >
-              {PIPELINE_STAGES.map(([stage, , compactLabel]) => (
-                <span key={stage} data-current={stage === props.workflowStage}>
-                  {compactLabel}
-                </span>
-              ))}
+            <div className="dyna-row-foot">
+              <span className="dyna-row-attention">{props.attention ?? props.priorityReason}</span>
             </div>
           </div>
         </div>
@@ -1331,7 +1501,7 @@ const dynaComponents: DynaComponentCatalog = {
                 </div>
                 <h2 id={inspectorTitleId}>{props.title}</h2>
               </div>
-              <InspectorActions card={props} menuTrigger={desktopMenuTrigger} />
+              <InspectorActions card={props} />
             </div>
             <div className="dyna-inspector-scroll" data-priority={props.priority}>
               {props.archive ? (
@@ -1382,7 +1552,7 @@ const dynaComponents: DynaComponentCatalog = {
               ) : null}
               {props.nextSteps.length > 0 ? (
                 <section className="dyna-inspector-section">
-                  <h3>Immediate next steps</h3>
+                  <h3>Immediate Next Steps</h3>
                   <ol className="dyna-next">
                     {props.nextSteps.map((step, index) => (
                       <li key={`${index}-${step.label}`}>
@@ -1419,7 +1589,7 @@ const dynaComponents: DynaComponentCatalog = {
               ) : null}
               {props.actions.some((action) => action.name === "open_codex_task") ? (
                 <section className="dyna-inspector-section">
-                  <h3>Codex tasks</h3>
+                  <h3>Codex Tasks</h3>
                   {children}
                 </section>
               ) : null}
@@ -1503,17 +1673,22 @@ const dynaComponents: DynaComponentCatalog = {
               </details>
               {props.annotationPreview.length > 0 ? (
                 <section className="dyna-inspector-section">
-                  <h3>Recent notes</h3>
-                  <ul className="dyna-note-list" aria-label="Recent notes">
+                  <h3>Recent Notes</h3>
+                  <ul className="dyna-note-list" aria-label="Recent Notes">
                     {props.annotationPreview.map((note, index) => (
-                      <li key={`${index}-${note}`}>{note}</li>
+                      <li key={`${index}-${note.createdAt}-${note.body}`}>
+                        <time dateTime={note.createdAt} title={note.createdAt}>
+                          {exactDateTime(note.createdAt, controller.locale)}
+                        </time>
+                        <span>{note.body}</span>
+                      </li>
                     ))}
                   </ul>
                 </section>
               ) : null}
             </div>
             <div className="dyna-inspector-footer">
-              <InspectorActions card={props} menuTrigger={menuTrigger} />
+              <InspectorActions card={props} />
             </div>
           </InspectorShell>
         ) : null}
@@ -1690,18 +1865,18 @@ const dynaComponents: DynaComponentCatalog = {
 };
 
 const PRIORITY_GROUPS = [
-  ["critical", "Act now"],
-  ["high", "Needs your attention"],
-  ["normal", "Keep moving"],
-  ["low", "On the radar"],
+  ["critical", "Act Now"],
+  ["high", "Needs Attention"],
+  ["normal", "Keep Moving"],
+  ["low", "On the Radar"],
 ] as const;
 
 const PIPELINE_STAGES = [
-  ["todo", "To do", "To do"],
-  ["executing", "In Codex", "Codex"],
-  ["needs_you", "Needs you", "You"],
-  ["completed", "Done", "Done"],
-] as const satisfies readonly (readonly [WorkflowStage, string, string])[];
+  ["todo", "To Do"],
+  ["executing", "In Codex"],
+  ["needs_you", "Needs You"],
+  ["completed", "Done"],
+] as const satisfies readonly (readonly [WorkflowStage, string])[];
 
 function cardWorkflowStage(card: Pick<DynaCard, "workflowState">): WorkflowStage {
   return card.workflowState === "paused" || card.workflowState === "attention"
@@ -1720,6 +1895,43 @@ function cardWorkflowCondition(
 
 function workflowStageLabel(stage: WorkflowStage): string {
   return PIPELINE_STAGES.find(([value]) => value === stage)?.[1] ?? humanize(stage);
+}
+
+function workPrompt(card: CardViewProps, locale: string): string {
+  const lines = [
+    "Work on this Dyna item using the retained context below. Verify current source and task state before taking consequential action.",
+    "",
+    `Title: ${card.title}`,
+    `Priority: ${humanize(card.priority)}`,
+    `Status: ${card.archive ? "Archived" : workflowStageLabel(card.workflowStage)}${card.workflowCondition ? ` (${card.workflowCondition})` : ""}`,
+    `Source: ${card.sourceLabel} — ${sourceReferenceLabel(card.sourceRef)}`,
+    ...(card.sourceUrl ? [`Source link: ${card.sourceUrl}`] : []),
+    ...(card.dueAt ? [`Due: ${exactDateTime(card.dueAt, locale)}`] : []),
+    `What needs attention: ${card.attention ?? card.priorityReason}`,
+    `Context: ${card.summary}`,
+  ];
+  if (card.nextSteps.length > 0) {
+    lines.push(
+      "",
+      "Immediate next steps:",
+      ...card.nextSteps.map(
+        (step, index) =>
+          `${String(index + 1)}. ${step.label}${step.owner ? ` — ${step.owner}` : ""}${step.dueAt ? ` — due ${exactDateTime(step.dueAt, locale)}` : ""}`,
+      ),
+    );
+  }
+  if (card.plan.length > 0) lines.push("", "Plan:", ...card.plan.map((step) => `- ${step}`));
+  if (card.outcome) lines.push("", `Recorded outcome: ${card.outcome}`);
+  if (card.annotationPreview.length > 0) {
+    lines.push(
+      "",
+      "Recent notes:",
+      ...card.annotationPreview.map(
+        (note) => `- ${exactDateTime(note.createdAt, locale)} — ${note.body}`,
+      ),
+    );
+  }
+  return lines.join("\n");
 }
 
 function cardIsBlocked(card: Pick<DynaCard, "linkedTasks">): boolean {
@@ -1825,8 +2037,10 @@ function cardViewProps(card: DynaCard): CardViewProps {
     ...props,
     itemId: id,
     searchText: cardSearchText(card),
-    annotationCount: annotations.length,
-    annotationPreview: annotations.slice(0, 3).map((annotation) => annotation.body),
+    annotationPreview: annotations.slice(0, 3).map((annotation) => ({
+      body: annotation.body,
+      createdAt: annotation.createdAt,
+    })),
     actions: cardActions(card),
     workflowStage: cardWorkflowStage(card),
     ...(workflowCondition ? { workflowCondition } : {}),
@@ -1915,7 +2129,7 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
     queueCards.length > 0 || selectedCard ? (
       <Section
         props={{
-          title: "Top attention",
+          title: "Top Attention",
           emptyMessage: "No active work needs attention.",
           count: queueCards.length,
         }}
@@ -1934,19 +2148,26 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
     )
   ) : (
     <>
-      {PRIORITY_GROUPS.map(([priority, title]) => {
-        const grouped = queueCards.filter((card) => card.priority === priority);
-        return grouped.length > 0 ? (
-          <Section
-            key={priority}
-            props={{ title, emptyMessage: "Nothing in this group.", count: grouped.length }}
-          >
-            {grouped.map((card) => (
-              <CardView key={card.id} card={card} />
-            ))}
-          </Section>
-        ) : null;
-      })}
+      {queueCards.length > 0
+        ? PRIORITY_GROUPS.map(([priority, title]) => {
+            const grouped = queueCards.filter((card) => card.priority === priority);
+            return (
+              <Section
+                key={priority}
+                props={{
+                  title,
+                  emptyMessage: "Drop an item here.",
+                  count: grouped.length,
+                  priority,
+                }}
+              >
+                {grouped.map((card) => (
+                  <CardView key={card.id} card={card} />
+                ))}
+              </Section>
+            );
+          })
+        : null}
       {queueCards.length === 0 ? (
         <EmptyState
           props={{
@@ -1968,7 +2189,7 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
       {snapshot.schedules.length > 0 ? (
         <Section
           props={{
-            title: "Signal runs",
+            title: "Signal Runs",
             emptyMessage: "No schedules are attached.",
             count: snapshot.schedules.length,
             attention: unhealthySchedules.length > 0,
@@ -1991,7 +2212,6 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
         freshness: snapshot.freshness,
         generatedAt: snapshot.generatedAt,
         revision: snapshot.revision,
-        archivedCount: snapshot.counts.archived,
         sourceOptions,
         sourceAttention: unhealthySchedules.length > 0,
       }}
@@ -2012,7 +2232,7 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
           className="dyna-source-alert"
           color="warning"
           variant="soft"
-          title="Source refresh needs attention"
+          title="Source Refresh Needs Attention"
           description={`${unhealthySchedules.length} ${unhealthySchedules.length === 1 ? "source is" : "sources are"} delayed or unavailable.`}
         />
       ) : null}
@@ -2044,7 +2264,7 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
           ) : archiveCards.length > 0 ? (
             <Section
               props={{
-                title: "Archived items",
+                title: "Archived Items",
                 emptyMessage: "No archived items.",
                 count: archiveCards.length,
               }}
@@ -2108,6 +2328,11 @@ function DynaApp({ app }: { readonly app: App }) {
     readonly fingerprint: string;
     readonly title: string;
   }>();
+  const [restoreTarget, setRestoreTarget] = useState<{
+    readonly itemId: string;
+    readonly fingerprint: string;
+    readonly title: string;
+  }>();
   const [archiveReason, setArchiveReason] = useState<ArchiveReason>("no_action_needed");
   const [archiveReasonDetail, setArchiveReasonDetail] = useState("");
   const [connectionError, setConnectionError] = useState<string>();
@@ -2145,6 +2370,7 @@ function DynaApp({ app }: { readonly app: App }) {
   const detailTrigger = useRef<HTMLElement | null>(null);
   const todoTrigger = useRef<HTMLElement | null>(null);
   const archiveTrigger = useRef<HTMLElement | null>(null);
+  const restoreTrigger = useRef<HTMLElement | null>(null);
   const expansionTrigger = useRef<HTMLElement | null>(null);
   const actionTrigger = useRef<{ readonly element: HTMLElement; readonly key: string } | null>(
     null,
@@ -2159,6 +2385,7 @@ function DynaApp({ app }: { readonly app: App }) {
     annotationItem !== undefined ||
     todoOpen ||
     archiveTarget !== undefined ||
+    restoreTarget !== undefined ||
     (selectedItemId !== undefined && !wideLayout);
 
   const acceptPayload = useCallback((candidate: unknown) => {
@@ -2326,6 +2553,9 @@ function DynaApp({ app }: { readonly app: App }) {
     const onLayoutChange = () => {
       setWideLayout(window.innerWidth >= 980);
       setDesktopInlineLayout(window.innerWidth > 560 && finePointer.matches);
+      document.documentElement.dataset["touch"] = String(
+        Boolean(hostContext.current.deviceCapabilities?.touch) && !finePointer.matches,
+      );
     };
     window.addEventListener("resize", onLayoutChange);
     finePointer.addEventListener("change", onLayoutChange);
@@ -2370,7 +2600,9 @@ function DynaApp({ app }: { readonly app: App }) {
       const width = dimensions && "width" in dimensions ? dimensions.width : dimensions?.maxWidth;
       if (width) document.documentElement.style.setProperty("--d-host-width", `${String(width)}px`);
       rootData.platform = context.platform ?? "unknown";
-      rootData.touch = String(context.deviceCapabilities?.touch ?? false);
+      rootData.touch = String(
+        Boolean(context.deviceCapabilities?.touch) && !window.matchMedia("(pointer: fine)").matches,
+      );
       const safe = context.safeAreaInsets;
       const rootStyle = document.documentElement.style;
       rootStyle.setProperty("--d-safe-top", `${String(safe?.top ?? 0)}px`);
@@ -2495,6 +2727,11 @@ function DynaApp({ app }: { readonly app: App }) {
     setArchiveReason("no_action_needed");
     setArchiveReasonDetail("");
     window.setTimeout(() => archiveTrigger.current?.focus(), 0);
+  }, []);
+
+  const closeRestore = useCallback(() => {
+    setRestoreTarget(undefined);
+    window.setTimeout(() => restoreTrigger.current?.focus(), 0);
   }, []);
 
   const closeDetails = useCallback(() => {
@@ -2656,6 +2893,7 @@ function DynaApp({ app }: { readonly app: App }) {
         });
         if (toolResultFailed(result)) throw new Error("Restore failed.");
         restoreRequestIds.current.delete(itemId);
+        setRestoreTarget(undefined);
         setUndoArchive(undefined);
         selectedItemRef.current = undefined;
         setSelectedItemId(undefined);
@@ -2681,13 +2919,14 @@ function DynaApp({ app }: { readonly app: App }) {
   }, [busy, payload, todoOpen]);
 
   useEffect(() => {
-    if (!annotationItem && !todoOpen && !archiveTarget) return;
+    if (!annotationItem && !todoOpen && !archiveTarget && !restoreTarget) return;
     const modal = dialog.current;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
         if (annotationItem) closeAnnotation();
         else if (archiveTarget) closeArchive();
+        else if (restoreTarget) closeRestore();
         else closeTodo();
         return;
       }
@@ -2708,7 +2947,16 @@ function DynaApp({ app }: { readonly app: App }) {
     return () => {
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [annotationItem, archiveTarget, closeAnnotation, closeArchive, closeTodo, todoOpen]);
+  }, [
+    annotationItem,
+    archiveTarget,
+    closeAnnotation,
+    closeArchive,
+    closeRestore,
+    closeTodo,
+    restoreTarget,
+    todoOpen,
+  ]);
 
   const controller = useMemo<DynaUiController>(
     () => ({
@@ -2725,7 +2973,11 @@ function DynaApp({ app }: { readonly app: App }) {
         !hostCapabilities.message?.text,
       displayMode,
       inspectorPresentation: wideLayout ? "split" : "route",
-      modalOpen: annotationItem !== undefined || todoOpen || archiveTarget !== undefined,
+      modalOpen:
+        annotationItem !== undefined ||
+        todoOpen ||
+        archiveTarget !== undefined ||
+        restoreTarget !== undefined,
       canExpand,
       condenseInline: displayMode === "inline" && (canExpand || initialExpansionPending),
       initialExpansionPending,
@@ -2760,8 +3012,17 @@ function DynaApp({ app }: { readonly app: App }) {
         setArchiveReasonDetail("");
         setArchiveTarget({ itemId, fingerprint, title });
       },
-      restore(itemId, fingerprint) {
-        return executeRestore(itemId, fingerprint);
+      restore(itemId, fingerprint, title, trigger) {
+        restoreTrigger.current = trigger;
+        setRestoreTarget({ itemId, fingerprint, title });
+      },
+      async copyContext(card) {
+        try {
+          await writeClipboardText(workPrompt(card, locale));
+          setToast("Work prompt copied.");
+        } catch {
+          setToast("Clipboard is unavailable. Select and copy the context manually.");
+        }
       },
       annotate(itemId, trigger) {
         annotationTrigger.current = trigger;
@@ -2820,6 +3081,49 @@ function DynaApp({ app }: { readonly app: App }) {
           setConnectionError(undefined);
         } catch {
           setOperationError("Could not reorganize the item. Refresh the dashboard and try again.");
+        } finally {
+          setBusy(false);
+        }
+      },
+      async place(itemId, fingerprint, targetPriority, beforeItemId, trigger) {
+        const active = current.current;
+        if (!active || busy || connectionError || !hostCapabilitiesRef.current.serverTools) return;
+        setOperationError(undefined);
+        setBusy(true);
+        try {
+          const result = await app.callServerTool({
+            name: "dyna_organize_item",
+            arguments: {
+              viewToken: active.viewToken,
+              itemId,
+              action: "place",
+              targetPriority,
+              ...(beforeItemId ? { beforeItemId } : {}),
+              expectedRevision: active.snapshot.revision,
+              expectedFingerprint: fingerprint,
+            },
+          });
+          if (toolResultFailed(result)) throw new Error("Item placement failed.");
+          const changed = Boolean(
+            (result.structuredContent as Readonly<Record<string, unknown>> | undefined)?.[
+              "changed"
+            ],
+          );
+          if (!changed) {
+            setToast("That item is already there.");
+            return;
+          }
+          await refresh(true);
+          window.setTimeout(() => {
+            const handle = document.querySelector<HTMLElement>(
+              `[data-dyna-drag-item="${CSS.escape(itemId)}"]`,
+            );
+            (handle ?? trigger).focus();
+          }, 0);
+          setToast("Queue order updated.");
+          setConnectionError(undefined);
+        } catch {
+          setOperationError("Could not move the item. Refresh the dashboard and try again.");
         } finally {
           setBusy(false);
         }
@@ -2992,6 +3296,7 @@ function DynaApp({ app }: { readonly app: App }) {
       requestExpandedPresentation,
       query,
       refresh,
+      restoreTarget,
       selectedItemId,
       setLeadershipOnly,
       setPriorityFilter,
@@ -3134,7 +3439,11 @@ function DynaApp({ app }: { readonly app: App }) {
   }
   const routeDetailsOpen = Boolean(selectedItemId) && !wideLayout;
   const dashboardUnavailable =
-    annotationItem !== undefined || todoOpen || archiveTarget !== undefined || routeDetailsOpen;
+    annotationItem !== undefined ||
+    todoOpen ||
+    archiveTarget !== undefined ||
+    restoreTarget !== undefined ||
+    routeDetailsOpen;
   return (
     <ControllerContext.Provider value={controller}>
       {connectionError ? (
@@ -3191,40 +3500,66 @@ function DynaApp({ app }: { readonly app: App }) {
           aria-modal="true"
           aria-labelledby="annotation-title"
         >
-          <div className="dyna-sheet">
+          <form
+            className="dyna-sheet dyna-note-sheet"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveAnnotation();
+            }}
+          >
             <div className="dyna-sheet-header">
-              <h2 id="annotation-title">Add an executive note</h2>
+              <h2 id="annotation-title">Add Note</h2>
             </div>
             <div className="dyna-sheet-body">
               <label htmlFor="dyna-annotation">Note</label>
               <Textarea
                 id="dyna-annotation"
                 className="dyna-field"
-                size="lg"
+                size="sm"
                 value={annotation}
                 rows={4}
                 maxLength={1_000}
+                aria-describedby="dyna-annotation-help"
                 placeholder="Example: Create a new Codex task to review this MR"
                 onChange={(event) => {
                   setAnnotation(event.currentTarget.value);
                 }}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
+                    return;
+                  }
+                  event.preventDefault();
+                  if (annotation.trim() && !busy && !connectionError) {
+                    event.currentTarget.form?.requestSubmit();
+                  }
+                }}
                 autoFocus
               />
+              <p id="dyna-annotation-help" className="dyna-field-help">
+                Enter to add note · Shift+Enter for a new line
+              </p>
             </div>
             <div className="dyna-sheet-actions">
-              <Button color="secondary" variant="ghost" onClick={closeAnnotation}>
+              <Button
+                type="button"
+                color="secondary"
+                size="sm"
+                variant="ghost"
+                onClick={closeAnnotation}
+              >
                 Cancel
               </Button>
               <Button
+                type="submit"
                 color="primary"
+                size="sm"
                 loading={busy}
-                disabled={!annotation.trim() || Boolean(connectionError)}
-                onClick={() => void saveAnnotation()}
+                disabled={!annotation.trim() || Boolean(connectionError) || busy}
               >
                 Save note
               </Button>
             </div>
-          </div>
+          </form>
         </div>
       ) : null}
       {todoOpen ? (
@@ -3237,7 +3572,7 @@ function DynaApp({ app }: { readonly app: App }) {
         >
           <div className="dyna-sheet">
             <div className="dyna-sheet-header">
-              <h2 id="todo-title">Add to the priority queue</h2>
+              <h2 id="todo-title">Add to the Priority Queue</h2>
             </div>
             <div className="dyna-sheet-body">
               <label htmlFor="dyna-todo-title">To-do</label>
@@ -3308,7 +3643,7 @@ function DynaApp({ app }: { readonly app: App }) {
         >
           <div className="dyna-sheet">
             <div className="dyna-sheet-header">
-              <h2 id="archive-title">Archive item</h2>
+              <h2 id="archive-title">Archive Item</h2>
               <p>{archiveTarget.title}</p>
             </div>
             <div className="dyna-sheet-body">
@@ -3370,6 +3705,51 @@ function DynaApp({ app }: { readonly app: App }) {
                 }
               >
                 Archive item
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {restoreTarget ? (
+        <div
+          ref={dialog}
+          className="dyna-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="restore-title"
+          aria-describedby="restore-description"
+        >
+          <div className="dyna-sheet dyna-confirm-sheet">
+            <div className="dyna-sheet-header">
+              <h2 id="restore-title">Restore to Active Board?</h2>
+              <p>{restoreTarget.title}</p>
+            </div>
+            <div className="dyna-sheet-body">
+              <p id="restore-description" className="dyna-modal-note">
+                The item returns to its current active lifecycle stage. Its archive history and
+                evidence stay intact.
+              </p>
+            </div>
+            <div className="dyna-sheet-actions">
+              <Button
+                type="button"
+                color="secondary"
+                size="sm"
+                variant="ghost"
+                onClick={closeRestore}
+                autoFocus
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                color="primary"
+                size="sm"
+                loading={busy}
+                disabled={Boolean(connectionError) || busy}
+                onClick={() => void executeRestore(restoreTarget.itemId, restoreTarget.fingerprint)}
+              >
+                Restore item
               </Button>
             </div>
           </div>

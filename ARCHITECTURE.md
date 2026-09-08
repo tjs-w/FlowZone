@@ -16,7 +16,7 @@ static validated registry
         │
         ▼
 render_markdown_review ──────────────> ui://flowzone/v5.html
-render_dyna_dashboard ───────────────> ui://flowzone/dyna/v7.html
+render_dyna_dashboard ───────────────> ui://flowzone/dyna/v8.html
 
 plugin-owned typed helper tools       app-only
 ```
@@ -92,7 +92,7 @@ FlowZone retries only explicitly idempotent actions and only retryable failures,
 
 ## Presentation resources
 
-`ui://flowzone/v5.html` remains the Markdown Review output resource. `ui://flowzone/dyna/v7.html` is a separate, smaller Dyna resource with no inherited clipboard permission. Public model output stays small; private UI data uses a typed metadata envelope. Treat each UI resource URI as a host cache key and bump its version whenever the shipped HTML, JavaScript, or CSS changes materially.
+`ui://flowzone/v5.html` remains the Markdown Review output resource. `ui://flowzone/dyna/v8.html` is a separate, smaller Dyna resource with a closed network CSP and clipboard-write permission limited to explicit copy actions. Public model output stays small; private UI data uses a typed metadata envelope. Treat each UI resource URI as a host cache key and bump its version whenever the shipped HTML, JavaScript, or CSS changes materially.
 
 ```json
 {

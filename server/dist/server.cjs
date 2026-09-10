@@ -50332,12 +50332,13 @@ var EMPTY_COMPLETION_RESULT = {
 };
 
 // packages/mcp-server/src/ui-resource.ts
-var FLOWZONE_TEMPLATE_URI = "ui://flowzone/v5.html";
+var FLOWZONE_TEMPLATE_URI = "ui://flowzone/v6.html";
 var LEGACY_FLOWZONE_TEMPLATE_URIS = [
   "ui://flowzone/v1.html",
   "ui://flowzone/v2.html",
   "ui://flowzone/v3.html",
-  "ui://flowzone/v4.html"
+  "ui://flowzone/v4.html",
+  "ui://flowzone/v5.html"
 ];
 var LEGACY_MARKDOWN_REVIEW_TEMPLATE_URI = "ui://markdown-review/v30.html";
 var FLOWZONE_BUNDLE_MARKER = "<!-- FLOWZONE_APP -->";

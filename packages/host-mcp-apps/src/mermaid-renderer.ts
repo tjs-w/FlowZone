@@ -1,4 +1,4 @@
-import mermaid, { type Mermaid, type MermaidConfig } from "mermaid";
+import type { Mermaid, MermaidConfig } from "mermaid";
 import type {
   RenderedReviewDiagram,
   ReviewDiagramRenderer,
@@ -58,6 +58,16 @@ const FOCUS_ATTRIBUTES = new Set([
 ]);
 
 type MermaidEngine = Pick<Mermaid, "initialize" | "render">;
+
+function bundledMermaidEngine(): MermaidEngine {
+  const engine = (
+    globalThis as typeof globalThis & {
+      readonly mermaid?: Mermaid;
+    }
+  ).mermaid;
+  if (!engine) throw new Error("The bundled Mermaid renderer is unavailable.");
+  return engine;
+}
 
 function utf8Length(value: string): number {
   return new TextEncoder().encode(value).byteLength;
@@ -373,7 +383,7 @@ function mermaidConfig(theme: ReviewTheme): MermaidConfig {
 
 export function createMermaidRenderer(
   hostWindow: Window,
-  engine: MermaidEngine = mermaid,
+  engine?: MermaidEngine,
 ): ReviewDiagramRenderer {
   let renderQueue: Promise<void> = Promise.resolve();
   return {
@@ -394,9 +404,10 @@ export function createMermaidRenderer(
           if (cancelled || request.signal?.aborted) {
             throw abortError("The Mermaid render was cancelled.");
           }
-          engine.initialize(mermaidConfig(request.theme));
+          const activeEngine = engine ?? bundledMermaidEngine();
+          activeEngine.initialize(mermaidConfig(request.theme));
           try {
-            const result = await engine.render(request.id, source);
+            const result = await activeEngine.render(request.id, source);
             return isolateSvg(
               hostWindow,
               sanitizeSvg(hostWindow, result.svg, request.accessibleLabel),

@@ -110,7 +110,7 @@ async function dynaBackend(request: IncomingMessage): Promise<DynaHarnessBackend
   return pending;
 }
 
-const resource = await client.readResource({ uri: "ui://flowzone/v5.html" });
+const resource = await client.readResource({ uri: "ui://flowzone/v6.html" });
 const resourceContent = resource.contents[0];
 if (!resourceContent || !("text" in resourceContent)) {
   throw new Error("The Markdown Review HTML resource was not returned");

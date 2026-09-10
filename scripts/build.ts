@@ -9,6 +9,7 @@ import { compile as compileTailwind } from "tailwindcss";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const checkOnly = process.argv.includes("--check");
 const temporaryRoot = checkOnly ? await mkdtemp(join(tmpdir(), "flowzone-build-")) : root;
+const FLOWZONE_BROWSER_BUDGET_BYTES = 3_250 * 1024;
 
 const outputs = [
   {
@@ -67,6 +68,17 @@ async function compile(): Promise<void> {
       outfile: resolve(temporaryRoot, output.destination),
       sourcemap: false,
     });
+    if (output.destination === "web/dist/flowzone.js") {
+      const outputPath = resolve(temporaryRoot, output.destination);
+      const [mermaidBundle, flowzoneBundle] = await Promise.all([
+        readFile(resolve(root, "node_modules/@mermaid-js/tiny/dist/mermaid.tiny.js"), "utf8"),
+        readFile(outputPath, "utf8"),
+      ]);
+      // Keep Mermaid as a top-level classic script. Its official tiny browser build
+      // publishes `globalThis.mermaid`; rebundling it inside FlowZone's IIFE breaks
+      // that handoff and also pulls the much larger all-diagram build into startup.
+      await writeFile(outputPath, `${mermaidBundle.trimEnd()}\n${flowzoneBundle}`);
+    }
     if (output.destination === "server/dist/flowzone-publish.cjs") {
       const publisherPath = resolve(temporaryRoot, output.destination);
       const publisher = await readFile(publisherPath, "utf8");
@@ -116,10 +128,13 @@ async function assertBudgets(): Promise<void> {
   if (serverBytes > 5 * 1024 * 1024) {
     throw new Error(`Server bundles are ${serverBytes} bytes; the combined limit is 5 MiB.`);
   }
-  // Mermaid is bundled into the single offline MCP Apps resource so the strict CSP
-  // never needs a script or module origin. Keep the resulting one-file payload bounded.
-  if (browserBytes > 4 * 1024 * 1024) {
-    throw new Error(`Browser payload is ${browserBytes} bytes; the limit is 4 MiB.`);
+  // Mermaid remains in the single offline MCP Apps resource so the strict CSP never
+  // needs a script or module origin. Guard the optimized startup payload from regressing
+  // to the full all-diagram build.
+  if (browserBytes > FLOWZONE_BROWSER_BUDGET_BYTES) {
+    throw new Error(
+      `Browser payload is ${browserBytes} bytes; the limit is ${String(FLOWZONE_BROWSER_BUDGET_BYTES)} bytes.`,
+    );
   }
   if (dynaBytes > 825 * 1024) {
     throw new Error(`Dyna browser payload is ${dynaBytes} bytes; the limit is 825 KiB.`);

@@ -3,12 +3,13 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import type { FlowZoneUiAssetLoader } from "./assets.js";
 
-export const FLOWZONE_TEMPLATE_URI = "ui://flowzone/v5.html";
+export const FLOWZONE_TEMPLATE_URI = "ui://flowzone/v6.html";
 export const LEGACY_FLOWZONE_TEMPLATE_URIS = [
   "ui://flowzone/v1.html",
   "ui://flowzone/v2.html",
   "ui://flowzone/v3.html",
   "ui://flowzone/v4.html",
+  "ui://flowzone/v5.html",
 ] as const;
 export const LEGACY_MARKDOWN_REVIEW_TEMPLATE_URI = "ui://markdown-review/v30.html";
 

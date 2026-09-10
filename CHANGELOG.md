@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Reduced Markdown Review's offline startup payload by replacing the full all-diagram Mermaid bundle with the pinned official tiny browser build, tightened the payload regression budget, and advanced the cache key to `ui://flowzone/v6.html` while retaining `v1` through `v5` aliases.
 - Reworked Dyna's compact interactions with a Nord dark theme, a right in-flow inspector, centered keyboard-first notes, timestamped note history, direct archive/restore and context-copy actions, host-delegated external item links with native right-click behavior, atomic drag placement plus a row-level Move fallback, clearer priority sections, and an uncluttered Archive tab; the dashboard now paints while host expansion is pending, and the cache key advances to `ui://flowzone/dyna/v9.html`.
 - Applied Oxanium explicitly to Dyna UI text and controls and retained Geist Mono for operational metadata with locally bundled variable fonts.
 - Added Dyna's durable item archive lifecycle: configurable Done retention (24 hours by default), automatic expiry on dashboard access, explicit active-item dispositions, immediate undo, later restore, archive search, append-only priority/order and archive history, changed-since-archive detection, and linked follow-ups that leave the original evidence unchanged.

@@ -45,7 +45,7 @@ FlowZone McpServer
        │      └── static plugin registry
        │              └── markdown-review/open
        ├── typed app-only component tools
-       ├── render_markdown_review → ui://flowzone/v5.html
+       ├── render_markdown_review → ui://flowzone/v6.html
        └── render_dyna_dashboard → ui://flowzone/dyna/v9.html
 ```
 

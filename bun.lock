@@ -7,6 +7,7 @@
       "dependencies": {
         "@fontsource-variable/geist-mono": "5.3.0",
         "@fontsource-variable/oxanium": "5.3.0",
+        "@mermaid-js/tiny": "11.17.2",
         "@modelcontextprotocol/ext-apps": "^1.7.5",
         "@modelcontextprotocol/sdk": "^1.30.0",
         "@openai/apps-sdk-ui": "0.2.2",
@@ -292,6 +293,8 @@
     "@markdown-review/review-ui": ["@markdown-review/review-ui@workspace:packages/review-ui"],
 
     "@mermaid-js/parser": ["@mermaid-js/parser@1.2.1", "", { "dependencies": { "@chevrotain/types": "~11.1.2" } }, "sha512-n12NohV3mrUyUL2o93IgG/ifeW9FTyeJn3zDxkhwa8MJ9Fxg3HQMlA3RiGmD/3UnJvheztkjjQAjA2T4LmUcpw=="],
+
+    "@mermaid-js/tiny": ["@mermaid-js/tiny@11.17.2", "", {}, "sha512-PmFr1c5cSfNf5AngLLR98DrbvR4U5KeD7I+hQkGqG5w5Veu3QT4dG0qu9f99cpn/sKj2XxRBK0q7EL6hr9NY/A=="],
 
     "@modelcontextprotocol/ext-apps": ["@modelcontextprotocol/ext-apps@1.7.5", "", { "dependencies": { "@standard-schema/spec": "^1.1.0" }, "peerDependencies": { "@modelcontextprotocol/sdk": "^1.29.0", "react": "^17.0.0 || ^18.0.0 || ^19.0.0", "react-dom": "^17.0.0 || ^18.0.0 || ^19.0.0", "zod": "^3.25.0 || ^4.0.0" }, "optionalPeers": ["react", "react-dom"] }, "sha512-TjPH2S2y5UEGKhmI6+XGFuqfqOV4ppe1x6DA3txnUaEWkgtA4G5vo14jGKFZmegdkZ1H4QMLyujLvoU1BEdnAg=="],
 

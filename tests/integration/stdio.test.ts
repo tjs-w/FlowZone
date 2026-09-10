@@ -113,7 +113,7 @@ describe("checked-in Node stdio bundle", () => {
         "dyna_action_status",
       ]);
 
-      const resource = await client.readResource({ uri: "ui://flowzone/v5.html" });
+      const resource = await client.readResource({ uri: "ui://flowzone/v6.html" });
       const content = resource.contents[0];
       expect(content?.mimeType).toBe("text/html;profile=mcp-app");
       const html = content && "text" in content ? content.text : "";
@@ -128,6 +128,13 @@ describe("checked-in Node stdio bundle", () => {
       const cachedContent = cachedResource.contents[0];
       expect(cachedContent?.uri).toBe("ui://flowzone/v3.html");
       expect(cachedContent && "text" in cachedContent ? cachedContent.text : "").toContain(
+        ">Submit<",
+      );
+
+      const previousResource = await client.readResource({ uri: "ui://flowzone/v5.html" });
+      const previousContent = previousResource.contents[0];
+      expect(previousContent?.uri).toBe("ui://flowzone/v5.html");
+      expect(previousContent && "text" in previousContent ? previousContent.text : "").toContain(
         ">Submit<",
       );
 

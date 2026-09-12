@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 
 import { DynaStore } from "../src/store.ts";
 
@@ -442,6 +443,213 @@ try {
     ],
   );
 
+  const bulkDashboard = store.createDashboard("Bulk", "Atomic priority-group changes");
+  const bulkView = store.createView(bulkDashboard.id);
+  for (const [title, priority] of [
+    ["Critical one", "critical"],
+    ["Critical two", "critical"],
+    ["High one", "high"],
+    ["Target one", "normal"],
+    ["Target two", "normal"],
+    ["Low one", "low"],
+    ["Low two", "low"],
+  ]) {
+    store.addTodo(bulkView, { title, priority, labels: [] }, randomUUID());
+  }
+  const beforeBulk = store.snapshot(bulkDashboard.id);
+  const selectedTitles = new Set(["Critical two", "High one", "Target two", "Low one"]);
+  const selectedCards = beforeBulk.cards.filter((card) => selectedTitles.has(card.title));
+  assert.equal(selectedCards.length, selectedTitles.size);
+  const existingTargetOrder = beforeBulk.cards
+    .filter((card) => card.priority === "normal")
+    .map((card) => card.id);
+  const incomingOrder = beforeBulk.cards
+    .filter((card) => selectedTitles.has(card.title) && card.priority !== "normal")
+    .map((card) => card.id);
+  const remainingSourceOrders = new Map(
+    ["critical", "high", "low"].map((priority) => [
+      priority,
+      beforeBulk.cards
+        .filter((card) => card.priority === priority && !incomingOrder.includes(card.id))
+        .map((card) => card.id),
+    ]),
+  );
+  assert.deepEqual(
+    store.groupItems(
+      bulkView,
+      selectedCards.map((card) => ({
+        itemId: card.id,
+        expectedFingerprint: card.fingerprint,
+      })),
+      "normal",
+      beforeBulk.revision,
+    ),
+    { changed: true, changedCount: 3 },
+  );
+  const afterBulk = store.snapshot(bulkDashboard.id);
+  assert.equal(afterBulk.revision, beforeBulk.revision + 1);
+  assert.deepEqual(
+    afterBulk.cards.filter((card) => card.priority === "normal").map((card) => card.id),
+    [...existingTargetOrder, ...incomingOrder],
+  );
+  for (const [priority, expectedIds] of remainingSourceOrders) {
+    assert.deepEqual(
+      afterBulk.cards.filter((card) => card.priority === priority).map((card) => card.id),
+      expectedIds,
+    );
+  }
+  for (const itemId of incomingOrder) {
+    const event = store.itemHistory(bulkDashboard.id, itemId).organization[0];
+    assert.equal(event?.priority, "normal");
+    assert.match(event?.action ?? "", /^(bump|lower)$/);
+  }
+  const targetSelected = afterBulk.cards.find((card) => card.title === "Target two");
+  assert.ok(targetSelected);
+  assert.equal(
+    store.itemHistory(bulkDashboard.id, targetSelected.id).organization[0]?.action,
+    "resequence",
+  );
+  assert.deepEqual(
+    store.groupItems(
+      bulkView,
+      [{ itemId: targetSelected.id, expectedFingerprint: targetSelected.fingerprint }],
+      "normal",
+      afterBulk.revision,
+    ),
+    { changed: false, changedCount: 0 },
+  );
+  assert.equal(store.snapshot(bulkDashboard.id).revision, afterBulk.revision);
+
+  const staleRevisionCandidate = afterBulk.cards.find((card) => card.priority === "low");
+  assert.ok(staleRevisionCandidate);
+  assert.throws(
+    () =>
+      store.groupItems(
+        bulkView,
+        [
+          {
+            itemId: staleRevisionCandidate.id,
+            expectedFingerprint: staleRevisionCandidate.fingerprint,
+          },
+        ],
+        "critical",
+        afterBulk.revision - 1,
+      ),
+    /dashboard changed/,
+  );
+  assert.equal(store.snapshot(bulkDashboard.id).revision, afterBulk.revision);
+
+  const staleAttempt = store.snapshot(bulkDashboard.id);
+  const staleCandidates = staleAttempt.cards
+    .filter((card) => card.priority !== "critical")
+    .slice(0, 2);
+  assert.equal(staleCandidates.length, 2);
+  assert.throws(
+    () =>
+      store.groupItems(
+        bulkView,
+        staleCandidates.map((card, index) => ({
+          itemId: card.id,
+          expectedFingerprint: index === 0 ? card.fingerprint : "0".repeat(64),
+        })),
+        "critical",
+        staleAttempt.revision,
+      ),
+    /selected Dyna item changed/,
+  );
+  assert.equal(store.snapshot(bulkDashboard.id).revision, staleAttempt.revision);
+  assert.deepEqual(
+    store.snapshot(bulkDashboard.id).cards.map((card) => [card.id, card.priority]),
+    staleAttempt.cards.map((card) => [card.id, card.priority]),
+  );
+
+  const foreignDashboard = store.createDashboard("Foreign", "Membership guard");
+  const foreignView = store.createView(foreignDashboard.id);
+  const foreignId = store.addTodo(
+    foreignView,
+    { title: "Foreign item", priority: "low", labels: [] },
+    randomUUID(),
+  );
+  const foreignCard = store
+    .snapshot(foreignDashboard.id)
+    .cards.find((card) => card.id === foreignId);
+  assert.ok(foreignCard);
+  const membershipAttempt = store.snapshot(bulkDashboard.id);
+  const localCandidate = membershipAttempt.cards.find((card) => card.priority === "low");
+  assert.ok(localCandidate);
+  assert.throws(
+    () =>
+      store.groupItems(
+        bulkView,
+        [
+          { itemId: localCandidate.id, expectedFingerprint: localCandidate.fingerprint },
+          { itemId: foreignCard.id, expectedFingerprint: foreignCard.fingerprint },
+        ],
+        "high",
+        membershipAttempt.revision,
+      ),
+    /active, unfinished queue items/,
+  );
+  assert.equal(store.snapshot(bulkDashboard.id).revision, membershipAttempt.revision);
+  assert.equal(
+    store.snapshot(bulkDashboard.id).cards.find((card) => card.id === localCandidate.id)?.priority,
+    "low",
+  );
+
+  const completionCandidate = store
+    .snapshot(bulkDashboard.id)
+    .cards.find((card) => card.priority === "low");
+  assert.ok(completionCandidate);
+  store.setItemStatus({
+    viewToken: bulkView,
+    itemId: completionCandidate.id,
+    targetStage: "done",
+    outcome: "No further work remains.",
+    expectedRevision: store.snapshot(bulkDashboard.id).revision,
+    expectedFingerprint: completionCandidate.fingerprint,
+    clientRequestId: randomUUID(),
+  });
+  const completedAttempt = store.snapshot(bulkDashboard.id);
+  const activeCandidate = completedAttempt.cards.find(
+    (card) => card.id !== completionCandidate.id && card.priority === "normal",
+  );
+  const completedCard = completedAttempt.cards.find((card) => card.id === completionCandidate.id);
+  assert.ok(activeCandidate);
+  assert.ok(completedCard);
+  assert.throws(
+    () =>
+      store.groupItems(
+        bulkView,
+        [
+          { itemId: activeCandidate.id, expectedFingerprint: activeCandidate.fingerprint },
+          { itemId: completedCard.id, expectedFingerprint: completedCard.fingerprint },
+        ],
+        "critical",
+        completedAttempt.revision,
+      ),
+    /active, unfinished queue items/,
+  );
+  assert.equal(store.snapshot(bulkDashboard.id).revision, completedAttempt.revision);
+  assert.equal(
+    store.snapshot(bulkDashboard.id).cards.find((card) => card.id === activeCandidate.id)?.priority,
+    "normal",
+  );
+
+  assert.throws(
+    () =>
+      store.groupItems(
+        bulkView,
+        [
+          { itemId: activeCandidate.id, expectedFingerprint: activeCandidate.fingerprint },
+          { itemId: activeCandidate.id, expectedFingerprint: activeCandidate.fingerprint },
+        ],
+        "critical",
+        completedAttempt.revision,
+      ),
+    /only once/,
+  );
+  assert.equal(store.snapshot(bulkDashboard.id).revision, completedAttempt.revision);
+
   globalThis.process.stdout.write(
     JSON.stringify({
       isolated: true,
@@ -449,6 +657,7 @@ try {
       aggregate: true,
       search: true,
       dragPlacement: true,
+      bulkGrouping: true,
     }),
   );
 } finally {

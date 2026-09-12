@@ -56265,6 +56265,113 @@ var DynaStore = class {
       return { changed: true };
     });
   }
+  groupItems(viewToken, items, targetPriority, expectedRevision) {
+    if (items.length === 0 || items.length > 200) {
+      throw new Error("Select between 1 and 200 Dyna items to change their priority group.");
+    }
+    const itemIds = items.map((item) => item.itemId);
+    if (new Set(itemIds).size !== itemIds.length) {
+      throw new Error("Each Dyna item can appear only once in a bulk priority change.");
+    }
+    const parsedTargetPriority = DynaPrioritySchema.parse(targetPriority);
+    const instant = this.#now();
+    return this.#transaction(() => {
+      const dashboardId = this.authorizeView(viewToken);
+      const revisionRow = this.#one(
+        this.#database.prepare("SELECT revision FROM dashboards WHERE id = ?"),
+        dashboardId
+      );
+      if (!revisionRow || requiredNumber(revisionRow, "revision") !== expectedRevision) {
+        throw new Error("The Dyna dashboard changed; refresh before moving these items.");
+      }
+      const selectedPlaceholders = items.map((_3, index) => `?${index + 2}`).join(", ");
+      const selectedRows = this.#database.prepare(
+        `${DYNA_ELIGIBLE_CTE}
+           SELECT id, fingerprint, effective_priority, priority_position
+           FROM positioned
+           WHERE completed_group = 0 AND id IN (${selectedPlaceholders})`
+      ).all(dashboardId, ...itemIds);
+      const selectedById = new Map(
+        selectedRows.map((row) => [requiredString(row, "id"), row])
+      );
+      for (const item of items) {
+        const row = selectedById.get(item.itemId);
+        if (!row) {
+          throw new Error("Only active, unfinished queue items can change priority group.");
+        }
+        if (requiredString(row, "fingerprint") !== item.expectedFingerprint) {
+          throw new Error("A selected Dyna item changed; refresh before moving these items.");
+        }
+      }
+      const targetGroup = this.#database.prepare(
+        `${DYNA_ELIGIBLE_CTE}
+           SELECT id, effective_priority, priority_position
+           FROM positioned
+           WHERE completed_group = 0 AND effective_priority = ?2
+           ORDER BY priority_position`
+      ).all(dashboardId, parsedTargetPriority);
+      const priorities = ["critical", "high", "normal", "low"];
+      const incoming = selectedRows.filter(
+        (row) => DynaPrioritySchema.parse(requiredString(row, "effective_priority")) !== parsedTargetPriority
+      ).sort((left, right) => {
+        const priorityDifference = priorities.indexOf(
+          DynaPrioritySchema.parse(requiredString(left, "effective_priority"))
+        ) - priorities.indexOf(
+          DynaPrioritySchema.parse(requiredString(right, "effective_priority"))
+        );
+        return priorityDifference || requiredNumber(left, "priority_position") - requiredNumber(right, "priority_position") || requiredString(left, "id").localeCompare(requiredString(right, "id"));
+      });
+      if (incoming.length === 0) return { changed: false, changedCount: 0 };
+      const incomingIds = new Set(incoming.map((row) => requiredString(row, "id")));
+      const nextTargetGroup = [...targetGroup, ...incoming];
+      const setMovedPreference = this.#database.prepare(
+        `INSERT INTO item_preferences (
+           dashboard_id, item_id, priority_override, sequence, updated_at
+         ) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(dashboard_id, item_id) DO UPDATE SET
+           priority_override = excluded.priority_override,
+           sequence = excluded.sequence,
+           updated_at = excluded.updated_at`
+      );
+      const setSequence = this.#database.prepare(
+        `INSERT INTO item_preferences (dashboard_id, item_id, sequence, updated_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(dashboard_id, item_id) DO UPDATE SET
+           sequence = excluded.sequence, updated_at = excluded.updated_at`
+      );
+      const addEvent = this.#database.prepare(
+        `INSERT INTO item_preference_events (
+           id, dashboard_id, item_id, action, priority, sequence, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+      );
+      for (const [position, row] of nextTargetGroup.entries()) {
+        const candidateId = requiredString(row, "id");
+        const sequence = position * 100;
+        const isIncoming = incomingIds.has(candidateId);
+        if (isIncoming) {
+          setMovedPreference.run(dashboardId, candidateId, parsedTargetPriority, sequence, instant);
+        } else {
+          setSequence.run(dashboardId, candidateId, sequence, instant);
+        }
+        const currentPriority = DynaPrioritySchema.parse(requiredString(row, "effective_priority"));
+        const action = isIncoming ? priorities.indexOf(parsedTargetPriority) < priorities.indexOf(currentPriority) ? "bump" : "lower" : "resequence";
+        addEvent.run(
+          (0, import_node_crypto5.randomUUID)(),
+          dashboardId,
+          candidateId,
+          action,
+          parsedTargetPriority,
+          sequence,
+          instant
+        );
+      }
+      this.#touchDashboards([dashboardId], instant);
+      for (const row of incoming) {
+        this.#audit("item.organized.group", requiredString(row, "id"), instant);
+      }
+      return { changed: true, changedCount: incoming.length };
+    });
+  }
   placeItem(viewToken, itemId, targetPriority, beforeItemId, expectedRevision, expectedFingerprint) {
     const dashboardId = this.authorizeView(viewToken, itemId);
     const instant = this.#now();
@@ -58944,10 +59051,10 @@ var DynaService = class {
 
 // packages/mcp-server/src/plugins/dyna.ts
 var DYNA_PLUGIN_ID = "dyna";
-var DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v14.html";
+var DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v15.html";
 var LEGACY_DYNA_TEMPLATE_URIS = [
-  "ui://flowzone/dyna/v13.html",
-  "ui://flowzone/dyna/v12.html"
+  "ui://flowzone/dyna/v14.html",
+  "ui://flowzone/dyna/v13.html"
 ];
 var DashboardIdSchema = external_exports.object({ dashboardId: external_exports.uuid() }).strict();
 var ViewTokenSchema = external_exports.object({
@@ -58962,30 +59069,48 @@ var AddAnnotationInputSchema = external_exports.object({
   clientRequestId: external_exports.uuid(),
   body: external_exports.string().trim().min(1).max(1e3)
 }).strict();
-var OrganizeItemInputSchema = external_exports.object({
+var OrganizeBaseShape = {
   viewToken: external_exports.string().min(32).max(128),
+  expectedRevision: external_exports.number().int().nonnegative()
+};
+var OrganizeSelectedItemSchema = external_exports.object({
   itemId: external_exports.uuid(),
-  action: external_exports.enum(["bump", "lower", "earlier", "later", "place"]),
-  targetPriority: DynaPrioritySchema.optional(),
-  beforeItemId: external_exports.uuid().optional(),
-  expectedRevision: external_exports.number().int().nonnegative(),
   expectedFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/)
-}).strict().superRefine((input, context) => {
-  if (input.action === "place" && !input.targetPriority) {
-    context.addIssue({
-      code: "custom",
-      path: ["targetPriority"],
-      message: "Drag placement requires a target priority."
-    });
-  }
-  if (input.action !== "place" && (input.targetPriority || input.beforeItemId)) {
-    context.addIssue({
-      code: "custom",
-      path: ["action"],
-      message: "Target placement is only accepted for drag placement."
-    });
-  }
-});
+}).strict();
+var OrganizeItemInputSchema = external_exports.discriminatedUnion("action", [
+  external_exports.object({
+    ...OrganizeBaseShape,
+    itemId: external_exports.uuid(),
+    action: external_exports.enum(["bump", "lower", "earlier", "later"]),
+    expectedFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/)
+  }).strict(),
+  external_exports.object({
+    ...OrganizeBaseShape,
+    itemId: external_exports.uuid(),
+    action: external_exports.literal("place"),
+    targetPriority: DynaPrioritySchema,
+    beforeItemId: external_exports.uuid().optional(),
+    expectedFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/)
+  }).strict(),
+  external_exports.object({
+    ...OrganizeBaseShape,
+    action: external_exports.literal("group"),
+    items: external_exports.array(OrganizeSelectedItemSchema).min(1).max(200).superRefine((items, context) => {
+      const seen = /* @__PURE__ */ new Set();
+      for (const [index, item] of items.entries()) {
+        if (seen.has(item.itemId)) {
+          context.addIssue({
+            code: "custom",
+            path: [index, "itemId"],
+            message: "Each Dyna item can appear only once in a bulk priority change."
+          });
+        }
+        seen.add(item.itemId);
+      }
+    }),
+    targetPriority: DynaPrioritySchema
+  }).strict()
+]);
 var EmptyResultSchema2 = external_exports.object({ ok: external_exports.literal(true) }).strict();
 var DashboardListSchema = external_exports.object({ dashboards: external_exports.array(DynaDashboardSchema).max(100) }).strict();
 var IdentifierSchema3 = external_exports.string().trim().min(1).max(256);
@@ -59355,9 +59480,9 @@ function appTools(service) {
     {
       name: "dyna_organize_item",
       title: "Reprioritize Dyna item",
-      description: "Apply a user-controlled priority, sequence, or direct queue placement with revision and fingerprint preconditions.",
+      description: "Apply a user-controlled priority, sequence, direct queue placement, or bounded bulk priority-group change with revision and fingerprint preconditions.",
       inputSchema: OrganizeItemInputSchema,
-      outputSchema: external_exports.object({ changed: external_exports.boolean() }).strict(),
+      outputSchema: external_exports.object({ changed: external_exports.boolean(), changedCount: external_exports.number().int().nonnegative() }).strict(),
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -59366,7 +59491,16 @@ function appTools(service) {
       },
       handler(input) {
         const parsed = OrganizeItemInputSchema.parse(input);
-        const result = parsed.action === "place" && parsed.targetPriority ? service.store.placeItem(
+        if (parsed.action === "group") {
+          const result2 = service.store.groupItems(
+            parsed.viewToken,
+            parsed.items,
+            parsed.targetPriority,
+            parsed.expectedRevision
+          );
+          return { structuredContent: result2, content: [] };
+        }
+        const result = parsed.action === "place" ? service.store.placeItem(
           parsed.viewToken,
           parsed.itemId,
           parsed.targetPriority,
@@ -59380,7 +59514,10 @@ function appTools(service) {
           parsed.expectedRevision,
           parsed.expectedFingerprint
         );
-        return { structuredContent: result, content: [] };
+        return {
+          structuredContent: { ...result, changedCount: result.changed ? 1 : 0 },
+          content: []
+        };
       }
     },
     {

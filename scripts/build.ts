@@ -11,8 +11,9 @@ const checkOnly = process.argv.includes("--check");
 const temporaryRoot = checkOnly ? await mkdtemp(join(tmpdir(), "flowzone-build-")) : root;
 // Keep a narrow explicit ceiling while allowing bounded activity history, the
 // session picker, the accessible context menu, the deterministic Executive Brief,
-// and the three offline Latin variable fonts used by Dyna's typography hierarchy.
-const DYNA_BROWSER_BUDGET_KIB = 910;
+// bounded bulk-selection controls, and the three offline Latin variable fonts used
+// by Dyna's typography hierarchy.
+const DYNA_BROWSER_BUDGET_KIB = 920;
 const DYNA_BROWSER_BUDGET_BYTES = DYNA_BROWSER_BUDGET_KIB * 1024;
 
 const outputs = [

@@ -34,10 +34,10 @@ import { z } from "zod";
 import type { FlowZoneAppTool, FlowZonePlugin } from "../plugin.js";
 
 export const DYNA_PLUGIN_ID = "dyna";
-export const DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v14.html";
+export const DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v15.html";
 export const LEGACY_DYNA_TEMPLATE_URIS = [
+  "ui://flowzone/dyna/v14.html",
   "ui://flowzone/dyna/v13.html",
-  "ui://flowzone/dyna/v12.html",
 ] as const;
 
 const DashboardIdSchema = z.object({ dashboardId: z.uuid() }).strict();
@@ -57,33 +57,60 @@ const AddAnnotationInputSchema = z
     body: z.string().trim().min(1).max(1_000),
   })
   .strict();
-const OrganizeItemInputSchema = z
+const OrganizeBaseShape = {
+  viewToken: z.string().min(32).max(128),
+  expectedRevision: z.number().int().nonnegative(),
+} as const;
+const OrganizeSelectedItemSchema = z
   .object({
-    viewToken: z.string().min(32).max(128),
     itemId: z.uuid(),
-    action: z.enum(["bump", "lower", "earlier", "later", "place"]),
-    targetPriority: DynaPrioritySchema.optional(),
-    beforeItemId: z.uuid().optional(),
-    expectedRevision: z.number().int().nonnegative(),
     expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
   })
-  .strict()
-  .superRefine((input, context) => {
-    if (input.action === "place" && !input.targetPriority) {
-      context.addIssue({
-        code: "custom",
-        path: ["targetPriority"],
-        message: "Drag placement requires a target priority.",
-      });
-    }
-    if (input.action !== "place" && (input.targetPriority || input.beforeItemId)) {
-      context.addIssue({
-        code: "custom",
-        path: ["action"],
-        message: "Target placement is only accepted for drag placement.",
-      });
-    }
-  });
+  .strict();
+const OrganizeItemInputSchema = z.discriminatedUnion("action", [
+  z
+    .object({
+      ...OrganizeBaseShape,
+      itemId: z.uuid(),
+      action: z.enum(["bump", "lower", "earlier", "later"]),
+      expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+    })
+    .strict(),
+  z
+    .object({
+      ...OrganizeBaseShape,
+      itemId: z.uuid(),
+      action: z.literal("place"),
+      targetPriority: DynaPrioritySchema,
+      beforeItemId: z.uuid().optional(),
+      expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+    })
+    .strict(),
+  z
+    .object({
+      ...OrganizeBaseShape,
+      action: z.literal("group"),
+      items: z
+        .array(OrganizeSelectedItemSchema)
+        .min(1)
+        .max(200)
+        .superRefine((items, context) => {
+          const seen = new Set<string>();
+          for (const [index, item] of items.entries()) {
+            if (seen.has(item.itemId)) {
+              context.addIssue({
+                code: "custom",
+                path: [index, "itemId"],
+                message: "Each Dyna item can appear only once in a bulk priority change.",
+              });
+            }
+            seen.add(item.itemId);
+          }
+        }),
+      targetPriority: DynaPrioritySchema,
+    })
+    .strict(),
+]);
 const EmptyResultSchema = z.object({ ok: z.literal(true) }).strict();
 const DashboardListSchema = z
   .object({ dashboards: z.array(DynaDashboardSchema).max(100) })
@@ -515,9 +542,11 @@ function appTools(service: DynaService): readonly FlowZoneAppTool[] {
       name: "dyna_organize_item",
       title: "Reprioritize Dyna item",
       description:
-        "Apply a user-controlled priority, sequence, or direct queue placement with revision and fingerprint preconditions.",
+        "Apply a user-controlled priority, sequence, direct queue placement, or bounded bulk priority-group change with revision and fingerprint preconditions.",
       inputSchema: OrganizeItemInputSchema,
-      outputSchema: z.object({ changed: z.boolean() }).strict(),
+      outputSchema: z
+        .object({ changed: z.boolean(), changedCount: z.number().int().nonnegative() })
+        .strict(),
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -526,8 +555,17 @@ function appTools(service: DynaService): readonly FlowZoneAppTool[] {
       },
       handler(input) {
         const parsed = OrganizeItemInputSchema.parse(input);
+        if (parsed.action === "group") {
+          const result = service.store.groupItems(
+            parsed.viewToken,
+            parsed.items,
+            parsed.targetPriority,
+            parsed.expectedRevision,
+          );
+          return { structuredContent: result, content: [] };
+        }
         const result =
-          parsed.action === "place" && parsed.targetPriority
+          parsed.action === "place"
             ? service.store.placeItem(
                 parsed.viewToken,
                 parsed.itemId,
@@ -539,11 +577,14 @@ function appTools(service: DynaService): readonly FlowZoneAppTool[] {
             : service.store.organizeItem(
                 parsed.viewToken,
                 parsed.itemId,
-                parsed.action as "bump" | "lower" | "earlier" | "later",
+                parsed.action,
                 parsed.expectedRevision,
                 parsed.expectedFingerprint,
               );
-        return { structuredContent: result, content: [] };
+        return {
+          structuredContent: { ...result, changedCount: result.changed ? 1 : 0 },
+          content: [],
+        };
       },
     },
     {

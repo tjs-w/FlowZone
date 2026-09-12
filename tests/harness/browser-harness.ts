@@ -288,7 +288,7 @@ async function runDynaFixtureUpdate(
   }
 }
 
-const dynaResource = await client.readResource({ uri: "ui://flowzone/dyna/v14.html" });
+const dynaResource = await client.readResource({ uri: "ui://flowzone/dyna/v15.html" });
 const dynaResourceContent = dynaResource.contents[0];
 if (!dynaResourceContent || !("text" in dynaResourceContent)) {
   throw new Error("The Dyna HTML resource was not returned");

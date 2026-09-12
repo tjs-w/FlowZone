@@ -173,6 +173,7 @@ describe("DynaStore lifecycle", () => {
       aggregate: true,
       search: true,
       dragPlacement: true,
+      bulkGrouping: true,
     });
   });
 

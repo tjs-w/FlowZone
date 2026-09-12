@@ -17,7 +17,7 @@ Installing FlowZone installs the shared `flowzone` MCP server and both qualified
 - Revision-bound, claim-revalidated, per-attempt idempotent action requests with expiring leases for native Codex task creation, existing-task attachment, navigation, and status inspection.
 - Scheduled publishers can use the bundled `<plugin-root>/bin/flowzone-publish` CLI with a fixed publisher ID and schema-valid JSON stdin. It relies on the local macOS user boundary and stores no publisher secret in the prompt.
 - After its exact installed-launcher Codex rule is explicitly installed and reconciled, any local task can use the bundled `<plugin-root>/bin/dyna` CLI to resolve an exact referenced item, append durable work updates and typed result links, replace evidence-bound enrichment, or perform an explicitly authorized placement, archive, restore, or linked follow-up. The rule never grants a shell, runtime, database path, or future CLI verb; task reports never certify native task success.
-- A dedicated `ui://flowzone/dyna/v14.html` resource below a 910 KiB payload budget with a closed network CSP and clipboard-write permission for explicit copy actions. Oxanium identifies sparse dashboard landmarks, Geist carries readable working text and controls, and Geist Mono is reserved for comparable machine-state data. Ordinary external-link clicks use one host navigation request, while the real anchor preserves modified clicks, right-click, copy-link, and text selection. Its bounded context menu prioritizes exact selected text, links, Codex tasks, work items, and dashboard actions; unselected editable fields retain the host's native editing menu.
+- A dedicated `ui://flowzone/dyna/v15.html` resource below a 920 KiB payload budget with a closed network CSP and clipboard-write permission for explicit copy actions. Oxanium identifies sparse dashboard landmarks, Geist carries readable working text and controls, and Geist Mono is reserved for comparable machine-state data. Ordinary external-link clicks use one host navigation request, while the real anchor preserves modified clicks, right-click, copy-link, and text selection. Its bounded context menu prioritizes exact selected text, links, Codex tasks, work items, and dashboard actions; unselected editable fields retain the host's native editing menu.
 
 See [Dyna executive dashboards](./docs/dyna.md) for requirements, architecture, action protocol, implementation status, and the mobile Remote acceptance matrix.
 
@@ -48,7 +48,7 @@ FlowZone McpServer
        │              └── markdown-review/open
        ├── typed app-only component tools
        ├── render_markdown_review → ui://flowzone/v5.html
-       └── render_dyna_dashboard → ui://flowzone/dyna/v14.html
+       └── render_dyna_dashboard → ui://flowzone/dyna/v15.html
 ```
 
 FlowZone exposes one model-visible `flowzone` data router plus a dedicated model-visible presentation tool for each rendered surface. The startup-built router union enumerates non-visual plugin/action/input combinations and validates both selected input and plugin-owned output. Dedicated presentation tools carry their own risk and MCP Apps resource metadata. Typed helpers used by a UI stay separate and are forcibly registered with `_meta.ui.visibility: ["app"]`.

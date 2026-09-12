@@ -3229,6 +3229,144 @@ export class DynaStore {
     });
   }
 
+  groupItems(
+    viewToken: string,
+    items: readonly {
+      readonly itemId: string;
+      readonly expectedFingerprint: string;
+    }[],
+    targetPriority: DynaPriority,
+    expectedRevision: number,
+  ): { readonly changed: boolean; readonly changedCount: number } {
+    if (items.length === 0 || items.length > 200) {
+      throw new Error("Select between 1 and 200 Dyna items to change their priority group.");
+    }
+    const itemIds = items.map((item) => item.itemId);
+    if (new Set(itemIds).size !== itemIds.length) {
+      throw new Error("Each Dyna item can appear only once in a bulk priority change.");
+    }
+    const parsedTargetPriority = DynaPrioritySchema.parse(targetPriority);
+    const instant = this.#now();
+    return this.#transaction(() => {
+      const dashboardId = this.authorizeView(viewToken);
+      const revisionRow = this.#one(
+        this.#database.prepare("SELECT revision FROM dashboards WHERE id = ?"),
+        dashboardId,
+      );
+      if (!revisionRow || requiredNumber(revisionRow, "revision") !== expectedRevision) {
+        throw new Error("The Dyna dashboard changed; refresh before moving these items.");
+      }
+
+      const selectedPlaceholders = items.map((_, index) => `?${index + 2}`).join(", ");
+      const selectedRows = this.#database
+        .prepare(
+          `${DYNA_ELIGIBLE_CTE}
+           SELECT id, fingerprint, effective_priority, priority_position
+           FROM positioned
+           WHERE completed_group = 0 AND id IN (${selectedPlaceholders})`,
+        )
+        .all(dashboardId, ...itemIds) as SqlRow[];
+      const selectedById = new Map(
+        selectedRows.map((row) => [requiredString(row, "id"), row] as const),
+      );
+      for (const item of items) {
+        const row = selectedById.get(item.itemId);
+        if (!row) {
+          throw new Error("Only active, unfinished queue items can change priority group.");
+        }
+        if (requiredString(row, "fingerprint") !== item.expectedFingerprint) {
+          throw new Error("A selected Dyna item changed; refresh before moving these items.");
+        }
+      }
+
+      const targetGroup = this.#database
+        .prepare(
+          `${DYNA_ELIGIBLE_CTE}
+           SELECT id, effective_priority, priority_position
+           FROM positioned
+           WHERE completed_group = 0 AND effective_priority = ?2
+           ORDER BY priority_position`,
+        )
+        .all(dashboardId, parsedTargetPriority) as SqlRow[];
+      const priorities = ["critical", "high", "normal", "low"] as const;
+      const incoming = selectedRows
+        .filter(
+          (row) =>
+            DynaPrioritySchema.parse(requiredString(row, "effective_priority")) !==
+            parsedTargetPriority,
+        )
+        .sort((left, right) => {
+          const priorityDifference =
+            priorities.indexOf(
+              DynaPrioritySchema.parse(requiredString(left, "effective_priority")),
+            ) -
+            priorities.indexOf(
+              DynaPrioritySchema.parse(requiredString(right, "effective_priority")),
+            );
+          return (
+            priorityDifference ||
+            requiredNumber(left, "priority_position") -
+              requiredNumber(right, "priority_position") ||
+            requiredString(left, "id").localeCompare(requiredString(right, "id"))
+          );
+        });
+      if (incoming.length === 0) return { changed: false, changedCount: 0 };
+
+      const incomingIds = new Set(incoming.map((row) => requiredString(row, "id")));
+      const nextTargetGroup = [...targetGroup, ...incoming];
+      const setMovedPreference = this.#database.prepare(
+        `INSERT INTO item_preferences (
+           dashboard_id, item_id, priority_override, sequence, updated_at
+         ) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(dashboard_id, item_id) DO UPDATE SET
+           priority_override = excluded.priority_override,
+           sequence = excluded.sequence,
+           updated_at = excluded.updated_at`,
+      );
+      const setSequence = this.#database.prepare(
+        `INSERT INTO item_preferences (dashboard_id, item_id, sequence, updated_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(dashboard_id, item_id) DO UPDATE SET
+           sequence = excluded.sequence, updated_at = excluded.updated_at`,
+      );
+      const addEvent = this.#database.prepare(
+        `INSERT INTO item_preference_events (
+           id, dashboard_id, item_id, action, priority, sequence, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      );
+      for (const [position, row] of nextTargetGroup.entries()) {
+        const candidateId = requiredString(row, "id");
+        const sequence = position * 100;
+        const isIncoming = incomingIds.has(candidateId);
+        if (isIncoming) {
+          setMovedPreference.run(dashboardId, candidateId, parsedTargetPriority, sequence, instant);
+        } else {
+          setSequence.run(dashboardId, candidateId, sequence, instant);
+        }
+        const currentPriority = DynaPrioritySchema.parse(requiredString(row, "effective_priority"));
+        const action = isIncoming
+          ? priorities.indexOf(parsedTargetPriority) < priorities.indexOf(currentPriority)
+            ? "bump"
+            : "lower"
+          : "resequence";
+        addEvent.run(
+          randomUUID(),
+          dashboardId,
+          candidateId,
+          action,
+          parsedTargetPriority,
+          sequence,
+          instant,
+        );
+      }
+      this.#touchDashboards([dashboardId], instant);
+      for (const row of incoming) {
+        this.#audit("item.organized.group", requiredString(row, "id"), instant);
+      }
+      return { changed: true, changedCount: incoming.length };
+    });
+  }
+
   placeItem(
     viewToken: string,
     itemId: string,

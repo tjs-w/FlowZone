@@ -1443,6 +1443,111 @@ test("adds, searches, reprioritizes, and sequences queue items", async ({ page }
     .not.toEqual(before);
 });
 
+test("keeps one queue move menu open and dismisses it accessibly", async ({ page }) => {
+  await page.goto("/dyna?many-items=1");
+  await openFullDashboard(page);
+  const first = page.locator(
+    '.dyna-row-organize > summary[aria-label="Move Review the release merge request"]:visible',
+  );
+  const second = page.locator(
+    '.dyna-row-organize > summary[aria-label="Move Additional priority 1"]:visible',
+  );
+
+  await first.click();
+  await expect(page.locator(".dyna-row-organize .dyna-overflow-menu:visible")).toHaveCount(1);
+  const touch = await page.evaluate(
+    () =>
+      document.documentElement.dataset["touch"] === "true" ||
+      window.matchMedia("(pointer: coarse)").matches,
+  );
+  if (touch) await second.click();
+  else {
+    await second.focus();
+    await second.press("Enter");
+  }
+  await expect(page.locator(".dyna-row-organize .dyna-overflow-menu:visible")).toHaveCount(1);
+  await expect(first.locator("xpath=..")).not.toHaveAttribute("open", "");
+  await expect(second.locator("xpath=..")).toHaveAttribute("open", "");
+
+  const completedBefore = Number(
+    (await page.locator("html").getAttribute("data-dyna-snapshot-result-count")) ?? "0",
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect
+    .poll(async () =>
+      Number((await page.locator("html").getAttribute("data-dyna-snapshot-result-count")) ?? "0"),
+    )
+    .toBeGreaterThan(completedBefore);
+  await expect(second.locator("xpath=..")).toHaveAttribute("open", "");
+  await expect(page.locator(".dyna-row-organize .dyna-overflow-menu:visible")).toHaveCount(1);
+
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".dyna-row-organize .dyna-overflow-menu:visible")).toHaveCount(0);
+  await expect(second).toBeFocused();
+
+  if (touch) await second.click();
+  else await second.press("Space");
+  await expect(page.locator(".dyna-row-organize .dyna-overflow-menu:visible")).toHaveCount(1);
+  await page.locator(".dyna-heading h1").click();
+  await expect(page.locator(".dyna-row-organize .dyna-overflow-menu:visible")).toHaveCount(0);
+});
+
+test("bulk moves selected queue items to one priority group atomically", async ({ page }) => {
+  await page.goto("/dyna?many-items=1");
+  await openFullDashboard(page);
+  const selectMode = page.getByRole("button", { name: "Select items" });
+  await selectMode.click();
+  await expect(page.locator(".dyna")).toHaveAttribute("data-bulk-mode", "true");
+  await expect(page.locator(".dyna-row-organize:visible")).toHaveCount(0);
+
+  const releaseTitle = "Review the release merge request";
+  const secondTitle = "Additional priority 1";
+  await page.getByRole("checkbox", { name: `Select ${releaseTitle}`, exact: true }).check();
+  await page.getByRole("checkbox", { name: `Select ${secondTitle}`, exact: true }).check();
+  const bulk = page.getByRole("region", { name: "Bulk queue actions" });
+  await expect(bulk).toContainText("2 selected");
+  await expect(page.getByRole("checkbox", { name: "Select all in Act Now" })).toBeChecked();
+  await expect(
+    page.getByRole("checkbox", { name: "Select all in Needs Attention" }),
+  ).not.toBeChecked();
+  expect(
+    await page
+      .getByRole("checkbox", { name: "Select all in Needs Attention" })
+      .evaluate((checkbox: HTMLInputElement) => checkbox.indeterminate),
+  ).toBe(true);
+  expect(await touchTargetViolations(page, ".dyna-bulk-bar")).toEqual([]);
+  await bulk.getByRole("combobox", { name: "Move selected items to group" }).selectOption("normal");
+  await bulk.getByRole("button", { name: "Move", exact: true }).click();
+
+  await expect(page.getByText("2 items moved to Keep Moving.")).toBeVisible();
+  await expect(page.locator(".dyna")).toHaveAttribute("data-bulk-mode", "false");
+  await expect(
+    page.locator('.dyna-card[data-presentation="queue"]').filter({ hasText: releaseTitle }),
+  ).toHaveAttribute("data-priority", "normal");
+  await expect(
+    page.locator('.dyna-card[data-presentation="queue"]').filter({ hasText: secondTitle }),
+  ).toHaveAttribute("data-priority", "normal");
+  const keepMoving = page.getByRole("heading", { name: "Keep Moving" }).locator("xpath=../..");
+  await expect(keepMoving.locator(".dyna-row-title")).toHaveText([
+    "Additional priority 2",
+    releaseTitle,
+    secondTitle,
+  ]);
+
+  const groupCall = await page.evaluate(() => {
+    const host = (
+      window as typeof window & {
+        __dynaHost?: { toolCalls?: { name?: string; arguments?: Record<string, unknown> }[] };
+      }
+    ).__dynaHost;
+    return host?.toolCalls?.find(
+      (call) => call.name === "dyna_organize_item" && call.arguments?.["action"] === "group",
+    )?.arguments;
+  });
+  expect(groupCall?.["targetPriority"]).toBe("normal");
+  expect(groupCall?.["items"]).toHaveLength(2);
+});
+
 test("drags queue items directly across priorities and preserves target order", async ({
   page,
 }) => {
@@ -1718,6 +1823,31 @@ test("keeps the maximum 200-item snapshot within interaction performance budgets
   expect(interaction.searchFeedbackMs).toBeLessThan(500);
   expect(interaction.matchingRows).toBe(1);
   await expect(page.locator('.dyna-visually-hidden[role="status"]')).toHaveText("1 matching item.");
+
+  const search = page.getByRole("searchbox", { name: "Search dashboard" });
+  await search.fill("");
+  await expect(rows).toHaveCount(200);
+  await page.getByRole("button", { name: "Select items" }).click();
+  const bulk = page.getByRole("region", { name: "Bulk queue actions" });
+  await bulk.getByRole("button", { name: "Select all 200 shown" }).click();
+  await expect(bulk).toContainText("200 selected");
+  await bulk.getByRole("combobox", { name: "Move selected items to group" }).selectOption("high");
+  await bulk.getByRole("button", { name: "Move", exact: true }).click();
+  await expect(page.getByText(/^\d+ items moved to Needs Attention\.$/u)).toBeVisible();
+  await expect(
+    page.locator('.dyna-card[data-presentation="queue"][data-priority="high"]'),
+  ).toHaveCount(200);
+  const groupCall = await page.evaluate(() => {
+    const host = (
+      window as typeof window & {
+        __dynaHost?: { toolCalls?: { name?: string; arguments?: Record<string, unknown> }[] };
+      }
+    ).__dynaHost;
+    return host?.toolCalls?.find(
+      (call) => call.name === "dyna_organize_item" && call.arguments?.["action"] === "group",
+    )?.arguments;
+  });
+  expect(groupCall?.["items"]).toHaveLength(200);
 });
 
 test("lets attention rows grow without overlap at large text sizes", async ({ page }) => {

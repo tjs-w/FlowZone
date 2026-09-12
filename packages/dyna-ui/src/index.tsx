@@ -64,6 +64,9 @@ function dynaIcon(path: string) {
 
 const Archive = dynaIcon("M3 5h10v9H3zM2 2h12v3H2M6 8h4");
 const ArrowLeft = dynaIcon("M13 8H3m4-4L3 8l4 4");
+const CheckSquare = dynaIcon(
+  "M3 2h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1m2 6 2 2 4-4",
+);
 const ChevronRight = dynaIcon("m6 3 5 5-5 5");
 const Copy = dynaIcon("M5 5h9v9H5zM2 11V2h9");
 const ExternalLink = dynaIcon("M9 2h5v5m0-5L7 9m5 0v5H2V4h5");
@@ -96,6 +99,11 @@ const INLINE_SUMMARY_MAX_LENGTH = 240;
 const CARD_MATCH_MAX_LENGTH = 180;
 const DYNA_DRAG_TYPE = "application/x-flowzone-dyna-item";
 
+interface DynaBulkPlacementItem {
+  readonly itemId: string;
+  readonly expectedFingerprint: string;
+}
+
 type DynaHostContext = McpUiHostContext & {
   readonly locale?: string;
   readonly timeZone?: string;
@@ -126,6 +134,11 @@ interface DynaUiController {
     fingerprint: string,
     targetPriority: TodoPriority,
     beforeItemId: string | undefined,
+    trigger: HTMLElement,
+  ): Promise<void>;
+  bulkPlace(
+    items: readonly DynaBulkPlacementItem[],
+    targetPriority: TodoPriority,
     trigger: HTMLElement,
   ): Promise<void>;
   moveToStage(
@@ -180,6 +193,8 @@ interface DynaUiController {
   readonly inlineCardLimit: 4 | 5;
   readonly locale: string;
   readonly leadershipOnly: boolean;
+  readonly bulkMode: boolean;
+  readonly bulkSelectedIds: readonly string[];
   readonly priorityFilter: PriorityFilter;
   readonly query: string;
   readonly selectedItemId: string | undefined;
@@ -189,6 +204,8 @@ interface DynaUiController {
   readonly externalLinks: boolean;
   readonly view: DashboardView;
   clearFilters(): void;
+  setBulkMode(value: boolean): void;
+  setBulkItemsSelected(itemIds: readonly string[], selected: boolean): void;
   setLeadershipOnly(value: boolean): void;
   setPriorityFilter(value: PriorityFilter): void;
   setQuery(value: string): void;
@@ -309,6 +326,26 @@ function focusableElements(container: HTMLElement): HTMLElement[] {
     const style = getComputedStyle(element);
     return element.getClientRects().length > 0 && style.visibility !== "hidden";
   });
+}
+
+function closeOrganizationMenus(
+  options: {
+    readonly except?: HTMLDetailsElement;
+    readonly restoreFocus?: boolean;
+  } = {},
+): void {
+  const open = [...document.querySelectorAll<HTMLDetailsElement>(".dyna-row-organize[open]")];
+  const focusTarget = options.restoreFocus
+    ? open.find((menu) => menu !== options.except)?.querySelector<HTMLElement>("summary")
+    : undefined;
+  for (const menu of open) {
+    if (menu !== options.except) menu.open = false;
+  }
+  if (focusTarget?.isConnected) {
+    window.setTimeout(() => {
+      focusTarget.focus({ preventScroll: true });
+    }, 0);
+  }
 }
 
 function lockBodyScroll(): () => void {
@@ -767,6 +804,7 @@ interface DynaComponentCatalog {
       readonly count: number;
       readonly attention?: boolean;
       readonly priority?: TodoPriority;
+      readonly itemIds?: readonly string[];
     }>,
   ) => ReactNode;
   readonly QueueView: (args: ComponentArgs<Record<string, never>>) => ReactNode;
@@ -859,6 +897,99 @@ function OrganizationMenu({
         Move later in group
       </button>
     </div>
+  );
+}
+
+function BulkActions({ cards }: { readonly cards: readonly DynaCard[] }) {
+  const controller = useController();
+  const [targetPriority, setTargetPriority] = useState<TodoPriority | "">("");
+  const selected = new Set(controller.bulkSelectedIds);
+  const selectedCards = cards.filter((card) => selected.has(card.id));
+  const allVisibleSelected = cards.length > 0 && cards.every((card) => selected.has(card.id));
+  const targetDisabled =
+    targetPriority !== "" &&
+    selectedCards.length > 0 &&
+    selectedCards.every((card) => card.priority === targetPriority);
+
+  return (
+    <section className="dyna-bulk-bar" aria-label="Bulk queue actions">
+      <span className="dyna-bulk-count" role="status" aria-live="polite">
+        <strong>{selectedCards.length}</strong> selected
+      </span>
+      <button
+        type="button"
+        className="dyna-bulk-select-all"
+        disabled={cards.length === 0 || controller.busy}
+        onClick={() => {
+          controller.setBulkItemsSelected(
+            cards.map((card) => card.id),
+            !allVisibleSelected,
+          );
+        }}
+      >
+        {allVisibleSelected ? "Clear shown" : `Select all ${cards.length} shown`}
+      </button>
+      <label className="dyna-bulk-destination">
+        <span className="dyna-visually-hidden">Move selected items to group</span>
+        <select
+          aria-label="Move selected items to group"
+          value={targetPriority}
+          disabled={selectedCards.length === 0 || controller.busy || controller.blocked}
+          onChange={(event) => {
+            setTargetPriority(event.currentTarget.value as TodoPriority | "");
+          }}
+        >
+          <option value="">Move to group…</option>
+          {PRIORITY_GROUPS.map(([priority, title]) => (
+            <option
+              key={priority}
+              value={priority}
+              disabled={
+                selectedCards.length > 0 &&
+                selectedCards.every((card) => card.priority === priority)
+              }
+            >
+              {title}
+            </option>
+          ))}
+        </select>
+      </label>
+      <Button
+        color="primary"
+        size="sm"
+        disabled={
+          selectedCards.length === 0 ||
+          targetPriority === "" ||
+          targetDisabled ||
+          controller.busy ||
+          controller.blocked
+        }
+        onClick={(event) => {
+          if (!targetPriority) return;
+          void controller.bulkPlace(
+            selectedCards.map((card) => ({
+              itemId: card.id,
+              expectedFingerprint: card.fingerprint,
+            })),
+            targetPriority,
+            event.currentTarget,
+          );
+        }}
+      >
+        Move
+      </Button>
+      <Button
+        color="secondary"
+        size="sm"
+        variant="ghost"
+        disabled={controller.busy}
+        onClick={() => {
+          controller.setBulkMode(false);
+        }}
+      >
+        Cancel
+      </Button>
+    </section>
   );
 }
 
@@ -1921,6 +2052,7 @@ const dynaComponents: DynaComponentCatalog = {
         data-display-mode={controller.displayMode}
         data-dashboard-view={controller.view}
         data-has-selection={Boolean(controller.selectedItemId)}
+        data-bulk-mode={controller.bulkMode}
         data-condensed={controller.condenseInline}
       >
         <header className="dyna-header">
@@ -2171,6 +2303,26 @@ const dynaComponents: DynaComponentCatalog = {
               </div>
             </details>
             <div className="dyna-command-actions">
+              {controller.view === "queue" ? (
+                <Button
+                  color="secondary"
+                  size="sm"
+                  variant={controller.bulkMode ? "soft" : "ghost"}
+                  data-dyna-bulk-toggle="true"
+                  aria-label={controller.bulkMode ? "Cancel item selection" : "Select items"}
+                  aria-pressed={controller.bulkMode}
+                  title={controller.bulkMode ? "Cancel selection" : "Select items"}
+                  disabled={controller.busy || controller.blocked}
+                  onClick={() => {
+                    controller.setBulkMode(!controller.bulkMode);
+                  }}
+                >
+                  <CheckSquare className="dyna-icon" aria-hidden="true" />
+                  <span className="dyna-select-label">
+                    {controller.bulkMode ? "Cancel" : "Select"}
+                  </span>
+                </Button>
+              ) : null}
               <RefreshButton />
               <Button
                 color="primary"
@@ -2341,6 +2493,12 @@ const dynaComponents: DynaComponentCatalog = {
   Section: ({ props, children }) => {
     const controller = useController();
     const [dropActive, setDropActive] = useState(false);
+    const selectableIds = props.itemIds ?? [];
+    const selectedInGroup = selectableIds.filter((itemId) =>
+      controller.bulkSelectedIds.includes(itemId),
+    ).length;
+    const allInGroupSelected = selectableIds.length > 0 && selectedInGroup === selectableIds.length;
+    const someInGroupSelected = selectedInGroup > 0 && !allInGroupSelected;
     if (props.title === "Signal Runs") {
       if (controller.condenseInline && !props.attention) return null;
       return (
@@ -2404,6 +2562,24 @@ const dynaComponents: DynaComponentCatalog = {
         }}
       >
         <header className="dyna-section-header">
+          {controller.bulkMode && props.priority && selectableIds.length > 0 ? (
+            <label className="dyna-group-check-control">
+              <input
+                ref={(element) => {
+                  if (element) element.indeterminate = someInGroupSelected;
+                }}
+                className="dyna-group-check"
+                type="checkbox"
+                aria-label={`Select all in ${props.title}`}
+                checked={allInGroupSelected}
+                disabled={controller.busy || controller.blocked}
+                onChange={(event) => {
+                  controller.setBulkItemsSelected(selectableIds, event.currentTarget.checked);
+                }}
+              />
+              <span className="dyna-checkmark" aria-hidden="true" />
+            </label>
+          ) : null}
           <h2>{props.title}</h2>
           <span className="dyna-section-count">{props.count}</span>
         </header>
@@ -2550,13 +2726,17 @@ const dynaComponents: DynaComponentCatalog = {
       props.workflowStage !== "completed";
     const showPipelineMove =
       controller.view === "pipeline" && !props.archive && props.workflowStage !== "completed";
-    const canOrganize = showQueueMove && !controller.busy && !controller.blocked;
+    const bulkSelected = controller.bulkSelectedIds.includes(props.itemId);
+    const canOrganize =
+      showQueueMove && !controller.bulkMode && !controller.busy && !controller.blocked;
     const canDrag =
       (showQueueMove || showPipelineMove) &&
+      !controller.bulkMode &&
       !controller.busy &&
       !controller.blocked &&
       window.matchMedia("(pointer: fine)").matches;
     const startDrag = (event: ReactDragEvent<HTMLElement>) => {
+      closeOrganizationMenus();
       document.documentElement.dataset["dynaDragging"] = "true";
       event.dataTransfer.effectAllowed = "move";
       event.dataTransfer.setData(
@@ -2598,6 +2778,7 @@ const dynaComponents: DynaComponentCatalog = {
         data-workflow-state={props.workflowState}
         data-workflow-stage={props.workflowStage}
         data-selected={selected}
+        data-bulk-selected={bulkSelected}
         data-has-move={showQueueMove || (showPipelineMove && canDrag)}
         data-drop-active={dropActive}
         onDragOver={(event) => {
@@ -2641,7 +2822,7 @@ const dynaComponents: DynaComponentCatalog = {
             if (
               event.target instanceof Element &&
               event.target.closest(
-                "a, button, select, summary, .dyna-status-control, .dyna-overflow-menu",
+                "a, button, input, select, summary, .dyna-item-check-control, .dyna-status-control, .dyna-overflow-menu",
               )
             ) {
               return;
@@ -2655,8 +2836,35 @@ const dynaComponents: DynaComponentCatalog = {
         >
           <div className="dyna-row-main">
             <div className="dyna-row-heading">
-              {showQueueMove ? (
-                <details className="dyna-overflow dyna-row-organize">
+              {showQueueMove && controller.bulkMode ? (
+                <label
+                  className="dyna-item-check-control"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                  }}
+                >
+                  <input
+                    className="dyna-item-check"
+                    type="checkbox"
+                    aria-label={`Select ${props.title}`}
+                    checked={bulkSelected}
+                    disabled={controller.busy || controller.blocked}
+                    onChange={(event) => {
+                      controller.setBulkItemsSelected([props.itemId], event.currentTarget.checked);
+                    }}
+                  />
+                  <span className="dyna-checkmark" aria-hidden="true" />
+                </label>
+              ) : showQueueMove ? (
+                <details
+                  className="dyna-overflow dyna-row-organize"
+                  name="dyna-row-organization"
+                  onToggle={(event) => {
+                    if (event.currentTarget.open) {
+                      closeOrganizationMenus({ except: event.currentTarget });
+                    }
+                  }}
+                >
                   <summary
                     ref={rowMoveTrigger}
                     className="dyna-drag-handle"
@@ -2687,6 +2895,7 @@ const dynaComponents: DynaComponentCatalog = {
                         return;
                       }
                       event.preventDefault();
+                      event.currentTarget.closest("details")?.removeAttribute("open");
                       void controller.organize(
                         props.itemId,
                         props.fingerprint,
@@ -4093,6 +4302,7 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
                   emptyMessage: "Drop an item here.",
                   count: grouped.length,
                   priority,
+                  itemIds: grouped.map((card) => card.id),
                 }}
               >
                 {grouped.map((card) => (
@@ -4150,7 +4360,9 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
         sourceAttention: unhealthySchedules.length > 0,
       }}
     >
-      {controller.view !== "archive" ? (
+      {controller.bulkMode && controller.view === "queue" ? (
+        <BulkActions cards={queueCards} />
+      ) : controller.view !== "archive" ? (
         <SummaryStrip
           props={{
             needsYou: stageCards.filter((card) => cardWorkflowStage(card) === "needs_you").length,
@@ -4170,7 +4382,10 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
           description={`${unhealthySchedules.length} ${unhealthySchedules.length === 1 ? "source is" : "sources are"} delayed or unavailable.`}
         />
       ) : null}
-      {!compactInline && controller.view !== "archive" && snapshot.scope === "active" ? (
+      {!controller.bulkMode &&
+      !compactInline &&
+      controller.view !== "archive" &&
+      snapshot.scope === "active" ? (
         <ExecutiveSummary props={{ model: executiveSummary, condensed: compactInline }} />
       ) : null}
       <QueueView props={{}}>{queueContent}</QueueView>
@@ -4256,6 +4471,8 @@ function DynaApp({ app }: { readonly app: App }) {
   const [sourceFilter, setSourceFilterState] = useState("all");
   const [workflowFilter, setWorkflowFilterState] = useState<WorkflowFilter>("all");
   const [leadershipOnly, setLeadershipOnlyState] = useState(false);
+  const [bulkMode, setBulkModeState] = useState(false);
+  const [bulkSelectedIds, setBulkSelectedIds] = useState<readonly string[]>([]);
   const [selectedItemId, setSelectedItemId] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -4352,6 +4569,25 @@ function DynaApp({ app }: { readonly app: App }) {
     completionTarget !== undefined ||
     (selectedItemId !== undefined && !wideLayout);
 
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      if (!(event.target instanceof Element) || !event.target.closest(".dyna-row-organize")) {
+        closeOrganizationMenus();
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || !document.querySelector(".dyna-row-organize[open]")) return;
+      event.preventDefault();
+      closeOrganizationMenus({ restoreFocus: true });
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, []);
+
   const acceptPayload = useCallback((candidate: unknown) => {
     const parsed = DynaUiPayloadSchema.safeParse(candidate);
     if (!parsed.success) return false;
@@ -4369,6 +4605,12 @@ function DynaApp({ app }: { readonly app: App }) {
       setSelectedItemId(undefined);
       setToast("The selected item is no longer in this view.");
     }
+    const activeQueueIds = new Set(
+      parsed.data.snapshot.cards
+        .filter((card) => !card.archive && card.workflowState !== "completed")
+        .map((card) => card.id),
+    );
+    setBulkSelectedIds((itemIds) => itemIds.filter((itemId) => activeQueueIds.has(itemId)));
     setPayload(parsed.data);
     setContextMenu((menu) =>
       menu?.itemId && !parsed.data.snapshot.cards.some((card) => card.id === menu.itemId)
@@ -4649,6 +4891,9 @@ function DynaApp({ app }: { readonly app: App }) {
   const refreshLatest = useCallback(
     async (trigger: HTMLElement) => {
       if (manualRefreshInFlight.current || busy) return;
+      setBulkSelectedIds([]);
+      setBulkModeState(false);
+      closeOrganizationMenus();
       manualRefreshInFlight.current = true;
       refreshFocusTrigger.current = trigger;
       setRefreshing(true);
@@ -4940,6 +5185,7 @@ function DynaApp({ app }: { readonly app: App }) {
 
   const openDetails = useCallback(
     async (itemId: string, trigger: HTMLElement) => {
+      closeOrganizationMenus();
       detailTrigger.current = trigger;
       detailScrollPosition.current = window.scrollY;
       setSelectedItemId(itemId);
@@ -4973,32 +5219,77 @@ function DynaApp({ app }: { readonly app: App }) {
     [app],
   );
 
-  const setQuery = useCallback((value: string) => {
-    setQueryState(value);
+  const clearBulkSelection = useCallback(() => {
+    setBulkSelectedIds([]);
+    setBulkModeState(false);
+    closeOrganizationMenus();
   }, []);
 
-  const setPriorityFilter = useCallback((value: PriorityFilter) => {
-    setPriorityFilterState(value);
+  const setBulkMode = useCallback((value: boolean) => {
+    closeOrganizationMenus();
+    setBulkSelectedIds([]);
+    setBulkModeState(value);
+    if (value) setSelectedItemId(undefined);
   }, []);
 
-  const setSourceFilter = useCallback((value: string) => {
-    setSourceFilterState(value);
+  const setBulkItemsSelected = useCallback((itemIds: readonly string[], selected: boolean) => {
+    setBulkSelectedIds((currentIds) => {
+      const next = new Set(currentIds);
+      for (const itemId of itemIds) {
+        if (selected) next.add(itemId);
+        else next.delete(itemId);
+      }
+      return [...next];
+    });
   }, []);
 
-  const setWorkflowFilter = useCallback((value: WorkflowFilter) => {
-    setWorkflowFilterState(value);
-  }, []);
+  const setQuery = useCallback(
+    (value: string) => {
+      clearBulkSelection();
+      setQueryState(value);
+    },
+    [clearBulkSelection],
+  );
 
-  const setLeadershipOnly = useCallback((value: boolean) => {
-    setLeadershipOnlyState(value);
-  }, []);
+  const setPriorityFilter = useCallback(
+    (value: PriorityFilter) => {
+      clearBulkSelection();
+      setPriorityFilterState(value);
+    },
+    [clearBulkSelection],
+  );
+
+  const setSourceFilter = useCallback(
+    (value: string) => {
+      clearBulkSelection();
+      setSourceFilterState(value);
+    },
+    [clearBulkSelection],
+  );
+
+  const setWorkflowFilter = useCallback(
+    (value: WorkflowFilter) => {
+      clearBulkSelection();
+      setWorkflowFilterState(value);
+    },
+    [clearBulkSelection],
+  );
+
+  const setLeadershipOnly = useCallback(
+    (value: boolean) => {
+      clearBulkSelection();
+      setLeadershipOnlyState(value);
+    },
+    [clearBulkSelection],
+  );
 
   const clearFilters = useCallback(() => {
+    clearBulkSelection();
     setPriorityFilterState("all");
     setSourceFilterState("all");
     setWorkflowFilterState("all");
     setLeadershipOnlyState(false);
-  }, []);
+  }, [clearBulkSelection]);
 
   const prepareScrollTransition = useCallback((nextView: DashboardView) => {
     scrollPositions.current.set(viewRef.current, window.scrollY);
@@ -5008,6 +5299,7 @@ function DynaApp({ app }: { readonly app: App }) {
   const setView = useCallback(
     (value: DashboardView) => {
       if (value !== viewRef.current) {
+        clearBulkSelection();
         prepareScrollTransition(value);
         viewRef.current = value;
         setContextMenu(undefined);
@@ -5015,7 +5307,7 @@ function DynaApp({ app }: { readonly app: App }) {
       }
       setSelectedItemId(undefined);
     },
-    [prepareScrollTransition],
+    [clearBulkSelection, prepareScrollTransition],
   );
 
   const executeArchive = useCallback(
@@ -5446,6 +5738,8 @@ function DynaApp({ app }: { readonly app: App }) {
       inlineCardLimit: desktopInlineLayout ? 5 : 4,
       locale,
       leadershipOnly,
+      bulkMode,
+      bulkSelectedIds,
       priorityFilter,
       query,
       serverQuery: payload?.snapshot.query ?? "",
@@ -5455,6 +5749,8 @@ function DynaApp({ app }: { readonly app: App }) {
       externalLinks: Boolean(hostCapabilities?.openLinks),
       view,
       clearFilters,
+      setBulkMode,
+      setBulkItemsSelected,
       setLeadershipOnly,
       setPriorityFilter,
       setQuery,
@@ -5588,6 +5884,65 @@ function DynaApp({ app }: { readonly app: App }) {
           setConnectionError(undefined);
         } catch {
           setOperationError("Could not move the item. Refresh the dashboard and try again.");
+        } finally {
+          setBusy(false);
+        }
+      },
+      async bulkPlace(items, targetPriority, trigger) {
+        const active = current.current;
+        if (
+          !active ||
+          items.length === 0 ||
+          busy ||
+          connectionError ||
+          !hostCapabilitiesRef.current.serverTools
+        ) {
+          return;
+        }
+        setOperationError(undefined);
+        setBusy(true);
+        try {
+          const result = await app.callServerTool({
+            name: "dyna_organize_item",
+            arguments: {
+              viewToken: active.viewToken,
+              action: "group",
+              items,
+              targetPriority,
+              expectedRevision: active.snapshot.revision,
+            },
+          });
+          if (toolResultFailed(result)) throw new Error("Bulk placement failed.");
+          const structured = result.structuredContent as
+            Readonly<Record<string, unknown>> | undefined;
+          const changed = structured?.["changed"] === true;
+          const changedCount =
+            typeof structured?.["changedCount"] === "number"
+              ? structured["changedCount"]
+              : changed
+                ? items.length
+                : 0;
+          if (changed) await refresh(true);
+          setBulkSelectedIds([]);
+          setBulkModeState(false);
+          window.setTimeout(() => {
+            const bulkToggle = document.querySelector<HTMLElement>("[data-dyna-bulk-toggle]");
+            (bulkToggle ?? trigger).focus();
+          }, 0);
+          const groupName =
+            PRIORITY_GROUPS.find(([priority]) => priority === targetPriority)?.[1] ??
+            humanize(targetPriority);
+          setToast(
+            changed
+              ? `${changedCount} ${changedCount === 1 ? "item" : "items"} moved to ${groupName}.`
+              : `Selected items are already in ${groupName}.`,
+          );
+          setConnectionError(undefined);
+        } catch {
+          await refresh(true);
+          setOperationError(
+            "Could not move the selected items. The queue was refreshed; review the selection and try again.",
+          );
         } finally {
           setBusy(false);
         }
@@ -5741,6 +6096,8 @@ function DynaApp({ app }: { readonly app: App }) {
       app,
       annotationItem,
       archiveTarget,
+      bulkMode,
+      bulkSelectedIds,
       completionTarget,
       busy,
       canExpand,
@@ -5761,6 +6118,8 @@ function DynaApp({ app }: { readonly app: App }) {
       refreshing,
       restoreTarget,
       selectedItemId,
+      setBulkItemsSelected,
+      setBulkMode,
       setLeadershipOnly,
       setPriorityFilter,
       setSourceFilter,

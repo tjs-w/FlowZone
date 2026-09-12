@@ -2,7 +2,10 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 
 async function openDetails(page: Page, title: string): Promise<void> {
-  await page
+  const activeView = page
+    .locator("#dyna-panel-queue:visible, #dyna-panel-pipeline:visible, #dyna-panel-archive:visible")
+    .first();
+  await activeView
     .getByRole("button", { name: `Open details for ${title}` })
     .first()
     .click();
@@ -117,7 +120,7 @@ async function dashboardScrollViolations(page: Page): Promise<string[]> {
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/dyna");
-  await expect(page.getByRole("heading", { name: "Executive Brief" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Executive Brief", level: 1 })).toBeVisible();
 });
 
 test("opens the complete executive dashboard in the expanded work surface", async ({
@@ -130,7 +133,9 @@ test("opens the complete executive dashboard in the expanded work surface", asyn
   });
   await page.goto("/dyna?dense=1");
 
-  await expect(page.getByText("Review the release merge request")).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Open source: Review the release merge request" }),
+  ).toBeVisible();
   await expect(page.getByRole("heading", { name: "Act Now" })).toBeVisible();
   await expect(page.locator('.dyna-card[data-priority="critical"]')).toHaveCount(1);
   await expect(page.getByRole("img", { name: "GitHub" }).first()).toBeVisible();
@@ -334,7 +339,7 @@ test("loads recent Codex sessions on demand and associates the exact selection",
   page,
 }) => {
   await page.goto("/dyna?session-picker-controller=1");
-  await expect(page.getByRole("heading", { name: "Executive Brief" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Executive Brief", level: 1 })).toBeVisible();
   await openDetails(page, "Review the release merge request");
 
   const inspector = page.locator(".dyna-inspector");
@@ -1027,6 +1032,152 @@ test("renders cross-tool signals and only promotes evidence-bearing leadership",
   await expect(queue.getByText("Architecture council", { exact: false })).toBeVisible();
 });
 
+test("places an evidence-bound Executive Brief before the active view with explicit actions", async ({
+  page,
+}) => {
+  await page.goto("/dyna?many-items=1");
+  await openFullDashboard(page);
+
+  const brief = page.getByRole("region", { name: "Executive Brief" });
+  await expect(brief.getByRole("heading", { name: "Executive Brief", level: 2 })).toBeVisible();
+  await expect(brief.locator(".dyna-executive-summary-meta")).toContainText("All 4 active items");
+  await expect(brief).toHaveAttribute("data-coverage", "current");
+  await expect(brief.locator(".dyna-executive-summary-coverage")).toContainText("Current sources:");
+
+  const theme = brief.locator('li[data-kind="theme"]');
+  await expect(theme).toHaveCount(1);
+  await expect(theme.locator(".dyna-executive-summary-label")).toHaveText("Across Sources");
+  await expect(
+    theme.getByRole("button", { name: "Search dashboard for the Release theme" }),
+  ).toHaveText("Release");
+  await expect(theme.locator(".dyna-executive-summary-copy > span")).toContainText(
+    /4 items across .*Discord.*GitHub.*Jira.*Outlook/,
+  );
+  await expect(theme.locator(".dyna-executive-summary-sources")).toHaveAttribute(
+    "aria-label",
+    "Sources: Discord, GitHub, Jira, Outlook",
+  );
+  await expect(brief.getByText("Decision", { exact: true })).toHaveCount(0);
+
+  const queue = page.getByRole("tabpanel", { name: "Priority queue" });
+  expect(
+    await brief.evaluate((element) => {
+      const queuePanel = document.getElementById("dyna-panel-queue");
+      return Boolean(
+        queuePanel &&
+        element.compareDocumentPosition(queuePanel) & Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+    }),
+  ).toBe(true);
+
+  const search = page.getByRole("searchbox", { name: "Search dashboard" });
+  await theme.locator(".dyna-executive-summary-copy > span").click();
+  await expect(search).toHaveValue("");
+  await expect(page.locator(".dyna-inspector-layer")).toBeHidden();
+
+  await theme.getByRole("button", { name: "Search dashboard for the Release theme" }).click();
+  await expect(search).toHaveValue("release");
+  await expect(queue).toBeFocused();
+  await expect(brief.locator(".dyna-executive-summary-meta")).toContainText("4 search matches");
+  await page.getByRole("button", { name: "Clear search" }).click();
+
+  await brief
+    .getByRole("button", {
+      name: "Open details for Review the release merge request",
+    })
+    .click();
+  await expect(
+    page.locator(".dyna-inspector").getByRole("heading", {
+      name: "Review the release merge request",
+      level: 2,
+    }),
+  ).toBeVisible();
+  await closeDetails(page);
+
+  await page.getByRole("tab", { name: "Progress pipeline" }).click();
+  await expect(brief).toBeVisible();
+  expect(
+    await brief.evaluate((element) => {
+      const pipelinePanel = document.getElementById("dyna-panel-pipeline");
+      return Boolean(
+        pipelinePanel &&
+        element.compareDocumentPosition(pipelinePanel) & Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+    }),
+  ).toBe(true);
+
+  await page.getByRole("tab", { name: "Archive", exact: true }).click();
+  await expect(brief).toHaveCount(0);
+});
+
+test("recomputes the Executive Brief within search and filter scope", async ({ page }) => {
+  await page.goto("/dyna?many-items=1");
+  await openFullDashboard(page);
+  const brief = page.getByRole("region", { name: "Executive Brief" });
+  const metadata = brief.locator(".dyna-executive-summary-meta");
+  const queueRows = page.locator('.dyna-card[data-presentation="queue"]');
+  await expect(metadata).toContainText("All 4 active items");
+
+  const filterDisclosure = page.locator('.dyna-filters > summary[aria-label="Filters"]');
+  await filterDisclosure.click();
+  const filterPanel = page.locator(".dyna-filter-panel");
+  await filterPanel.getByRole("combobox", { name: "Source" }).selectOption({ label: "GitHub" });
+  await expect(queueRows).toHaveCount(1);
+  await expect(metadata).toContainText("1 filtered item");
+  await expect(brief.locator('li[data-kind="theme"]')).toHaveCount(0);
+
+  await filterPanel.getByRole("button", { name: "Clear filters" }).click();
+  await expect(queueRows).toHaveCount(4);
+  await expect(metadata).toContainText("All 4 active items");
+
+  const search = page.getByRole("searchbox", { name: "Search dashboard" });
+  await search.fill("discord");
+  await expect(queueRows).toHaveCount(1);
+  await expect(metadata).toContainText("1 search match");
+  await expect(
+    brief.getByRole("button", { name: "Open details for Additional priority 2" }),
+  ).toBeVisible();
+});
+
+test("discloses unavailable source coverage without presenting an all-clear", async ({ page }) => {
+  await page.goto("/dyna?failed-schedule=1");
+  await openFullDashboard(page);
+  const brief = page.getByRole("region", { name: "Executive Brief" });
+
+  await expect(brief).toHaveAttribute("data-coverage", "partial");
+  await expect(brief.locator(".dyna-executive-summary-coverage")).toContainText(
+    /Partial coverage: .* unavailable/,
+  );
+  await expect(brief).toContainText("No actionable items are present in the available data.");
+  await expect(brief).not.toContainText("Current sources:");
+  await expect(brief).not.toContainText(
+    "No action signals were found in the latest complete refresh.",
+  );
+});
+
+test("bounds the inline mobile Executive Brief to two points without horizontal overflow", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/dyna?pipeline=1&display-mode-result=inline");
+  const brief = page.getByRole("region", { name: "Executive Brief" });
+  await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "inline");
+  await expect(brief).toHaveAttribute("data-condensed", "true");
+  await expect(brief.locator(".dyna-executive-summary-points > li")).toHaveCount(2);
+  expect(
+    await brief.evaluate((element) => {
+      const queuePanel = document.getElementById("dyna-panel-queue");
+      return Boolean(
+        queuePanel &&
+        queuePanel.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+    }),
+  ).toBe(true);
+  await brief.scrollIntoViewIfNeeded();
+  await expect(brief).toBeVisible();
+  expect(await dashboardScrollViolations(page)).toEqual([]);
+});
+
 test("uses calm, legible light and dark host themes", async ({ page }) => {
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   const lightBackground = await page
@@ -1294,7 +1445,7 @@ for (const theme of ["light", "dark"] as const) {
     await openFullDashboard(page);
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
     const total = page
-      .getByRole("region", { name: "Dashboard summary" })
+      .getByRole("region", { name: "Status filters" })
       .locator('[data-filter="all"]');
     await expect(total).toContainText("1total");
 
@@ -1364,7 +1515,7 @@ for (const theme of ["light", "dark"] as const) {
     await openFullDashboard(page);
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
     const total = page
-      .getByRole("region", { name: "Dashboard summary" })
+      .getByRole("region", { name: "Status filters" })
       .locator('[data-filter="all"]');
     await expect(total).toContainText("4total");
     await page.getByRole("tab", { name: "Progress pipeline" }).click();
@@ -1565,7 +1716,7 @@ test("filters the dense queue with compact native controls and clears each filte
   const search = page.getByRole("searchbox", { name: "Search dashboard" });
   await expect(queueRows).toHaveCount(8);
 
-  const summary = page.getByRole("region", { name: "Dashboard summary" });
+  const summary = page.getByRole("region", { name: "Status filters" });
   const allStatuses = summary.locator('[data-filter="all"]');
   const needsYou = summary.locator('[data-filter="needs_you"]');
   const inCodex = summary.locator('[data-filter="executing"]');
@@ -1677,13 +1828,32 @@ test("projects the same items through the Codex progress pipeline and creates fo
 }) => {
   await page.goto("/dyna?pipeline=1");
   await openFullDashboard(page);
-  const summary = page.getByRole("region", { name: "Dashboard summary" });
+  const summary = page.getByRole("region", { name: "Status filters" });
   await expect(summary).toContainText("1need you");
   await expect(summary).toContainText("1in Codex");
   await expect(summary).toContainText("0blocked");
   const queueTab = page.getByRole("tab", { name: "Priority queue" });
   const pipelineTab = page.getByRole("tab", { name: "Progress pipeline" });
   const archiveTab = page.getByRole("tab", { name: /^Archive/ });
+  const executiveBrief = page.getByRole("region", { name: "Executive Brief" });
+  await expect(executiveBrief.locator(".dyna-executive-summary-points > li")).toHaveCount(4);
+  if ((page.viewportSize()?.width ?? 0) > 560) {
+    const recentlyDone = executiveBrief.getByRole("button", {
+      name: "Filter dashboard by 1 completed recently",
+    });
+    await recentlyDone.scrollIntoViewIfNeeded();
+    await recentlyDone.click();
+    await expect(pipelineTab).toHaveAttribute("aria-selected", "true");
+    await expect(
+      page.locator('.dyna-pipeline-stage[data-workflow-stage="completed"] .dyna-card'),
+    ).toHaveCount(1);
+  } else {
+    await expect(executiveBrief.locator(".dyna-executive-summary-points > li:visible")).toHaveCount(
+      2,
+    );
+    await pipelineTab.click();
+  }
+  await summary.locator('[data-filter="all"]').click();
   await queueTab.focus();
   await queueTab.press("ArrowLeft");
   await expect(archiveTab).toBeFocused();
@@ -1921,7 +2091,7 @@ for (const theme of ["light", "dark"] as const) {
     await openFullDashboard(page);
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
 
-    const summary = page.getByRole("region", { name: "Dashboard summary" });
+    const summary = page.getByRole("region", { name: "Status filters" });
     await expect(summary.locator('[data-filter="needs_you"]')).toContainText("1need you");
     await expect(summary.locator('[data-filter="executing"]')).toContainText("4in Codex");
     await expect(summary.locator('[data-filter="blocked"]')).toContainText("2blocked");
@@ -1976,8 +2146,16 @@ for (const theme of ["light", "dark"] as const) {
     await expect(
       page.locator('.dyna-pipeline-items .dyna-card[data-presentation="pipeline"]:visible'),
     ).toHaveCount(2);
-    await expect(page.getByText("Additional priority 1", { exact: true })).toBeVisible();
-    await expect(page.getByText("Additional priority 2", { exact: true })).toBeVisible();
+    await expect(
+      stageCard("needs_you", "Additional priority 1").getByText("Additional priority 1", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      stageCard("executing", "Additional priority 2").getByText("Additional priority 2", {
+        exact: true,
+      }),
+    ).toBeVisible();
     await summary.locator('[data-filter="all"]').click();
 
     await openDetails(page, "Review the release merge request");
@@ -2143,7 +2321,9 @@ for (const theme of ["light", "dark"] as const) {
       )
       .toBe(true);
     await expect(page.locator('.dyna-card[data-presentation="queue"]:visible')).toHaveCount(1);
-    await expect(page.getByText("Review the release merge request", { exact: true })).toBeVisible();
+    await expect(
+      page.locator(".dyna-card").getByText("Review the release merge request", { exact: true }),
+    ).toBeVisible();
     await expect(page.locator(".dyna-row-attention")).toContainText(
       "Matched activity: Artifact: Release evidence packet",
     );
@@ -2613,7 +2793,7 @@ test("retains searchable work activity and artifacts after archive", async ({ pa
 test("keeps the compact queue and forms usable at narrow mobile widths", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/dyna?dense=1&long-content=1&display-mode-result=inline");
-  await expect(page.getByRole("heading", { name: "Executive Brief" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Executive Brief", level: 1 })).toBeVisible();
   await expect(page.locator('.dyna-card[data-presentation="queue"]')).toHaveCount(4);
   await expect(page.getByText("5 more in the full dashboard")).toBeVisible();
   await expect(page.locator(".dyna-row-title").first()).toBeVisible();
@@ -2868,7 +3048,7 @@ test("keeps the dashboard usable while the automatic fullscreen response is dela
   await page.setViewportSize({ width: 1_280, height: 800 });
   const startedAt = Date.now();
   await page.goto("/dyna?many-items=1&display-mode-delay-ms=3000");
-  await expect(page.getByRole("heading", { name: "Executive Brief" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Executive Brief", level: 1 })).toBeVisible();
   expect(Date.now() - startedAt).toBeLessThan(2_500);
   await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "inline");
   await expect(page.locator("html")).toHaveAttribute("data-dyna-display-mode-request-count", "1");
@@ -2963,7 +3143,10 @@ test("preserves filters, selection, and detail scroll through refresh and host r
   await page.locator('.dyna-filters > summary[aria-label="Filters"]').click();
 
   const title = (await page.locator(".dyna-row-title").textContent()) ?? "";
-  await page.getByRole("button", { name: `Open details for ${title}` }).click();
+  await page
+    .locator("#dyna-panel-queue")
+    .getByRole("button", { name: `Open details for ${title}` })
+    .click();
   const inspector = page.locator(".dyna-inspector");
   await expect(inspector.getByRole("heading", { name: title, level: 2 })).toBeVisible();
   const inspectorScroll = page.locator(".dyna-inspector-scroll");
@@ -3009,7 +3192,7 @@ test("preserves filters, selection, and detail scroll through refresh and host r
 
 test("adopts the host-selected expanded presentation after connection", async ({ page }) => {
   await page.goto("/dyna?display-mode-delay-ms=3000");
-  await expect(page.getByRole("heading", { name: "Executive Brief" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Executive Brief", level: 1 })).toBeVisible();
   await expect(page.getByRole("tab", { name: "Priority queue" })).toBeVisible();
   await expect(page.locator("html")).toHaveAttribute("data-dyna-display-mode-request-count", "1");
   await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "fullscreen");
@@ -3019,8 +3202,10 @@ test("adopts the host-selected expanded presentation after connection", async ({
 
 test("keeps inline content visible when the host cannot expand", async ({ page }) => {
   await page.goto("/dyna?inline-only=1&many-items=1");
-  await expect(page.getByRole("heading", { name: "Executive Brief" })).toBeVisible();
-  await expect(page.getByText("Review the release merge request")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Executive Brief", level: 1 })).toBeVisible();
+  await expect(
+    page.locator(".dyna-card").getByText("Review the release merge request"),
+  ).toBeVisible();
   await expect(page.getByRole("button", { name: "Open full dashboard" })).toBeHidden();
   await expect(page.getByRole("tab", { name: "Priority queue" })).toBeVisible();
   await expect(page.getByRole("tab", { name: "Progress pipeline" })).toBeVisible();
@@ -3037,7 +3222,7 @@ test("keeps the bounded brief usable when an expanded presentation request fails
   const pageErrors: Error[] = [];
   page.on("pageerror", (error) => pageErrors.push(error));
   await page.goto("/dyna?display-mode-error=1&dense=1");
-  await expect(page.getByRole("heading", { name: "Executive Brief" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Executive Brief", level: 1 })).toBeVisible();
   await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "inline");
   const briefLimit = await inlineBriefLimit(page);
   await expect(page.locator(".dyna-card")).toHaveCount(briefLimit);
@@ -3059,7 +3244,7 @@ test("keeps the bounded brief usable when an expanded presentation request fails
 
 test("keeps the bounded brief when the host resolves expansion as inline", async ({ page }) => {
   await page.goto("/dyna?display-mode-result=inline&dense=1");
-  await expect(page.getByRole("heading", { name: "Executive Brief" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Executive Brief", level: 1 })).toBeVisible();
   await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "inline");
   const briefLimit = await inlineBriefLimit(page);
   await expect(page.locator(".dyna-card")).toHaveCount(briefLimit);
@@ -3083,10 +3268,14 @@ test("searches the complete bounded annotation history without false negatives",
   await openFullDashboard(page);
   const search = page.getByRole("searchbox", { name: "Search dashboard" });
   await search.fill("buriedneedle");
-  await expect(page.getByText("Review the release merge request")).toBeVisible();
+  await expect(
+    page.locator(".dyna-card").getByText("Review the release merge request"),
+  ).toBeVisible();
   await expect(page.locator('.dyna-visually-hidden[role="status"]')).toHaveText("1 matching item.");
   await search.fill("fixture-pr-0");
-  await expect(page.getByText("Review the release merge request")).toBeVisible();
+  await expect(
+    page.locator(".dyna-card").getByText("Review the release merge request"),
+  ).toBeVisible();
   await expect(page.locator('.dyna-visually-hidden[role="status"]')).toHaveText("1 matching item.");
 });
 
@@ -3128,7 +3317,9 @@ test("falls back to an honest read-only dashboard without server-tool capability
   await expect(page.getByRole("status", { name: "Read-only host notice" })).toContainText(
     "Dashboard is read-only",
   );
-  await expect(page.getByText("Review the release merge request")).toBeVisible();
+  await expect(
+    page.locator(".dyna-card").getByText("Review the release merge request"),
+  ).toBeVisible();
   await expect(page.getByRole("button", { name: "Add to-do" })).toBeDisabled();
   const search = page.getByRole("searchbox", { name: "Search dashboard" });
   await search.fill("Avery");
@@ -3156,7 +3347,7 @@ test("disables only Codex-triggering actions when text-message capability is abs
 
 test("retries an uncertain delivery with the same idempotent request", async ({ page }) => {
   await page.goto("/dyna?action-error=1");
-  await expect(page.getByRole("heading", { name: "Executive Brief" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Executive Brief", level: 1 })).toBeVisible();
   await openDetails(page, "Review the release merge request");
   await page.getByRole("button", { name: "Start in Codex" }).click();
   await expect(page.getByRole("alert")).toContainText("delivery is uncertain");

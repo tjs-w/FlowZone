@@ -10,8 +10,8 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const checkOnly = process.argv.includes("--check");
 const temporaryRoot = checkOnly ? await mkdtemp(join(tmpdir(), "flowzone-build-")) : root;
 // Keep a narrow explicit ceiling while allowing bounded activity history, the
-// session picker, and the dependency-free accessible context menu.
-const DYNA_BROWSER_BUDGET_KIB = 856;
+// session picker, the accessible context menu, and the deterministic Executive Brief.
+const DYNA_BROWSER_BUDGET_KIB = 870;
 const DYNA_BROWSER_BUDGET_BYTES = DYNA_BROWSER_BUDGET_KIB * 1024;
 
 const outputs = [

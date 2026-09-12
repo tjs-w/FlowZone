@@ -13,10 +13,11 @@ Installing FlowZone installs the shared `flowzone` MCP server and both qualified
 - A compact 62-pixel pointer-first attention ledger that expands to touch-safe targets, with five useful inline rows on desktop and four on touch/mobile, built from Apps SDK UI controls, semantic native filters, and small product-specific queue, pipeline, and inspector structures.
 - Host-selected MCP Apps presentation with an explicit fullscreen expansion action, host-owned docking, and a usable inline fallback with wide-screen detail inspection.
 - Re-rendering after scheduled updates, durable conversation-driven enrichment overlays, annotations, and one shared item set projected as a priority queue, Codex progress pipeline, or searchable archive with one-line outcomes and linked follow-ups.
+- A compact, deterministic **Executive Brief** below the status and filter context in the expanded dashboard and after the bounded action queue in compact inline fallback. It surfaces at most four evidence-bound points on desktop and two in narrow or inline views: the next action, exact shared themes across distinct sources, Codex work in motion, and recently completed work. It always discloses the current search/filter/window scope and degraded source coverage rather than treating an unavailable source as zero activity.
 - Revision-bound, claim-revalidated, per-attempt idempotent action requests with expiring leases for native Codex task creation, existing-task attachment, navigation, and status inspection.
 - Scheduled publishers can use the bundled `<plugin-root>/bin/flowzone-publish` CLI with a fixed publisher ID and schema-valid JSON stdin. It relies on the local macOS user boundary and stores no publisher secret in the prompt.
 - After its exact installed-launcher Codex rule is explicitly installed and reconciled, any local task can use the bundled `<plugin-root>/bin/dyna` CLI to resolve an exact referenced item, append durable work updates and typed result links, replace evidence-bound enrichment, or perform an explicitly authorized placement, archive, restore, or linked follow-up. The rule never grants a shell, runtime, database path, or future CLI verb; task reports never certify native task success.
-- A dedicated `ui://flowzone/dyna/v12.html` resource below an 856 KiB payload budget with a closed network CSP and clipboard-write permission for explicit copy actions. Its bounded context menu prioritizes exact selected text, links, Codex tasks, work items, and dashboard actions; unselected editable fields retain the host's native editing menu.
+- A dedicated `ui://flowzone/dyna/v13.html` resource below an 870 KiB payload budget with a closed network CSP and clipboard-write permission for explicit copy actions. Its bounded context menu prioritizes exact selected text, links, Codex tasks, work items, and dashboard actions; unselected editable fields retain the host's native editing menu.
 
 See [Dyna executive dashboards](./docs/dyna.md) for requirements, architecture, action protocol, implementation status, and the mobile Remote acceptance matrix.
 
@@ -47,7 +48,7 @@ FlowZone McpServer
        │              └── markdown-review/open
        ├── typed app-only component tools
        ├── render_markdown_review → ui://flowzone/v5.html
-       └── render_dyna_dashboard → ui://flowzone/dyna/v12.html
+       └── render_dyna_dashboard → ui://flowzone/dyna/v13.html
 ```
 
 FlowZone exposes one model-visible `flowzone` data router plus a dedicated model-visible presentation tool for each rendered surface. The startup-built router union enumerates non-visual plugin/action/input combinations and validates both selected input and plugin-owned output. Dedicated presentation tools carry their own risk and MCP Apps resource metadata. Typed helpers used by a UI stay separate and are forcibly registered with `_meta.ui.visibility: ["app"]`.

@@ -734,6 +734,12 @@ interface DynaComponentCatalog {
       readonly total: number;
     }>,
   ) => ReactNode;
+  readonly ExecutiveSummary: (
+    args: ComponentArgs<{
+      readonly model: ExecutiveSummaryModel;
+      readonly condensed: boolean;
+    }>,
+  ) => ReactNode;
   readonly Section: (
     args: ComponentArgs<{
       readonly title: string;
@@ -2206,7 +2212,7 @@ const dynaComponents: DynaComponentCatalog = {
         <section
           className="dyna-summary"
           data-condensed={controller.condenseInline}
-          aria-label="Dashboard summary"
+          aria-label="Status filters"
         >
           {filters.map(([filter, count, label]) => (
             <button
@@ -2232,6 +2238,106 @@ const dynaComponents: DynaComponentCatalog = {
             : ""}
         </div>
       </>
+    );
+  },
+  ExecutiveSummary: ({ props }) => {
+    const controller = useController();
+    const points = props.condensed ? props.model.points.slice(0, 2) : props.model.points;
+    const coverageLabel = {
+      current: "Current",
+      partial: "Partial",
+      delayed: "Delayed",
+      pending: "Pending",
+      manual: "Manual",
+    }[props.model.coverage];
+    const focusResults = (view = controller.view) => {
+      window.setTimeout(() => {
+        document.getElementById(`dyna-panel-${view}`)?.focus();
+      }, 0);
+    };
+    const activate = (action: ExecutiveSummaryAction, trigger: HTMLElement) => {
+      if (action.kind === "item") {
+        void controller.openDetails(action.itemId, trigger);
+        return;
+      }
+      if (action.kind === "query") controller.setQuery(action.query);
+      else {
+        if (action.workflow === "completed") controller.setView("pipeline");
+        controller.setWorkflowFilter(action.workflow);
+      }
+      focusResults(
+        action.kind === "workflow" && action.workflow === "completed" ? "pipeline" : undefined,
+      );
+    };
+    return (
+      <section
+        className="dyna-executive-summary"
+        data-condensed={props.condensed}
+        data-coverage={props.model.coverage}
+        aria-labelledby="dyna-executive-summary-title"
+      >
+        <header className="dyna-executive-summary-header">
+          <h2 id="dyna-executive-summary-title">Executive Brief</h2>
+          <div className="dyna-executive-summary-meta">
+            <span>{props.model.scope}</span>
+            <span>{coverageLabel}</span>
+            <time
+              dateTime={props.model.generatedAt}
+              title={`${exactDateTime(props.model.generatedAt, controller.locale)} · revision ${String(props.model.revision)}`}
+            >
+              Updated {relativeTime(props.model.generatedAt, controller.locale)}
+            </time>
+          </div>
+        </header>
+        <ul className="dyna-executive-summary-points">
+          {points.map((point, index) => {
+            const action = point.action;
+            const actionLabel =
+              action?.kind === "item"
+                ? `Open details for ${point.headline}`
+                : action?.kind === "query"
+                  ? `Search dashboard for the ${point.headline} theme`
+                  : action?.kind === "workflow"
+                    ? `Filter dashboard by ${point.headline}`
+                    : undefined;
+            return (
+              <li key={`${point.kind}:${point.headline}:${String(index)}`} data-kind={point.kind}>
+                <span className="dyna-executive-summary-label">{point.label}</span>
+                <div className="dyna-executive-summary-copy">
+                  {action && actionLabel ? (
+                    <button
+                      type="button"
+                      className="dyna-executive-summary-action"
+                      aria-label={actionLabel}
+                      onClick={(event) => {
+                        activate(action, event.currentTarget);
+                      }}
+                    >
+                      {point.headline}
+                    </button>
+                  ) : (
+                    <strong>{point.headline}</strong>
+                  )}
+                  {point.detail ? <span>{point.detail}</span> : null}
+                </div>
+                {point.sources.length > 0 ? (
+                  <span
+                    className="dyna-executive-summary-sources"
+                    role="img"
+                    aria-label={`Sources: ${point.sources.map((source) => source.label).join(", ")}`}
+                  >
+                    {point.sources.slice(0, 3).map((source) => (
+                      <SourceFavicon key={source.key} kind={source.icon} />
+                    ))}
+                    {point.sources.length > 3 ? <span>+{point.sources.length - 3}</span> : null}
+                  </span>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+        <p className="dyna-executive-summary-coverage">{props.model.coverageText}</p>
+      </section>
     );
   },
   Section: ({ props, children }) => {
@@ -2316,6 +2422,7 @@ const dynaComponents: DynaComponentCatalog = {
         role={controller.condenseInline ? "region" : "tabpanel"}
         aria-label={controller.condenseInline ? "Top Attention" : undefined}
         aria-labelledby={controller.condenseInline ? undefined : "dyna-tab-queue"}
+        tabIndex={-1}
       >
         {children}
       </div>
@@ -2329,6 +2436,7 @@ const dynaComponents: DynaComponentCatalog = {
         className="dyna-pipeline dyna-view"
         role="tabpanel"
         aria-labelledby="dyna-tab-pipeline"
+        tabIndex={-1}
       >
         <div className="dyna-stage-summary" aria-label="Progress summary">
           {props.stages.map((stage) => (
@@ -3344,6 +3452,410 @@ function compareCards(left: DynaCard, right: DynaCard): number {
   return byUpdated !== 0 ? byUpdated : left.id.localeCompare(right.id);
 }
 
+type ExecutiveSummaryAction =
+  | { readonly kind: "item"; readonly itemId: string }
+  | { readonly kind: "query"; readonly query: string }
+  | { readonly kind: "workflow"; readonly workflow: WorkflowFilter };
+
+interface ExecutiveSummarySource {
+  readonly key: string;
+  readonly label: string;
+  readonly icon: SourceIconKind;
+  readonly category:
+    | "codex"
+    | "email"
+    | "enterprise"
+    | "knowledge"
+    | "manual"
+    | "messaging"
+    | "skill"
+    | "source_control"
+    | "work_management";
+}
+
+interface ExecutiveSummaryPoint {
+  readonly kind: "act" | "theme" | "motion" | "done" | "empty";
+  readonly label: string;
+  readonly headline: string;
+  readonly detail?: string;
+  readonly action?: ExecutiveSummaryAction;
+  readonly sources: readonly ExecutiveSummarySource[];
+}
+
+interface ExecutiveSummaryModel {
+  readonly scope: string;
+  readonly coverage: "current" | "partial" | "delayed" | "pending" | "manual";
+  readonly coverageText: string;
+  readonly generatedAt: string;
+  readonly revision: number;
+  readonly points: readonly ExecutiveSummaryPoint[];
+}
+
+const GENERIC_SUMMARY_LABELS = new Set([
+  "blocked",
+  "blocker",
+  "critical",
+  "decision",
+  "direct request",
+  "done",
+  "high",
+  "in codex",
+  "low",
+  "merge request",
+  "mr",
+  "needs input",
+  "normal",
+  "pipeline",
+  "pipeline failure",
+  "pr",
+  "pull request",
+  "review",
+  "todo",
+]);
+
+function executiveSummarySource(card: DynaCard): ExecutiveSummarySource {
+  const sourceRef = card.sourceRef;
+  let label = card.sourceLabel;
+  let category: ExecutiveSummarySource["category"];
+  if (sourceRef.source === "twg") {
+    label = {
+      jira: "Jira",
+      confluence: "Confluence",
+      bitbucket: "Bitbucket",
+      org: "Org",
+      work: "Work",
+      other: "TWG",
+    }[sourceRef.resultType];
+    category = (
+      {
+        jira: "work_management",
+        confluence: "knowledge",
+        bitbucket: "source_control",
+        org: "enterprise",
+        work: "work_management",
+        other: "enterprise",
+      } as const
+    )[sourceRef.resultType];
+  } else if (sourceRef.source === "email") {
+    category = "email";
+    const provider = sourceRef.provider.toLocaleLowerCase();
+    if (provider.includes("outlook") || provider.includes("microsoft")) label = "Outlook";
+    else if (provider.includes("gmail") || provider.includes("google")) label = "Gmail";
+  } else if (sourceRef.source === "messaging") {
+    category = "messaging";
+    const provider = sourceRef.provider.toLocaleLowerCase();
+    if (provider.includes("slack")) label = "Slack";
+    else if (provider.includes("discord")) label = "Discord";
+  } else {
+    category = (
+      {
+        slack: "messaging",
+        outlook: "email",
+        gitlab: "source_control",
+        codex: "codex",
+        scm: "source_control",
+        skill: "skill",
+        manual: "manual",
+      } as const
+    )[sourceRef.source];
+  }
+  return {
+    key: label.toLocaleLowerCase(),
+    label,
+    icon: sourceIcon(sourceRef),
+    category,
+  };
+}
+
+function executiveSummarySources(cards: readonly DynaCard[]): ExecutiveSummarySource[] {
+  const sources = new Map<string, ExecutiveSummarySource>();
+  for (const card of cards) {
+    const source = executiveSummarySource(card);
+    sources.set(source.key, source);
+  }
+  return [...sources.values()].sort((left, right) => left.label.localeCompare(right.label));
+}
+
+function executiveSummaryList(values: readonly string[], locale: string, limit = 4): string {
+  const unique = [...new Set(values)];
+  const shown = unique.slice(0, limit);
+  const formatted = new Intl.ListFormat(locale, { style: "short", type: "conjunction" }).format(
+    shown,
+  );
+  return unique.length > limit ? `${formatted} +${String(unique.length - limit)} more` : formatted;
+}
+
+function executiveSummaryDeadline(value: string, locale: string): string {
+  return Date.parse(value) < Date.now()
+    ? `Overdue · ${exactDateTime(value, locale)}`
+    : `Due ${relativeTime(value, locale)}`;
+}
+
+function executiveSummaryCoverage(
+  schedules: readonly DynaSchedule[],
+  cards: readonly DynaCard[],
+  locale: string,
+): Pick<ExecutiveSummaryModel, "coverage" | "coverageText"> {
+  const sourceNames = new Set(executiveSummarySources(cards).map((source) => source.label));
+  const unavailable = new Set<string>();
+  const delayed = new Set<string>();
+  const pending = new Set<string>();
+
+  for (const schedule of schedules) {
+    const scheduleSources = new Set<string>();
+    for (const slice of schedule.lastSourceSlices ?? []) {
+      const label = sourceSliceLabel(slice.source);
+      scheduleSources.add(label);
+      sourceNames.add(label);
+      if (slice.status === "failed") unavailable.add(label);
+      else if (slice.freshness !== "fresh") delayed.add(label);
+    }
+    for (const slice of schedule.requiredSourceSlices ?? []) {
+      const label = sourceSliceLabel(slice.source);
+      scheduleSources.add(label);
+      sourceNames.add(label);
+    }
+    const fallback = schedule.scheduleTitle ?? schedule.name;
+    const affected = scheduleSources.size > 0 ? scheduleSources : new Set([fallback]);
+    if (schedule.revokedAt || schedule.lastRunStatus === "failed") {
+      for (const label of affected) unavailable.add(label);
+    } else if (schedule.lastRunStatus === "partial") {
+      for (const label of affected) {
+        if (!unavailable.has(label)) delayed.add(label);
+      }
+    } else if (schedule.lastRunStatus === "never") {
+      for (const label of affected) pending.add(label);
+    }
+    if (schedule.scheduleState !== "active") {
+      for (const label of affected) delayed.add(label);
+    }
+  }
+
+  if (schedules.length === 0) {
+    if (cards.length === 0 || cards.every((card) => card.source === "manual")) {
+      return { coverage: "manual", coverageText: "Manual work only." };
+    }
+    return {
+      coverage: "delayed",
+      coverageText: "Source status is unavailable. Summary uses the loaded records.",
+    };
+  }
+  if (unavailable.size > 0) {
+    return {
+      coverage: "partial",
+      coverageText: `Partial coverage: ${executiveSummaryList([...unavailable], locale, 3)} unavailable. Last-known records remain included.`,
+    };
+  }
+  if (pending.size > 0) {
+    return {
+      coverage: "pending",
+      coverageText: `No complete refresh yet: ${executiveSummaryList([...pending], locale, 3)} pending.`,
+    };
+  }
+  if (delayed.size > 0) {
+    return {
+      coverage: "delayed",
+      coverageText: `Delayed coverage: ${executiveSummaryList([...delayed], locale, 3)}. Last-known records remain included.`,
+    };
+  }
+  return {
+    coverage: "current",
+    coverageText:
+      sourceNames.size > 0
+        ? `Current sources: ${executiveSummaryList([...sourceNames], locale, 5)}.`
+        : "Current source refresh completed.",
+  };
+}
+
+function buildExecutiveSummary(
+  snapshot: DynaSnapshot,
+  cards: readonly DynaCard[],
+  query: string,
+  filtersApplied: boolean,
+  locale: string,
+): ExecutiveSummaryModel {
+  const sorted = [...cards].sort(compareCards);
+  const unfinished = sorted.filter((card) => card.workflowState !== "completed");
+  const completed = sorted
+    .filter((card) => card.workflowState === "completed")
+    .sort((left, right) => (right.completedAt ?? "").localeCompare(left.completedAt ?? ""));
+  const points: ExecutiveSummaryPoint[] = [];
+  const needsYou = unfinished.filter((card) => cardWorkflowStage(card) === "needs_you");
+  const blocked = unfinished.filter(cardIsBlocked);
+  const soon = Date.now() + 72 * 60 * 60_000;
+  const actionable = unfinished.filter(
+    (card) =>
+      cardWorkflowStage(card) === "needs_you" ||
+      cardIsBlocked(card) ||
+      (card.dueAt !== undefined && Date.parse(card.dueAt) <= soon) ||
+      card.priority === "critical" ||
+      card.priority === "high",
+  );
+  const next = actionable[0] ?? unfinished[0];
+  if (next) {
+    const detail = [
+      ...(next.dueAt ? [executiveSummaryDeadline(next.dueAt, locale)] : []),
+      ...(next.nextSteps[0] ? [`Next: ${next.nextSteps[0].label}`] : []),
+      ...(needsYou.length > 0 ? [`${String(needsYou.length)} need you`] : []),
+      ...(blocked.length > 0 ? [`${String(blocked.length)} blocked`] : []),
+    ];
+    points.push({
+      kind: "act",
+      label: "Act Now",
+      headline: next.title,
+      ...(detail.length > 0 ? { detail: compactLine(detail.join(" · "), 220) } : {}),
+      action: { kind: "item", itemId: next.id },
+      sources: [executiveSummarySource(next)],
+    });
+  }
+
+  const themes = new Map<
+    string,
+    {
+      readonly display: string;
+      readonly cards: Map<string, DynaCard>;
+      readonly sources: Set<string>;
+    }
+  >();
+  for (const card of unfinished) {
+    for (const rawLabel of card.labels) {
+      const normalized = rawLabel
+        .normalize("NFKC")
+        .trim()
+        .replaceAll(/\s+/gu, " ")
+        .toLocaleLowerCase();
+      if (normalized.length < 3 || GENERIC_SUMMARY_LABELS.has(normalized)) continue;
+      const existing = themes.get(normalized) ?? {
+        display: rawLabel.trim(),
+        cards: new Map<string, DynaCard>(),
+        sources: new Set<string>(),
+      };
+      existing.cards.set(card.id, card);
+      existing.sources.add(executiveSummarySource(card).category);
+      themes.set(normalized, existing);
+    }
+  }
+  const correlatedThemes = [...themes.entries()]
+    .filter(([, theme]) => theme.sources.size >= 2)
+    .sort(
+      ([leftKey, left], [rightKey, right]) =>
+        right.sources.size - left.sources.size ||
+        right.cards.size - left.cards.size ||
+        leftKey.localeCompare(rightKey),
+    )
+    .slice(0, 2);
+  for (const [query, theme] of correlatedThemes) {
+    const themeCards = [...theme.cards.values()].sort(compareCards);
+    const themeSources = executiveSummarySources(themeCards);
+    const themeBlocked = themeCards.filter(cardIsBlocked).length;
+    points.push({
+      kind: "theme",
+      label: "Across Sources",
+      headline: `${theme.display.slice(0, 1).toLocaleUpperCase()}${theme.display.slice(1)}`,
+      detail: `${String(themeCards.length)} items across ${executiveSummaryList(
+        themeSources.map((source) => source.label),
+        locale,
+        4,
+      )}${themeBlocked > 0 ? ` · ${String(themeBlocked)} blocked` : ""}`,
+      action: { kind: "query", query },
+      sources: themeSources,
+    });
+  }
+
+  const inCodex = unfinished.filter((card) => cardWorkflowStage(card) === "executing");
+  const inputNeeded = unfinished.filter(
+    (card) =>
+      card.workState === "needs_input" || card.linkedTasks.some((task) => task.state === "waiting"),
+  );
+  const completionPending = unfinished.filter((card) => card.workState === "completion_reported");
+  if (inCodex.length > 0 || inputNeeded.length > 0 || completionPending.length > 0) {
+    const detail = [
+      ...(inputNeeded.length > 0 && inCodex.length > 0
+        ? [`${String(inputNeeded.length)} need input`]
+        : []),
+      ...(completionPending.length > 0
+        ? [`${String(completionPending.length)} completion awaiting verification`]
+        : []),
+    ];
+    const motionCards = [
+      ...new Map(
+        [...inCodex, ...inputNeeded, ...completionPending].map((card) => [card.id, card]),
+      ).values(),
+    ];
+    points.push({
+      kind: "motion",
+      label: "In Motion",
+      headline:
+        inCodex.length > 0
+          ? `${String(inCodex.length)} ${inCodex.length === 1 ? "item is" : "items are"} in Codex`
+          : inputNeeded.length > 0
+            ? `${String(inputNeeded.length)} Codex ${inputNeeded.length === 1 ? "task needs" : "tasks need"} you`
+            : `${String(completionPending.length)} completion ${completionPending.length === 1 ? "report is" : "reports are"} awaiting verification`,
+      ...(detail.length > 0 ? { detail: detail.join(" · ") } : {}),
+      action: {
+        kind: "workflow",
+        workflow: inCodex.length > 0 || completionPending.length > 0 ? "executing" : "needs_you",
+      },
+      sources: executiveSummarySources(motionCards),
+    });
+  }
+
+  if (completed.length > 0) {
+    const latest = completed[0];
+    if (latest) {
+      points.push({
+        kind: "done",
+        label: "Recently Done",
+        headline: `${String(completed.length)} completed recently`,
+        detail: compactLine(`Latest: ${latest.outcome ?? latest.title}`, 220),
+        action: { kind: "workflow", workflow: "completed" },
+        sources: [executiveSummarySource(latest)],
+      });
+    }
+  }
+
+  const coverage = executiveSummaryCoverage(snapshot.schedules, snapshot.cards, locale);
+  if (points.length === 0) {
+    points.push({
+      kind: "empty",
+      label: "Current State",
+      headline:
+        coverage.coverage === "current"
+          ? "No action signals were found in the latest complete refresh."
+          : coverage.coverage === "manual"
+            ? "No active commitments."
+            : "No actionable items are present in the available data.",
+      sources: [],
+    });
+  }
+
+  const bounded = snapshot.counts.total > snapshot.cards.length;
+  const searched = query.trim().length > 0;
+  const scope = bounded
+    ? `${filtersApplied ? `${String(cards.length)} filtered within ` : ""}highest-priority ${String(snapshot.cards.length)} of ${String(snapshot.counts.total)}${searched ? " matches" : " active items"}`
+    : searched
+      ? `${String(cards.length)} ${filtersApplied ? "filtered search" : "search"} ${cards.length === 1 ? "match" : "matches"}`
+      : filtersApplied
+        ? `${String(cards.length)} filtered ${cards.length === 1 ? "item" : "items"}`
+        : `All ${String(snapshot.counts.total)} active ${snapshot.counts.total === 1 ? "item" : "items"}`;
+  const fixedPoints = points.filter((point) => point.kind !== "theme");
+  const themePoints = points.filter((point) => point.kind === "theme");
+  const themeLimit = Math.max(0, 4 - fixedPoints.length);
+  const selectedPoints = [
+    ...points.filter((point) => point.kind === "act"),
+    ...themePoints.slice(0, themeLimit),
+    ...points.filter((point) => point.kind === "motion"),
+    ...points.filter((point) => point.kind === "done" || point.kind === "empty"),
+  ];
+  return {
+    scope,
+    ...coverage,
+    generatedAt: snapshot.generatedAt,
+    revision: snapshot.revision,
+    points: selectedPoints.slice(0, 4),
+  };
+}
+
 function cardActions(
   card: DynaCard & DynaCardUxFields,
   selection: ActionableTaskSelection,
@@ -3484,6 +3996,7 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
   const controller = useController();
   const Dashboard = dynaComponents.Dashboard;
   const SummaryStrip = dynaComponents.SummaryStrip;
+  const ExecutiveSummary = dynaComponents.ExecutiveSummary;
   const Section = dynaComponents.Section;
   const QueueView = dynaComponents.QueueView;
   const PipelineView = dynaComponents.PipelineView;
@@ -3516,6 +4029,34 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
     .sort(compareCards);
   const cards = stageCards.filter((card) =>
     cardPassesFilters(card, "all", "all", controller.workflowFilter, false),
+  );
+  const summaryCards = [...snapshot.cards]
+    .filter(
+      (card) =>
+        controller.query.trim() === snapshot.query ||
+        cardMatches(card, controller.query, controller.locale),
+    )
+    .filter((card) =>
+      cardPassesFilters(
+        card,
+        controller.priorityFilter,
+        controller.sourceFilter,
+        controller.workflowFilter,
+        controller.leadershipOnly,
+      ),
+    )
+    .sort(compareCards);
+  const summaryFiltersApplied =
+    controller.priorityFilter !== "all" ||
+    controller.sourceFilter !== "all" ||
+    controller.workflowFilter !== "all" ||
+    controller.leadershipOnly;
+  const executiveSummary = buildExecutiveSummary(
+    snapshot,
+    summaryCards,
+    controller.query,
+    summaryFiltersApplied,
+    controller.locale,
   );
   const queueCards = cards.filter((card) => card.workflowState !== "completed");
   const archiveCards = cards.filter((card) => Boolean(card.archive));
@@ -3653,7 +4194,13 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
           description={`${unhealthySchedules.length} ${unhealthySchedules.length === 1 ? "source is" : "sources are"} delayed or unavailable.`}
         />
       ) : null}
+      {!compactInline && controller.view !== "archive" && snapshot.scope === "active" ? (
+        <ExecutiveSummary props={{ model: executiveSummary, condensed: compactInline }} />
+      ) : null}
       <QueueView props={{}}>{queueContent}</QueueView>
+      {compactInline && controller.view !== "archive" && snapshot.scope === "active" ? (
+        <ExecutiveSummary props={{ model: executiveSummary, condensed: true }} />
+      ) : null}
       {!compactInline ? (
         <PipelineView props={{ stages }}>
           {stages.map((stage) => (

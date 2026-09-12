@@ -34,10 +34,10 @@ import { z } from "zod";
 import type { FlowZoneAppTool, FlowZonePlugin } from "../plugin.js";
 
 export const DYNA_PLUGIN_ID = "dyna";
-export const DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v12.html";
+export const DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v13.html";
 export const LEGACY_DYNA_TEMPLATE_URIS = [
+  "ui://flowzone/dyna/v12.html",
   "ui://flowzone/dyna/v11.html",
-  "ui://flowzone/dyna/v10.html",
 ] as const;
 
 const DashboardIdSchema = z.object({ dashboardId: z.uuid() }).strict();

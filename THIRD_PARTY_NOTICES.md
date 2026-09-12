@@ -3,9 +3,10 @@
 Dyna embeds Latin variable-font subsets from:
 
 - Oxanium — Copyright 2019 The Oxanium Project Authors (https://github.com/sevmeyer/oxanium)
+- Geist — Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font.git)
 - Geist Mono — Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font.git)
 
-Both fonts are distributed under the SIL Open Font License 1.1:
+These fonts are distributed under the SIL Open Font License 1.1:
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:

@@ -207,6 +207,26 @@ function useController(): DynaUiController {
   return controller;
 }
 
+function handleExternalAnchorClick(
+  event: ReactMouseEvent<HTMLAnchorElement>,
+  url: string,
+  controller: DynaUiController,
+): void {
+  if (
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey ||
+    !controller.externalLinks
+  ) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  void controller.openExternal(url);
+}
+
 function relativeTime(value: string, locale?: string): string {
   const seconds = Math.round((Date.parse(value) - Date.now()) / 1_000);
   const formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
@@ -1002,18 +1022,7 @@ function InspectorActions({ card }: { readonly card: CardViewProps }) {
             target="_blank"
             rel="noopener noreferrer"
             onClick={(event) => {
-              if (
-                event.button !== 0 ||
-                event.metaKey ||
-                event.ctrlKey ||
-                event.shiftKey ||
-                event.altKey ||
-                !controller.externalLinks
-              ) {
-                return;
-              }
-              event.preventDefault();
-              void controller.openExternal(card.sourceUrl ?? "");
+              handleExternalAnchorClick(event, card.sourceUrl ?? "", controller);
             }}
           >
             <ExternalLink className="dyna-icon" aria-hidden="true" />
@@ -1847,18 +1856,7 @@ function WorkActivity({
                         rel="noopener noreferrer"
                         aria-label={`Open artifact: ${artifact.label}`}
                         onClick={(event) => {
-                          if (
-                            event.button !== 0 ||
-                            event.metaKey ||
-                            event.ctrlKey ||
-                            event.shiftKey ||
-                            event.altKey ||
-                            !controller.externalLinks
-                          ) {
-                            return;
-                          }
-                          event.preventDefault();
-                          void controller.openExternal(artifact.url);
+                          handleExternalAnchorClick(event, artifact.url, controller);
                         }}
                       >
                         <ExternalLink className="dyna-source-link-icon" aria-hidden="true" />
@@ -2725,18 +2723,7 @@ const dynaComponents: DynaComponentCatalog = {
                   rel="noopener noreferrer"
                   aria-label={`Open source: ${props.title}`}
                   onClick={(event) => {
-                    if (
-                      event.button !== 0 ||
-                      event.metaKey ||
-                      event.ctrlKey ||
-                      event.shiftKey ||
-                      event.altKey ||
-                      !controller.externalLinks
-                    ) {
-                      return;
-                    }
-                    event.preventDefault();
-                    void controller.openExternal(props.sourceUrl ?? "");
+                    handleExternalAnchorClick(event, props.sourceUrl ?? "", controller);
                   }}
                 >
                   <span>{props.title}</span>
@@ -3007,18 +2994,7 @@ const dynaComponents: DynaComponentCatalog = {
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={(event) => {
-                          if (
-                            event.button !== 0 ||
-                            event.metaKey ||
-                            event.ctrlKey ||
-                            event.shiftKey ||
-                            event.altKey ||
-                            !controller.externalLinks
-                          ) {
-                            return;
-                          }
-                          event.preventDefault();
-                          void controller.openExternal(props.sourceUrl ?? "");
+                          handleExternalAnchorClick(event, props.sourceUrl ?? "", controller);
                         }}
                       >
                         {sourceReferenceLabel(props.sourceRef)}

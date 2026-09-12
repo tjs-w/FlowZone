@@ -58944,10 +58944,10 @@ var DynaService = class {
 
 // packages/mcp-server/src/plugins/dyna.ts
 var DYNA_PLUGIN_ID = "dyna";
-var DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v13.html";
+var DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v14.html";
 var LEGACY_DYNA_TEMPLATE_URIS = [
-  "ui://flowzone/dyna/v12.html",
-  "ui://flowzone/dyna/v11.html"
+  "ui://flowzone/dyna/v13.html",
+  "ui://flowzone/dyna/v12.html"
 ];
 var DashboardIdSchema = external_exports.object({ dashboardId: external_exports.uuid() }).strict();
 var ViewTokenSchema = external_exports.object({

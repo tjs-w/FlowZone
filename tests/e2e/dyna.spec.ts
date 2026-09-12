@@ -483,6 +483,34 @@ test("opens originating records externally while preserving native link behavior
     "https://github.com/team/project/pull/fixture-pr-0",
   );
   await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "1");
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "0");
+  const modifiedClick = await rowLink.evaluate((node) => {
+    let reachedNativeGuard = false;
+    let preventedBeforeNativeGuard = true;
+    const stopNavigation = (event: MouseEvent) => {
+      reachedNativeGuard = true;
+      preventedBeforeNativeGuard = event.defaultPrevented;
+      event.preventDefault();
+    };
+    document.addEventListener("click", stopNavigation, { once: true });
+    const dispatched = node.dispatchEvent(
+      new MouseEvent("click", {
+        bubbles: true,
+        cancelable: true,
+        ctrlKey: true,
+      }),
+    );
+    document.removeEventListener("click", stopNavigation);
+    return { dispatched, reachedNativeGuard, preventedBeforeNativeGuard };
+  });
+  expect(modifiedClick).toEqual({
+    dispatched: false,
+    reachedNativeGuard: true,
+    preventedBeforeNativeGuard: false,
+  });
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "1");
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "0");
   await rowLink.click({ button: "right" });
   const linkMenu = page.getByRole("menu", { name: "Link actions" });
   await expect(linkMenu.getByRole("menuitem")).toHaveText(["Open link", "Copy link"]);
@@ -545,6 +573,7 @@ test("opens originating records externally while preserving native link behavior
     "https://github.com/team/project/pull/fixture-pr-0",
   );
   await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "2");
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "0");
   await expect(page.locator("html")).not.toHaveAttribute("data-dyna-message-count", /.+/);
 });
 
@@ -761,7 +790,7 @@ for (const theme of ["light", "dark"] as const) {
     expect(geometry.top).toBeGreaterThanOrEqual(7.5);
     expect(geometry.right).toBeLessThanOrEqual(geometry.viewportWidth - 7.5);
     expect(geometry.bottom).toBeLessThanOrEqual(geometry.viewportHeight - 7.5);
-    expect(geometry.fontFamily).toContain("Oxanium Variable");
+    expect(geometry.fontFamily).toContain("Geist Variable");
     expect(await touchTargetViolations(page, ".dyna-context-menu")).toEqual([]);
     const accessibility = await new AxeBuilder({ page }).analyze();
     expect(accessibility.violations).toEqual([]);
@@ -1202,6 +1231,17 @@ test("uses calm, legible light and dark host themes", async ({ page }) => {
   await expect
     .poll(() =>
       page.evaluate(async () => {
+        await document.fonts.load('500 14px "Geist Variable"', "Review the release merge request");
+        await document.fonts.ready;
+        return Array.from(document.fonts).some(
+          (face) => face.family === "Geist Variable" && face.status === "loaded",
+        );
+      }),
+    )
+    .toBe(true);
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
         await document.fonts.load('500 12px "Geist Mono Variable"', "Updated revision 012345");
         await document.fonts.ready;
         return Array.from(document.fonts).some(
@@ -1210,10 +1250,32 @@ test("uses calm, legible light and dark host themes", async ({ page }) => {
       }),
     )
     .toBe(true);
-  for (const selector of ["body", ".dyna h1", ".dyna-row-title", "button", "input"]) {
+  for (const selector of ["body", "button", "input", ".dyna-row-title"]) {
+    await expect(page.locator(selector).first()).toHaveCSS("font-family", /Geist Variable/);
+  }
+  for (const selector of [
+    ".dyna h1",
+    ".dyna-executive-summary-header h2",
+    ".dyna-section-header h2",
+  ]) {
     await expect(page.locator(selector).first()).toHaveCSS("font-family", /Oxanium Variable/);
   }
-  await expect(page.locator(".dyna-stat").first()).toHaveCSS("font-family", /Geist Mono Variable/);
+  for (const selector of [
+    ".dyna-stat strong",
+    ".dyna-row-time",
+    ".dyna-header-meta",
+    ".dyna-executive-summary-meta time",
+  ]) {
+    await expect(page.locator(selector).first()).toHaveCSS("font-family", /Geist Mono Variable/);
+  }
+  for (const selector of [
+    ".dyna-stat span",
+    ".dyna-meta",
+    ".dyna-executive-summary-sources",
+    ".dyna-executive-summary-coverage",
+  ]) {
+    await expect(page.locator(selector).first()).toHaveCSS("font-family", /Geist Variable/);
+  }
   const darkBackground = await page
     .locator("body")
     .evaluate((node) => getComputedStyle(node).backgroundColor);
@@ -1230,6 +1292,17 @@ test("uses calm, legible light and dark host themes", async ({ page }) => {
     }));
     expect(colors.fill).toBe(colors.inherited);
   }
+  await page.getByRole("tab", { name: "Progress pipeline" }).click();
+  await expect(page.locator(".dyna-pipeline-stage h2").first()).toHaveCSS(
+    "font-family",
+    /Oxanium Variable/,
+  );
+  await page.getByRole("tab", { name: "Priority queue" }).click();
+  await openDetails(page, "Additional priority 8");
+  await expect(page.locator(".dyna-inspector h2")).toHaveCSS("font-family", /Geist Variable/);
+  await openContextDetails(page);
+  await expect(page.locator(".dyna-origin code")).toHaveCSS("font-family", /Geist Mono Variable/);
+  await closeDetails(page);
   const accessibility = await new AxeBuilder({ page }).analyze();
   expect(accessibility.violations).toEqual([]);
 });

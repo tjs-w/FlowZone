@@ -288,7 +288,7 @@ async function runDynaFixtureUpdate(
   }
 }
 
-const dynaResource = await client.readResource({ uri: "ui://flowzone/dyna/v13.html" });
+const dynaResource = await client.readResource({ uri: "ui://flowzone/dyna/v14.html" });
 const dynaResourceContent = dynaResource.contents[0];
 if (!dynaResourceContent || !("text" in dynaResourceContent)) {
   throw new Error("The Dyna HTML resource was not returned");
@@ -1117,6 +1117,7 @@ const dynaHostScript = (dynaResult: unknown) => `<script>
     toolCalls: [],
     toolResults: [],
     externalLinks: [],
+    anchorInterceptorActivations: [],
     clipboardWrites: [],
     displayModeRequests: [],
     snapshotResults: 0,
@@ -1129,6 +1130,27 @@ const dynaHostScript = (dynaResult: unknown) => `<script>
       notify("ui/notifications/tool-result", state.latestToolResult);
     }
   };
+  document.documentElement.dataset.dynaAnchorInterceptorCount = "0";
+  document.addEventListener("click", (event) => {
+    if (
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const anchor = target.closest("a[href]");
+    if (!(anchor instanceof HTMLAnchorElement)) return;
+    state.anchorInterceptorActivations.push(anchor.href);
+    document.documentElement.dataset.dynaAnchorInterceptorCount =
+      String(state.anchorInterceptorActivations.length);
+    document.documentElement.dataset.dynaLastAnchorInterceptorActivation = anchor.href;
+    event.preventDefault();
+  });
   Object.defineProperty(navigator, "clipboard", {
     configurable: true,
     value: {

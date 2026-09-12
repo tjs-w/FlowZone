@@ -3,6 +3,108 @@ import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 
 describe("DynaStore lifecycle", () => {
+  test("changes taskless workflow status without fabricating linked Codex state", () => {
+    const fixture = resolve(import.meta.dir, "manual-workflow-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      globalTasklessStatus: true,
+      exactReplay: true,
+      staleAndConflictGuards: true,
+      linkedTaskAuthority: true,
+      creationRaceGuard: true,
+      manualCompletion: true,
+      terminalCompletion: true,
+      retentionAndArchiveEvidence: true,
+      restoreHistory: true,
+    });
+  });
+
+  test("lists bounded private Codex sessions and attaches an exact controller-verified selection", () => {
+    const fixture = resolve(import.meta.dir, "session-picker-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      privateCandidates: true,
+      exactSelection: true,
+      idempotentPrepare: true,
+      controllerMetadata: true,
+      archiveGuard: true,
+      completionGuard: true,
+      ephemeralExpiry: true,
+    });
+  });
+
+  test("keeps create-task actions inside active unfinished item lifecycle boundaries", () => {
+    const fixture = resolve(import.meta.dir, "action-lifecycle-guard-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      prepareGuards: true,
+      claimGuards: true,
+      archiveRace: true,
+      completionRace: true,
+      reconciliationGuards: true,
+    });
+  });
+
+  test("synchronizes bounded cross-session work through retry-safe CLI mutations", () => {
+    const fixture = resolve(import.meta.dir, "cross-session-work-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      globalActivity: true,
+      localArchive: true,
+      taskScopedProjection: true,
+      mixedTaskWaiting: true,
+      mixedTaskFailure: true,
+      attributedLifecycleUpdates: true,
+      succeededTaskReportsIgnored: true,
+      succeededControllerTerminal: true,
+      taskAttachLifecycleGuards: true,
+      sameTimestampOrdering: true,
+      globalRequestLedger: true,
+      idempotentLedger: true,
+      completedGuard: true,
+      archiveHistory: true,
+      followUp: true,
+      enrichment: true,
+      placement: true,
+      restore: true,
+    });
+  });
+
+  test("serializes concurrent CLI retries and rolls back failed ledger claims", () => {
+    const fixture = resolve(import.meta.dir, "cli-ledger-race-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ concurrent: true, rollback: true });
+  });
+
+  test("pages durable history and keeps dashboard cards compact", () => {
+    const fixture = resolve(import.meta.dir, "history-pagination-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      pagination: true,
+      compactCards: true,
+      membership: true,
+      scopedIndex: true,
+      valueOnlyActivitySearch: true,
+      activityFieldExplanations: true,
+    });
+  });
+
+  test("fails closed and rolls back unsafe v5 action-request backfills", () => {
+    const fixture = resolve(import.meta.dir, "v5-v6-migration-rollback-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      unmappedRollback: true,
+      duplicateIdempotencyRollback: true,
+    });
+  });
+
   test("archives completed and disposed work without deleting its evidence", () => {
     const fixture = resolve(import.meta.dir, "archive-lifecycle-node-fixture.mjs");
     const result = spawnSync("node", [fixture], { encoding: "utf8" });

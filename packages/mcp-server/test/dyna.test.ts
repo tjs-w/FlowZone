@@ -5,6 +5,54 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 describe("Dyna publisher source manifest actions", () => {
+  test("keeps direct taskless workflow changes capability-bound and app-private", () => {
+    const fixture = resolve(import.meta.dir, "dyna-item-status-node-fixture.mjs");
+    const directory = mkdtempSync(join(tmpdir(), "flowzone-dyna-item-status-"));
+    const bundledFixture = join(directory, "fixture.mjs");
+    try {
+      const build = spawnSync(
+        process.execPath,
+        ["build", fixture, "--target=node", "--outfile", bundledFixture],
+        { encoding: "utf8" },
+      );
+      expect(build.status, build.stderr).toBe(0);
+      const result = spawnSync("node", [bundledFixture], { encoding: "utf8" });
+      expect(result.status, result.stderr).toBe(0);
+      expect(JSON.parse(result.stdout)).toEqual({
+        appPrivate: true,
+        strictCompletion: true,
+        exactReplay: true,
+        capabilityBound: true,
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }, 10_000);
+
+  test("keeps the Codex session picker capability-bound and app-private", () => {
+    const fixture = resolve(import.meta.dir, "dyna-session-picker-node-fixture.mjs");
+    const directory = mkdtempSync(join(tmpdir(), "flowzone-dyna-session-picker-"));
+    const bundledFixture = join(directory, "fixture.mjs");
+    try {
+      const build = spawnSync(
+        process.execPath,
+        ["build", fixture, "--target=node", "--outfile", bundledFixture],
+        { encoding: "utf8" },
+      );
+      expect(build.status, build.stderr).toBe(0);
+      const result = spawnSync("node", [bundledFixture], { encoding: "utf8" });
+      expect(result.status, result.stderr).toBe(0);
+      expect(JSON.parse(result.stdout)).toEqual({
+        prepareSchema: true,
+        privateMetadata: true,
+        transcriptRejected: true,
+        exactAttachment: true,
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }, 10_000);
+
   test("creates, binds, lists, and idempotently reconciles an immutable manifest", () => {
     const fixture = resolve(import.meta.dir, "dyna-node-fixture.mjs");
     const directory = mkdtempSync(join(tmpdir(), "flowzone-dyna-mcp-action-"));
@@ -34,6 +82,7 @@ describe("Dyna publisher source manifest actions", () => {
         updateSchema: true,
         inventory: true,
         immutable: true,
+        mutationAnnotations: true,
       });
     } finally {
       rmSync(directory, { recursive: true, force: true });

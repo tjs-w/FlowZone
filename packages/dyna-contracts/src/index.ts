@@ -537,6 +537,66 @@ const DynaOneLineOutcomeSchema = z
   .max(200)
   .regex(/^[^\r\n]+$/, "A Codex task outcome must be exactly one line.");
 
+export const DynaUserWorkflowStageSchema = z.enum(["todo", "needs_you", "done"]);
+export type DynaUserWorkflowStage = z.infer<typeof DynaUserWorkflowStageSchema>;
+
+export const DynaSetItemStatusInputSchema = z
+  .object({
+    viewToken: z.string().min(32).max(128),
+    itemId: z.uuid(),
+    targetStage: DynaUserWorkflowStageSchema,
+    outcome: DynaOneLineOutcomeSchema.optional(),
+    expectedRevision: z.number().int().nonnegative(),
+    expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+    clientRequestId: z.uuid(),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    if (input.targetStage === "done" && !input.outcome) {
+      context.addIssue({
+        code: "custom",
+        message: "Completing a Dyna item requires a precise one-line outcome.",
+        path: ["outcome"],
+      });
+    }
+    if (input.targetStage !== "done" && input.outcome) {
+      context.addIssue({
+        code: "custom",
+        message: "Only a completed Dyna item can carry a completion outcome.",
+        path: ["outcome"],
+      });
+    }
+  });
+export type DynaSetItemStatusInput = z.infer<typeof DynaSetItemStatusInputSchema>;
+
+export const DynaUserWorkflowEventSchema = z
+  .object({
+    id: z.uuid(),
+    itemId: z.uuid(),
+    originDashboardId: z.uuid(),
+    targetStage: DynaUserWorkflowStageSchema,
+    outcome: DynaOneLineOutcomeSchema.optional(),
+    createdAt: TimestampSchema,
+  })
+  .strict()
+  .superRefine((event, context) => {
+    if (event.targetStage === "done" && !event.outcome) {
+      context.addIssue({
+        code: "custom",
+        message: "A completed Dyna workflow event requires a precise one-line outcome.",
+        path: ["outcome"],
+      });
+    }
+    if (event.targetStage !== "done" && event.outcome) {
+      context.addIssue({
+        code: "custom",
+        message: "Only a completed Dyna workflow event can carry an outcome.",
+        path: ["outcome"],
+      });
+    }
+  });
+export type DynaUserWorkflowEvent = z.infer<typeof DynaUserWorkflowEventSchema>;
+
 export const DynaTaskStatusSchema = z.discriminatedUnion("state", [
   DynaTaskStatusBaseSchema.extend({
     state: z.literal("succeeded"),
@@ -548,6 +608,189 @@ export const DynaTaskStatusSchema = z.discriminatedUnion("state", [
   }).strict(),
 ]);
 export type DynaTaskStatus = z.infer<typeof DynaTaskStatusSchema>;
+
+export const DynaCodexSessionCandidateSchema = z
+  .object({
+    taskId: IdentifierSchema,
+    hostId: IdentifierSchema,
+    projectId: IdentifierSchema.optional(),
+    title: z.string().trim().min(1).max(200),
+    updatedAt: TimestampSchema,
+  })
+  .strict();
+export type DynaCodexSessionCandidate = z.infer<typeof DynaCodexSessionCandidateSchema>;
+
+export const DynaCodexSessionCandidatesSchema = z
+  .array(DynaCodexSessionCandidateSchema)
+  .max(50)
+  .superRefine((candidates, context) => {
+    const identities = new Set<string>();
+    for (const [index, candidate] of candidates.entries()) {
+      const identity = `${candidate.hostId}\u0000${candidate.taskId}`;
+      if (identities.has(identity)) {
+        context.addIssue({
+          code: "custom",
+          message: "A Codex session candidate list cannot contain duplicate task identities.",
+          path: [index],
+        });
+      }
+      identities.add(identity);
+    }
+  });
+
+export const DynaArtifactKindSchema = z.enum([
+  "merge_request",
+  "pull_request",
+  "issue",
+  "pipeline",
+  "commit",
+  "document",
+  "report",
+  "other",
+]);
+export type DynaArtifactKind = z.infer<typeof DynaArtifactKindSchema>;
+
+export const DynaArtifactRefSchema = z
+  .object({
+    kind: DynaArtifactKindSchema,
+    label: z.string().trim().min(1).max(160),
+    url: z
+      .url()
+      .max(2_048)
+      .refine(
+        (value) =>
+          (value.startsWith("https://") || value.startsWith("http://")) &&
+          sourceOrigin(value) !== undefined,
+        {
+          message: "A Dyna artifact must use an HTTP or HTTPS URL without embedded credentials.",
+        },
+      ),
+  })
+  .strict();
+export type DynaArtifactRef = z.infer<typeof DynaArtifactRefSchema>;
+
+export const DynaWorkUpdateKindSchema = z.enum([
+  "note",
+  "progress",
+  "decision",
+  "needs_input",
+  "blocked",
+  "completion_reported",
+  "handoff",
+]);
+export type DynaWorkUpdateKind = z.infer<typeof DynaWorkUpdateKindSchema>;
+
+export const DynaWorkStateSchema = z.enum([
+  "progress",
+  "needs_input",
+  "blocked",
+  "completion_reported",
+  "handoff",
+]);
+export type DynaWorkState = z.infer<typeof DynaWorkStateSchema>;
+
+export const DynaWorkTaskAttributionSchema = z
+  .object({
+    taskId: IdentifierSchema,
+    hostId: IdentifierSchema,
+  })
+  .strict();
+export type DynaWorkTaskAttribution = z.infer<typeof DynaWorkTaskAttributionSchema>;
+
+export const DynaWorkUpdateInputSchema = z
+  .object({
+    requestId: z.uuid(),
+    workAttemptId: z.uuid(),
+    kind: DynaWorkUpdateKindSchema,
+    body: z.string().trim().min(1).max(1_000),
+    outcome: DynaOneLineOutcomeSchema.optional(),
+    artifacts: z.array(DynaArtifactRefSchema).max(4).default([]),
+    task: DynaWorkTaskAttributionSchema.optional(),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    if (
+      ["progress", "needs_input", "blocked", "completion_reported", "handoff"].includes(
+        input.kind,
+      ) &&
+      !input.task
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "A lifecycle work update requires a controller-verified linked task.",
+        path: ["task"],
+      });
+    }
+    if (input.kind === "completion_reported" && !input.outcome) {
+      context.addIssue({
+        code: "custom",
+        message: "A completion report requires a precise one-line outcome.",
+        path: ["outcome"],
+      });
+    }
+    if (input.kind !== "completion_reported" && input.outcome) {
+      context.addIssue({
+        code: "custom",
+        message: "Only a completion report can carry an outcome.",
+        path: ["outcome"],
+      });
+    }
+  });
+export type DynaWorkUpdateInput = z.infer<typeof DynaWorkUpdateInputSchema>;
+
+export const DynaWorkUpdateSchema = z
+  .object({
+    schema: z.literal("dyna/work-update-v1"),
+    id: z.uuid(),
+    itemId: z.uuid(),
+    originDashboardId: z.uuid(),
+    workAttemptId: z.uuid(),
+    kind: DynaWorkUpdateKindSchema,
+    body: z.string().trim().min(1).max(1_000),
+    outcome: DynaOneLineOutcomeSchema.optional(),
+    artifacts: z.array(DynaArtifactRefSchema).max(4),
+    task: DynaWorkTaskAttributionSchema.extend({
+      title: z.string().trim().min(1).max(200).optional(),
+    })
+      .strict()
+      .optional(),
+    createdAt: TimestampSchema,
+  })
+  .strict()
+  .superRefine((update, context) => {
+    if (update.kind === "completion_reported" && !update.outcome) {
+      context.addIssue({
+        code: "custom",
+        message: "A completion report requires a precise one-line outcome.",
+        path: ["outcome"],
+      });
+    }
+    if (update.kind !== "completion_reported" && update.outcome) {
+      context.addIssue({
+        code: "custom",
+        message: "Only a completion report can carry an outcome.",
+        path: ["outcome"],
+      });
+    }
+  });
+export type DynaWorkUpdate = z.infer<typeof DynaWorkUpdateSchema>;
+
+export const DynaWorkReferenceSchema = z
+  .object({
+    schema: z.literal("dyna/work-item-v1"),
+    dashboardId: z.uuid(),
+    dashboardName: z.string().trim().min(1).max(96),
+    itemId: z.uuid(),
+    expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+    sourceUpdatedAt: TimestampSchema,
+    copiedAt: TimestampSchema,
+    workAttemptId: z.uuid(),
+    linkedTasks: z.array(DynaTaskStatusSchema).max(8),
+  })
+  .strict();
+export type DynaWorkReference = z.infer<typeof DynaWorkReferenceSchema>;
+
+const DynaHistoryCursorSchema = z.string().trim().min(1).max(512);
 
 export const DynaAnnotationSchema = z
   .object({
@@ -572,6 +815,9 @@ export const DynaItemContextSchema = DynaMaterializedItemSchema.extend({
     .strict()
     .optional(),
   annotations: z.array(DynaAnnotationSchema).max(20),
+  workUpdates: z.array(DynaWorkUpdateSchema).max(20),
+  workUpdateCount: z.number().int().nonnegative(),
+  linkedTasks: z.array(DynaTaskStatusSchema).max(8),
 }).strict();
 export type DynaItemContext = z.infer<typeof DynaItemContextSchema>;
 
@@ -612,7 +858,7 @@ export const DynaItemHistorySchema = z
           outcomeAtArchive: z.string().trim().min(1).max(200).optional(),
         }).strict(),
       )
-      .max(100),
+      .max(50),
     organization: z
       .array(
         z
@@ -624,10 +870,26 @@ export const DynaItemHistorySchema = z
           })
           .strict(),
       )
-      .max(200),
+      .max(50),
+    statusChanges: z.array(DynaUserWorkflowEventSchema).max(50),
+    workUpdates: z.array(DynaWorkUpdateSchema).max(50),
+    archiveEventsNextCursor: DynaHistoryCursorSchema.optional(),
+    orderHistoryNextCursor: DynaHistoryCursorSchema.optional(),
+    statusHistoryNextCursor: DynaHistoryCursorSchema.optional(),
+    workUpdatesNextCursor: DynaHistoryCursorSchema.optional(),
   })
   .strict();
 export type DynaItemHistory = z.infer<typeof DynaItemHistorySchema>;
+
+export const DynaWorkActivityPageSchema = z
+  .object({
+    itemId: z.uuid(),
+    updates: z.array(DynaWorkUpdateSchema).max(25),
+    nextCursor: DynaHistoryCursorSchema.optional(),
+    total: z.number().int().nonnegative(),
+  })
+  .strict();
+export type DynaWorkActivityPage = z.infer<typeof DynaWorkActivityPageSchema>;
 
 export const DynaActionItemContextSchema = z
   .object({
@@ -643,6 +905,8 @@ export const DynaActionItemContextSchema = z
 export const DynaActionKindSchema = z.enum([
   "open_source",
   "create_codex_task",
+  "list_codex_sessions",
+  "attach_codex_task",
   "open_codex_task",
   "refresh_codex_status",
 ]);
@@ -660,6 +924,7 @@ export const DynaActionRequestSchema = z
   .object({
     id: z.uuid(),
     kind: DynaActionKindSchema,
+    dashboardId: z.uuid(),
     itemId: z.uuid().optional(),
     taskId: IdentifierSchema.optional(),
     taskHostId: IdentifierSchema.optional(),
@@ -702,6 +967,13 @@ export const DynaCardSchema = z
     nextSteps: z.array(DynaNextStepSchema).max(4),
     enrichmentState: z.enum(["active", "stale"]).optional(),
     annotations: z.array(DynaAnnotationSchema).max(20),
+    workUpdates: z.array(DynaWorkUpdateSchema).max(1).default([]),
+    workUpdateCount: z.number().int().nonnegative().default(0),
+    workState: DynaWorkStateSchema.optional(),
+    workConditionSummary: z.string().trim().min(1).max(200).optional(),
+    workConditionTask: DynaWorkTaskAttributionSchema.optional(),
+    matchedActivity: z.string().trim().min(1).max(500).optional(),
+    blocked: z.boolean().default(false),
     linkedTasks: z.array(DynaTaskStatusSchema).max(8),
     archive: DynaArchiveStateSchema.optional(),
   })
@@ -710,7 +982,7 @@ export type DynaCard = z.infer<typeof DynaCardSchema>;
 
 export const DynaDashboardSnapshotSchema = z
   .object({
-    schema: z.literal("dyna/snapshot-v4"),
+    schema: z.literal("dyna/snapshot-v5"),
     dashboard: DynaDashboardSchema,
     generatedAt: TimestampSchema,
     query: z.string().max(500),
@@ -724,6 +996,7 @@ export const DynaDashboardSnapshotSchema = z
         leadership: z.number().int().nonnegative(),
         total: z.number().int().nonnegative(),
         archived: z.number().int().nonnegative().default(0),
+        blocked: z.number().int().nonnegative().default(0),
       })
       .strict(),
     schedules: z.array(DynaPublisherSchema).max(50),
@@ -734,9 +1007,138 @@ export type DynaDashboardSnapshot = z.infer<typeof DynaDashboardSnapshotSchema>;
 
 export const DynaUiPayloadSchema = z
   .object({
-    schema: z.literal("dyna/ui-v6"),
+    schema: z.literal("dyna/ui-v7"),
     viewToken: z.string().min(32).max(128),
     snapshot: DynaDashboardSnapshotSchema,
   })
   .strict();
 export type DynaUiPayload = z.infer<typeof DynaUiPayloadSchema>;
+
+export const DynaItemShowResultSchema = z
+  .object({
+    schema: z.literal("dyna/item-show-result-v1"),
+    dashboard: DynaDashboardSchema,
+    revision: z.number().int().nonnegative(),
+    enrichmentVersion: z.number().int().nonnegative(),
+    item: DynaCardSchema,
+  })
+  .strict();
+export type DynaItemShowResult = z.infer<typeof DynaItemShowResultSchema>;
+
+const DynaMutationResultBaseSchema = z.object({
+  requestId: z.uuid(),
+  itemId: z.uuid(),
+  deduplicated: z.boolean(),
+});
+
+export const DynaItemUpdateResultSchema = DynaMutationResultBaseSchema.extend({
+  schema: z.literal("dyna/item-update-result-v1"),
+  workUpdateId: z.uuid(),
+}).strict();
+export type DynaItemUpdateResult = z.infer<typeof DynaItemUpdateResultSchema>;
+
+export const DynaItemEnrichResultSchema = DynaMutationResultBaseSchema.extend({
+  schema: z.literal("dyna/item-enrich-result-v1"),
+  enrichmentVersion: z.number().int().positive(),
+}).strict();
+export type DynaItemEnrichResult = z.infer<typeof DynaItemEnrichResultSchema>;
+
+export const DynaItemPlaceResultSchema = DynaMutationResultBaseSchema.extend({
+  schema: z.literal("dyna/item-place-result-v1"),
+  changed: z.boolean(),
+}).strict();
+export type DynaItemPlaceResult = z.infer<typeof DynaItemPlaceResultSchema>;
+
+export const DynaItemStatusResultSchema = DynaMutationResultBaseSchema.extend({
+  schema: z.literal("dyna/item-status-result-v1"),
+  targetStage: DynaUserWorkflowStageSchema,
+  changed: z.boolean(),
+  changedAt: TimestampSchema.optional(),
+}).strict();
+export type DynaItemStatusResult = z.infer<typeof DynaItemStatusResultSchema>;
+
+export const DynaItemArchiveResultSchema = DynaMutationResultBaseSchema.extend({
+  schema: z.literal("dyna/item-archive-result-v1"),
+  archiveId: z.uuid(),
+  archivedAt: TimestampSchema,
+  reason: DynaArchiveReasonSchema,
+}).strict();
+export type DynaItemArchiveResult = z.infer<typeof DynaItemArchiveResultSchema>;
+
+export const DynaItemRestoreResultSchema = DynaMutationResultBaseSchema.extend({
+  schema: z.literal("dyna/item-restore-result-v1"),
+  restoredAt: TimestampSchema,
+}).strict();
+export type DynaItemRestoreResult = z.infer<typeof DynaItemRestoreResultSchema>;
+
+export const DynaFollowUpCreateResultSchema = DynaMutationResultBaseSchema.extend({
+  schema: z.literal("dyna/follow-up-create-result-v1"),
+  sourceItemId: z.uuid(),
+  fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+}).strict();
+export type DynaFollowUpCreateResult = z.infer<typeof DynaFollowUpCreateResultSchema>;
+
+export const DynaCliHelpResultSchema = z
+  .object({
+    schema: z.literal("dyna/help-v1"),
+    commands: z
+      .array(
+        z
+          .object({
+            command: z.string().trim().min(1).max(160),
+            readsStdin: z.boolean(),
+            description: z.string().trim().min(1).max(200),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(10),
+  })
+  .strict();
+export type DynaCliHelpResult = z.infer<typeof DynaCliHelpResultSchema>;
+
+export const DynaCliVersionResultSchema = z
+  .object({
+    schema: z.literal("dyna/version-v1"),
+    version: z.string().trim().min(1).max(32),
+    nodeVersion: z.string().trim().min(1).max(32),
+    minimumNodeVersion: z.string().trim().min(1).max(32),
+  })
+  .strict();
+export type DynaCliVersionResult = z.infer<typeof DynaCliVersionResultSchema>;
+
+export const DynaCliSetupResultSchema = z
+  .object({
+    schema: z.literal("dyna/setup-v1"),
+    ready: z.literal(true),
+    store: z.literal("available"),
+    credentialBoundary: z.literal("local-user"),
+  })
+  .strict();
+export type DynaCliSetupResult = z.infer<typeof DynaCliSetupResultSchema>;
+
+export const DynaCliErrorCodeSchema = z.enum([
+  "invalid_input",
+  "not_found",
+  "outside_dashboard",
+  "stale_item",
+  "stale_dashboard",
+  "stale_enrichment",
+  "archived_item",
+  "completed_item",
+  "request_conflict",
+  "task_not_linked",
+  "busy",
+  "unavailable",
+  "unsupported_runtime",
+  "internal",
+]);
+export type DynaCliErrorCode = z.infer<typeof DynaCliErrorCodeSchema>;
+
+export const DynaCliErrorSchema = z
+  .object({
+    schema: z.literal("dyna/error-v1"),
+    code: DynaCliErrorCodeSchema,
+    message: z.string().trim().min(1).max(300),
+  })
+  .strict();

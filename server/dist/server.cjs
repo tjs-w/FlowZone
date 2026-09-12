@@ -64,9 +64,9 @@ function $constructor(name, initializer3, params) {
     const proto = _3.prototype;
     const keys = Object.keys(proto);
     for (let i = 0; i < keys.length; i++) {
-      const k3 = keys[i];
-      if (!(k3 in inst)) {
-        inst[k3] = proto[k3].bind(inst);
+      const k2 = keys[i];
+      if (!(k2 in inst)) {
+        inst[k2] = proto[k2].bind(inst);
       }
     }
   }
@@ -205,7 +205,7 @@ function assert(_3) {
 }
 function getEnumValues(entries) {
   const numericValues = Object.values(entries).filter((v3) => typeof v3 === "number");
-  const values = Object.entries(entries).filter(([k3, _3]) => numericValues.indexOf(+k3) === -1).map(([_3, v3]) => v3);
+  const values = Object.entries(entries).filter(([k2, _3]) => numericValues.indexOf(+k2) === -1).map(([_3, v3]) => v3);
   return values;
 }
 function joinValues(array2, separator = "|") {
@@ -424,8 +424,8 @@ function stringifyPrimitive(value) {
   return `${value}`;
 }
 function optionalKeys(shape) {
-  return Object.keys(shape).filter((k3) => {
-    return shape[k3]._zod.optin === "optional" && shape[k3]._zod.optout === "optional";
+  return Object.keys(shape).filter((k2) => {
+    return shape[k2]._zod.optin === "optional" && shape[k2]._zod.optout === "optional";
   });
 }
 function pick(schema, mask) {
@@ -691,8 +691,8 @@ function issue(...args) {
   return { ...iss };
 }
 function cleanEnum(obj) {
-  return Object.entries(obj).filter(([k3, _3]) => {
-    return Number.isNaN(Number.parseInt(k3, 10));
+  return Object.entries(obj).filter(([k2, _3]) => {
+    return Number.isNaN(Number.parseInt(k2, 10));
   }).map((el) => el[1]);
 }
 function base64ToUint8Array(base643) {
@@ -1918,9 +1918,9 @@ function handlePropertyResult(result, final, key, input, isOptionalIn, isOptiona
 }
 function normalizeDef(def) {
   const keys = Object.keys(def.shape);
-  for (const k3 of keys) {
-    if (!def.shape?.[k3]?._zod?.traits?.has("$ZodType")) {
-      throw new Error(`Invalid element at key "${k3}": expected a Zod schema`);
+  for (const k2 of keys) {
+    if (!def.shape?.[k2]?._zod?.traits?.has("$ZodType")) {
+      throw new Error(`Invalid element at key "${k2}": expected a Zod schema`);
     }
   }
   const okeys = optionalKeys(def.shape);
@@ -2063,10 +2063,10 @@ function handleIntersectionResults(result, left, right) {
   for (const iss of left.issues) {
     if (iss.code === "unrecognized_keys") {
       unrecIssue ?? (unrecIssue = iss);
-      for (const k3 of iss.keys) {
-        if (!unrecKeys.has(k3))
-          unrecKeys.set(k3, {});
-        unrecKeys.get(k3).l = true;
+      for (const k2 of iss.keys) {
+        if (!unrecKeys.has(k2))
+          unrecKeys.set(k2, {});
+        unrecKeys.get(k2).l = true;
       }
     } else {
       result.issues.push(iss);
@@ -2074,16 +2074,16 @@ function handleIntersectionResults(result, left, right) {
   }
   for (const iss of right.issues) {
     if (iss.code === "unrecognized_keys") {
-      for (const k3 of iss.keys) {
-        if (!unrecKeys.has(k3))
-          unrecKeys.set(k3, {});
-        unrecKeys.get(k3).r = true;
+      for (const k2 of iss.keys) {
+        if (!unrecKeys.has(k2))
+          unrecKeys.set(k2, {});
+        unrecKeys.get(k2).r = true;
       }
     } else {
       result.issues.push(iss);
     }
   }
-  const bothKeys = [...unrecKeys].filter(([, f3]) => f3.l && f3.r).map(([k3]) => k3);
+  const bothKeys = [...unrecKeys].filter(([, f3]) => f3.l && f3.r).map(([k2]) => k2);
   if (bothKeys.length && unrecIssue) {
     result.issues.push({ ...unrecIssue, keys: bothKeys });
   }
@@ -2937,8 +2937,8 @@ var init_schemas = __esm({
         const doc = new Doc(["shape", "payload", "ctx"]);
         const normalized = _normalized.value;
         const parseStr = (key) => {
-          const k3 = esc(key);
-          return `shape[${k3}]._zod.run({ value: input[${k3}], issues: [] }, ctx)`;
+          const k2 = esc(key);
+          return `shape[${k2}]._zod.run({ value: input[${k2}], issues: [] }, ctx)`;
         };
         doc.write(`const input = payload.value;`);
         const ids = /* @__PURE__ */ Object.create(null);
@@ -2949,7 +2949,7 @@ var init_schemas = __esm({
         doc.write(`const newResult = {};`);
         for (const key of normalized.keys) {
           const id = ids[key];
-          const k3 = esc(key);
+          const k2 = esc(key);
           const schema = shape[key];
           const isOptionalIn = schema?._zod?.optin === "optional";
           const isOptionalOut = schema?._zod?.optout === "optional";
@@ -2957,30 +2957,30 @@ var init_schemas = __esm({
           if (isOptionalIn && isOptionalOut) {
             doc.write(`
         if (${id}.issues.length) {
-          if (${k3} in input) {
+          if (${k2} in input) {
             payload.issues = payload.issues.concat(${id}.issues.map(iss => ({
               ...iss,
-              path: iss.path ? [${k3}, ...iss.path] : [${k3}]
+              path: iss.path ? [${k2}, ...iss.path] : [${k2}]
             })));
           }
         }
         
         if (${id}.value === undefined) {
-          if (${k3} in input) {
-            newResult[${k3}] = undefined;
+          if (${k2} in input) {
+            newResult[${k2}] = undefined;
           }
         } else {
-          newResult[${k3}] = ${id}.value;
+          newResult[${k2}] = ${id}.value;
         }
         
       `);
           } else if (!isOptionalIn) {
             doc.write(`
-        const ${id}_present = ${k3} in input;
+        const ${id}_present = ${k2} in input;
         if (${id}.issues.length) {
           payload.issues = payload.issues.concat(${id}.issues.map(iss => ({
             ...iss,
-            path: iss.path ? [${k3}, ...iss.path] : [${k3}]
+            path: iss.path ? [${k2}, ...iss.path] : [${k2}]
           })));
         }
         if (!${id}_present && !${id}.issues.length) {
@@ -2988,15 +2988,15 @@ var init_schemas = __esm({
             code: "invalid_type",
             expected: "nonoptional",
             input: undefined,
-            path: [${k3}]
+            path: [${k2}]
           });
         }
 
         if (${id}_present) {
           if (${id}.value === undefined) {
-            newResult[${k3}] = undefined;
+            newResult[${k2}] = undefined;
           } else {
-            newResult[${k3}] = ${id}.value;
+            newResult[${k2}] = ${id}.value;
           }
         }
 
@@ -3006,16 +3006,16 @@ var init_schemas = __esm({
         if (${id}.issues.length) {
           payload.issues = payload.issues.concat(${id}.issues.map(iss => ({
             ...iss,
-            path: iss.path ? [${k3}, ...iss.path] : [${k3}]
+            path: iss.path ? [${k2}, ...iss.path] : [${k2}]
           })));
         }
         
         if (${id}.value === undefined) {
-          if (${k3} in input) {
-            newResult[${k3}] = undefined;
+          if (${k2} in input) {
+            newResult[${k2}] = undefined;
           }
         } else {
-          newResult[${k3}] = ${id}.value;
+          newResult[${k2}] = ${id}.value;
         }
         
       `);
@@ -3140,11 +3140,11 @@ var init_schemas = __esm({
           const pv = option._zod.propValues;
           if (!pv || Object.keys(pv).length === 0)
             throw new Error(`Invalid discriminated union option at index "${def.options.indexOf(option)}"`);
-          for (const [k3, v3] of Object.entries(pv)) {
-            if (!propValues[k3])
-              propValues[k3] = /* @__PURE__ */ new Set();
+          for (const [k2, v3] of Object.entries(pv)) {
+            if (!propValues[k2])
+              propValues[k2] = /* @__PURE__ */ new Set();
             for (const val of v3) {
-              propValues[k3].add(val);
+              propValues[k2].add(val);
             }
           }
         }
@@ -3472,7 +3472,7 @@ var init_schemas = __esm({
       const values = getEnumValues(def.entries);
       const valuesSet = new Set(values);
       inst._zod.values = valuesSet;
-      inst._zod.pattern = new RegExp(`^(${values.filter((k3) => propertyKeyTypes.has(typeof k3)).map((o) => typeof o === "string" ? escapeRegex(o) : o.toString()).join("|")})$`);
+      inst._zod.pattern = new RegExp(`^(${values.filter((k2) => propertyKeyTypes.has(typeof k2)).map((o) => typeof o === "string" ? escapeRegex(o) : o.toString()).join("|")})$`);
       inst._zod.parse = (payload, _ctx) => {
         const input = payload.value;
         if (valuesSet.has(input)) {
@@ -3914,10 +3914,10 @@ var init_schemas = __esm({
     $ZodLazy = /* @__PURE__ */ $constructor("$ZodLazy", (inst, def) => {
       $ZodType.init(inst, def);
       defineLazy(inst._zod, "innerType", () => {
-        const d2 = def;
-        if (!d2._cachedInner)
-          d2._cachedInner = def.getter();
-        return d2._cachedInner;
+        const d3 = def;
+        if (!d3._cachedInner)
+          d3._cachedInner = def.getter();
+        return d3._cachedInner;
       });
       defineLazy(inst._zod, "pattern", () => inst._zod.innerType?._zod?.pattern);
       defineLazy(inst._zod, "propValues", () => inst._zod.innerType?._zod?.propValues);
@@ -13275,11 +13275,11 @@ function record(keyType, valueType, params) {
   });
 }
 function partialRecord(keyType, valueType, params) {
-  const k3 = clone(keyType);
-  k3._zod.values = void 0;
+  const k2 = clone(keyType);
+  k2._zod.values = void 0;
   return new ZodRecord({
     type: "record",
-    keyType: k3,
+    keyType: k2,
     valueType,
     ...util_exports.normalizeParams(params)
   });
@@ -13607,11 +13607,11 @@ var init_schemas2 = __esm({
         transform(tx) {
           return pipe(this, transform(tx));
         },
-        default(d2) {
-          return _default2(this, d2);
+        default(d3) {
+          return _default2(this, d3);
         },
-        prefault(d2) {
-          return prefault(this, d2);
+        prefault(d3) {
+          return prefault(this, d3);
         },
         catch(params) {
           return _catch2(this, params);
@@ -16425,7 +16425,7 @@ var require_errors = __commonJS({
         gen.return(false);
       }
     }
-    var E2 = {
+    var E3 = {
       keyword: new codegen_1.Name("keyword"),
       schemaPath: new codegen_1.Name("schemaPath"),
       // also used in JTD errors
@@ -16459,20 +16459,20 @@ var require_errors = __commonJS({
       if (schemaPath) {
         schPath = (0, codegen_1.str)`${schPath}${(0, util_1.getErrorPath)(schemaPath, util_1.Type.Str)}`;
       }
-      return [E2.schemaPath, schPath];
+      return [E3.schemaPath, schPath];
     }
     function extraErrorProps(cxt, { params, message }, keyValues) {
       const { keyword, data, schemaValue, it: it2 } = cxt;
       const { opts, propertyName, topSchemaRef, schemaPath } = it2;
-      keyValues.push([E2.keyword, keyword], [E2.params, typeof params == "function" ? params(cxt) : params || (0, codegen_1._)`{}`]);
+      keyValues.push([E3.keyword, keyword], [E3.params, typeof params == "function" ? params(cxt) : params || (0, codegen_1._)`{}`]);
       if (opts.messages) {
-        keyValues.push([E2.message, typeof message == "function" ? message(cxt) : message]);
+        keyValues.push([E3.message, typeof message == "function" ? message(cxt) : message]);
       }
       if (opts.verbose) {
-        keyValues.push([E2.schema, schemaValue], [E2.parentSchema, (0, codegen_1._)`${topSchemaRef}${schemaPath}`], [names_1.default.data, data]);
+        keyValues.push([E3.schema, schemaValue], [E3.parentSchema, (0, codegen_1._)`${topSchemaRef}${schemaPath}`], [names_1.default.data, data]);
       }
       if (propertyName)
-        keyValues.push([E2.propertyName, propertyName]);
+        keyValues.push([E3.propertyName, propertyName]);
     }
   }
 });
@@ -19692,7 +19692,7 @@ var require_core = __commonJS({
           type: (0, dataType_1.getJSONTypes)(def.type),
           schemaType: (0, dataType_1.getJSONTypes)(def.schemaType)
         };
-        (0, util_1.eachItem)(keyword, definition.type.length === 0 ? (k3) => addRule.call(this, k3, definition) : (k3) => definition.type.forEach((t) => addRule.call(this, k3, definition, t)));
+        (0, util_1.eachItem)(keyword, definition.type.length === 0 ? (k2) => addRule.call(this, k2, definition) : (k2) => definition.type.forEach((t) => addRule.call(this, k2, definition, t)));
         return this;
       }
       getKeyword(keyword) {
@@ -22064,12 +22064,12 @@ var require_formats = __commonJS({
       const day = +matches[3];
       return month >= 1 && month <= 12 && day >= 1 && day <= (month === 2 && isLeapYear(year) ? 29 : DAYS[month]);
     }
-    function compareDate(d1, d2) {
-      if (!(d1 && d2))
+    function compareDate(d1, d22) {
+      if (!(d1 && d22))
         return void 0;
-      if (d1 > d2)
+      if (d1 > d22)
         return 1;
-      if (d1 < d2)
+      if (d1 < d22)
         return -1;
       return 0;
     }
@@ -22131,17 +22131,17 @@ var require_formats = __commonJS({
       if (!(dt1 && dt2))
         return void 0;
       const d1 = new Date(dt1).valueOf();
-      const d2 = new Date(dt2).valueOf();
-      if (!(d1 && d2))
+      const d22 = new Date(dt2).valueOf();
+      if (!(d1 && d22))
         return void 0;
-      return d1 - d2;
+      return d1 - d22;
     }
     function compareIsoDateTime(dt1, dt2) {
       if (!(dt1 && dt2))
         return void 0;
       const [d1, t1] = dt1.split(DATE_TIME_SEPARATOR);
-      const [d2, t2] = dt2.split(DATE_TIME_SEPARATOR);
-      const res = compareDate(d1, d2);
+      const [d22, t2] = dt2.split(DATE_TIME_SEPARATOR);
+      const res = compareDate(d1, d22);
       if (res === void 0)
         return void 0;
       return res || compareTime(t1, t2);
@@ -23476,7 +23476,7 @@ var require_errors2 = __commonJS({
         gen.return(false);
       }
     }
-    var E2 = {
+    var E3 = {
       keyword: new codegen_1.Name("keyword"),
       schemaPath: new codegen_1.Name("schemaPath"),
       // also used in JTD errors
@@ -23510,20 +23510,20 @@ var require_errors2 = __commonJS({
       if (schemaPath) {
         schPath = (0, codegen_1.str)`${schPath}${(0, util_1.getErrorPath)(schemaPath, util_1.Type.Str)}`;
       }
-      return [E2.schemaPath, schPath];
+      return [E3.schemaPath, schPath];
     }
     function extraErrorProps(cxt, { params, message }, keyValues) {
       const { keyword, data, schemaValue, it: it2 } = cxt;
       const { opts, propertyName, topSchemaRef, schemaPath } = it2;
-      keyValues.push([E2.keyword, keyword], [E2.params, typeof params == "function" ? params(cxt) : params || (0, codegen_1._)`{}`]);
+      keyValues.push([E3.keyword, keyword], [E3.params, typeof params == "function" ? params(cxt) : params || (0, codegen_1._)`{}`]);
       if (opts.messages) {
-        keyValues.push([E2.message, typeof message == "function" ? message(cxt) : message]);
+        keyValues.push([E3.message, typeof message == "function" ? message(cxt) : message]);
       }
       if (opts.verbose) {
-        keyValues.push([E2.schema, schemaValue], [E2.parentSchema, (0, codegen_1._)`${topSchemaRef}${schemaPath}`], [names_1.default.data, data]);
+        keyValues.push([E3.schema, schemaValue], [E3.parentSchema, (0, codegen_1._)`${topSchemaRef}${schemaPath}`], [names_1.default.data, data]);
       }
       if (propertyName)
-        keyValues.push([E2.propertyName, propertyName]);
+        keyValues.push([E3.propertyName, propertyName]);
     }
   }
 });
@@ -25590,7 +25590,7 @@ var require_core3 = __commonJS({
           type: (0, dataType_1.getJSONTypes)(def.type),
           schemaType: (0, dataType_1.getJSONTypes)(def.schemaType)
         };
-        (0, util_1.eachItem)(keyword, definition.type.length === 0 ? (k3) => addRule.call(this, k3, definition) : (k3) => definition.type.forEach((t) => addRule.call(this, k3, definition, t)));
+        (0, util_1.eachItem)(keyword, definition.type.length === 0 ? (k2) => addRule.call(this, k2, definition) : (k2) => definition.type.forEach((t) => addRule.call(this, k2, definition, t)));
         return this;
       }
       getKeyword(keyword) {
@@ -30811,8 +30811,8 @@ function formatAttributes(attributes, options, xmlMode) {
     if (!Object.hasOwn(attributes, key))
       continue;
     const value = attributes[key];
-    const k3 = isForeign ? attributeNames.get(key) ?? key : key;
-    result += !showEmpty && (value == null || value === "") ? ` ${k3}` : ` ${k3}="${encode3(value == null ? "" : String(value))}"`;
+    const k2 = isForeign ? attributeNames.get(key) ?? key : key;
+    result += !showEmpty && (value == null || value === "") ? ` ${k2}` : ` ${k2}="${encode3(value == null ? "" : String(value))}"`;
   }
   return result;
 }
@@ -31572,7 +31572,7 @@ var require_parse_srcset = __commonJS({
           }
         }
         function parseDescriptors() {
-          var pError = false, w2, d2, h2, i, candidate = {}, desc, lastChar, value, intVal, floatVal;
+          var pError = false, w2, d3, h2, i, candidate = {}, desc, lastChar, value, intVal, floatVal;
           for (i = 0; i < descriptors.length; i++) {
             desc = descriptors[i];
             lastChar = desc[desc.length - 1];
@@ -31580,7 +31580,7 @@ var require_parse_srcset = __commonJS({
             intVal = parseInt(value, 10);
             floatVal = parseFloat(value);
             if (regexNonNegativeInteger.test(value) && lastChar === "w") {
-              if (w2 || d2) {
+              if (w2 || d3) {
                 pError = true;
               }
               if (intVal === 0) {
@@ -31589,16 +31589,16 @@ var require_parse_srcset = __commonJS({
                 w2 = intVal;
               }
             } else if (regexFloatingPoint.test(value) && lastChar === "x") {
-              if (w2 || d2 || h2) {
+              if (w2 || d3 || h2) {
                 pError = true;
               }
               if (floatVal < 0) {
                 pError = true;
               } else {
-                d2 = floatVal;
+                d3 = floatVal;
               }
             } else if (regexNonNegativeInteger.test(value) && lastChar === "h") {
-              if (h2 || d2) {
+              if (h2 || d3) {
                 pError = true;
               }
               if (intVal === 0) {
@@ -31615,8 +31615,8 @@ var require_parse_srcset = __commonJS({
             if (w2) {
               candidate.w = w2;
             }
-            if (d2) {
-              candidate.d = d2;
+            if (d3) {
+              candidate.d = d3;
             }
             if (h2) {
               candidate.h = h2;
@@ -37758,7 +37758,7 @@ var require_dayjs_min = __commonJS({
       "object" == typeof exports2 && "undefined" != typeof module2 ? module2.exports = e() : "function" == typeof define && define.amd ? define(e) : (t = "undefined" != typeof globalThis ? globalThis : t || self).dayjs = e();
     })(exports2, (function() {
       "use strict";
-      var t = 1e3, e = 6e4, n = 36e5, r2 = "millisecond", i = "second", s = "minute", u2 = "hour", a = "day", o = "week", c = "month", f3 = "quarter", h2 = "year", d2 = "date", l3 = "Invalid Date", $2 = /^(\d{4})[-/]?(\d{1,2})?[-/]?(\d{0,2})[Tt\s]*(\d{1,2})?:?(\d{1,2})?:?(\d{1,2})?[.:]?(\d+)?$/, y2 = /\[([^\]]+)]|YYYY|YY|M{1,4}|D{1,2}|d{1,4}|H{1,2}|h{1,2}|a|A|m{1,2}|s{1,2}|Z{1,2}|SSS/g, M3 = { name: "en", weekdays: "Sunday_Monday_Tuesday_Wednesday_Thursday_Friday_Saturday".split("_"), months: "January_February_March_April_May_June_July_August_September_October_November_December".split("_"), ordinal: function(t2) {
+      var t = 1e3, e = 6e4, n = 36e5, r2 = "millisecond", i = "second", s = "minute", u2 = "hour", a = "day", o = "week", c = "month", f3 = "quarter", h2 = "year", d3 = "date", l3 = "Invalid Date", $2 = /^(\d{4})[-/]?(\d{1,2})?[-/]?(\d{0,2})[Tt\s]*(\d{1,2})?:?(\d{1,2})?:?(\d{1,2})?[.:]?(\d+)?$/, y2 = /\[([^\]]+)]|YYYY|YY|M{1,4}|D{1,2}|d{1,4}|H{1,2}|h{1,2}|a|A|m{1,2}|s{1,2}|Z{1,2}|SSS/g, M2 = { name: "en", weekdays: "Sunday_Monday_Tuesday_Wednesday_Thursday_Friday_Saturday".split("_"), months: "January_February_March_April_May_June_July_August_September_October_November_December".split("_"), ordinal: function(t2) {
         var e2 = ["th", "st", "nd", "rd"], n2 = t2 % 100;
         return "[" + t2 + (e2[(n2 - 20) % 10] || e2[n2] || e2[0]) + "]";
       } }, m3 = function(t2, e2, n2) {
@@ -37774,11 +37774,11 @@ var require_dayjs_min = __commonJS({
       }, a: function(t2) {
         return t2 < 0 ? Math.ceil(t2) || 0 : Math.floor(t2);
       }, p: function(t2) {
-        return { M: c, y: h2, w: o, d: a, D: d2, h: u2, m: s, s: i, ms: r2, Q: f3 }[t2] || String(t2 || "").toLowerCase().replace(/s$/, "");
+        return { M: c, y: h2, w: o, d: a, D: d3, h: u2, m: s, s: i, ms: r2, Q: f3 }[t2] || String(t2 || "").toLowerCase().replace(/s$/, "");
       }, u: function(t2) {
         return void 0 === t2;
       } }, g = "en", D = {};
-      D[g] = M3;
+      D[g] = M2;
       var p2 = "$isDayjsObject", S2 = function(t2) {
         return t2 instanceof _3 || !(!t2 || !t2[p2]);
       }, w2 = function t2(e2, n2, r3) {
@@ -37794,19 +37794,19 @@ var require_dayjs_min = __commonJS({
           D[a2] = e2, i2 = a2;
         }
         return !r3 && i2 && (g = i2), i2 || !r3 && g;
-      }, O2 = function(t2, e2) {
+      }, O3 = function(t2, e2) {
         if (S2(t2)) return t2.clone();
         var n2 = "object" == typeof e2 ? e2 : {};
         return n2.date = t2, n2.args = arguments, new _3(n2);
       }, b2 = v3;
       b2.l = w2, b2.i = S2, b2.w = function(t2, e2) {
-        return O2(t2, { locale: e2.$L, utc: e2.$u, x: e2.$x, $offset: e2.$offset });
+        return O3(t2, { locale: e2.$L, utc: e2.$u, x: e2.$x, $offset: e2.$offset });
       };
       var _3 = (function() {
-        function M4(t2) {
+        function M3(t2) {
           this.$L = w2(t2.locale, null, true), this.parse(t2), this.$x = this.$x || t2.x || {}, this[p2] = true;
         }
-        var m4 = M4.prototype;
+        var m4 = M3.prototype;
         return m4.parse = function(t2) {
           this.$d = (function(t3) {
             var e2 = t3.date, n2 = t3.utc;
@@ -37830,12 +37830,12 @@ var require_dayjs_min = __commonJS({
         }, m4.isValid = function() {
           return !(this.$d.toString() === l3);
         }, m4.isSame = function(t2, e2) {
-          var n2 = O2(t2);
+          var n2 = O3(t2);
           return this.startOf(e2) <= n2 && n2 <= this.endOf(e2);
         }, m4.isAfter = function(t2, e2) {
-          return O2(t2) < this.startOf(e2);
+          return O3(t2) < this.startOf(e2);
         }, m4.isBefore = function(t2, e2) {
-          return this.endOf(e2) < O2(t2);
+          return this.endOf(e2) < O3(t2);
         }, m4.$g = function(t2, e2, n2) {
           return b2.u(t2) ? this[e2] : this.set(n2, t2);
         }, m4.unix = function() {
@@ -37848,17 +37848,17 @@ var require_dayjs_min = __commonJS({
             return r3 ? i2 : i2.endOf(a);
           }, $3 = function(t3, e3) {
             return b2.w(n2.toDate()[t3].apply(n2.toDate("s"), (r3 ? [0, 0, 0, 0] : [23, 59, 59, 999]).slice(e3)), n2);
-          }, y3 = this.$W, M5 = this.$M, m5 = this.$D, v4 = "set" + (this.$u ? "UTC" : "");
+          }, y3 = this.$W, M4 = this.$M, m5 = this.$D, v4 = "set" + (this.$u ? "UTC" : "");
           switch (f4) {
             case h2:
               return r3 ? l4(1, 0) : l4(31, 11);
             case c:
-              return r3 ? l4(1, M5) : l4(0, M5 + 1);
+              return r3 ? l4(1, M4) : l4(0, M4 + 1);
             case o:
               var g2 = this.$locale().weekStart || 0, D2 = (y3 < g2 ? y3 + 7 : y3) - g2;
-              return l4(r3 ? m5 - D2 : m5 + (6 - D2), M5);
+              return l4(r3 ? m5 - D2 : m5 + (6 - D2), M4);
             case a:
-            case d2:
+            case d3:
               return $3(v4 + "Hours", 0);
             case u2:
               return $3(v4 + "Minutes", 1);
@@ -37872,10 +37872,10 @@ var require_dayjs_min = __commonJS({
         }, m4.endOf = function(t2) {
           return this.startOf(t2, false);
         }, m4.$set = function(t2, e2) {
-          var n2, o2 = b2.p(t2), f4 = "set" + (this.$u ? "UTC" : ""), l4 = (n2 = {}, n2[a] = f4 + "Date", n2[d2] = f4 + "Date", n2[c] = f4 + "Month", n2[h2] = f4 + "FullYear", n2[u2] = f4 + "Hours", n2[s] = f4 + "Minutes", n2[i] = f4 + "Seconds", n2[r2] = f4 + "Milliseconds", n2)[o2], $3 = o2 === a ? this.$D + (e2 - this.$W) : e2;
+          var n2, o2 = b2.p(t2), f4 = "set" + (this.$u ? "UTC" : ""), l4 = (n2 = {}, n2[a] = f4 + "Date", n2[d3] = f4 + "Date", n2[c] = f4 + "Month", n2[h2] = f4 + "FullYear", n2[u2] = f4 + "Hours", n2[s] = f4 + "Minutes", n2[i] = f4 + "Seconds", n2[r2] = f4 + "Milliseconds", n2)[o2], $3 = o2 === a ? this.$D + (e2 - this.$W) : e2;
           if (o2 === c || o2 === h2) {
-            var y3 = this.clone().set(d2, 1);
-            y3.$d[l4]($3), y3.init(), this.$d = y3.set(d2, Math.min(this.$D, y3.daysInMonth())).$d;
+            var y3 = this.clone().set(d3, 1);
+            y3.$d[l4]($3), y3.init(), this.$d = y3.set(d3, Math.min(this.$D, y3.daysInMonth())).$d;
           } else l4 && this.$d[l4]($3);
           return this.init(), this;
         }, m4.set = function(t2, e2) {
@@ -37883,17 +37883,17 @@ var require_dayjs_min = __commonJS({
         }, m4.get = function(t2) {
           return this[b2.p(t2)]();
         }, m4.add = function(r3, f4) {
-          var d3, l4 = this;
+          var d4, l4 = this;
           r3 = Number(r3);
           var $3 = b2.p(f4), y3 = function(t2) {
-            var e2 = O2(l4);
+            var e2 = O3(l4);
             return b2.w(e2.date(e2.date() + Math.round(t2 * r3)), l4);
           };
           if ($3 === c) return this.set(c, this.$M + r3);
           if ($3 === h2) return this.set(h2, this.$y + r3);
           if ($3 === a) return y3(1);
           if ($3 === o) return y3(7);
-          var M5 = (d3 = {}, d3[s] = e, d3[u2] = n, d3[i] = t, d3)[$3] || 1, m5 = this.$d.getTime() + r3 * M5;
+          var M4 = (d4 = {}, d4[s] = e, d4[u2] = n, d4[i] = t, d4)[$3] || 1, m5 = this.$d.getTime() + r3 * M4;
           return b2.w(m5, this);
         }, m4.subtract = function(t2, e2) {
           return this.add(-1 * t2, e2);
@@ -37902,7 +37902,7 @@ var require_dayjs_min = __commonJS({
           if (!this.isValid()) return n2.invalidDate || l3;
           var r3 = t2 || "YYYY-MM-DDTHH:mm:ssZ", i2 = b2.z(this), s2 = this.$H, u3 = this.$m, a2 = this.$M, o2 = n2.weekdays, c2 = n2.months, f4 = n2.meridiem, h3 = function(t3, n3, i3, s3) {
             return t3 && (t3[n3] || t3(e2, r3)) || i3[n3].slice(0, s3);
-          }, d3 = function(t3) {
+          }, d4 = function(t3) {
             return b2.s(s2 % 12 || 12, t3, "0");
           }, $3 = f4 || function(t3, e3, n3) {
             var r4 = t3 < 12 ? "AM" : "PM";
@@ -37940,9 +37940,9 @@ var require_dayjs_min = __commonJS({
                 case "HH":
                   return b2.s(s2, 2, "0");
                 case "h":
-                  return d3(1);
+                  return d4(1);
                 case "hh":
-                  return d3(2);
+                  return d4(2);
                 case "a":
                   return $3(s2, u3, true);
                 case "A":
@@ -37965,11 +37965,11 @@ var require_dayjs_min = __commonJS({
           }));
         }, m4.utcOffset = function() {
           return 15 * -Math.round(this.$d.getTimezoneOffset() / 15);
-        }, m4.diff = function(r3, d3, l4) {
-          var $3, y3 = this, M5 = b2.p(d3), m5 = O2(r3), v4 = (m5.utcOffset() - this.utcOffset()) * e, g2 = this - m5, D2 = function() {
+        }, m4.diff = function(r3, d4, l4) {
+          var $3, y3 = this, M4 = b2.p(d4), m5 = O3(r3), v4 = (m5.utcOffset() - this.utcOffset()) * e, g2 = this - m5, D2 = function() {
             return b2.m(y3, m5);
           };
-          switch (M5) {
+          switch (M4) {
             case h2:
               $3 = D2() / 12;
               break;
@@ -38016,17 +38016,17 @@ var require_dayjs_min = __commonJS({
           return this.$d.toISOString();
         }, m4.toString = function() {
           return this.$d.toUTCString();
-        }, M4;
+        }, M3;
       })(), Y3 = _3.prototype;
-      return O2.prototype = Y3, [["$ms", r2], ["$s", i], ["$m", s], ["$H", u2], ["$W", a], ["$M", c], ["$y", h2], ["$D", d2]].forEach((function(t2) {
+      return O3.prototype = Y3, [["$ms", r2], ["$s", i], ["$m", s], ["$H", u2], ["$W", a], ["$M", c], ["$y", h2], ["$D", d3]].forEach((function(t2) {
         Y3[t2[1]] = function(e2) {
           return this.$g(e2, t2[0], t2[1]);
         };
-      })), O2.extend = function(t2, e2) {
-        return t2.$i || (t2(e2, _3, O2), t2.$i = true), O2;
-      }, O2.locale = w2, O2.isDayjs = S2, O2.unix = function(t2) {
-        return O2(1e3 * t2);
-      }, O2.en = D[g], O2.Ls = D, O2.p = {}, O2;
+      })), O3.extend = function(t2, e2) {
+        return t2.$i || (t2(e2, _3, O3), t2.$i = true), O3;
+      }, O3.locale = w2, O3.isDayjs = S2, O3.unix = function(t2) {
+        return O3(1e3 * t2);
+      }, O3.en = D[g], O3.Ls = D, O3.p = {}, O3;
     }));
   }
 });
@@ -38292,11 +38292,11 @@ var require_launder = __commonJS({
               return (now || /* @__PURE__ */ new Date()).getFullYear() + "-" + self2.padInteger(components[0], 2) + "-" + self2.padInteger(components[1], 2);
             } else if (components.length === 3) {
               if (components[2] < 100) {
-                const d2 = now || /* @__PURE__ */ new Date();
-                const nowYear = d2.getFullYear() % 100;
-                const nowCentury = d2.getFullYear() - nowYear;
+                const d3 = now || /* @__PURE__ */ new Date();
+                const nowYear = d3.getFullYear() % 100;
+                const nowCentury = d3.getFullYear() - nowYear;
                 let theirYear = parseInt(components[2]) + nowCentury;
-                if (theirYear - d2.getFullYear() > 50) {
+                if (theirYear - d3.getFullYear() > 50) {
                   theirYear -= 100;
                 }
                 components[2] = theirYear;
@@ -41958,10 +41958,10 @@ var util;
     return obj;
   };
   util2.getValidEnumValues = (obj) => {
-    const validKeys = util2.objectKeys(obj).filter((k3) => typeof obj[obj[k3]] !== "number");
+    const validKeys = util2.objectKeys(obj).filter((k2) => typeof obj[obj[k2]] !== "number");
     const filtered = {};
-    for (const k3 of validKeys) {
-      filtered[k3] = obj[k3];
+    for (const k2 of validKeys) {
+      filtered[k2] = obj[k2];
     }
     return util2.objectValues(filtered);
   };
@@ -48303,15 +48303,15 @@ function isPlainObject2(value) {
 function mergeCapabilities(base, additional) {
   const result = { ...base };
   for (const key in additional) {
-    const k3 = key;
-    const addValue = additional[k3];
+    const k2 = key;
+    const addValue = additional[k2];
     if (addValue === void 0)
       continue;
-    const baseValue = result[k3];
+    const baseValue = result[k2];
     if (isPlainObject2(baseValue) && isPlainObject2(addValue)) {
-      result[k3] = { ...baseValue, ...addValue };
+      result[k2] = { ...baseValue, ...addValue };
     } else {
-      result[k3] = addValue;
+      result[k2] = addValue;
     }
   }
   return result;
@@ -51083,111 +51083,111 @@ var DefaultMarkdownPathPolicy = class {
 // packages/markdown-node/src/render.ts
 var import_node_crypto2 = require("node:crypto");
 
-// node_modules/.bun/marked@18.0.11/node_modules/marked/lib/marked.esm.js
-function A2() {
+// node_modules/marked/lib/marked.esm.js
+function C2() {
   return { async: false, breaks: false, extensions: null, gfm: true, hooks: null, pedantic: false, renderer: null, silent: false, tokenizer: null, walkTokens: null };
 }
-var R2 = A2();
+var R2 = C2();
 function j2(l3) {
   R2 = l3;
 }
 var z2 = { exec: () => null };
-function I2(l3) {
+function A2(l3) {
   let e = [];
   return (t) => {
     let n = Math.max(0, Math.min(3, t - 1)), s = e[n];
     return s || (s = l3(n), e[n] = s), s;
   };
 }
-function k2(l3, e = "") {
+function d2(l3, e = "") {
   let t = typeof l3 == "string" ? l3 : l3.source, n = { replace: (s, r2) => {
     let i = typeof r2 == "string" ? r2 : r2.source;
     return i = i.replace(m2.caret, "$1"), t = t.replace(s, i), n;
   }, getRegex: () => new RegExp(t, e) };
   return n;
 }
-var Oe = ((l3 = "") => {
+var Te = ((l3 = "") => {
   try {
     return !!new RegExp("(?<=1)(?<!1)" + l3);
   } catch {
     return false;
   }
 })();
-var m2 = { codeRemoveIndent: /^(?: {1,4}| {0,3}\t)/gm, outputLinkReplace: /\\([\[\]])/g, indentCodeCompensation: /^(\s+)(?:```)/, beginningSpace: /^\s+/, endingHash: /#$/, startingSpaceChar: /^ /, endingSpaceChar: / $/, nonSpaceChar: /[^ ]/, newLineCharGlobal: /\n/g, tabCharGlobal: /\t/g, multipleSpaceGlobal: /\s+/g, blankLine: /^[ \t]*$/, doubleBlankLine: /\n[ \t]*\n[ \t]*$/, blockquoteStart: /^ {0,3}>/, blockquoteSetextReplace: /\n {0,3}((?:=+|-+) *)(?=\n|$)/g, blockquoteSetextReplace2: /^ {0,3}>[ \t]?/gm, listReplaceNesting: /^ {1,4}(?=( {4})*[^ ])/g, listIsTask: /^\[[ xX]\] +\S/, listReplaceTask: /^\[[ xX]\] +/, listTaskCheckbox: /\[[ xX]\]/, anyLine: /\n.*\n/, hrefBrackets: /^<(.*)>$/, tableDelimiter: /[:|]/, tableAlignChars: /^\||\| *$/g, tableRowBlankLine: /\n[ \t]*$/, tableAlignRight: /^ *-+: *$/, tableAlignCenter: /^ *:-+: *$/, tableAlignLeft: /^ *:-+ *$/, startATag: /^<a /i, endATag: /^<\/a>/i, startPreScriptTag: /^<(pre|code|kbd|script)(\s|>)/i, endPreScriptTag: /^<\/(pre|code|kbd|script)(\s|>)/i, startAngleBracket: /^</, endAngleBracket: />$/, pedanticHrefTitle: /^([^'"]*[^\s])\s+(['"])(.*)\2/, unicodeAlphaNumeric: /[\p{L}\p{N}]/u, escapeTest: /[&<>"']/, escapeReplace: /[&<>"']/g, escapeTestNoEncode: /[<>"']|&(?!(#\d{1,7}|#[Xx][a-fA-F0-9]{1,6}|\w+);)/, escapeReplaceNoEncode: /[<>"']|&(?!(#\d{1,7}|#[Xx][a-fA-F0-9]{1,6}|\w+);)/g, caret: /(^|[^\[])\^/g, percentDecode: /%25/g, findPipe: /\|/g, splitPipe: / \|/, slashPipe: /\\\|/g, carriageReturn: /\r\n|\r/g, spaceLine: /^ +$/gm, notSpaceStart: /^\S*/, endingNewline: /\n$/, listItemRegex: (l3) => new RegExp(`^( {0,3}${l3})((?:[	 ][^\\n]*)?(?:\\n|$))`), nextBulletRegex: I2((l3) => new RegExp(`^ {0,${l3}}(?:[*+-]|\\d{1,9}[.)])((?:[ 	][^\\n]*)?(?:\\n|$))`)), hrRegex: I2((l3) => new RegExp(`^ {0,${l3}}((?:- *){3,}|(?:_ *){3,}|(?:\\* *){3,})(?:\\n+|$)`)), fencesBeginRegex: I2((l3) => new RegExp(`^ {0,${l3}}(?:\`\`\`|~~~)`)), headingBeginRegex: I2((l3) => new RegExp(`^ {0,${l3}}#`)), htmlBeginRegex: I2((l3) => new RegExp(`^ {0,${l3}}<(?:[a-z].*>|!--)`, "i")), blockquoteBeginRegex: I2((l3) => new RegExp(`^ {0,${l3}}>`)) };
-var Te = /^(?:[ \t]*(?:\n|$))+/;
+var m2 = { codeRemoveIndent: /^(?: {1,4}| {0,3}\t)/gm, outputLinkReplace: /\\([\[\]])/g, indentCodeCompensation: /^(\s+)(?:```)/, beginningSpace: /^\s+/, endingHash: /#$/, startingSpaceChar: /^ /, endingSpaceChar: / $/, nonSpaceChar: /[^ ]/, newLineCharGlobal: /\n/g, tabCharGlobal: /\t/g, multipleSpaceGlobal: /\s+/g, blankLine: /^[ \t]*$/, doubleBlankLine: /\n[ \t]*\n[ \t]*$/, blockquoteStart: /^ {0,3}>/, blockquoteSetextReplace: /\n {0,3}((?:=+|-+) *)(?=\n|$)/g, blockquoteSetextReplace2: /^ {0,3}>[ \t]?/gm, listReplaceNesting: /^ {1,4}(?=( {4})*[^ ])/g, listIsTask: /^\[[ xX]\] +\S/, listReplaceTask: /^\[[ xX]\] +/, listTaskCheckbox: /\[[ xX]\]/, anyLine: /\n.*\n/, hrefBrackets: /^<(.*)>$/, tableDelimiter: /[:|]/, tableAlignChars: /^\||\| *$/g, tableRowBlankLine: /\n[ \t]*$/, tableAlignRight: /^ *-+: *$/, tableAlignCenter: /^ *:-+: *$/, tableAlignLeft: /^ *:-+ *$/, startATag: /^<a /i, endATag: /^<\/a>/i, startPreScriptTag: /^<(pre|code|kbd|script)(\s|>)/i, endPreScriptTag: /^<\/(pre|code|kbd|script)(\s|>)/i, startAngleBracket: /^</, endAngleBracket: />$/, pedanticHrefTitle: /^([^'"]*[^\s])\s+(['"])(.*)\2/, unicodeAlphaNumeric: /[\p{L}\p{N}]/u, escapeTest: /[&<>"']/, escapeReplace: /[&<>"']/g, escapeTestNoEncode: /[<>"']|&(?!(#\d{1,7}|#[Xx][a-fA-F0-9]{1,6}|\w+);)/, escapeReplaceNoEncode: /[<>"']|&(?!(#\d{1,7}|#[Xx][a-fA-F0-9]{1,6}|\w+);)/g, caret: /(^|[^\[])\^/g, percentDecode: /%25/g, findPipe: /\|/g, splitPipe: / \|/, slashPipe: /\\\|/g, carriageReturn: /\r\n|\r/g, spaceLine: /^ +$/gm, notSpaceStart: /^\S*/, endingNewline: /\n$/, listItemRegex: (l3) => new RegExp(`^( {0,3}${l3})((?:[	 ][^\\n]*)?(?:\\n|$))`), nextBulletRegex: A2((l3) => new RegExp(`^ {0,${l3}}(?:[*+-]|\\d{1,9}[.)])((?:[ 	][^\\n]*)?(?:\\n|$))`)), hrRegex: A2((l3) => new RegExp(`^ {0,${l3}}((?:- *){3,}|(?:_ *){3,}|(?:\\* *){3,})(?:\\n+|$)`)), fencesBeginRegex: A2((l3) => new RegExp(`^ {0,${l3}}(?:\`\`\`|~~~)`)), headingBeginRegex: A2((l3) => new RegExp(`^ {0,${l3}}#`)), htmlBeginRegex: A2((l3) => new RegExp(`^ {0,${l3}}<(?:[a-z].*>|!--)`, "i")), blockquoteBeginRegex: A2((l3) => new RegExp(`^ {0,${l3}}>`)) };
+var Oe = /^(?:[ \t]*(?:\n|$))+/;
 var we = /^((?: {4}| {0,3}\t)[^\n]+(?:\n(?:[ \t]*(?:\n|$))*)?)+/;
 var ye = /^ {0,3}(`{3,}(?=[^`\n]*(?:\n|$))|~{3,})([^\n]*)(?:\n|$)(?:|([\s\S]*?)(?:\n|$))(?: {0,3}\1[~`]* *(?=\n|$)|$)/;
 var q = /^ {0,3}((?:-[\t ]*){3,}|(?:_[ \t]*){3,}|(?:\*[ \t]*){3,})(?:\n+|$)/;
 var Pe = /^ {0,3}(#{1,6})(?=\s|$)(.*)(?:\n+|$)/;
 var U2 = / {0,3}(?:[*+-]|\d{1,9}[.)])/;
 var oe = /^(?!bull |blockCode|fences|blockquote|heading|html|table)((?:.|\n(?!\s*?\n|bull |blockCode|fences|blockquote|heading|html|table))+?)\n {0,3}(=+|-+) *(?:\n+|$)/;
-var ae = k2(oe).replace(/bull/g, U2).replace(/blockCode/g, /(?: {4}| {0,3}\t)/).replace(/fences/g, / {0,3}(?:`{3,}|~{3,})/).replace(/blockquote/g, / {0,3}>/).replace(/heading/g, / {0,3}#{1,6}(?:\s|$)/).replace(/html/g, / {0,3}<[^\n>]+>\n/).replace(/\|table/g, "").getRegex();
-var Se = k2(oe).replace(/bull/g, U2).replace(/blockCode/g, /(?: {4}| {0,3}\t)/).replace(/fences/g, / {0,3}(?:`{3,}|~{3,})/).replace(/blockquote/g, / {0,3}>/).replace(/heading/g, / {0,3}#{1,6}(?:\s|$)/).replace(/html/g, / {0,3}<[^\n>]+>\n/).replace(/table/g, / {0,3}\|?(?:[:\- ]*\|)+[\:\- ]*\n/).getRegex();
+var ae = d2(oe).replace(/bull/g, U2).replace(/blockCode/g, /(?: {4}| {0,3}\t)/).replace(/fences/g, / {0,3}(?:`{3,}|~{3,})/).replace(/blockquote/g, / {0,3}>/).replace(/heading/g, / {0,3}#{1,6}(?:\s|$)/).replace(/html/g, / {0,3}<[^\n>]+>\n/).replace(/\|table/g, "").getRegex();
+var Se = d2(oe).replace(/bull/g, U2).replace(/blockCode/g, /(?: {4}| {0,3}\t)/).replace(/fences/g, / {0,3}(?:`{3,}|~{3,})/).replace(/blockquote/g, / {0,3}>/).replace(/heading/g, / {0,3}#{1,6}(?:\s|$)/).replace(/html/g, / {0,3}<[^\n>]+>\n/).replace(/table/g, / {0,3}\|?(?:[:\- ]*\|)+[\:\- ]*\n/).getRegex();
 var K2 = /^([^\n]+(?:\n(?!hr|heading|lheading|blockquote|fences|list|html|table|[ \t]+\n)[^\n]+)*)/;
 var _e = /^[^\n]+/;
 var W = /(?!\s*\])(?:\\[\s\S]|[^\[\]\\])+/;
-var $e = k2(/^ {0,3}\[(label)\]: *(?:\n[ \t]*)?([^<\s][^\s]*|<.*?>)(?:(?: +(?:\n[ \t]*)?| *\n[ \t]*)(title))? *(?:\n+|$)/).replace("label", W).replace("title", /(?:"(?:\\"?|[^"\\])*"|'[^'\n]*(?:\n[^'\n]+)*\n?'|\([^()]*\))/).getRegex();
-var Le = k2(/^(bull)([ \t][^\n]*?)?(?:\n|$)/).replace(/bull/g, U2).getRegex();
+var $e = d2(/^ {0,3}\[(label)\]: *(?:\n[ \t]*)?([^<\s][^\s]*|<.*?>)(?:(?: +(?:\n[ \t]*)?| *\n[ \t]*)(title))? *(?:\n+|$)/).replace("label", W).replace("title", /(?:"(?:\\"?|[^"\\])*"|'[^'\n]*(?:\n[^'\n]+)*\n?'|\([^()]*\))/).getRegex();
+var Le = d2(/^(bull)([ \t][^\n]*?)?(?:\n|$)/).replace(/bull/g, U2).getRegex();
 var Q = "address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|meta|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul";
 var X = /<!--(?:-?>|[\s\S]*?(?:-->|$))/;
-var Ee = k2("^ {0,3}(?:<(script|pre|style|textarea)[\\s>][\\s\\S]*?(?:</\\1>[^\\n]*\\n*|$)|comment[^\\n]*(\\n+|$)|<\\?[\\s\\S]*?(?:\\?>[^\\n]*\\n*|$)|<![A-Z][\\s\\S]*?(?:>[^\\n]*\\n*|$)|<!\\[CDATA\\[[\\s\\S]*?(?:\\]\\]>[^\\n]*\\n*|$)|</?(tag)(?: +|\\n|/?>)[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$)|<(?!script|pre|style|textarea)([a-z][\\w-]*)(?:attribute)*? */?>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$)|</(?!script|pre|style|textarea)[a-z][\\w-]*\\s*>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$))", "i").replace("comment", X).replace("tag", Q).replace("attribute", / +[a-zA-Z:_][\w.:-]*(?: *= *"[^"\n]*"| *= *'[^'\n]*'| *= *[^\s"'=<>`]+)?/).getRegex();
-var le = (l3) => k2(K2).replace("hr", q).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("|lheading", "").replace("|table", "").replace("blockquote", " {0,3}>").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*(?:\\n|$))|~~~)[^\\n]*(?:\\n|$)").replace("list", l3).replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Q).getRegex();
+var Me = d2("^ {0,3}(?:<(script|pre|style|textarea)[\\s>][\\s\\S]*?(?:</\\1>[^\\n]*\\n*|$)|comment[^\\n]*(\\n+|$)|<\\?[\\s\\S]*?(?:\\?>[^\\n]*\\n*|$)|<![A-Z][\\s\\S]*?(?:>[^\\n]*\\n*|$)|<!\\[CDATA\\[[\\s\\S]*?(?:\\]\\]>[^\\n]*\\n*|$)|</?(tag)(?: +|\\n|/?>)[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$)|<(?!script|pre|style|textarea)([a-z][\\w-]*)(?:attribute)*? */?>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$)|</(?!script|pre|style|textarea)[a-z][\\w-]*\\s*>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$))", "i").replace("comment", X).replace("tag", Q).replace("attribute", / +[a-zA-Z:_][\w.:-]*(?: *= *"[^"\n]*"| *= *'[^'\n]*'| *= *[^\s"'=<>`]+)?/).getRegex();
+var le = (l3) => d2(K2).replace("hr", q).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("|lheading", "").replace("|table", "").replace("blockquote", " {0,3}>").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*(?:\\n|$))|~~~)[^\\n]*(?:\\n|$)").replace("list", l3).replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Q).getRegex();
 var ze = le(/ {0,3}(?:[*+-]|1[.)])[ \t]+[^ \t\n]/);
-var Me = le(/ {0,3}(?:[*+-]|\d{1,9}[.)])(?:[ \t]|\n|$)/);
-var Ae = k2(/^( {0,3}> ?(paragraph|[^\n]*)(?:\n|$))+/).replace("paragraph", Me).getRegex();
-var J = { blockquote: Ae, code: we, def: $e, fences: ye, heading: Pe, hr: q, html: Ee, lheading: ae, list: Le, newline: Te, paragraph: ze, table: z2, text: _e };
-var se = k2("^ *([^\\n ].*)\\n {0,3}((?:\\| *)?:?-+:? *(?:\\| *:?-+:? *)*(?:\\| *)?)(?:\\n((?:(?! *\\n|hr|heading|blockquote|code|fences|list|html).*(?:\\n|$))*)\\n*|$)").replace("hr", q).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("blockquote", " {0,3}>").replace("code", "(?: {4}| {0,3}	)[^\\n]").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*(?:\\n|$))|~~~)[^\\n]*(?:\\n|$)").replace("list", " {0,3}(?:[*+-]|1[.)])[ \\t]").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Q).getRegex();
-var Ie = { ...J, lheading: Se, table: se, paragraph: k2(K2).replace("hr", q).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("|lheading", "").replace("table", se).replace("blockquote", " {0,3}>").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*(?:\\n|$))|~~~)[^\\n]*(?:\\n|$)").replace("list", " {0,3}(?:[*+-]|1[.)])[ \\t]+[^ \\t\\n]").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Q).getRegex() };
-var Ce = { ...J, html: k2(`^ *(?:comment *(?:\\n|\\s*$)|<(tag)[\\s\\S]+?</\\1> *(?:\\n{2,}|\\s*$)|<tag(?:"[^"]*"|'[^']*'|\\s[^'"/>\\s]*)*?/?> *(?:\\n{2,}|\\s*$))`).replace("comment", X).replace(/tag/g, "(?!(?:a|em|strong|small|s|cite|q|dfn|abbr|data|time|code|var|samp|kbd|sub|sup|i|b|u|mark|ruby|rt|rp|bdi|bdo|span|br|wbr|ins|del|img)\\b)\\w+(?!:|[^\\w\\s@]*@)\\b").getRegex(), def: /^ *\[([^\]]+)\]: *<?([^\s>]+)>?(?: +(["(][^\n]+[")]))? *(?:\n+|$)/, heading: /^(#{1,6})(.*)(?:\n+|$)/, fences: z2, lheading: /^(.+?)\n {0,3}(=+|-+) *(?:\n+|$)/, paragraph: k2(K2).replace("hr", q).replace("heading", ` *#{1,6} *[^
+var Ee = le(/ {0,3}(?:[*+-]|\d{1,9}[.)])(?:[ \t]|\n|$)/);
+var Ce = d2(/^( {0,3}> ?(paragraph|[^\n]*)(?:\n|$))+/).replace("paragraph", Ee).getRegex();
+var J = { blockquote: Ce, code: we, def: $e, fences: ye, heading: Pe, hr: q, html: Me, lheading: ae, list: Le, newline: Oe, paragraph: ze, table: z2, text: _e };
+var se = d2("^ *([^\\n ].*)\\n {0,3}((?:\\| *)?:?-+:? *(?:\\| *:?-+:? *)*(?:\\| *)?)(?:\\n((?:(?! *\\n|hr|heading|blockquote|code|fences|list|html).*(?:\\n|$))*)\\n*|$)").replace("hr", q).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("blockquote", " {0,3}>").replace("code", "(?: {4}| {0,3}	)[^\\n]").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*(?:\\n|$))|~~~)[^\\n]*(?:\\n|$)").replace("list", " {0,3}(?:[*+-]|1[.)])[ \\t]").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Q).getRegex();
+var Ae = { ...J, lheading: Se, table: se, paragraph: d2(K2).replace("hr", q).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("|lheading", "").replace("table", se).replace("blockquote", " {0,3}>").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*(?:\\n|$))|~~~)[^\\n]*(?:\\n|$)").replace("list", " {0,3}(?:[*+-]|1[.)])[ \\t]+[^ \\t\\n]").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Q).getRegex() };
+var Ie = { ...J, html: d2(`^ *(?:comment *(?:\\n|\\s*$)|<(tag)[\\s\\S]+?</\\1> *(?:\\n{2,}|\\s*$)|<tag(?:"[^"]*"|'[^']*'|\\s[^'"/>\\s]*)*?/?> *(?:\\n{2,}|\\s*$))`).replace("comment", X).replace(/tag/g, "(?!(?:a|em|strong|small|s|cite|q|dfn|abbr|data|time|code|var|samp|kbd|sub|sup|i|b|u|mark|ruby|rt|rp|bdi|bdo|span|br|wbr|ins|del|img)\\b)\\w+(?!:|[^\\w\\s@]*@)\\b").getRegex(), def: /^ *\[([^\]]+)\]: *<?([^\s>]+)>?(?: +(["(][^\n]+[")]))? *(?:\n+|$)/, heading: /^(#{1,6})(.*)(?:\n+|$)/, fences: z2, lheading: /^(.+?)\n {0,3}(=+|-+) *(?:\n+|$)/, paragraph: d2(K2).replace("hr", q).replace("heading", ` *#{1,6} *[^
 ]`).replace("lheading", ae).replace("|table", "").replace("blockquote", " {0,3}>").replace("|fences", "").replace("|list", "").replace("|html", "").replace("|tag", "").getRegex() };
 var Be = /^\\([!"#$%&'()*+,\-./:;<=>?@\[\]\\^_`{|}~])/;
 var De = /^(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/;
-var ue = /^( {2,}|\\)\n(?!\s*$)/;
+var pe = /^( {2,}|\\)\n(?!\s*$)/;
 var qe = /^(`+|[^`])(?:(?= {2,}\n)|[\s\S]*?(?:(?=[\\<!\[`*_]|\b_|$)|[^ ](?= {2,}\n)))/;
 var _2 = /[\p{P}\p{S}]/u;
-var C2 = /[\s\p{P}\p{S}]/u;
+var I2 = /[\s\p{P}\p{S}]/u;
 var v2 = /[^\s\p{P}\p{S}]/u;
-var ve = k2(/^((?![*_])punctSpace)/, "u").replace(/punctSpace/g, C2).getRegex();
+var ve = d2(/^((?![*_])punctSpace)/, "u").replace(/punctSpace/g, I2).getRegex();
 var He = /[\p{Pi}\p{Ps}"']/u;
-var pe = /(?!~)[\p{P}\p{S}]/u;
+var ue = /(?!~)[\p{P}\p{S}]/u;
 var Ze = /(?!~)[\s\p{P}\p{S}]/u;
 var Ge = /(?:[^\s\p{P}\p{S}]|~)/u;
-var Qe = k2(/link|precode-code|html/, "g").replace("link", /\[(?:[^\[\]`]|(?<a>`+)[^`]+\k<a>(?!`))*?\]\((?:\\[\s\S]|[^\\\(\)]|\((?:\\[\s\S]|[^\\\(\)])*\))*\)/).replace("precode-", Oe ? "(?<!`)()" : "(^^|[^`])").replace("code", /(?<b>`+)[^`]+\k<b>(?!`)/).replace("html", /<(?! )[^<>]*?>/).getRegex();
+var Qe = d2(/link|precode-code|html/, "g").replace("link", /\[(?:[^\[\]`]|(?<a>`+)[^`]+\k<a>(?!`))*?\]\((?:\\[\s\S]|[^\\\(\)]|\((?:\\[\s\S]|[^\\\(\)])*\))*\)/).replace("precode-", Te ? "(?<!`)()" : "(^^|[^`])").replace("code", /(?<b>`+)[^`]+\k<b>(?!`)/).replace("html", /<(?! )[^<>]*?>/).getRegex();
 var ce = /^(?:\*+(?:((?!\*)punct)|([^\s*]))?)|^_+(?:((?!_)punct)|([^\s_]))?/;
-var Ne = k2(ce, "u").replace(/punct/g, _2).getRegex();
-var je = k2(ce, "u").replace(/punct/g, pe).getRegex();
+var Ne = d2(ce, "u").replace(/punct/g, _2).getRegex();
+var je = d2(ce, "u").replace(/punct/g, ue).getRegex();
 var Fe = /^(?:\*+(?:((?!\*)(?!openQuote)punct)|([^\s*]))?)|^_+(?:((?!_)(?!openQuote)punct)|([^\s_]))?/;
-var Ue = k2(Fe, "u").replace(/openQuote/g, He).replace(/punct/g, _2).getRegex();
+var Ue = d2(Fe, "u").replace(/openQuote/g, He).replace(/punct/g, _2).getRegex();
 var he = "^[^_*]*?__[^_*]*?\\*[^_*]*?(?=__)|[^*]+(?=[^*])|(?!\\*)punct(\\*+)(?=[\\s]|$)|notPunctSpace(\\*+)(?!\\*)(?=punctSpace|$)|(?!\\*)punctSpace(\\*+)(?=notPunctSpace)|[\\s](\\*+)(?!\\*)(?=punct)|(?!\\*)punct(\\*+)(?!\\*)(?=punct)|notPunctSpace(\\*+)(?=notPunctSpace)";
-var Ke = k2(he, "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, C2).replace(/punct/g, _2).getRegex();
-var We = k2(he, "gu").replace(/notPunctSpace/g, Ge).replace(/punctSpace/g, Ze).replace(/punct/g, pe).getRegex();
+var Ke = d2(he, "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, I2).replace(/punct/g, _2).getRegex();
+var We = d2(he, "gu").replace(/notPunctSpace/g, Ge).replace(/punctSpace/g, Ze).replace(/punct/g, ue).getRegex();
 var Xe = "^[^_*]*?__[^_*]*?\\*[^_*]*?(?=__)|[^*]+(?=[^*])|(?!\\*)punct(\\*+)(?=[\\s]|$)|notPunctSpace(\\*+)(?!\\*)(?=punctSpace|$)|(?!\\*)[\\s](\\*+)(?=notPunctSpace)|[\\s](\\*+)(?!\\*)(?=punct)|(?!\\*)punct(\\*+)(?!\\*)(?=punct)|(?:(?!\\*)punct|notPunctSpace)(\\*+)(?!\\*)(?=notPunctSpace)";
-var Je = k2(Xe, "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, C2).replace(/punct/g, _2).getRegex();
-var Ve = k2("^[^_*]*?\\*\\*[^_*]*?_[^_*]*?(?=\\*\\*)|[^_]+(?=[^_])|(?!_)punct(_+)(?=[\\s]|$)|notPunctSpace(_+)(?!_)(?=punctSpace|$)|(?!_)punctSpace(_+)(?=notPunctSpace)|[\\s](_+)(?!_)(?=punct)|(?!_)punct(_+)(?!_)(?=punct)", "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, C2).replace(/punct/g, _2).getRegex();
+var Je = d2(Xe, "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, I2).replace(/punct/g, _2).getRegex();
+var Ve = d2("^[^_*]*?\\*\\*[^_*]*?_[^_*]*?(?=\\*\\*)|[^_]+(?=[^_])|(?!_)punct(_+)(?=[\\s]|$)|notPunctSpace(_+)(?!_)(?=punctSpace|$)|(?!_)punctSpace(_+)(?=notPunctSpace)|[\\s](_+)(?!_)(?=punct)|(?!_)punct(_+)(?!_)(?=punct)", "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, I2).replace(/punct/g, _2).getRegex();
 var Ye = "^[^_*]*?\\*\\*[^_*]*?_[^_*]*?(?=\\*\\*)|[^_]+(?=[^_])|(?!_)punct(_+)(?=[\\s]|$)|notPunctSpace(_+)(?!_)(?=punctSpace|$)|(?!_)[\\s](_+)(?=notPunctSpace)|[\\s](_+)(?!_)(?=punct)|(?!_)punct(_+)(?!_)(?=punct)|(?:(?!_)punct|notPunctSpace)(_+)(?!_)(?=notPunctSpace)";
-var et = k2(Ye, "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, C2).replace(/punct/g, _2).getRegex();
-var tt = k2(/^~~?(?:((?!~)punct)|[^\s~])/, "u").replace(/punct/g, _2).getRegex();
+var et = d2(Ye, "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, I2).replace(/punct/g, _2).getRegex();
+var tt = d2(/^~~?(?:((?!~)punct)|[^\s~])/, "u").replace(/punct/g, _2).getRegex();
 var nt = "^[^~]+(?=[^~])|(?!~)punct(~~?)(?=[\\s]|$)|notPunctSpace(~~?)(?!~)(?=punctSpace|$)|(?!~)punctSpace(~~?)(?=notPunctSpace)|[\\s](~~?)(?!~)(?=punct)|(?!~)punct(~~?)(?!~)(?=punct)|notPunctSpace(~~?)(?=notPunctSpace)";
-var rt = k2(nt, "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, C2).replace(/punct/g, _2).getRegex();
-var st = k2(/\\(punct)/, "gu").replace(/punct/g, _2).getRegex();
-var it = k2(/^<(scheme:[^\s\x00-\x1f<>]*|email)>/).replace("scheme", /[a-zA-Z][a-zA-Z0-9+.-]{1,31}/).replace("email", /[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+(@)[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+(?![-_])/).getRegex();
-var ot = k2(X).replace("(?:-->|$)", "-->").getRegex();
-var at = k2("^comment|^</[a-zA-Z][\\w:-]*\\s*>|^<[a-zA-Z][\\w-]*(?:attribute)*?\\s*/?>|^<\\?[\\s\\S]*?\\?>|^<![a-zA-Z]+\\s[\\s\\S]*?>|^<!\\[CDATA\\[[\\s\\S]*?\\]\\]>").replace("comment", ot).replace("attribute", /\s+[a-zA-Z:_][\w.:-]*(?:\s*=\s*"[^"]*"|\s*=\s*'[^']*'|\s*=\s*[^\s"'=<>`]+)?/).getRegex();
+var rt = d2(nt, "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, I2).replace(/punct/g, _2).getRegex();
+var st = d2(/\\(punct)/, "gu").replace(/punct/g, _2).getRegex();
+var it = d2(/^<(scheme:[^\s\x00-\x1f<>]*|email)>/).replace("scheme", /[a-zA-Z][a-zA-Z0-9+.-]{1,31}/).replace("email", /[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+(@)[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+(?![-_])/).getRegex();
+var ot = d2(X).replace("(?:-->|$)", "-->").getRegex();
+var at = d2("^comment|^</[a-zA-Z][\\w:-]*\\s*>|^<[a-zA-Z][\\w-]*(?:attribute)*?\\s*/?>|^<\\?[\\s\\S]*?\\?>|^<![a-zA-Z]+\\s[\\s\\S]*?>|^<!\\[CDATA\\[[\\s\\S]*?\\]\\]>").replace("comment", ot).replace("attribute", /\s+[a-zA-Z:_][\w.:-]*(?:\s*=\s*"[^"]*"|\s*=\s*'[^']*'|\s*=\s*[^\s"'=<>`]+)?/).getRegex();
 var G = /(?:\[(?:\\[\s\S]|[^\[\]\\])*\]|\\[\s\S]|`+(?!`)[^`]*?`+(?!`)|``+(?=\])|[^\[\]\\`])*?/;
-var lt = k2(/^!?\[(label)\]\(\s*(href)(?:(?:[ \t]+(?:\n[ \t]*)?|\n[ \t]*)(title))?\s*\)/).replace("label", G).replace("href", /<(?:\\.|[^\n<>\\])+>|[^ \t\n\x00-\x1f]+|(?=\))/).replace("title", /"(?:\\"?|[^"\\])*"|'(?:\\'?|[^'\\])*'|\((?:\\\)?|[^)\\])*\)/).getRegex();
-var ke = k2(/^!?\[(label)\]\[(ref)\]/).replace("label", G).replace("ref", W).getRegex();
-var de = k2(/^!?\[(ref)\](?:\[\])?/).replace("ref", W).getRegex();
-var ut = k2("reflink|nolink(?!\\()", "g").replace("reflink", ke).replace("nolink", de).getRegex();
+var lt = d2(/^!?\[(label)\]\(\s*(href)(?:(?:[ \t]+(?:\n[ \t]*)?|\n[ \t]*)(title))?\s*\)/).replace("label", G).replace("href", /<(?:\\.|[^\n<>\\])+>|[^ \t\n\x00-\x1f]+|(?=\))/).replace("title", /"(?:\\"?|[^"\\])*"|'(?:\\'?|[^'\\])*'|\((?:\\\)?|[^)\\])*\)/).getRegex();
+var de = d2(/^!?\[(label)\]\[(ref)\]/).replace("label", G).replace("ref", W).getRegex();
+var ke = d2(/^!?\[(ref)\](?:\[\])?/).replace("ref", W).getRegex();
+var pt = d2("reflink|nolink(?!\\()", "g").replace("reflink", de).replace("nolink", ke).getRegex();
 var ie = /[hH][tT][tT][pP][sS]?|[fF][tT][pP]/;
-var V = { _backpedal: z2, anyPunctuation: st, autolink: it, blockSkip: Qe, br: ue, code: De, del: z2, delLDelim: z2, delRDelim: z2, emStrongLDelim: Ne, emStrongRDelimAst: Ke, emStrongRDelimUnd: Ve, escape: Be, link: lt, nolink: de, punctuation: ve, reflink: ke, reflinkSearch: ut, tag: at, text: qe, url: z2 };
-var pt = { ...V, emStrongLDelim: Ue, emStrongRDelimAst: Je, emStrongRDelimUnd: et, link: k2(/^!?\[(label)\]\((.*?)\)/).replace("label", G).getRegex(), reflink: k2(/^!?\[(label)\]\s*\[([^\]]*)\]/).replace("label", G).getRegex() };
-var F = { ...V, emStrongRDelimAst: We, emStrongLDelim: je, delLDelim: tt, delRDelim: rt, url: k2(/^((?:protocol):\/\/|www\.)(?:[a-zA-Z0-9\-]+\.?)+[^\s<]*|^email/).replace("protocol", ie).replace("email", /[A-Za-z0-9._+-]+(@)[a-zA-Z0-9-_]+(?:\.[a-zA-Z0-9-_]*[a-zA-Z0-9])+(?![-_])/).getRegex(), _backpedal: /(?:[^?!.,:;*_'"~()&]+|\([^)]*\)|&(?![a-zA-Z0-9]+;$)|[?!.,:;*_'"~)]+(?!$))+/, del: /^(~~?)(?=[^\s~])((?:\\[\s\S]|[^\\])*?(?:\\[\s\S]|[^\s~\\]))\1(?=[^~]|$)/, text: k2(/^(`+|~+|[^`~])(?:(?=[`~])|(?= {2,}\n)|(?=[a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-]+@)|[\s\S]*?(?:(?=[\\<!\[`*~_]|\b_|protocol:\/\/|www\.|$)|[^ ](?= {2,}\n)|[^a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-](?=[a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-]+@)))/).replace("protocol", ie).getRegex() };
-var ct = { ...F, br: k2(ue).replace("{2,}", "*").getRegex(), text: k2(F.text).replace("\\b_", "\\b_| {2,}\\n").replace(/\{2,\}/g, "*").getRegex() };
-var H2 = { normal: J, gfm: Ie, pedantic: Ce };
-var B = { normal: V, gfm: F, breaks: ct, pedantic: pt };
+var V = { _backpedal: z2, anyPunctuation: st, autolink: it, blockSkip: Qe, br: pe, code: De, del: z2, delLDelim: z2, delRDelim: z2, emStrongLDelim: Ne, emStrongRDelimAst: Ke, emStrongRDelimUnd: Ve, escape: Be, link: lt, nolink: ke, punctuation: ve, reflink: de, reflinkSearch: pt, tag: at, text: qe, url: z2 };
+var ut = { ...V, emStrongLDelim: Ue, emStrongRDelimAst: Je, emStrongRDelimUnd: et, link: d2(/^!?\[(label)\]\((.*?)\)/).replace("label", G).getRegex(), reflink: d2(/^!?\[(label)\]\s*\[([^\]]*)\]/).replace("label", G).getRegex() };
+var F = { ...V, emStrongRDelimAst: We, emStrongLDelim: je, delLDelim: tt, delRDelim: rt, url: d2(/^((?:protocol):\/\/|www\.)(?:[a-zA-Z0-9\-]+\.?)+[^\s<]*|^email/).replace("protocol", ie).replace("email", /[A-Za-z0-9._+-]+(@)[a-zA-Z0-9-_]+(?:\.[a-zA-Z0-9-_]*[a-zA-Z0-9])+(?![-_])/).getRegex(), _backpedal: /(?:[^?!.,:;*_'"~()&]+|\([^)]*\)|&(?![a-zA-Z0-9]+;$)|[?!.,:;*_'"~)]+(?!$))+/, del: /^(~~?)(?=[^\s~])((?:\\[\s\S]|[^\\])*?(?:\\[\s\S]|[^\s~\\]))\1(?=[^~]|$)/, text: d2(/^(`+|~+|[^`~])(?:(?=[`~])|(?= {2,}\n)|(?=[a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-]+@)|[\s\S]*?(?:(?=[\\<!\[`*~_]|\b_|protocol:\/\/|www\.|$)|[^ ](?= {2,}\n)|[^a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-](?=[a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-]+@)))/).replace("protocol", ie).getRegex() };
+var ct = { ...F, br: d2(pe).replace("{2,}", "*").getRegex(), text: d2(F.text).replace("\\b_", "\\b_| {2,}\\n").replace(/\{2,\}/g, "*").getRegex() };
+var H2 = { normal: J, gfm: Ae, pedantic: Ie };
+var B = { normal: V, gfm: F, breaks: ct, pedantic: ut };
 var ht = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 var ge = (l3) => ht[l3];
-function T2(l3, e) {
+function O2(l3, e) {
   if (e) {
     if (m2.escapeTest.test(l3)) return l3.replace(m2.escapeReplace, ge);
   } else if (m2.escapeTestNoEncode.test(l3)) return l3.replace(m2.escapeReplaceNoEncode, ge);
@@ -51203,9 +51203,9 @@ function Y2(l3) {
 }
 function ee(l3, e) {
   let t = l3.replace(m2.findPipe, (r2, i, o) => {
-    let u2 = false, a = i;
-    for (; --a >= 0 && o[a] === "\\"; ) u2 = !u2;
-    return u2 ? "|" : " |";
+    let p2 = false, a = i;
+    for (; --a >= 0 && o[a] === "\\"; ) p2 = !p2;
+    return p2 ? "|" : " |";
   }), n = t.split(m2.splitPipe), s = 0;
   if (n[0].trim() || n.shift(), n.length > 0 && !n.at(-1)?.trim() && n.pop(), e) if (n.length > e) n.splice(e);
   else for (; n.length < e; ) n.push("");
@@ -51248,21 +51248,12 @@ function me(l3, e = 0) {
   return n;
 }
 function xe(l3, e, t, n, s) {
-  let r2 = e.href, i = e.title || null, o = l3[1].replace(s.other.outputLinkReplace, "$1"), u2 = l3[0].charAt(0) === "!";
+  let r2 = e.href, i = e.title || null, o = l3[1].replace(s.other.outputLinkReplace, "$1");
   n.state.inLink = true;
-  let a = n.state.linkEmitted, p2 = n.state.inRawBlock;
-  n.state.linkEmitted = false;
-  let c = n.inlineTokens(o), h2 = n.state.linkEmitted;
-  if (n.state.linkEmitted = a, n.state.inLink = false, !u2) {
-    if (h2) {
-      n.state.inRawBlock = p2;
-      return;
-    }
-    n.state.linkEmitted = true;
-  }
-  return { type: u2 ? "image" : "link", raw: t, href: r2, title: i, text: o, tokens: c };
+  let p2 = { type: l3[0].charAt(0) === "!" ? "image" : "link", raw: t, href: r2, title: i, text: o, tokens: n.inlineTokens(o) };
+  return n.state.inLink = false, p2;
 }
-function kt(l3, e, t) {
+function dt(l3, e, t) {
   let n = l3.match(t.other.indentCodeCompensation);
   if (n === null) return e;
   let s = n[1];
@@ -51296,7 +51287,7 @@ var y = class {
   fences(e) {
     let t = this.rules.block.fences.exec(e);
     if (t) {
-      let n = t[0], s = kt(n, t[3] || "", this.rules);
+      let n = t[0], s = dt(n, t[3] || "", this.rules);
       return { type: "code", raw: n, lang: t[2] ? t[2].trim().replace(this.rules.inline.anyPunctuation, "$1") : t[2], text: s };
     }
   }
@@ -51324,33 +51315,33 @@ var y = class {
 `).split(`
 `), s = "", r2 = "", i = [];
       for (; n.length > 0; ) {
-        let o = false, u2 = [], a;
-        for (a = 0; a < n.length; a++) if (this.rules.other.blockquoteStart.test(n[a])) u2.push(n[a]), o = true;
-        else if (!o) u2.push(n[a]);
+        let o = false, p2 = [], a;
+        for (a = 0; a < n.length; a++) if (this.rules.other.blockquoteStart.test(n[a])) p2.push(n[a]), o = true;
+        else if (!o) p2.push(n[a]);
         else break;
         n = n.slice(a);
-        let p2 = u2.join(`
-`), c = p2.replace(this.rules.other.blockquoteSetextReplace, `
+        let u2 = p2.join(`
+`), c = u2.replace(this.rules.other.blockquoteSetextReplace, `
     $1`).replace(this.rules.other.blockquoteSetextReplace2, "");
         s = s ? `${s}
-${p2}` : p2, r2 = r2 ? `${r2}
+${u2}` : u2, r2 = r2 ? `${r2}
 ${c}` : c;
         let h2 = this.lexer.state.top;
         if (this.lexer.state.top = true, this.lexer.blockTokens(c, i, true), this.lexer.state.top = h2, n.length === 0) break;
-        let d2 = i.at(-1);
-        if (d2?.type === "code") break;
-        if (d2?.type === "blockquote") {
-          let O2 = d2, g = n.join(`
-`), w2 = O2.raw + `
-` + g.replace(this.rules.other.blockquoteSetextReplace2, ""), E2 = this.blockquote(w2);
-          i[i.length - 1] = E2, s = `${s}
-${g}`, r2 = r2.substring(0, r2.length - O2.text.length) + E2.text;
+        let k2 = i.at(-1);
+        if (k2?.type === "code") break;
+        if (k2?.type === "blockquote") {
+          let T2 = k2, g = n.join(`
+`), w2 = T2.raw + `
+` + g.replace(this.rules.other.blockquoteSetextReplace2, ""), M2 = this.blockquote(w2);
+          i[i.length - 1] = M2, s = `${s}
+${g}`, r2 = r2.substring(0, r2.length - T2.text.length) + M2.text;
           break;
-        } else if (d2?.type === "list") {
-          let O2 = d2, g = O2.raw + `
+        } else if (k2?.type === "list") {
+          let T2 = k2, g = T2.raw + `
 ` + n.join(`
 `), w2 = this.list(g);
-          i[i.length - 1] = w2, s = s.substring(0, s.length - d2.raw.length) + w2.raw, r2 = r2.substring(0, r2.length - O2.raw.length) + w2.raw, n = g.substring(i.at(-1).raw.length).split(`
+          i[i.length - 1] = w2, s = s.substring(0, s.length - k2.raw.length) + w2.raw, r2 = r2.substring(0, r2.length - T2.raw.length) + w2.raw, n = g.substring(i.at(-1).raw.length).split(`
 `);
           continue;
         }
@@ -51365,44 +51356,44 @@ ${g}`, r2 = r2.substring(0, r2.length - O2.text.length) + E2.text;
       n = s ? `\\d{1,9}\\${n.slice(-1)}` : `\\${n}`, this.options.pedantic && (n = s ? n : "[*+-]");
       let i = this.rules.other.listItemRegex(n), o = false;
       for (; e; ) {
-        let a = false, p2 = "", c = "";
+        let a = false, u2 = "", c = "";
         if (!(t = i.exec(e)) || this.rules.block.hr.test(e)) break;
-        p2 = t[0], e = e.substring(p2.length);
+        u2 = t[0], e = e.substring(u2.length);
         let h2 = me(t[2].split(`
-`, 1)[0], t[1].length), d2 = e.split(`
-`, 1)[0], O2 = !h2.trim(), g = 0;
-        if (this.options.pedantic ? (g = 2, c = h2.trimStart()) : O2 ? g = t[1].length + 1 : (g = h2.search(this.rules.other.nonSpaceChar), g = g > 4 ? 1 : g, c = h2.slice(g), g += t[1].length), O2 && this.rules.other.blankLine.test(d2) && (p2 += d2 + `
-`, e = e.substring(d2.length + 1), a = true), !a) {
-          let w2 = this.rules.other.nextBulletRegex(g), E2 = this.rules.other.hrRegex(g), ne = this.rules.other.fencesBeginRegex(g), re = this.rules.other.headingBeginRegex(g), be = this.rules.other.htmlBeginRegex(g), Re = this.rules.other.blockquoteBeginRegex(g);
+`, 1)[0], t[1].length), k2 = e.split(`
+`, 1)[0], T2 = !h2.trim(), g = 0;
+        if (this.options.pedantic ? (g = 2, c = h2.trimStart()) : T2 ? g = t[1].length + 1 : (g = h2.search(this.rules.other.nonSpaceChar), g = g > 4 ? 1 : g, c = h2.slice(g), g += t[1].length), T2 && this.rules.other.blankLine.test(k2) && (u2 += k2 + `
+`, e = e.substring(k2.length + 1), a = true), !a) {
+          let w2 = this.rules.other.nextBulletRegex(g), M2 = this.rules.other.hrRegex(g), ne = this.rules.other.fencesBeginRegex(g), re = this.rules.other.headingBeginRegex(g), be = this.rules.other.htmlBeginRegex(g), Re = this.rules.other.blockquoteBeginRegex(g);
           for (; e; ) {
             let N = e.split(`
 `, 1)[0], D;
-            if (d2 = N, this.options.pedantic ? (d2 = d2.replace(this.rules.other.listReplaceNesting, "  "), D = d2) : D = d2.replace(this.rules.other.tabCharGlobal, "    "), ne.test(d2) || re.test(d2) || be.test(d2) || Re.test(d2) || w2.test(d2) || E2.test(d2)) break;
-            if (D.search(this.rules.other.nonSpaceChar) >= g || !d2.trim()) c += `
+            if (k2 = N, this.options.pedantic ? (k2 = k2.replace(this.rules.other.listReplaceNesting, "  "), D = k2) : D = k2.replace(this.rules.other.tabCharGlobal, "    "), ne.test(k2) || re.test(k2) || be.test(k2) || Re.test(k2) || w2.test(k2) || M2.test(k2)) break;
+            if (D.search(this.rules.other.nonSpaceChar) >= g || !k2.trim()) c += `
 ` + D.slice(g);
             else {
-              if (O2 || h2.replace(this.rules.other.tabCharGlobal, "    ").search(this.rules.other.nonSpaceChar) >= 4 || ne.test(h2) || re.test(h2) || E2.test(h2)) break;
+              if (T2 || h2.replace(this.rules.other.tabCharGlobal, "    ").search(this.rules.other.nonSpaceChar) >= 4 || ne.test(h2) || re.test(h2) || M2.test(h2)) break;
               c += `
-` + d2;
+` + k2;
             }
-            O2 = !d2.trim(), p2 += N + `
+            T2 = !k2.trim(), u2 += N + `
 `, e = e.substring(N.length + 1), h2 = D.slice(g);
           }
         }
-        r2.loose || (o ? r2.loose = true : this.rules.other.doubleBlankLine.test(p2) && (o = true)), r2.items.push({ type: "list_item", raw: p2, task: !!this.options.gfm && this.rules.other.listIsTask.test(c), loose: false, text: c, tokens: [] }), r2.raw += p2;
+        r2.loose || (o ? r2.loose = true : this.rules.other.doubleBlankLine.test(u2) && (o = true)), r2.items.push({ type: "list_item", raw: u2, task: !!this.options.gfm && this.rules.other.listIsTask.test(c), loose: false, text: c, tokens: [] }), r2.raw += u2;
       }
-      let u2 = r2.items.at(-1);
-      if (u2) u2.raw = u2.raw.trimEnd(), u2.text = u2.text.trimEnd();
+      let p2 = r2.items.at(-1);
+      if (p2) p2.raw = p2.raw.trimEnd(), p2.text = p2.text.trimEnd();
       else return;
       r2.raw = r2.raw.trimEnd();
       for (let a of r2.items) if (this.lexer.state.top = false, a.tokens = this.lexer.blockTokens(a.text, []), !r2.loose) {
-        let p2 = a.tokens.filter((h2) => h2.type === "space"), c = p2.length > 0 && p2.some((h2) => this.rules.other.anyLine.test(h2.raw));
+        let u2 = a.tokens.filter((h2) => h2.type === "space"), c = u2.length > 0 && u2.some((h2) => this.rules.other.anyLine.test(h2.raw));
         r2.loose = c;
       }
       for (let a of r2.items) {
-        let p2 = a.tokens[0];
-        if (a.task && (p2?.type === "text" || p2?.type === "paragraph")) {
-          a.text = a.text.replace(this.rules.other.listReplaceTask, ""), p2.raw = p2.raw.replace(this.rules.other.listReplaceTask, ""), p2.text = p2.text.replace(this.rules.other.listReplaceTask, "");
+        let u2 = a.tokens[0];
+        if (a.task && (u2?.type === "text" || u2?.type === "paragraph")) {
+          a.text = a.text.replace(this.rules.other.listReplaceTask, ""), u2.raw = u2.raw.replace(this.rules.other.listReplaceTask, ""), u2.text = u2.text.replace(this.rules.other.listReplaceTask, "");
           for (let h2 = this.lexer.inlineQueue.length - 1; h2 >= 0; h2--) if (this.rules.other.listIsTask.test(this.lexer.inlineQueue[h2].src)) {
             this.lexer.inlineQueue[h2].src = this.lexer.inlineQueue[h2].src.replace(this.rules.other.listReplaceTask, "");
             break;
@@ -51416,7 +51407,7 @@ ${g}`, r2 = r2.substring(0, r2.length - O2.text.length) + E2.text;
       }
       if (r2.loose) for (let a of r2.items) {
         a.loose = true;
-        for (let p2 of a.tokens) p2.type === "text" && (p2.type = "paragraph");
+        for (let u2 of a.tokens) u2.type === "text" && (u2.type = "paragraph");
       }
       return r2;
     }
@@ -51445,7 +51436,7 @@ ${g}`, r2 = r2.substring(0, r2.length - O2.text.length) + E2.text;
     if (n.length === s.length) {
       for (let o of s) this.rules.other.tableAlignRight.test(o) ? i.align.push("right") : this.rules.other.tableAlignCenter.test(o) ? i.align.push("center") : this.rules.other.tableAlignLeft.test(o) ? i.align.push("left") : i.align.push(null);
       for (let o = 0; o < n.length; o++) i.header.push({ text: n[o], tokens: this.lexer.inline(n[o]), header: true, align: i.align[o] });
-      for (let o of r2) i.rows.push(ee(o, i.header.length).map((u2, a) => ({ text: u2, tokens: this.lexer.inline(u2), header: false, align: i.align[a] })));
+      for (let o of r2) i.rows.push(ee(o, i.header.length).map((p2, a) => ({ text: p2, tokens: this.lexer.inline(p2), header: false, align: i.align[a] })));
       return i;
     }
   }
@@ -51489,8 +51480,8 @@ ${g}`, r2 = r2.substring(0, r2.length - O2.text.length) + E2.text;
         let i = fe(t[2], "()");
         if (i === -2) return;
         if (i > -1) {
-          let u2 = (t[0].indexOf("!") === 0 ? 5 : 4) + t[1].length + i;
-          t[2] = t[2].substring(0, i), t[0] = t[0].substring(0, u2).trim(), t[3] = "";
+          let p2 = (t[0].indexOf("!") === 0 ? 5 : 4) + t[1].length + i;
+          t[2] = t[2].substring(0, i), t[0] = t[0].substring(0, p2).trim(), t[3] = "";
         }
       }
       let s = t[2], r2 = "";
@@ -51516,25 +51507,25 @@ ${g}`, r2 = r2.substring(0, r2.length - O2.text.length) + E2.text;
     let s = this.rules.inline.emStrongLDelim.exec(e);
     if (!s || !s[1] && !s[2] && !s[3] && !s[4] || s[4] && n.match(this.rules.other.unicodeAlphaNumeric)) return;
     if (!(s[1] || s[3] || "") || !n || this.rules.inline.punctuation.exec(n)) {
-      let i = [...s[0]].length - 1, o, u2, a = i, p2 = 0, c = s[0][0], h2 = n === c, d2 = c === "*" ? this.rules.inline.emStrongRDelimAst : this.rules.inline.emStrongRDelimUnd;
-      for (d2.lastIndex = 0, t = t.slice(-1 * e.length + i); (s = d2.exec(t)) !== null; ) {
+      let i = [...s[0]].length - 1, o, p2, a = i, u2 = 0, c = s[0][0], h2 = n === c, k2 = c === "*" ? this.rules.inline.emStrongRDelimAst : this.rules.inline.emStrongRDelimUnd;
+      for (k2.lastIndex = 0, t = t.slice(-1 * e.length + i); (s = k2.exec(t)) !== null; ) {
         if (o = s[1] || s[2] || s[3] || s[4] || s[5] || s[6], !o) continue;
-        if (u2 = [...o].length, s[3] || s[4]) {
-          a += u2;
+        if (p2 = [...o].length, s[3] || s[4]) {
+          a += p2;
           continue;
         } else if (s[5] || s[6]) {
-          if (i % 3 && !((i + u2) % 3)) {
-            p2 += u2;
+          if (i % 3 && !((i + p2) % 3)) {
+            u2 += p2;
             continue;
           }
           if (h2) break;
         }
-        if (a -= u2, a > 0) continue;
-        u2 = Math.min(u2, u2 + a + p2);
-        let O2 = [...s[0]][0].length, g = e.slice(0, i + s.index + O2 + u2);
-        if (Math.min(i, u2) % 2) {
-          let E2 = g.slice(1, -1);
-          return { type: "em", raw: g, text: E2, tokens: this.lexer.inlineTokens(E2) };
+        if (a -= p2, a > 0) continue;
+        p2 = Math.min(p2, p2 + a + u2);
+        let T2 = [...s[0]][0].length, g = e.slice(0, i + s.index + T2 + p2);
+        if (Math.min(i, p2) % 2) {
+          let M2 = g.slice(1, -1);
+          return { type: "em", raw: g, text: M2, tokens: this.lexer.inlineTokens(M2) };
         }
         let w2 = g.slice(2, -2);
         return { type: "strong", raw: g, text: w2, tokens: this.lexer.inlineTokens(w2) };
@@ -51556,17 +51547,17 @@ ${g}`, r2 = r2.substring(0, r2.length - O2.text.length) + E2.text;
     let s = this.rules.inline.delLDelim.exec(e);
     if (!s) return;
     if (!(s[1] || "") || !n || this.rules.inline.punctuation.exec(n)) {
-      let i = [...s[0]].length - 1, o, u2, a = i, p2 = this.rules.inline.delRDelim;
-      for (p2.lastIndex = 0, t = t.slice(-1 * e.length + i); (s = p2.exec(t)) !== null; ) {
-        if (o = s[1] || s[2] || s[3] || s[4] || s[5] || s[6], !o || (u2 = [...o].length, u2 !== i)) continue;
+      let i = [...s[0]].length - 1, o, p2, a = i, u2 = this.rules.inline.delRDelim;
+      for (u2.lastIndex = 0, t = t.slice(-1 * e.length + i); (s = u2.exec(t)) !== null; ) {
+        if (o = s[1] || s[2] || s[3] || s[4] || s[5] || s[6], !o || (p2 = [...o].length, p2 !== i)) continue;
         if (s[3] || s[4]) {
-          a += u2;
+          a += p2;
           continue;
         }
-        if (a -= u2, a > 0) continue;
-        u2 = Math.min(u2, u2 + a);
-        let c = [...s[0]][0].length, h2 = e.slice(0, i + s.index + c + u2), d2 = h2.slice(i, -i);
-        return { type: "del", raw: h2, text: d2, tokens: this.lexer.inlineTokens(d2) };
+        if (a -= p2, a > 0) continue;
+        p2 = Math.min(p2, p2 + a);
+        let c = [...s[0]][0].length, h2 = e.slice(0, i + s.index + c + p2), k2 = h2.slice(i, -i);
+        return { type: "del", raw: h2, text: k2, tokens: this.lexer.inlineTokens(k2) };
       }
     }
   }
@@ -51607,7 +51598,7 @@ var x = class l {
   inlineQueue;
   tokenizer;
   constructor(e) {
-    this.tokens = [], this.tokens.links = /* @__PURE__ */ Object.create(null), this.options = e || R2, this.options.tokenizer = this.options.tokenizer || new y(), this.tokenizer = this.options.tokenizer, this.tokenizer.options = this.options, this.tokenizer.lexer = this, this.inlineQueue = [], this.state = { inLink: false, inRawBlock: false, linkEmitted: false, top: true };
+    this.tokens = [], this.tokens.links = /* @__PURE__ */ Object.create(null), this.options = e || R2, this.options.tokenizer = this.options.tokenizer || new y(), this.tokenizer = this.options.tokenizer, this.tokenizer.options = this.options, this.tokenizer.lexer = this, this.inlineQueue = [], this.state = { inLink: false, inRawBlock: false, top: true };
     let t = { other: m2, block: H2.normal, inline: B.normal };
     this.options.pedantic ? (t.block = H2.pedantic, t.inline = B.pedantic) : this.options.gfm && (t.block = H2.gfm, this.options.breaks ? t.inline = B.breaks : t.inline = B.gfm), this.tokenizer.rules = t;
   }
@@ -51699,9 +51690,9 @@ var x = class l {
       }
       let i = e;
       if (this.options.extensions?.startBlock) {
-        let o = 1 / 0, u2 = e.slice(1), a;
-        this.options.extensions.startBlock.forEach((p2) => {
-          a = p2.call({ lexer: this }, u2), typeof a == "number" && a >= 0 && (o = Math.min(o, a));
+        let o = 1 / 0, p2 = e.slice(1), a;
+        this.options.extensions.startBlock.forEach((u2) => {
+          a = u2.call({ lexer: this }, p2), typeof a == "number" && a >= 0 && (o = Math.min(o, a));
         }), o < 1 / 0 && o >= 0 && (i = e.substring(0, o + 1));
       }
       if (this.state.top && (r2 = this.tokenizer.paragraph(i))) {
@@ -51731,34 +51722,16 @@ var x = class l {
   inline(e, t = []) {
     return this.inlineQueue.push({ src: e, tokens: t }), t;
   }
-  linkInText(e) {
-    if (!e.includes("[")) return false;
-    let t = this.tokenizer.rules.inline.link;
-    for (let n of e.matchAll(this.tokenizer.rules.inline.blockSkip)) if (t.test(n[0]) && e.charAt(n.index - 1) !== "!") return true;
-    for (let n of e.matchAll(this.tokenizer.rules.inline.reflinkSearch)) {
-      let s = n[0], r2 = s.lastIndexOf("[");
-      if (!(s.charAt(0) === "!" || !Object.hasOwn(this.tokens.links, s.slice(r2 + 1, -1))) && !(r2 > 1 && this.linkInText(s.slice(1, r2 - 1)))) return true;
-    }
-    return false;
-  }
   inlineTokens(e, t = []) {
     this.tokenizer.lexer = this;
     let n = e;
-    if (this.tokens.links && e.includes("[")) {
-      let o = this.tokenizer.rules.inline.reflinkSearch, u2 = (a) => {
-        let p2 = a.lastIndexOf("[");
-        if (!Object.hasOwn(this.tokens.links, a.slice(p2 + 1, -1))) return a;
-        if (p2 > 1 && a.charAt(0) !== "!") {
-          let c = a.slice(1, p2 - 1);
-          if (this.linkInText(c)) return "[" + c.replace(o, u2) + "][" + "a".repeat(a.length - p2 - 2) + "]";
-        }
-        return "[" + "a".repeat(a.length - 2) + "]";
-      };
-      n = n.replace(o, u2);
+    if (this.tokens.links) {
+      let o = Object.keys(this.tokens.links);
+      o.length > 0 && (n = n.replace(this.tokenizer.rules.inline.reflinkSearch, (p2) => o.includes(p2.slice(p2.lastIndexOf("[") + 1, -1)) ? "[" + "a".repeat(p2.length - 2) + "]" : p2));
     }
-    n = n.replace(this.tokenizer.rules.inline.anyPunctuation, (o) => "+".repeat(o.length)), n = n.replace(this.tokenizer.rules.inline.blockSkip, (o, u2, a) => {
-      let p2 = a ? a.length : 0;
-      return o.slice(0, p2) + "[" + "a".repeat(o.length - p2 - 2) + "]";
+    n = n.replace(this.tokenizer.rules.inline.anyPunctuation, (o) => "+".repeat(o.length)), n = n.replace(this.tokenizer.rules.inline.blockSkip, (o, p2, a) => {
+      let u2 = a ? a.length : 0;
+      return o.slice(0, u2) + "[" + "a".repeat(o.length - u2 - 2) + "]";
     }), n = this.options.hooks?.emStrongMask?.call({ lexer: this }, n) ?? n;
     let s = false, r2 = "", i = 1 / 0;
     for (; e; ) {
@@ -51812,14 +51785,14 @@ var x = class l {
         e = e.substring(o.raw.length), t.push(o);
         continue;
       }
-      let u2 = e;
+      let p2 = e;
       if (this.options.extensions?.startInline) {
-        let a = 1 / 0, p2 = e.slice(1), c;
+        let a = 1 / 0, u2 = e.slice(1), c;
         this.options.extensions.startInline.forEach((h2) => {
-          c = h2.call({ lexer: this }, p2), typeof c == "number" && c >= 0 && (a = Math.min(a, c));
-        }), a < 1 / 0 && a >= 0 && (u2 = e.substring(0, a + 1));
+          c = h2.call({ lexer: this }, u2), typeof c == "number" && c >= 0 && (a = Math.min(a, c));
+        }), a < 1 / 0 && a >= 0 && (p2 = e.substring(0, a + 1));
       }
-      if (o = this.tokenizer.inlineText(u2)) {
+      if (o = this.tokenizer.inlineText(p2)) {
         e = e.substring(o.raw.length), o.raw.slice(-1) !== "_" && (r2 = o.raw.slice(-1)), s = true;
         let a = t.at(-1);
         a?.type === "text" ? (a.raw += o.raw, a.text += o.text) : t.push(o);
@@ -51850,8 +51823,8 @@ var P2 = class {
   code({ text: e, lang: t, escaped: n }) {
     let s = (t || "").match(m2.notSpaceStart)?.[0], r2 = e.replace(m2.endingNewline, "") + `
 `;
-    return s ? '<pre><code class="language-' + T2(s) + '">' + (n ? r2 : T2(r2, true)) + `</code></pre>
-` : "<pre><code>" + (n ? r2 : T2(r2, true)) + `</code></pre>
+    return s ? '<pre><code class="language-' + O2(s) + '">' + (n ? r2 : O2(r2, true)) + `</code></pre>
+` : "<pre><code>" + (n ? r2 : O2(r2, true)) + `</code></pre>
 `;
   }
   blockquote({ tokens: e }) {
@@ -51876,8 +51849,8 @@ ${this.parser.parse(e)}</blockquote>
   list(e) {
     let t = e.ordered, n = e.start, s = "";
     for (let o = 0; o < e.items.length; o++) {
-      let u2 = e.items[o];
-      s += this.listitem(u2);
+      let p2 = e.items[o];
+      s += this.listitem(p2);
     }
     let r2 = t ? "ol" : "ul", i = t && n !== 1 ? ' start="' + n + '"' : "";
     return "<" + r2 + i + `>
@@ -51929,7 +51902,7 @@ ${e}</tr>
     return `<em>${this.parser.parseInline(e)}</em>`;
   }
   codespan({ text: e }) {
-    return `<code>${T2(e, true)}</code>`;
+    return `<code>${O2(e, true)}</code>`;
   }
   br(e) {
     return "<br>";
@@ -51942,18 +51915,18 @@ ${e}</tr>
     if (r2 === null) return s;
     e = r2;
     let i = '<a href="' + e + '"';
-    return t && (i += ' title="' + T2(t) + '"'), i += ">" + s + "</a>", i;
+    return t && (i += ' title="' + O2(t) + '"'), i += ">" + s + "</a>", i;
   }
   image({ href: e, title: t, text: n, tokens: s }) {
     s && (n = this.parser.parseInline(s, this.parser.textRenderer));
     let r2 = Y2(e);
-    if (r2 === null) return T2(n);
+    if (r2 === null) return O2(n);
     e = r2;
-    let i = `<img src="${e}" alt="${T2(n)}"`;
-    return t && (i += ` title="${T2(t)}"`), i += ">", i;
+    let i = `<img src="${e}" alt="${O2(n)}"`;
+    return t && (i += ` title="${O2(t)}"`), i += ">", i;
   }
   text(e) {
-    return "tokens" in e && e.tokens ? this.parser.parseInline(e.tokens) : "escaped" in e && e.escaped ? e.text : T2(e.text);
+    return "tokens" in e && e.tokens ? this.parser.parseInline(e.tokens) : "escaped" in e && e.escaped ? e.text : O2(e.text);
   }
 };
 var L = class {
@@ -52168,7 +52141,7 @@ var S = class {
   }
 };
 var Z = class {
-  defaults = A2();
+  defaults = C2();
   options = this.setOptions;
   parse = this.parseMarkdown(true);
   parseInline = this.parseMarkdown(false);
@@ -52214,8 +52187,8 @@ var Z = class {
         if ("renderer" in r2) {
           let i = t.renderers[r2.name];
           i ? t.renderers[r2.name] = function(...o) {
-            let u2 = r2.renderer.apply(this, o);
-            return u2 === false && (u2 = i.apply(this, o)), u2;
+            let p2 = r2.renderer.apply(this, o);
+            return p2 === false && (p2 = i.apply(this, o)), p2;
           } : t.renderers[r2.name] = r2.renderer;
         }
         if ("tokenizer" in r2) {
@@ -52229,10 +52202,10 @@ var Z = class {
         for (let i in n.renderer) {
           if (!(i in r2)) throw new Error(`renderer '${i}' does not exist`);
           if (["options", "parser"].includes(i)) continue;
-          let o = i, u2 = n.renderer[o], a = r2[o];
-          r2[o] = (...p2) => {
-            let c = u2.apply(r2, p2);
-            return c === false && (c = a.apply(r2, p2)), c || "";
+          let o = i, p2 = n.renderer[o], a = r2[o];
+          r2[o] = (...u2) => {
+            let c = p2.apply(r2, u2);
+            return c === false && (c = a.apply(r2, u2)), c || "";
           };
         }
         s.renderer = r2;
@@ -52242,10 +52215,10 @@ var Z = class {
         for (let i in n.tokenizer) {
           if (!(i in r2)) throw new Error(`tokenizer '${i}' does not exist`);
           if (["options", "rules", "lexer"].includes(i)) continue;
-          let o = i, u2 = n.tokenizer[o], a = r2[o];
-          r2[o] = (...p2) => {
-            let c = u2.apply(r2, p2);
-            return c === false && (c = a.apply(r2, p2)), c;
+          let o = i, p2 = n.tokenizer[o], a = r2[o];
+          r2[o] = (...u2) => {
+            let c = p2.apply(r2, u2);
+            return c === false && (c = a.apply(r2, u2)), c;
           };
         }
         s.tokenizer = r2;
@@ -52255,21 +52228,21 @@ var Z = class {
         for (let i in n.hooks) {
           if (!(i in r2)) throw new Error(`hook '${i}' does not exist`);
           if (["options", "block"].includes(i)) continue;
-          let o = i, u2 = n.hooks[o], a = r2[o];
-          S.passThroughHooks.has(i) ? r2[o] = (p2) => {
+          let o = i, p2 = n.hooks[o], a = r2[o];
+          S.passThroughHooks.has(i) ? r2[o] = (u2) => {
             if (this.defaults.async && S.passThroughHooksRespectAsync.has(i)) return (async () => {
-              let h2 = await u2.call(r2, p2);
+              let h2 = await p2.call(r2, u2);
               return a.call(r2, h2);
             })();
-            let c = u2.call(r2, p2);
+            let c = p2.call(r2, u2);
             return a.call(r2, c);
-          } : r2[o] = (...p2) => {
+          } : r2[o] = (...u2) => {
             if (this.defaults.async) return (async () => {
-              let h2 = await u2.apply(r2, p2);
-              return h2 === false && (h2 = await a.apply(r2, p2)), h2;
+              let h2 = await p2.apply(r2, u2);
+              return h2 === false && (h2 = await a.apply(r2, u2)), h2;
             })();
-            let c = u2.apply(r2, p2);
-            return c === false && (c = a.apply(r2, p2)), c;
+            let c = p2.apply(r2, u2);
+            return c === false && (c = a.apply(r2, u2)), c;
           };
         }
         s.hooks = r2;
@@ -52277,8 +52250,8 @@ var Z = class {
       if (n.walkTokens) {
         let r2 = this.defaults.walkTokens, i = n.walkTokens;
         s.walkTokens = function(o) {
-          let u2 = [];
-          return u2.push(i.call(this, o)), r2 && (u2 = u2.concat(r2.call(this, o))), u2;
+          let p2 = [];
+          return p2.push(i.call(this, o)), r2 && (p2 = p2.concat(r2.call(this, o))), p2;
         };
       }
       this.defaults = { ...this.defaults, ...s };
@@ -52300,10 +52273,10 @@ var Z = class {
       if (typeof n > "u" || n === null) return o(new Error("marked(): input parameter is undefined or null"));
       if (typeof n != "string") return o(new Error("marked(): input parameter is of type " + Object.prototype.toString.call(n) + ", string expected"));
       if (i.hooks && (i.hooks.options = i, i.hooks.block = e), i.async) return (async () => {
-        let u2 = i.hooks ? await i.hooks.preprocess(n) : n, p2 = await (i.hooks ? await i.hooks.provideLexer(e) : e ? x.lex : x.lexInline)(u2, i), c = i.hooks ? await i.hooks.processAllTokens(p2) : p2;
+        let p2 = i.hooks ? await i.hooks.preprocess(n) : n, u2 = await (i.hooks ? await i.hooks.provideLexer(e) : e ? x.lex : x.lexInline)(p2, i), c = i.hooks ? await i.hooks.processAllTokens(u2) : u2;
         i.walkTokens && await Promise.all(this.walkTokens(c, i.walkTokens));
-        let d2 = await (i.hooks ? await i.hooks.provideParser(e) : e ? b.parse : b.parseInline)(c, i);
-        return i.hooks ? await i.hooks.postprocess(d2) : d2;
+        let k2 = await (i.hooks ? await i.hooks.provideParser(e) : e ? b.parse : b.parseInline)(c, i);
+        return i.hooks ? await i.hooks.postprocess(k2) : k2;
       })().catch(o);
       try {
         i.hooks && (n = i.hooks.preprocess(n));
@@ -52311,8 +52284,8 @@ var Z = class {
         i.hooks && (a = i.hooks.processAllTokens(a)), i.walkTokens && this.walkTokens(a, i.walkTokens);
         let c = (i.hooks ? i.hooks.provideParser(e) : e ? b.parse : b.parseInline)(a, i);
         return i.hooks && (c = i.hooks.postprocess(c)), c;
-      } catch (u2) {
-        return o(u2);
+      } catch (p2) {
+        return o(p2);
       }
     };
   }
@@ -52320,7 +52293,7 @@ var Z = class {
     return (n) => {
       if (n.message += `
 Please report this to https://github.com/markedjs/marked.`, e) {
-        let s = "<p>An error occurred:</p><pre>" + T2(n.message + "", true) + "</pre>";
+        let s = "<p>An error occurred:</p><pre>" + O2(n.message + "", true) + "</pre>";
         return t ? Promise.resolve(s) : s;
       }
       if (t) return Promise.reject(n);
@@ -52328,23 +52301,23 @@ Please report this to https://github.com/markedjs/marked.`, e) {
     };
   }
 };
-var M2 = new Z();
+var E2 = new Z();
 function f2(l3, e) {
-  return M2.parse(l3, e);
+  return E2.parse(l3, e);
 }
 f2.options = f2.setOptions = function(l3) {
-  return M2.setOptions(l3), f2.defaults = M2.defaults, j2(f2.defaults), f2;
+  return E2.setOptions(l3), f2.defaults = E2.defaults, j2(f2.defaults), f2;
 };
-f2.getDefaults = A2;
+f2.getDefaults = C2;
 f2.defaults = R2;
-function dt(...l3) {
-  return M2.use(...l3), f2.defaults = M2.defaults, j2(f2.defaults), f2;
+function kt(...l3) {
+  return E2.use(...l3), f2.defaults = E2.defaults, j2(f2.defaults), f2;
 }
-f2.use = dt;
+f2.use = kt;
 f2.walkTokens = function(l3, e) {
-  return M2.walkTokens(l3, e);
+  return E2.walkTokens(l3, e);
 };
-f2.parseInline = M2.parseInline;
+f2.parseInline = E2.parseInline;
 f2.Parser = b;
 f2.parser = b.parse;
 f2.Renderer = P2;
@@ -52359,7 +52332,7 @@ var rn = f2.setOptions;
 var sn = f2.walkTokens;
 var on = f2.parseInline;
 var ln = b.parse;
-var un = x.lex;
+var pn = x.lex;
 
 // packages/markdown-node/src/render.ts
 var import_sanitize_html = __toESM(require_sanitize_html(), 1);
@@ -53139,6 +53112,18 @@ function dynaSourceLabel(sourceRef) {
       return "To-do";
   }
 }
+function sourceOrigin(value) {
+  try {
+    const Url = globalThis.URL;
+    const url2 = new Url(value.includes("://") ? value : `https://${value}`);
+    if (url2.protocol !== "https:" && url2.protocol !== "http:" || url2.username.length > 0 || url2.password.length > 0) {
+      return void 0;
+    }
+    return url2.origin;
+  } catch {
+    return void 0;
+  }
+}
 var DynaTodoInputSchema = external_exports.object({
   title: external_exports.string().trim().min(1).max(200),
   summary: external_exports.string().trim().min(1).max(1e3).optional(),
@@ -53256,6 +53241,54 @@ var DynaTaskStatusBaseSchema = external_exports.object({
   observedAt: TimestampSchema2
 }).strict();
 var DynaOneLineOutcomeSchema = external_exports.string().trim().min(1).max(200).regex(/^[^\r\n]+$/, "A Codex task outcome must be exactly one line.");
+var DynaUserWorkflowStageSchema = external_exports.enum(["todo", "needs_you", "done"]);
+var DynaSetItemStatusInputSchema = external_exports.object({
+  viewToken: external_exports.string().min(32).max(128),
+  itemId: external_exports.uuid(),
+  targetStage: DynaUserWorkflowStageSchema,
+  outcome: DynaOneLineOutcomeSchema.optional(),
+  expectedRevision: external_exports.number().int().nonnegative(),
+  expectedFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
+  clientRequestId: external_exports.uuid()
+}).strict().superRefine((input, context) => {
+  if (input.targetStage === "done" && !input.outcome) {
+    context.addIssue({
+      code: "custom",
+      message: "Completing a Dyna item requires a precise one-line outcome.",
+      path: ["outcome"]
+    });
+  }
+  if (input.targetStage !== "done" && input.outcome) {
+    context.addIssue({
+      code: "custom",
+      message: "Only a completed Dyna item can carry a completion outcome.",
+      path: ["outcome"]
+    });
+  }
+});
+var DynaUserWorkflowEventSchema = external_exports.object({
+  id: external_exports.uuid(),
+  itemId: external_exports.uuid(),
+  originDashboardId: external_exports.uuid(),
+  targetStage: DynaUserWorkflowStageSchema,
+  outcome: DynaOneLineOutcomeSchema.optional(),
+  createdAt: TimestampSchema2
+}).strict().superRefine((event, context) => {
+  if (event.targetStage === "done" && !event.outcome) {
+    context.addIssue({
+      code: "custom",
+      message: "A completed Dyna workflow event requires a precise one-line outcome.",
+      path: ["outcome"]
+    });
+  }
+  if (event.targetStage !== "done" && event.outcome) {
+    context.addIssue({
+      code: "custom",
+      message: "Only a completed Dyna workflow event can carry an outcome.",
+      path: ["outcome"]
+    });
+  }
+});
 var DynaTaskStatusSchema = external_exports.discriminatedUnion("state", [
   DynaTaskStatusBaseSchema.extend({
     state: external_exports.literal("succeeded"),
@@ -53266,6 +53299,142 @@ var DynaTaskStatusSchema = external_exports.discriminatedUnion("state", [
     outcome: DynaOneLineOutcomeSchema.optional()
   }).strict()
 ]);
+var DynaCodexSessionCandidateSchema = external_exports.object({
+  taskId: IdentifierSchema2,
+  hostId: IdentifierSchema2,
+  projectId: IdentifierSchema2.optional(),
+  title: external_exports.string().trim().min(1).max(200),
+  updatedAt: TimestampSchema2
+}).strict();
+var DynaCodexSessionCandidatesSchema = external_exports.array(DynaCodexSessionCandidateSchema).max(50).superRefine((candidates, context) => {
+  const identities = /* @__PURE__ */ new Set();
+  for (const [index, candidate] of candidates.entries()) {
+    const identity = `${candidate.hostId}\0${candidate.taskId}`;
+    if (identities.has(identity)) {
+      context.addIssue({
+        code: "custom",
+        message: "A Codex session candidate list cannot contain duplicate task identities.",
+        path: [index]
+      });
+    }
+    identities.add(identity);
+  }
+});
+var DynaArtifactKindSchema = external_exports.enum([
+  "merge_request",
+  "pull_request",
+  "issue",
+  "pipeline",
+  "commit",
+  "document",
+  "report",
+  "other"
+]);
+var DynaArtifactRefSchema = external_exports.object({
+  kind: DynaArtifactKindSchema,
+  label: external_exports.string().trim().min(1).max(160),
+  url: external_exports.url().max(2048).refine(
+    (value) => (value.startsWith("https://") || value.startsWith("http://")) && sourceOrigin(value) !== void 0,
+    {
+      message: "A Dyna artifact must use an HTTP or HTTPS URL without embedded credentials."
+    }
+  )
+}).strict();
+var DynaWorkUpdateKindSchema = external_exports.enum([
+  "note",
+  "progress",
+  "decision",
+  "needs_input",
+  "blocked",
+  "completion_reported",
+  "handoff"
+]);
+var DynaWorkStateSchema = external_exports.enum([
+  "progress",
+  "needs_input",
+  "blocked",
+  "completion_reported",
+  "handoff"
+]);
+var DynaWorkTaskAttributionSchema = external_exports.object({
+  taskId: IdentifierSchema2,
+  hostId: IdentifierSchema2
+}).strict();
+var DynaWorkUpdateInputSchema = external_exports.object({
+  requestId: external_exports.uuid(),
+  workAttemptId: external_exports.uuid(),
+  kind: DynaWorkUpdateKindSchema,
+  body: external_exports.string().trim().min(1).max(1e3),
+  outcome: DynaOneLineOutcomeSchema.optional(),
+  artifacts: external_exports.array(DynaArtifactRefSchema).max(4).default([]),
+  task: DynaWorkTaskAttributionSchema.optional()
+}).strict().superRefine((input, context) => {
+  if (["progress", "needs_input", "blocked", "completion_reported", "handoff"].includes(
+    input.kind
+  ) && !input.task) {
+    context.addIssue({
+      code: "custom",
+      message: "A lifecycle work update requires a controller-verified linked task.",
+      path: ["task"]
+    });
+  }
+  if (input.kind === "completion_reported" && !input.outcome) {
+    context.addIssue({
+      code: "custom",
+      message: "A completion report requires a precise one-line outcome.",
+      path: ["outcome"]
+    });
+  }
+  if (input.kind !== "completion_reported" && input.outcome) {
+    context.addIssue({
+      code: "custom",
+      message: "Only a completion report can carry an outcome.",
+      path: ["outcome"]
+    });
+  }
+});
+var DynaWorkUpdateSchema = external_exports.object({
+  schema: external_exports.literal("dyna/work-update-v1"),
+  id: external_exports.uuid(),
+  itemId: external_exports.uuid(),
+  originDashboardId: external_exports.uuid(),
+  workAttemptId: external_exports.uuid(),
+  kind: DynaWorkUpdateKindSchema,
+  body: external_exports.string().trim().min(1).max(1e3),
+  outcome: DynaOneLineOutcomeSchema.optional(),
+  artifacts: external_exports.array(DynaArtifactRefSchema).max(4),
+  task: DynaWorkTaskAttributionSchema.extend({
+    title: external_exports.string().trim().min(1).max(200).optional()
+  }).strict().optional(),
+  createdAt: TimestampSchema2
+}).strict().superRefine((update, context) => {
+  if (update.kind === "completion_reported" && !update.outcome) {
+    context.addIssue({
+      code: "custom",
+      message: "A completion report requires a precise one-line outcome.",
+      path: ["outcome"]
+    });
+  }
+  if (update.kind !== "completion_reported" && update.outcome) {
+    context.addIssue({
+      code: "custom",
+      message: "Only a completion report can carry an outcome.",
+      path: ["outcome"]
+    });
+  }
+});
+var DynaWorkReferenceSchema = external_exports.object({
+  schema: external_exports.literal("dyna/work-item-v1"),
+  dashboardId: external_exports.uuid(),
+  dashboardName: external_exports.string().trim().min(1).max(96),
+  itemId: external_exports.uuid(),
+  expectedFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
+  sourceUpdatedAt: TimestampSchema2,
+  copiedAt: TimestampSchema2,
+  workAttemptId: external_exports.uuid(),
+  linkedTasks: external_exports.array(DynaTaskStatusSchema).max(8)
+}).strict();
+var DynaHistoryCursorSchema = external_exports.string().trim().min(1).max(512);
 var DynaAnnotationSchema = external_exports.object({
   id: external_exports.uuid(),
   itemId: external_exports.uuid(),
@@ -53282,7 +53451,10 @@ var DynaItemContextSchema = DynaMaterializedItemSchema.extend({
     provenance: external_exports.string().trim().min(1).max(128),
     version: external_exports.number().int().positive()
   }).strict().optional(),
-  annotations: external_exports.array(DynaAnnotationSchema).max(20)
+  annotations: external_exports.array(DynaAnnotationSchema).max(20),
+  workUpdates: external_exports.array(DynaWorkUpdateSchema).max(20),
+  workUpdateCount: external_exports.number().int().nonnegative(),
+  linkedTasks: external_exports.array(DynaTaskStatusSchema).max(8)
 }).strict();
 var DynaArchiveReasonSchema = external_exports.enum([
   "completed",
@@ -53312,7 +53484,7 @@ var DynaItemHistorySchema = external_exports.object({
       sequenceAtArchive: external_exports.number().int().nonnegative().optional(),
       outcomeAtArchive: external_exports.string().trim().min(1).max(200).optional()
     }).strict()
-  ).max(100),
+  ).max(50),
   organization: external_exports.array(
     external_exports.object({
       action: external_exports.enum(["bump", "lower", "earlier", "later", "resequence"]),
@@ -53320,7 +53492,19 @@ var DynaItemHistorySchema = external_exports.object({
       sequence: external_exports.number().int().nonnegative().optional(),
       createdAt: TimestampSchema2
     }).strict()
-  ).max(200)
+  ).max(50),
+  statusChanges: external_exports.array(DynaUserWorkflowEventSchema).max(50),
+  workUpdates: external_exports.array(DynaWorkUpdateSchema).max(50),
+  archiveEventsNextCursor: DynaHistoryCursorSchema.optional(),
+  orderHistoryNextCursor: DynaHistoryCursorSchema.optional(),
+  statusHistoryNextCursor: DynaHistoryCursorSchema.optional(),
+  workUpdatesNextCursor: DynaHistoryCursorSchema.optional()
+}).strict();
+var DynaWorkActivityPageSchema = external_exports.object({
+  itemId: external_exports.uuid(),
+  updates: external_exports.array(DynaWorkUpdateSchema).max(25),
+  nextCursor: DynaHistoryCursorSchema.optional(),
+  total: external_exports.number().int().nonnegative()
 }).strict();
 var DynaActionItemContextSchema = external_exports.object({
   id: external_exports.uuid(),
@@ -53333,6 +53517,8 @@ var DynaActionItemContextSchema = external_exports.object({
 var DynaActionKindSchema = external_exports.enum([
   "open_source",
   "create_codex_task",
+  "list_codex_sessions",
+  "attach_codex_task",
   "open_codex_task",
   "refresh_codex_status"
 ]);
@@ -53347,6 +53533,7 @@ var DynaActionStateSchema = external_exports.enum([
 var DynaActionRequestSchema = external_exports.object({
   id: external_exports.uuid(),
   kind: DynaActionKindSchema,
+  dashboardId: external_exports.uuid(),
   itemId: external_exports.uuid().optional(),
   taskId: IdentifierSchema2.optional(),
   taskHostId: IdentifierSchema2.optional(),
@@ -53386,11 +53573,18 @@ var DynaCardSchema = external_exports.object({
   nextSteps: external_exports.array(DynaNextStepSchema).max(4),
   enrichmentState: external_exports.enum(["active", "stale"]).optional(),
   annotations: external_exports.array(DynaAnnotationSchema).max(20),
+  workUpdates: external_exports.array(DynaWorkUpdateSchema).max(1).default([]),
+  workUpdateCount: external_exports.number().int().nonnegative().default(0),
+  workState: DynaWorkStateSchema.optional(),
+  workConditionSummary: external_exports.string().trim().min(1).max(200).optional(),
+  workConditionTask: DynaWorkTaskAttributionSchema.optional(),
+  matchedActivity: external_exports.string().trim().min(1).max(500).optional(),
+  blocked: external_exports.boolean().default(false),
   linkedTasks: external_exports.array(DynaTaskStatusSchema).max(8),
   archive: DynaArchiveStateSchema.optional()
 }).strict();
 var DynaDashboardSnapshotSchema = external_exports.object({
-  schema: external_exports.literal("dyna/snapshot-v4"),
+  schema: external_exports.literal("dyna/snapshot-v5"),
   dashboard: DynaDashboardSchema,
   generatedAt: TimestampSchema2,
   query: external_exports.string().max(500),
@@ -53402,15 +53596,104 @@ var DynaDashboardSnapshotSchema = external_exports.object({
     high: external_exports.number().int().nonnegative(),
     leadership: external_exports.number().int().nonnegative(),
     total: external_exports.number().int().nonnegative(),
-    archived: external_exports.number().int().nonnegative().default(0)
+    archived: external_exports.number().int().nonnegative().default(0),
+    blocked: external_exports.number().int().nonnegative().default(0)
   }).strict(),
   schedules: external_exports.array(DynaPublisherSchema).max(50),
   cards: external_exports.array(DynaCardSchema).max(200)
 }).strict();
 var DynaUiPayloadSchema = external_exports.object({
-  schema: external_exports.literal("dyna/ui-v6"),
+  schema: external_exports.literal("dyna/ui-v7"),
   viewToken: external_exports.string().min(32).max(128),
   snapshot: DynaDashboardSnapshotSchema
+}).strict();
+var DynaItemShowResultSchema = external_exports.object({
+  schema: external_exports.literal("dyna/item-show-result-v1"),
+  dashboard: DynaDashboardSchema,
+  revision: external_exports.number().int().nonnegative(),
+  enrichmentVersion: external_exports.number().int().nonnegative(),
+  item: DynaCardSchema
+}).strict();
+var DynaMutationResultBaseSchema = external_exports.object({
+  requestId: external_exports.uuid(),
+  itemId: external_exports.uuid(),
+  deduplicated: external_exports.boolean()
+});
+var DynaItemUpdateResultSchema = DynaMutationResultBaseSchema.extend({
+  schema: external_exports.literal("dyna/item-update-result-v1"),
+  workUpdateId: external_exports.uuid()
+}).strict();
+var DynaItemEnrichResultSchema = DynaMutationResultBaseSchema.extend({
+  schema: external_exports.literal("dyna/item-enrich-result-v1"),
+  enrichmentVersion: external_exports.number().int().positive()
+}).strict();
+var DynaItemPlaceResultSchema = DynaMutationResultBaseSchema.extend({
+  schema: external_exports.literal("dyna/item-place-result-v1"),
+  changed: external_exports.boolean()
+}).strict();
+var DynaItemStatusResultSchema = DynaMutationResultBaseSchema.extend({
+  schema: external_exports.literal("dyna/item-status-result-v1"),
+  targetStage: DynaUserWorkflowStageSchema,
+  changed: external_exports.boolean(),
+  changedAt: TimestampSchema2.optional()
+}).strict();
+var DynaItemArchiveResultSchema = DynaMutationResultBaseSchema.extend({
+  schema: external_exports.literal("dyna/item-archive-result-v1"),
+  archiveId: external_exports.uuid(),
+  archivedAt: TimestampSchema2,
+  reason: DynaArchiveReasonSchema
+}).strict();
+var DynaItemRestoreResultSchema = DynaMutationResultBaseSchema.extend({
+  schema: external_exports.literal("dyna/item-restore-result-v1"),
+  restoredAt: TimestampSchema2
+}).strict();
+var DynaFollowUpCreateResultSchema = DynaMutationResultBaseSchema.extend({
+  schema: external_exports.literal("dyna/follow-up-create-result-v1"),
+  sourceItemId: external_exports.uuid(),
+  fingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/)
+}).strict();
+var DynaCliHelpResultSchema = external_exports.object({
+  schema: external_exports.literal("dyna/help-v1"),
+  commands: external_exports.array(
+    external_exports.object({
+      command: external_exports.string().trim().min(1).max(160),
+      readsStdin: external_exports.boolean(),
+      description: external_exports.string().trim().min(1).max(200)
+    }).strict()
+  ).min(1).max(10)
+}).strict();
+var DynaCliVersionResultSchema = external_exports.object({
+  schema: external_exports.literal("dyna/version-v1"),
+  version: external_exports.string().trim().min(1).max(32),
+  nodeVersion: external_exports.string().trim().min(1).max(32),
+  minimumNodeVersion: external_exports.string().trim().min(1).max(32)
+}).strict();
+var DynaCliSetupResultSchema = external_exports.object({
+  schema: external_exports.literal("dyna/setup-v1"),
+  ready: external_exports.literal(true),
+  store: external_exports.literal("available"),
+  credentialBoundary: external_exports.literal("local-user")
+}).strict();
+var DynaCliErrorCodeSchema = external_exports.enum([
+  "invalid_input",
+  "not_found",
+  "outside_dashboard",
+  "stale_item",
+  "stale_dashboard",
+  "stale_enrichment",
+  "archived_item",
+  "completed_item",
+  "request_conflict",
+  "task_not_linked",
+  "busy",
+  "unavailable",
+  "unsupported_runtime",
+  "internal"
+]);
+var DynaCliErrorSchema = external_exports.object({
+  schema: external_exports.literal("dyna/error-v1"),
+  code: DynaCliErrorCodeSchema,
+  message: external_exports.string().trim().min(1).max(300)
 }).strict();
 
 // packages/dyna-node/src/store.ts
@@ -53419,22 +53702,45 @@ var import_node_fs3 = require("node:fs");
 var import_node_os = require("node:os");
 var import_node_path5 = require("node:path");
 var import_node_sqlite = require("node:sqlite");
+var DynaCliStoreError = class extends Error {
+  code;
+  constructor(code, message) {
+    super(message);
+    this.name = "DynaCliStoreError";
+    this.code = code;
+  }
+};
 var VIEW_TTL_MS = 30 * 24 * 60 * 60 * 1e3;
 var ACTION_TTL_MS = 10 * 60 * 1e3;
+var CODEX_SESSION_CANDIDATE_TTL_MS = 10 * 60 * 1e3;
 var CLAIM_LEASE_MS = 5 * 60 * 1e3;
 var MAX_CLOCK_SKEW_MS = 5 * 60 * 1e3;
-var DYNA_SCHEMA_VERSION = 5;
+var DYNA_SCHEMA_VERSION = 7;
 var MAX_DASHBOARDS = 100;
 var MAX_PUBLISHERS = 100;
 var MAX_SCHEDULES_PER_DASHBOARD = 50;
 var MAX_TASK_BINDINGS_PER_ITEM = 8;
+var MAX_CODEX_SESSION_CANDIDATE_LISTS = 100;
+var MAX_CODEX_SESSION_ATTACH_AUTHORIZATIONS = 200;
 var MAX_PUBLIC_FAILURE_LENGTH = 500;
 var MAX_FAILURE_SANITIZATION_INPUT = 4096;
+var MAX_WORK_UPDATES_PER_CARD = 1;
+var MAX_HISTORY_PAGE_SIZE = 50;
+var MAX_ACTIVITY_PAGE_SIZE = 25;
+var MAX_HISTORY_CURSOR_LENGTH = 256;
+var MAX_MATCHED_ACTIVITY_LENGTH = 500;
+var TASK_ATTRIBUTED_WORK_KINDS = /* @__PURE__ */ new Set([
+  "progress",
+  "needs_input",
+  "blocked",
+  "completion_reported",
+  "handoff"
+]);
 var LEGACY_COMPLETION_OUTCOME = "Completed before outcome tracking; refresh this task for details.";
 var LEGACY_UNSPECIFIED_FAILURE = "An earlier operation reported an unspecified failure.";
 function dynaEligibleCte(scope = "active") {
   const membership = scope === "archive" ? `JOIN item_archive_events ar ON ar.item_id = i.id
-          AND ar.dashboard_id = ? AND ar.restored_at IS NULL
+          AND ar.dashboard_id = ?1 AND ar.restored_at IS NULL
          JOIN dashboard_publishers dp ON dp.dashboard_id = ar.dashboard_id
           AND dp.publisher_id = i.publisher_id
          LEFT JOIN publisher_items pi ON pi.item_id = i.id AND pi.publisher_id = i.publisher_id` : `JOIN publisher_items pi ON pi.item_id = i.id
@@ -53445,9 +53751,70 @@ function dynaEligibleCte(scope = "active") {
           SELECT 1 FROM item_archive_events restored
           WHERE restored.dashboard_id = dp.dashboard_id AND restored.item_id = i.id
             AND restored.restored_at IS NOT NULL
-        )) AND ar.id IS NULL AND dp.dashboard_id = ?`;
+        )) AND ar.id IS NULL AND dp.dashboard_id = ?1`;
   return `
-  WITH eligible AS (
+  WITH eligible_membership AS (
+    SELECT DISTINCT i.*, dp.dashboard_id AS membership_dashboard_id,
+      ar.id AS membership_archive_id,
+      ar.reason AS membership_archive_reason,
+      ar.reason_detail AS membership_archive_reason_detail,
+      ar.mode AS membership_archive_mode,
+      ar.archived_at AS membership_archive_archived_at,
+      ar.completed_at AS membership_archive_completed_at,
+      ar.outcome_at_archive AS membership_archive_outcome,
+      ar.workflow_state AS membership_archive_workflow_state,
+      ar.fingerprint_at_archive AS membership_archive_fingerprint
+    FROM items i
+    ${membership}
+    WHERE ${visibility}
+  ), current_execution_updates AS (
+    SELECT state_update.*, state_update.rowid AS insertion_seq
+    FROM eligible_membership eligible_item
+    JOIN task_bindings controller ON controller.item_id = eligible_item.id
+    JOIN work_updates state_update ON state_update.rowid = (
+      SELECT candidate.rowid FROM work_updates candidate
+      WHERE candidate.item_id = controller.item_id
+        AND candidate.task_id = controller.task_id
+        AND candidate.host_id = controller.host_id
+        AND candidate.kind IN (
+          'progress', 'needs_input', 'blocked', 'completion_reported', 'handoff'
+        )
+      ORDER BY candidate.created_at_ms DESC, candidate.rowid DESC LIMIT 1
+    )
+    WHERE controller.state <> 'succeeded'
+      AND controller.observed_ms <= state_update.created_at_ms
+  ), effective_task_states AS (
+    SELECT controller.item_id, controller.task_id, controller.host_id,
+      state_update.kind AS work_kind,
+      CASE
+        WHEN controller.state IN ('succeeded', 'waiting', 'failed', 'unknown')
+          THEN controller.state
+        WHEN state_update.kind = 'needs_input' THEN 'waiting'
+        WHEN state_update.kind IN ('progress', 'completion_reported', 'handoff') THEN 'running'
+        ELSE controller.state
+      END AS effective_state,
+      CASE
+        WHEN controller.state IN ('failed', 'unknown') THEN 1
+        WHEN state_update.kind = 'blocked' THEN 1
+        ELSE 0
+      END AS task_blocked
+    FROM task_bindings controller
+    LEFT JOIN current_execution_updates state_update
+      ON state_update.item_id = controller.item_id
+      AND state_update.task_id = controller.task_id
+      AND state_update.host_id = controller.host_id
+    JOIN eligible_membership eligible_item ON eligible_item.id = controller.item_id
+  ), item_work_conditions AS (
+    SELECT * FROM (
+      SELECT state_update.*, ROW_NUMBER() OVER (
+        PARTITION BY state_update.item_id
+        ORDER BY CASE state_update.kind
+          WHEN 'needs_input' THEN 0 WHEN 'blocked' THEN 1 ELSE 2 END,
+          state_update.created_at_ms DESC, state_update.insertion_seq DESC
+      ) AS condition_rank
+      FROM current_execution_updates state_update
+    ) WHERE condition_rank = 1
+  ), eligible_base AS (
     SELECT DISTINCT i.*,
       CASE WHEN e.base_fingerprint = i.fingerprint THEN e.summary END AS enrichment_summary,
       CASE WHEN e.base_fingerprint = i.fingerprint THEN e.priority END AS enrichment_priority,
@@ -53466,14 +53833,19 @@ function dynaEligibleCte(scope = "active") {
       e.version AS enrichment_version,
       p.priority_override AS preference_priority,
       p.sequence AS preference_sequence,
-      ar.id AS archive_id,
-      ar.reason AS archive_reason,
-      ar.reason_detail AS archive_reason_detail,
-      ar.mode AS archive_mode,
-      ar.archived_at AS archive_archived_at,
-      ar.completed_at AS archive_completed_at,
-      ar.workflow_state AS archive_workflow_state,
-      ar.fingerprint_at_archive AS archive_fingerprint,
+      i.membership_archive_id AS archive_id,
+      i.membership_archive_reason AS archive_reason,
+      i.membership_archive_reason_detail AS archive_reason_detail,
+      i.membership_archive_mode AS archive_mode,
+      i.membership_archive_archived_at AS archive_archived_at,
+      i.membership_archive_completed_at AS archive_completed_at,
+      i.membership_archive_outcome AS archive_outcome,
+      i.membership_archive_workflow_state AS archive_workflow_state,
+      i.membership_archive_fingerprint AS archive_fingerprint,
+      user_workflow.target_stage AS user_workflow_stage,
+      user_workflow.outcome AS user_workflow_outcome,
+      user_workflow.created_at AS user_workflow_created_at,
+      user_workflow.created_at_ms AS user_workflow_created_ms,
       CASE
         WHEN p.priority_override IS NOT NULL THEN p.priority_override
         WHEN e.base_fingerprint = i.fingerprint AND e.leadership_score >= 75
@@ -53488,30 +53860,55 @@ function dynaEligibleCte(scope = "active") {
       CASE WHEN e.base_fingerprint = i.fingerprint
         THEN e.leadership_score ELSE i.leadership_score END AS effective_leadership_score,
       CASE
-        WHEN NOT EXISTS (SELECT 1 FROM task_bindings t WHERE t.item_id = i.id) THEN 'todo'
         WHEN EXISTS (
-          SELECT 1 FROM task_bindings t
-          WHERE t.item_id = i.id AND t.state IN ('failed', 'unknown')
+          SELECT 1 FROM effective_task_states task_state
+          WHERE task_state.item_id = i.id AND task_state.effective_state IN ('failed', 'unknown')
         ) THEN 'attention'
         WHEN EXISTS (
-          SELECT 1 FROM task_bindings t
-          WHERE t.item_id = i.id AND t.state = 'waiting'
+          SELECT 1 FROM effective_task_states task_state
+          WHERE task_state.item_id = i.id AND task_state.effective_state = 'waiting'
         ) THEN 'paused'
         WHEN EXISTS (
-          SELECT 1 FROM task_bindings t
-          WHERE t.item_id = i.id AND t.state IN ('queued', 'running')
+          SELECT 1 FROM effective_task_states task_state
+          WHERE task_state.item_id = i.id AND task_state.effective_state IN ('queued', 'running')
         ) THEN 'executing'
         WHEN NOT EXISTS (
-          SELECT 1 FROM task_bindings t
-          WHERE t.item_id = i.id AND t.state <> 'succeeded'
+          SELECT 1 FROM effective_task_states task_state
+          WHERE task_state.item_id = i.id AND task_state.effective_state <> 'succeeded'
+        ) AND EXISTS (
+          SELECT 1 FROM effective_task_states task_state WHERE task_state.item_id = i.id
         ) THEN 'completed'
-        ELSE 'attention'
-      END AS workflow_state
-    FROM items i
-    ${membership}
+        WHEN EXISTS (
+          SELECT 1 FROM effective_task_states task_state WHERE task_state.item_id = i.id
+        ) THEN 'attention'
+        WHEN user_workflow.target_stage = 'needs_you' THEN 'attention'
+        WHEN user_workflow.target_stage = 'done' THEN 'completed'
+        ELSE 'todo'
+      END AS effective_workflow_state,
+      work_condition.kind AS work_state,
+      CASE WHEN work_condition.kind IN ('needs_input', 'blocked')
+        THEN substr(work_condition.body, 1, 200) END AS work_condition_summary,
+      CASE WHEN work_condition.kind IN ('needs_input', 'blocked')
+        THEN work_condition.task_id END AS work_condition_task_id,
+      CASE WHEN work_condition.kind IN ('needs_input', 'blocked')
+        THEN work_condition.host_id END AS work_condition_host_id,
+      CASE WHEN EXISTS (
+        SELECT 1 FROM effective_task_states task_state
+        WHERE task_state.item_id = i.id AND task_state.task_blocked = 1
+      ) THEN 1 ELSE 0 END AS work_blocked
+    FROM eligible_membership i
     LEFT JOIN item_enrichments e ON e.item_id = i.id
-    LEFT JOIN item_preferences p ON p.item_id = i.id AND p.dashboard_id = dp.dashboard_id
-    WHERE ${visibility}
+    LEFT JOIN item_preferences p ON p.item_id = i.id
+      AND p.dashboard_id = i.membership_dashboard_id
+    LEFT JOIN item_work_conditions work_condition ON work_condition.item_id = i.id
+    LEFT JOIN item_workflow_events user_workflow ON user_workflow.rowid = (
+      SELECT candidate.rowid FROM item_workflow_events candidate
+      WHERE candidate.item_id = i.id
+      ORDER BY candidate.created_at_ms DESC, candidate.rowid DESC LIMIT 1
+    )
+  ), eligible AS (
+    SELECT *, effective_workflow_state AS workflow_state
+    FROM eligible_base
   ), ranked AS (
     SELECT *, ROW_NUMBER() OVER (
       PARTITION BY identity_key ORDER BY source_updated_ms DESC, updated_at DESC, id
@@ -53546,6 +53943,119 @@ function token() {
 function sha256(value) {
   return (0, import_node_crypto5.createHash)("sha256").update(value, "utf8").digest("hex");
 }
+function pageSize(value, maximum) {
+  const size = value ?? maximum;
+  if (!Number.isInteger(size) || size < 1 || size > maximum) {
+    throw new DynaCliStoreError(
+      "invalid_input",
+      `A Dyna page size must be between 1 and ${maximum}.`
+    );
+  }
+  return size;
+}
+function historyCursor(stream, createdAtMs, insertionSequence) {
+  if (!Number.isSafeInteger(createdAtMs) || createdAtMs < 0 || !Number.isSafeInteger(insertionSequence) || insertionSequence < 1) {
+    throw new Error("Dyna stored history ordering data is invalid.");
+  }
+  return Buffer.from(JSON.stringify([1, stream, createdAtMs, insertionSequence]), "utf8").toString(
+    "base64url"
+  );
+}
+function parseHistoryCursor(value, expectedStream) {
+  if (value === void 0) return void 0;
+  if (value.length < 1 || value.length > MAX_HISTORY_CURSOR_LENGTH || !/^[A-Za-z0-9_-]+$/.test(value)) {
+    throw new DynaCliStoreError("invalid_input", "The Dyna history cursor is invalid.");
+  }
+  try {
+    const decoded = Buffer.from(value, "base64url");
+    if (decoded.toString("base64url") !== value) throw new Error("noncanonical");
+    const parsed = JSON.parse(decoded.toString("utf8"));
+    if (!Array.isArray(parsed) || parsed.length !== 4 || parsed[0] !== 1 || parsed[1] !== expectedStream || !Number.isSafeInteger(parsed[2]) || parsed[2] < 0 || !Number.isSafeInteger(parsed[3]) || parsed[3] < 1) {
+      throw new Error("shape");
+    }
+    return { createdAtMs: parsed[2], insertionSequence: parsed[3] };
+  } catch {
+    throw new DynaCliStoreError("invalid_input", "The Dyna history cursor is invalid.");
+  }
+}
+function matchingFragment(value, terms, maximumLength) {
+  const lower = value.toLocaleLowerCase();
+  const matchIndexes = terms.map((term) => lower.indexOf(term)).filter((index) => index >= 0);
+  if (matchIndexes.length === 0) return void 0;
+  if (value.length <= maximumLength) return value;
+  const matchIndex = Math.min(...matchIndexes);
+  const prefixLength = Math.min(matchIndex, Math.floor(maximumLength / 3));
+  const start = matchIndex - prefixLength;
+  const leading = start > 0 ? "…" : "";
+  const available = maximumLength - leading.length - 1;
+  const body = value.slice(start, start + available);
+  const trailing = start + body.length < value.length ? "…" : "";
+  return `${leading}${body}${trailing}`.slice(0, maximumLength);
+}
+function matchedActivitySummary(update, terms) {
+  const candidates = [
+    { value: update.body, prefix: "", suffix: "" },
+    { value: update.kind, prefix: "Update: ", suffix: "" }
+  ];
+  if (update.outcome) candidates.push({ value: update.outcome, prefix: "Outcome: ", suffix: "" });
+  if (update.task) {
+    candidates.push({ value: update.task.taskId, prefix: "Codex task ID: ", suffix: "" });
+    candidates.push({ value: update.task.hostId, prefix: "Codex host: ", suffix: "" });
+    if (update.task.title) {
+      candidates.push({ value: update.task.title, prefix: "Codex task: ", suffix: "" });
+    }
+  }
+  for (const artifact of update.artifacts) {
+    candidates.push({ value: artifact.kind, prefix: "Artifact type: ", suffix: "" });
+    candidates.push({ value: artifact.label, prefix: "Artifact: ", suffix: "" });
+  }
+  for (const artifact of update.artifacts) {
+    candidates.push({
+      value: artifact.url,
+      prefix: `Artifact: ${artifact.label} (`,
+      suffix: ")"
+    });
+  }
+  const distinctTerms = [...new Set(terms.map((term) => term.toLocaleLowerCase()))];
+  let best;
+  for (const candidate of candidates) {
+    const lower = candidate.value.toLocaleLowerCase();
+    const matchedTermCount = distinctTerms.filter((term) => lower.includes(term)).length;
+    if (matchedTermCount > (best?.matchedTermCount ?? 0)) {
+      best = { ...candidate, matchedTermCount };
+    }
+  }
+  if (!best) return void 0;
+  const fragment = matchingFragment(
+    best.value,
+    terms,
+    MAX_MATCHED_ACTIVITY_LENGTH - best.prefix.length - best.suffix.length
+  );
+  return fragment ? `${best.prefix}${fragment}${best.suffix}` : void 0;
+}
+function activitySearchSql(alias) {
+  return `lower(
+    ${alias}.kind || ' ' || ${alias}.body || ' ' || COALESCE(${alias}.outcome, '') || ' ' ||
+    COALESCE(${alias}.task_id, '') || ' ' || COALESCE(${alias}.host_id, '') || ' ' ||
+    COALESCE(${alias}.task_title, '') || ' ' || COALESCE((
+      SELECT group_concat(
+        COALESCE(json_extract(activity_artifact.value, '$.kind'), '') || ' ' ||
+        COALESCE(json_extract(activity_artifact.value, '$.label'), '') || ' ' ||
+        COALESCE(json_extract(activity_artifact.value, '$.url'), ''),
+        ' '
+      )
+      FROM json_each(${alias}.artifacts) activity_artifact
+    ), '')
+  )`;
+}
+function canonicalJson(value) {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) return `[${value.map((entry) => canonicalJson(entry)).join(",")}]`;
+  const record2 = value;
+  return `{${Object.keys(record2).filter((key) => record2[key] !== void 0).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(record2[key])}`).join(",")}}`;
+}
 function scopedUuid(scope) {
   const digest = sha256(JSON.stringify(["dyna/scoped-uuid-v1", ...scope]));
   const variant = (Number.parseInt(digest[16] ?? "0", 16) & 3 | 8).toString(16);
@@ -53559,6 +54069,9 @@ function hashesMatch(value, stored) {
   const candidate = tokenHash(value);
   const expected = Buffer.from(stored);
   return candidate.length === expected.length && (0, import_node_crypto5.timingSafeEqual)(candidate, expected);
+}
+function storedTokenHashKey(stored) {
+  return stored instanceof Uint8Array ? Buffer.from(stored).toString("hex") : void 0;
 }
 function lstatIfPresent(path) {
   try {
@@ -53703,6 +54216,8 @@ function defaultDynaDatabasePath(environment = process.env) {
 var DynaStore = class {
   #database;
   #clock;
+  #codexSessionCandidateLists = /* @__PURE__ */ new Map();
+  #codexSessionAttachAuthorizations = /* @__PURE__ */ new Map();
   constructor(options = {}) {
     this.#clock = options.clock ?? (() => /* @__PURE__ */ new Date());
     const databasePath = options.databasePath ?? defaultDynaDatabasePath();
@@ -53864,6 +54379,19 @@ var DynaStore = class {
         priority TEXT NOT NULL CHECK (priority IN ('critical', 'high', 'normal', 'low')),
         sequence INTEGER, created_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS item_workflow_events (
+        id TEXT PRIMARY KEY,
+        item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        origin_dashboard_id TEXT NOT NULL,
+        target_stage TEXT NOT NULL CHECK (target_stage IN ('todo', 'needs_you', 'done')),
+        outcome TEXT,
+        created_at TEXT NOT NULL,
+        created_at_ms INTEGER NOT NULL,
+        CHECK (
+          (target_stage = 'done' AND outcome IS NOT NULL AND length(trim(outcome)) > 0) OR
+          (target_stage <> 'done' AND outcome IS NULL)
+        )
+      );
       CREATE TABLE IF NOT EXISTS item_archive_events (
         id TEXT PRIMARY KEY,
         dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
@@ -53898,6 +54426,34 @@ var DynaStore = class {
         id TEXT PRIMARY KEY, item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
         body TEXT NOT NULL, created_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS work_updates (
+        id TEXT PRIMARY KEY,
+        item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        origin_dashboard_id TEXT NOT NULL,
+        work_attempt_id TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN (
+          'note', 'progress', 'decision', 'needs_input', 'blocked',
+          'completion_reported', 'handoff'
+        )),
+        body TEXT NOT NULL,
+        outcome TEXT,
+        artifacts TEXT NOT NULL DEFAULT '[]',
+        task_id TEXT,
+        host_id TEXT,
+        task_title TEXT,
+        created_at TEXT NOT NULL,
+        created_at_ms INTEGER NOT NULL,
+        CHECK ((task_id IS NULL) = (host_id IS NULL))
+      );
+      CREATE TABLE IF NOT EXISTS cli_requests (
+        request_id TEXT NOT NULL PRIMARY KEY,
+        dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
+        operation TEXT NOT NULL,
+        item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        request_hash TEXT NOT NULL,
+        result_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS task_bindings (
         item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
         task_id TEXT NOT NULL, host_id TEXT NOT NULL, project_id TEXT,
@@ -53911,7 +54467,8 @@ var DynaStore = class {
         expires_at TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS action_requests (
-        id TEXT PRIMARY KEY, view_token_hash BLOB NOT NULL, dashboard_id TEXT,
+        id TEXT PRIMARY KEY, view_token_hash BLOB NOT NULL,
+        dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
         kind TEXT NOT NULL, item_id TEXT REFERENCES items(id) ON DELETE CASCADE,
         item_fingerprint TEXT, dashboard_revision INTEGER, task_id TEXT, host_id TEXT,
         idempotency_key TEXT, state TEXT NOT NULL, claim_token_hash BLOB, claim_expires_at TEXT,
@@ -53932,9 +54489,95 @@ var DynaStore = class {
         WHERE restore_request_id IS NOT NULL;
       CREATE INDEX IF NOT EXISTS idx_dyna_archive_dashboard_time
         ON item_archive_events(dashboard_id, restored_at, archived_at_ms DESC);
+      CREATE INDEX IF NOT EXISTS idx_dyna_archive_item_history
+        ON item_archive_events(dashboard_id, item_id, archived_at_ms DESC);
       CREATE INDEX IF NOT EXISTS idx_dyna_preference_history
         ON item_preference_events(dashboard_id, item_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_dyna_workflow_history
+        ON item_workflow_events(item_id, created_at_ms DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS idx_dyna_work_updates_item_time
+        ON work_updates(item_id, created_at_ms DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS idx_dyna_work_updates_attempt
+        ON work_updates(item_id, work_attempt_id, created_at_ms DESC);
+      CREATE INDEX IF NOT EXISTS idx_dyna_work_updates_task_state
+        ON work_updates(item_id, task_id, host_id, created_at_ms DESC)
+        WHERE task_id IS NOT NULL AND kind IN (
+          'progress', 'needs_input', 'blocked', 'completion_reported', 'handoff'
+        );
     `);
+    this.#createActionRequestIndexesWhenSupported();
+  }
+  #createActionRequestIndexesWhenSupported() {
+    const columns = new Set(
+      this.#database.prepare("PRAGMA table_info(action_requests)").all().map(
+        (row) => requiredString(row, "name")
+      )
+    );
+    if (!["dashboard_id", "idempotency_key", "item_id", "kind", "state", "claim_expires_at"].every(
+      (column) => columns.has(column)
+    )) {
+      return;
+    }
+    this.#database.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_dyna_action_idempotency
+        ON action_requests(dashboard_id, idempotency_key)
+        WHERE idempotency_key IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_dyna_actions_item_state
+        ON action_requests(item_id, kind, state, claim_expires_at);
+    `);
+  }
+  #rebuildActionRequestsV6() {
+    const temporaryTable = this.#one(
+      this.#database.prepare(
+        "SELECT 1 AS present FROM sqlite_schema WHERE type = 'table' AND name = 'action_requests_v6_migration'"
+      )
+    );
+    if (temporaryTable) {
+      throw new Error("Dyna found an incomplete action-request schema migration.");
+    }
+    this.#database.exec(`
+      CREATE TABLE action_requests_v6_migration (
+        id TEXT PRIMARY KEY, view_token_hash BLOB NOT NULL,
+        dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL, item_id TEXT REFERENCES items(id) ON DELETE CASCADE,
+        item_fingerprint TEXT, dashboard_revision INTEGER, task_id TEXT, host_id TEXT,
+        idempotency_key TEXT, state TEXT NOT NULL, claim_token_hash BLOB, claim_expires_at TEXT,
+        result_task_id TEXT, failure_message TEXT, uncertain_effect INTEGER NOT NULL DEFAULT 0,
+        expires_at TEXT NOT NULL,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+      INSERT INTO action_requests_v6_migration (
+        id, view_token_hash, dashboard_id, kind, item_id, item_fingerprint,
+        dashboard_revision, task_id, host_id, idempotency_key, state,
+        claim_token_hash, claim_expires_at, result_task_id, failure_message,
+        uncertain_effect, expires_at, created_at, updated_at
+      )
+      SELECT id, view_token_hash, dashboard_id, kind, item_id, item_fingerprint,
+        dashboard_revision, task_id, host_id, idempotency_key, state,
+        claim_token_hash, claim_expires_at, result_task_id, failure_message,
+        uncertain_effect, expires_at, created_at, updated_at
+      FROM action_requests;
+      DROP TABLE action_requests;
+      ALTER TABLE action_requests_v6_migration RENAME TO action_requests;
+    `);
+  }
+  #actionRequestsUseV6Constraints() {
+    const dashboardColumn = this.#database.prepare("PRAGMA table_info(action_requests)").all().find((column) => optionalString(column, "name") === "dashboard_id");
+    if (!dashboardColumn || requiredNumber(dashboardColumn, "notnull") !== 1) return false;
+    return this.#database.prepare("PRAGMA foreign_key_list(action_requests)").all().some(
+      (foreignKey) => optionalString(foreignKey, "from") === "dashboard_id" && optionalString(foreignKey, "table") === "dashboards" && optionalString(foreignKey, "on_delete") === "CASCADE"
+    );
+  }
+  #schemaObjectExists(type, name) {
+    return Boolean(
+      this.#one(
+        this.#database.prepare(
+          "SELECT 1 AS present FROM sqlite_schema WHERE type = ? AND name = ?"
+        ),
+        type,
+        name
+      )
+    );
   }
   #migrateSchema() {
     const versionRow = this.#one(this.#database.prepare("PRAGMA user_version"));
@@ -53946,7 +54589,25 @@ var DynaStore = class {
       );
     }
     this.#database.exec("PRAGMA journal_mode = WAL;");
-    if (startingVersion === DYNA_SCHEMA_VERSION) return;
+    if (startingVersion === DYNA_SCHEMA_VERSION) {
+      const actionSchemaCurrent = this.#actionRequestsUseV6Constraints();
+      const supplementalIndexesPresent = this.#schemaObjectExists("index", "idx_dyna_archive_item_history") && this.#schemaObjectExists("index", "idx_dyna_workflow_history") && this.#schemaObjectExists("index", "idx_dyna_work_updates_task_state") && this.#schemaObjectExists("index", "idx_dyna_action_idempotency") && this.#schemaObjectExists("index", "idx_dyna_actions_item_state");
+      if (actionSchemaCurrent && supplementalIndexesPresent) return;
+      this.#transaction(() => {
+        if (!actionSchemaCurrent) {
+          this.#database.prepare(
+            `UPDATE action_requests SET dashboard_id = (
+                 SELECT sessions.dashboard_id FROM view_sessions sessions
+                 WHERE sessions.token_hash = action_requests.view_token_hash
+               ) WHERE dashboard_id IS NULL`
+          ).run();
+          this.#rebuildActionRequestsV6();
+        }
+        this.#createSchema();
+        this.#assertDatabaseIntegrity();
+      });
+      return;
+    }
     if (startingVersion === 1) {
       this.#transaction(() => {
         const publisherColumns = new Set(
@@ -54016,7 +54677,7 @@ var DynaStore = class {
         this.#assertDatabaseIntegrity();
         this.#database.exec("PRAGMA user_version = 2;");
       });
-    } else if (startingVersion !== 2 && startingVersion !== 3 && startingVersion !== 4) {
+    } else if (startingVersion !== 2 && startingVersion !== 3 && startingVersion !== 4 && startingVersion !== 5 && startingVersion !== 6) {
       throw new Error("The Dyna database schema version is unsupported.");
     }
     const versionTwoRow = this.#one(this.#database.prepare("PRAGMA user_version"));
@@ -54084,23 +54745,58 @@ var DynaStore = class {
         this.#database.exec("PRAGMA user_version = 4;");
       });
     const versionFourRow = this.#one(this.#database.prepare("PRAGMA user_version"));
-    if (!versionFourRow || requiredNumber(versionFourRow, "user_version") !== 4) {
+    if (!versionFourRow) {
+      throw new Error("Dyna could not complete its database schema migration.");
+    }
+    const versionFour = requiredNumber(versionFourRow, "user_version");
+    if (versionFour === 4) {
+      this.#transaction(() => {
+        const dashboardColumns = new Set(
+          this.#database.prepare("PRAGMA table_info(dashboards)").all().map(
+            (row) => requiredString(row, "name")
+          )
+        );
+        if (!dashboardColumns.has("done_retention_hours")) {
+          this.#database.exec(
+            "ALTER TABLE dashboards ADD COLUMN done_retention_hours INTEGER NOT NULL DEFAULT 24"
+          );
+        }
+        this.#createSchema();
+        this.#assertDatabaseIntegrity();
+        this.#database.exec("PRAGMA user_version = 5;");
+      });
+    } else if (versionFour !== 5 && versionFour !== 6) {
+      throw new Error("Dyna could not complete its database schema migration.");
+    }
+    const versionFiveRow = this.#one(this.#database.prepare("PRAGMA user_version"));
+    if (!versionFiveRow) {
+      throw new Error("Dyna could not complete its database schema migration.");
+    }
+    const versionFive = requiredNumber(versionFiveRow, "user_version");
+    if (versionFive === 5) {
+      this.#transaction(() => {
+        this.#database.prepare(
+          `UPDATE action_requests SET dashboard_id = (
+               SELECT sessions.dashboard_id FROM view_sessions sessions
+               WHERE sessions.token_hash = action_requests.view_token_hash
+             ) WHERE dashboard_id IS NULL`
+        ).run();
+        this.#rebuildActionRequestsV6();
+        this.#createSchema();
+        this.#assertDatabaseIntegrity();
+        this.#database.exec("PRAGMA user_version = 6;");
+      });
+    } else if (versionFive !== 6) {
+      throw new Error("Dyna could not complete its database schema migration.");
+    }
+    const versionSixRow = this.#one(this.#database.prepare("PRAGMA user_version"));
+    if (!versionSixRow || requiredNumber(versionSixRow, "user_version") !== 6) {
       throw new Error("Dyna could not complete its database schema migration.");
     }
     this.#transaction(() => {
-      const dashboardColumns = new Set(
-        this.#database.prepare("PRAGMA table_info(dashboards)").all().map(
-          (row) => requiredString(row, "name")
-        )
-      );
-      if (!dashboardColumns.has("done_retention_hours")) {
-        this.#database.exec(
-          "ALTER TABLE dashboards ADD COLUMN done_retention_hours INTEGER NOT NULL DEFAULT 24"
-        );
-      }
       this.#createSchema();
       this.#assertDatabaseIntegrity();
-      this.#database.exec("PRAGMA user_version = 5;");
+      this.#database.exec("PRAGMA user_version = 7;");
     });
     const migratedVersion = this.#one(this.#database.prepare("PRAGMA user_version"));
     if (!migratedVersion || requiredNumber(migratedVersion, "user_version") !== DYNA_SCHEMA_VERSION) {
@@ -54349,6 +55045,60 @@ var DynaStore = class {
     this.#database.prepare(
       "INSERT INTO audit_events (id, event_kind, entity_id, created_at) VALUES (?, ?, ?, ?)"
     ).run((0, import_node_crypto5.randomUUID)(), eventKind, entityId, occurredAt);
+  }
+  #cliMutation(dashboardId, itemId, requestId, operation, request, mutate) {
+    const requestHash = sha256(canonicalJson([operation, dashboardId, itemId, request]));
+    return this.#transaction(() => {
+      const existing = this.#one(
+        this.#database.prepare(
+          "SELECT dashboard_id, operation, item_id, request_hash, result_json FROM cli_requests WHERE request_id = ?"
+        ),
+        requestId
+      );
+      if (existing) {
+        if (requiredString(existing, "dashboard_id") !== dashboardId || requiredString(existing, "operation") !== operation || requiredString(existing, "item_id") !== itemId || requiredString(existing, "request_hash") !== requestHash) {
+          throw new DynaCliStoreError(
+            "request_conflict",
+            "This Dyna request ID was already used for different input."
+          );
+        }
+        return { ...parseJson(requiredString(existing, "result_json")), deduplicated: true };
+      }
+      const dashboard = this.#one(
+        this.#database.prepare("SELECT archived FROM dashboards WHERE id = ?"),
+        dashboardId
+      );
+      if (!dashboard) throw new DynaCliStoreError("not_found", "Dyna dashboard was not found.");
+      if (requiredNumber(dashboard, "archived") === 1) {
+        throw new DynaCliStoreError("not_found", "Dyna dashboard is archived.");
+      }
+      const item = this.#one(
+        this.#database.prepare("SELECT 1 AS present FROM items WHERE id = ?"),
+        itemId
+      );
+      if (!item) throw new DynaCliStoreError("not_found", "Dyna item was not found.");
+      if (!this.#dashboardContainsItem(dashboardId, itemId)) {
+        throw new DynaCliStoreError(
+          "outside_dashboard",
+          "The Dyna item is outside the requested dashboard."
+        );
+      }
+      const result = mutate();
+      this.#database.prepare(
+        `INSERT INTO cli_requests (
+             dashboard_id, request_id, operation, item_id, request_hash, result_json, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        dashboardId,
+        requestId,
+        operation,
+        itemId,
+        requestHash,
+        JSON.stringify(result),
+        this.#now()
+      );
+      return result;
+    });
   }
   #assertDashboardCapacity() {
     const row = this.#one(this.#database.prepare("SELECT COUNT(*) AS total FROM dashboards"));
@@ -55284,6 +56034,148 @@ var DynaStore = class {
       return itemId;
     });
   }
+  setItemStatus(input) {
+    const parsed = DynaSetItemStatusInputSchema.parse(input);
+    const dashboardId = this.authorizeView(parsed.viewToken, parsed.itemId);
+    return DynaItemStatusResultSchema.parse(
+      this.#cliMutation(
+        dashboardId,
+        parsed.itemId,
+        parsed.clientRequestId,
+        "app.item.status",
+        {
+          targetStage: parsed.targetStage,
+          outcome: parsed.outcome,
+          expectedRevision: parsed.expectedRevision,
+          expectedFingerprint: parsed.expectedFingerprint
+        },
+        () => {
+          const revision = this.#one(
+            this.#database.prepare("SELECT revision FROM dashboards WHERE id = ?"),
+            dashboardId
+          );
+          if (!revision || requiredNumber(revision, "revision") !== parsed.expectedRevision) {
+            throw new DynaCliStoreError(
+              "stale_dashboard",
+              "The Dyna dashboard changed; refresh before changing this item status."
+            );
+          }
+          const item = this.#itemBaseRow(parsed.itemId);
+          if (requiredString(item, "fingerprint") !== parsed.expectedFingerprint) {
+            throw new DynaCliStoreError(
+              "stale_item",
+              "The Dyna item changed; refresh before changing its status."
+            );
+          }
+          const row = this.#one(
+            this.#database.prepare(`${DYNA_ELIGIBLE_CTE} SELECT * FROM positioned WHERE id = ?`),
+            dashboardId,
+            parsed.itemId
+          );
+          if (!row) {
+            const archived = this.#one(
+              this.#database.prepare(
+                "SELECT 1 AS present FROM item_archive_events WHERE dashboard_id = ? AND item_id = ? AND restored_at IS NULL"
+              ),
+              dashboardId,
+              parsed.itemId
+            );
+            throw new DynaCliStoreError(
+              archived ? "archived_item" : "not_found",
+              archived ? "Archived Dyna items cannot change status; restore the item first." : "The Dyna item is no longer active in this dashboard."
+            );
+          }
+          const linkedTask = this.#one(
+            this.#database.prepare(
+              "SELECT 1 AS present FROM task_bindings WHERE item_id = ? LIMIT 1"
+            ),
+            parsed.itemId
+          );
+          if (linkedTask) {
+            throw new DynaCliStoreError(
+              "invalid_input",
+              "Linked Codex task status is controller-derived; use Start, Open, or Refresh instead."
+            );
+          }
+          if (parsed.targetStage === "done") {
+            const creationInFlight = this.#one(
+              this.#database.prepare(
+                `SELECT 1 AS present FROM action_requests
+                 WHERE item_id = ? AND kind = 'create_codex_task'
+                   AND (state = 'claimed' OR
+                     (state = 'needs_reconciliation' AND uncertain_effect = 1))
+                 LIMIT 1`
+              ),
+              parsed.itemId
+            );
+            if (creationInFlight) {
+              throw new DynaCliStoreError(
+                "invalid_input",
+                "Codex task creation may already be in progress; reconcile it before marking this item Done."
+              );
+            }
+          }
+          const workflowState = requiredWorkflowState(row);
+          const currentStage = workflowState === "completed" ? "done" : workflowState === "attention" || workflowState === "paused" ? "needs_you" : "todo";
+          if (workflowState === "completed" && parsed.targetStage !== "done") {
+            throw new DynaCliStoreError(
+              "completed_item",
+              "Completed Dyna work cannot be reopened; create a follow-up item instead."
+            );
+          }
+          if (currentStage === parsed.targetStage) {
+            if (parsed.targetStage === "done" && parsed.outcome !== optionalString(row, "user_workflow_outcome")) {
+              throw new DynaCliStoreError(
+                "completed_item",
+                "A completed Dyna item's outcome is immutable; create a follow-up for continued work."
+              );
+            }
+            return {
+              schema: "dyna/item-status-result-v1",
+              requestId: parsed.clientRequestId,
+              itemId: parsed.itemId,
+              deduplicated: false,
+              targetStage: parsed.targetStage,
+              changed: false
+            };
+          }
+          const instant = this.#now();
+          const event = DynaUserWorkflowEventSchema.parse({
+            id: (0, import_node_crypto5.randomUUID)(),
+            itemId: parsed.itemId,
+            originDashboardId: dashboardId,
+            targetStage: parsed.targetStage,
+            ...parsed.outcome ? { outcome: parsed.outcome } : {},
+            createdAt: instant
+          });
+          this.#database.prepare(
+            `INSERT INTO item_workflow_events (
+                 id, item_id, origin_dashboard_id, target_stage, outcome, created_at, created_at_ms
+               ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+          ).run(
+            event.id,
+            event.itemId,
+            event.originDashboardId,
+            event.targetStage,
+            event.outcome ?? null,
+            event.createdAt,
+            this.#nowMs()
+          );
+          this.#touchDashboardsForItem(parsed.itemId, instant);
+          this.#audit(`item.status.${event.targetStage}`, parsed.itemId, instant);
+          return {
+            schema: "dyna/item-status-result-v1",
+            requestId: parsed.clientRequestId,
+            itemId: parsed.itemId,
+            deduplicated: false,
+            targetStage: parsed.targetStage,
+            changed: true,
+            changedAt: instant
+          };
+        }
+      )
+    );
+  }
   organizeItem(viewToken, itemId, action, expectedRevision, expectedFingerprint) {
     const dashboardId = this.authorizeView(viewToken, itemId);
     const instant = this.#now();
@@ -55593,33 +56485,119 @@ var DynaStore = class {
       return { itemId, restoredAt: instant };
     });
   }
-  itemHistory(dashboardId, itemId) {
-    this.getDashboard(dashboardId);
-    if (!this.#dashboardContainsItem(dashboardId, itemId)) {
-      throw new Error("The Dyna item is outside this dashboard.");
-    }
-    const archives = this.#database.prepare(
-      `SELECT history.*, i.fingerprint FROM item_archive_events history
-           JOIN items i ON i.id = history.item_id
-           WHERE history.dashboard_id = ? AND history.item_id = ?
-           ORDER BY archived_at_ms DESC LIMIT 100`
-    ).all(dashboardId, itemId).map((row) => ({
+  itemHistory(dashboardId, itemId, options = {}) {
+    this.assertDashboardContainsItem(dashboardId, itemId);
+    const limit = pageSize(options.limit, MAX_HISTORY_PAGE_SIZE);
+    const archiveCursor = parseHistoryCursor(options.archiveCursor, "archive");
+    const orderCursor = parseHistoryCursor(options.orderCursor, "order");
+    const statusCursor = parseHistoryCursor(options.statusCursor, "status");
+    const workCursor = parseHistoryCursor(options.workCursor, "work");
+    const archiveRows = this.#database.prepare(
+      `SELECT history.*, history.rowid AS insertion_sequence, i.fingerprint
+         FROM item_archive_events history
+         JOIN items i ON i.id = history.item_id
+         WHERE history.dashboard_id = ? AND history.item_id = ?
+         ${archiveCursor ? `AND (history.archived_at_ms < ? OR (
+                  history.archived_at_ms = ? AND history.rowid < ?
+                ))` : ""}
+         ORDER BY history.archived_at_ms DESC, history.rowid DESC LIMIT ?`
+    ).all(
+      dashboardId,
+      itemId,
+      ...archiveCursor ? [archiveCursor.createdAtMs, archiveCursor.createdAtMs, archiveCursor.insertionSequence] : [],
+      limit + 1
+    );
+    const archivePage = archiveRows.slice(0, limit);
+    const archives = archivePage.map((row) => ({
       ...this.#archiveStateFromRow(row),
       ...optionalString(row, "restored_at") ? { restoredAt: optionalString(row, "restored_at") } : {},
       priorityAtArchive: DynaPrioritySchema.parse(requiredString(row, "priority_at_archive")),
       ...typeof row["sequence_at_archive"] === "number" ? { sequenceAtArchive: requiredNumber(row, "sequence_at_archive") } : {},
       ...optionalString(row, "outcome_at_archive") ? { outcomeAtArchive: optionalString(row, "outcome_at_archive") } : {}
     }));
-    const organization = this.#database.prepare(
-      `SELECT action, priority, sequence, created_at FROM item_preference_events
-           WHERE dashboard_id = ? AND item_id = ? ORDER BY created_at DESC, id DESC LIMIT 200`
-    ).all(dashboardId, itemId).map((row) => ({
+    const orderCursorTimestamp = orderCursor ? new Date(orderCursor.createdAtMs).toISOString() : void 0;
+    const organizationRows = this.#database.prepare(
+      `SELECT action, priority, sequence, created_at, rowid AS insertion_sequence
+         FROM item_preference_events
+         WHERE dashboard_id = ? AND item_id = ?
+         ${orderCursor && orderCursorTimestamp ? `AND (created_at < ? OR (created_at = ? AND rowid < ?))` : ""}
+         ORDER BY created_at DESC, rowid DESC LIMIT ?`
+    ).all(
+      dashboardId,
+      itemId,
+      ...orderCursor && orderCursorTimestamp ? [orderCursorTimestamp, orderCursorTimestamp, orderCursor.insertionSequence] : [],
+      limit + 1
+    );
+    const organizationPage = organizationRows.slice(0, limit);
+    const organization = organizationPage.map((row) => ({
       action: requiredString(row, "action"),
       priority: DynaPrioritySchema.parse(requiredString(row, "priority")),
       ...typeof row["sequence"] === "number" ? { sequence: requiredNumber(row, "sequence") } : {},
       createdAt: requiredString(row, "created_at")
     }));
-    return DynaItemHistorySchema.parse({ itemId, archives, organization });
+    const statusRows = this.#database.prepare(
+      `SELECT *, rowid AS insertion_sequence FROM item_workflow_events
+         WHERE item_id = ?
+         ${statusCursor ? `AND (created_at_ms < ? OR (
+                  created_at_ms = ? AND rowid < ?
+                ))` : ""}
+         ORDER BY created_at_ms DESC, rowid DESC LIMIT ?`
+    ).all(
+      itemId,
+      ...statusCursor ? [statusCursor.createdAtMs, statusCursor.createdAtMs, statusCursor.insertionSequence] : [],
+      limit + 1
+    );
+    const statusPage = statusRows.slice(0, limit);
+    const workPage = this.#workUpdatePage(itemId, limit, workCursor);
+    const lastArchive = archivePage.at(-1);
+    const lastOrganization = organizationPage.at(-1);
+    const lastStatus = statusPage.at(-1);
+    return DynaItemHistorySchema.parse({
+      itemId,
+      archives,
+      organization,
+      statusChanges: statusPage.map((row) => this.#userWorkflowEventFromRow(row)),
+      workUpdates: workPage.updates,
+      ...archiveRows.length > limit && lastArchive ? {
+        archiveEventsNextCursor: historyCursor(
+          "archive",
+          requiredNumber(lastArchive, "archived_at_ms"),
+          requiredNumber(lastArchive, "insertion_sequence")
+        )
+      } : {},
+      ...organizationRows.length > limit && lastOrganization ? {
+        orderHistoryNextCursor: historyCursor(
+          "order",
+          normalizeTimestamp(requiredString(lastOrganization, "created_at")).epoch,
+          requiredNumber(lastOrganization, "insertion_sequence")
+        )
+      } : {},
+      ...statusRows.length > limit && lastStatus ? {
+        statusHistoryNextCursor: historyCursor(
+          "status",
+          requiredNumber(lastStatus, "created_at_ms"),
+          requiredNumber(lastStatus, "insertion_sequence")
+        )
+      } : {},
+      ...workPage.nextCursor ? { workUpdatesNextCursor: workPage.nextCursor } : {}
+    });
+  }
+  itemActivityPage(dashboardId, itemId, options = {}) {
+    this.assertDashboardContainsItem(dashboardId, itemId);
+    const limit = pageSize(options.limit, MAX_ACTIVITY_PAGE_SIZE);
+    const cursor = parseHistoryCursor(options.cursor, "work");
+    const page = this.#workUpdatePage(itemId, limit, cursor);
+    const count = this.#one(
+      this.#database.prepare("SELECT COUNT(*) AS total FROM work_updates WHERE item_id = ?"),
+      itemId
+    );
+    if (!count) throw new Error("Dyna could not count item activity.");
+    return DynaWorkActivityPageSchema.parse({
+      itemId,
+      updates: page.updates,
+      ...page.nextCursor ? { nextCursor: page.nextCursor } : {},
+      total: requiredNumber(count, "total")
+    });
   }
   applyEnrichment(itemId, values) {
     const dueAt = values.dueAt ? normalizeTimestamp(values.dueAt).iso : void 0;
@@ -55697,7 +56675,7 @@ var DynaStore = class {
       ),
       itemId
     );
-    const completedAtMs = workflowState === "completed" && typeof completedRow?.["completed_at_ms"] === "number" ? requiredNumber(completedRow, "completed_at_ms") : void 0;
+    const completedAtMs = workflowState === "completed" && typeof completedRow?.["completed_at_ms"] === "number" ? requiredNumber(completedRow, "completed_at_ms") : workflowState === "completed" && typeof row["user_workflow_created_ms"] === "number" ? requiredNumber(row, "user_workflow_created_ms") : void 0;
     const outcomeRow = workflowState === "completed" ? this.#one(
       this.#database.prepare(
         `SELECT outcome FROM task_bindings
@@ -55728,7 +56706,7 @@ var DynaStore = class {
       workflowState,
       completedAtMs === void 0 ? null : new Date(completedAtMs).toISOString(),
       completedAtMs ?? null,
-      outcomeRow ? optionalString(outcomeRow, "outcome") ?? null : null,
+      outcomeRow ? optionalString(outcomeRow, "outcome") ?? null : optionalString(row, "user_workflow_outcome") ?? null,
       requiredString(row, "effective_priority"),
       typeof row["preference_sequence"] === "number" ? requiredNumber(row, "preference_sequence") : null,
       clientRequestId ?? null,
@@ -55752,7 +56730,7 @@ var DynaStore = class {
                COALESCE((
                  SELECT MAX(t.status_updated_ms) FROM task_bindings t
                  WHERE t.item_id = positioned.id AND t.state = 'succeeded'
-               ), source_updated_ms),
+               ), user_workflow_created_ms, source_updated_ms),
                COALESCE((
                  SELECT MAX(history.restored_at_ms) FROM item_archive_events history
                  WHERE history.dashboard_id = ? AND history.item_id = positioned.id
@@ -55816,6 +56794,15 @@ var DynaStore = class {
       )
     );
   }
+  assertDashboardContainsItem(dashboardId, itemId) {
+    this.getDashboard(dashboardId);
+    if (!this.#dashboardContainsItem(dashboardId, itemId)) {
+      throw new DynaCliStoreError(
+        "outside_dashboard",
+        "The Dyna item is outside the requested dashboard."
+      );
+    }
+  }
   createView(dashboardId) {
     this.getDashboard(dashboardId);
     const value = token();
@@ -55864,7 +56851,8 @@ var DynaStore = class {
               COALESCE(enrichment_labels, '') || ' ' || COALESCE(enrichment_people, '') || ' ' ||
               COALESCE(enrichment_attention, '') || ' ' || COALESCE(enrichment_plan, '') || ' ' ||
               COALESCE(enrichment_next_steps, '') || ' ' || COALESCE(archive_reason, '') || ' ' ||
-              COALESCE(archive_reason_detail, '')
+              COALESCE(archive_reason_detail, '') || ' ' || COALESCE(archive_outcome, '') || ' ' ||
+              COALESCE(user_workflow_outcome, '')
             ), ?) > 0
             OR EXISTS (
               SELECT 1 FROM annotations a
@@ -55876,9 +56864,13 @@ var DynaStore = class {
                 t.title || ' ' || t.state || ' ' || COALESCE(t.outcome, '')
               ), ?) > 0
             )
+            OR EXISTS (
+              SELECT 1 FROM work_updates wu
+              WHERE wu.item_id = positioned.id AND instr(${activitySearchSql("wu")}, ?) > 0
+            )
           )`
       ).join("\n");
-      const searchValues = terms.flatMap((term) => [term, term, term]);
+      const searchValues = terms.flatMap((term) => [term, term, term, term]);
       const dashboard = this.getDashboard(dashboardId);
       const revisionRow = this.#one(
         this.#database.prepare("SELECT revision FROM dashboards WHERE id = ?"),
@@ -55890,6 +56882,8 @@ var DynaStore = class {
             COALESCE(SUM(CASE WHEN workflow_state <> 'completed' AND effective_priority = 'critical' THEN 1 ELSE 0 END), 0) AS critical,
             COALESCE(SUM(CASE WHEN workflow_state <> 'completed' AND effective_priority = 'high' THEN 1 ELSE 0 END), 0) AS high,
             COALESCE(SUM(CASE WHEN effective_leadership_score > 0 THEN 1 ELSE 0 END), 0) AS leadership,
+            COALESCE(SUM(CASE WHEN workflow_state <> 'completed' AND work_blocked = 1
+              THEN 1 ELSE 0 END), 0) AS blocked,
             MAX(source_updated_at) AS newest
           FROM positioned WHERE 1 = 1 ${searchClause}`),
         dashboardId,
@@ -55913,7 +56907,7 @@ var DynaStore = class {
             priority_position
           LIMIT 200`
       ).all(dashboardId, ...searchValues);
-      const cards = this.#cardsFromSnapshotRows(rows);
+      const cards = this.#cardsFromSnapshotRows(rows, terms);
       const criticalCount = requiredNumber(countRow, "critical");
       const highCount = requiredNumber(countRow, "high");
       const leadershipCount = requiredNumber(countRow, "leadership");
@@ -55932,7 +56926,7 @@ var DynaStore = class {
       const unscheduledAge = newest ? Math.max(0, this.#nowMs() - Date.parse(newest)) : Number.POSITIVE_INFINITY;
       const freshness = scheduleFreshness.includes("stale") ? "stale" : scheduleFreshness.includes("aging") ? "aging" : scheduleFreshness.length > 0 ? "fresh" : unscheduledAge <= 15 * 6e4 ? "fresh" : unscheduledAge <= 60 * 6e4 ? "aging" : "stale";
       return DynaDashboardSnapshotSchema.parse({
-        schema: "dyna/snapshot-v4",
+        schema: "dyna/snapshot-v5",
         dashboard,
         generatedAt: this.#now(),
         query,
@@ -55944,7 +56938,8 @@ var DynaStore = class {
           high: highCount,
           leadership: leadershipCount,
           total: requiredNumber(countRow, "total"),
-          archived: requiredNumber(archiveCountRow, "total")
+          archived: requiredNumber(archiveCountRow, "total"),
+          blocked: requiredNumber(countRow, "blocked")
         },
         schedules,
         cards
@@ -55957,14 +56952,780 @@ var DynaStore = class {
   itemContext(itemId) {
     return DynaItemContextSchema.parse({
       ...this.#item(itemId),
-      annotations: this.#annotations(itemId)
+      annotations: this.#annotations(itemId),
+      workUpdates: this.#workUpdates(itemId, 20),
+      workUpdateCount: this.#workUpdateCount(itemId),
+      linkedTasks: this.#linkedTasks(itemId)
     });
+  }
+  showItem(dashboardId, itemId) {
+    const dashboardExists = this.#one(
+      this.#database.prepare("SELECT 1 AS present FROM dashboards WHERE id = ? AND archived = 0"),
+      dashboardId
+    );
+    if (!dashboardExists) {
+      throw new DynaCliStoreError("not_found", "Dyna dashboard was not found.");
+    }
+    this.#archiveExpiredCompleted(dashboardId);
+    return this.#readTransaction(() => {
+      const dashboard = this.getDashboard(dashboardId);
+      const revisionRow = this.#one(
+        this.#database.prepare("SELECT revision FROM dashboards WHERE id = ?"),
+        dashboardId
+      );
+      const itemExists = this.#one(
+        this.#database.prepare("SELECT 1 AS present FROM items WHERE id = ?"),
+        itemId
+      );
+      if (!itemExists) throw new DynaCliStoreError("not_found", "Dyna item was not found.");
+      if (!this.#dashboardContainsItem(dashboardId, itemId)) {
+        throw new DynaCliStoreError(
+          "outside_dashboard",
+          "The Dyna item is outside the requested dashboard."
+        );
+      }
+      let row = this.#one(
+        this.#database.prepare(`${DYNA_ELIGIBLE_CTE} SELECT * FROM positioned WHERE id = ?`),
+        dashboardId,
+        itemId
+      );
+      row ??= this.#one(
+        this.#database.prepare(
+          `${dynaEligibleCte("archive")} SELECT * FROM positioned WHERE id = ?`
+        ),
+        dashboardId,
+        itemId
+      );
+      if (!row) {
+        throw new DynaCliStoreError("not_found", "Dyna item was not found in this dashboard.");
+      }
+      const card = this.#cardsFromSnapshotRows([row])[0];
+      if (!card) throw new Error("Dyna could not materialize the requested item.");
+      return DynaItemShowResultSchema.parse({
+        schema: "dyna/item-show-result-v1",
+        dashboard,
+        revision: revisionRow ? requiredNumber(revisionRow, "revision") : 0,
+        enrichmentVersion: typeof row["enrichment_version"] === "number" ? requiredNumber(row, "enrichment_version") : 0,
+        item: card
+      });
+    });
+  }
+  recordWorkUpdate(dashboardId, itemId, expectedFingerprint, input) {
+    if (TASK_ATTRIBUTED_WORK_KINDS.has(input.kind) && !input.task) {
+      throw new DynaCliStoreError(
+        "invalid_input",
+        "This Dyna lifecycle update requires attribution to a linked Codex task."
+      );
+    }
+    const parsed = DynaWorkUpdateInputSchema.parse(input);
+    return this.#cliMutation(
+      dashboardId,
+      itemId,
+      parsed.requestId,
+      "item.update",
+      { expectedFingerprint, input: parsed },
+      () => {
+        const item = this.#itemBaseRow(itemId);
+        if (requiredString(item, "fingerprint") !== expectedFingerprint) {
+          throw new DynaCliStoreError(
+            "stale_item",
+            "The Dyna item changed; run item show before updating it."
+          );
+        }
+        const archive = this.#one(
+          this.#database.prepare(
+            "SELECT 1 AS present FROM item_archive_events WHERE dashboard_id = ? AND item_id = ? AND restored_at IS NULL"
+          ),
+          dashboardId,
+          itemId
+        );
+        const active = archive ? void 0 : this.#one(
+          this.#database.prepare(
+            `${DYNA_ELIGIBLE_CTE} SELECT workflow_state FROM positioned WHERE id = ?`
+          ),
+          dashboardId,
+          itemId
+        );
+        const completed = active && requiredWorkflowState(active) === "completed";
+        if ((archive || completed) && parsed.kind !== "note") {
+          throw new DynaCliStoreError(
+            archive ? "archived_item" : "completed_item",
+            archive ? "Archived Dyna items accept historical notes only; create a follow-up for continued work." : "Completed Dyna items accept historical notes only; create a follow-up for continued work."
+          );
+        }
+        let taskTitle;
+        if (parsed.task) {
+          const task = this.#one(
+            this.#database.prepare(
+              "SELECT title FROM task_bindings WHERE item_id = ? AND task_id = ? AND host_id = ?"
+            ),
+            itemId,
+            parsed.task.taskId,
+            parsed.task.hostId
+          );
+          if (!task) {
+            throw new DynaCliStoreError(
+              "task_not_linked",
+              "The attributed Codex task is not linked to this Dyna item."
+            );
+          }
+          taskTitle = requiredString(task, "title");
+        }
+        const priorAttempt = this.#one(
+          this.#database.prepare(
+            `SELECT task_id, host_id FROM work_updates
+             WHERE item_id = ? AND work_attempt_id = ? AND task_id IS NOT NULL
+             ORDER BY created_at_ms, rowid LIMIT 1`
+          ),
+          itemId,
+          parsed.workAttemptId
+        );
+        if (priorAttempt && (optionalString(priorAttempt, "task_id") !== parsed.task?.taskId || optionalString(priorAttempt, "host_id") !== parsed.task?.hostId)) {
+          throw new DynaCliStoreError(
+            "request_conflict",
+            "A Dyna work attempt cannot be reassigned to a different Codex task."
+          );
+        }
+        const instant = this.#now();
+        const update = DynaWorkUpdateSchema.parse({
+          schema: "dyna/work-update-v1",
+          id: (0, import_node_crypto5.randomUUID)(),
+          itemId,
+          originDashboardId: dashboardId,
+          workAttemptId: parsed.workAttemptId,
+          kind: parsed.kind,
+          body: parsed.body,
+          ...parsed.outcome ? { outcome: parsed.outcome } : {},
+          artifacts: parsed.artifacts,
+          ...parsed.task ? { task: { ...parsed.task, title: taskTitle } } : {},
+          createdAt: instant
+        });
+        this.#database.prepare(
+          `INSERT INTO work_updates (
+               id, item_id, origin_dashboard_id, work_attempt_id, kind, body, outcome,
+               artifacts, task_id, host_id, task_title, created_at, created_at_ms
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          update.id,
+          itemId,
+          dashboardId,
+          update.workAttemptId,
+          update.kind,
+          update.body,
+          update.outcome ?? null,
+          JSON.stringify(update.artifacts),
+          update.task?.taskId ?? null,
+          update.task?.hostId ?? null,
+          update.task?.title ?? null,
+          instant,
+          Date.parse(instant)
+        );
+        this.#touchDashboardsForItem(itemId, instant);
+        this.#audit(`item.work_updated.${update.kind}`, itemId, instant);
+        return DynaItemUpdateResultSchema.parse({
+          schema: "dyna/item-update-result-v1",
+          requestId: parsed.requestId,
+          itemId,
+          workUpdateId: update.id,
+          deduplicated: false
+        });
+      }
+    );
+  }
+  enrichItemFromCli(dashboardId, itemId, expectedFingerprint, expectedEnrichmentVersion, input) {
+    return this.#cliMutation(
+      dashboardId,
+      itemId,
+      input.requestId,
+      "item.enrich",
+      { expectedFingerprint, expectedEnrichmentVersion, input },
+      () => {
+        const base = this.#itemBaseRow(itemId);
+        if (requiredString(base, "fingerprint") !== expectedFingerprint) {
+          throw new DynaCliStoreError(
+            "stale_item",
+            "The Dyna item changed; run item show before enriching it."
+          );
+        }
+        const active = this.#one(
+          this.#database.prepare(`${DYNA_ELIGIBLE_CTE} SELECT * FROM positioned WHERE id = ?`),
+          dashboardId,
+          itemId
+        );
+        if (!active) {
+          throw new DynaCliStoreError(
+            "archived_item",
+            "Archived Dyna items cannot be enriched; restore or create a follow-up."
+          );
+        }
+        if (requiredWorkflowState(active) === "completed") {
+          throw new DynaCliStoreError(
+            "completed_item",
+            "Completed Dyna items cannot be enriched; create a follow-up for continued work."
+          );
+        }
+        const priority = input.priority === void 0 ? void 0 : DynaPrioritySchema.parse(input.priority);
+        if (priority === "critical" && requiredString(base, "priority") !== "critical") {
+          throw new DynaCliStoreError(
+            "invalid_input",
+            "Dyna enrichment cannot set critical unless the source priority is already critical."
+          );
+        }
+        const existing = this.#one(
+          this.#database.prepare("SELECT version FROM item_enrichments WHERE item_id = ?"),
+          itemId
+        );
+        const currentVersion = existing ? requiredNumber(existing, "version") : 0;
+        if (currentVersion !== expectedEnrichmentVersion) {
+          throw new DynaCliStoreError(
+            "stale_enrichment",
+            "The Dyna enrichment changed; run item show before replacing it."
+          );
+        }
+        const dueAt = input.dueAt ? normalizeTimestamp(input.dueAt).iso : void 0;
+        const dueAtSet = input.dueAt !== void 0 ? 1 : 0;
+        const instant = this.#now();
+        this.#database.prepare(
+          `INSERT INTO item_enrichments (
+               item_id, summary, priority, priority_reason, due_at, due_at_set, labels, people,
+               leadership_score, attention, plan, next_steps, base_fingerprint,
+               base_source_updated_at, applied_at, provenance, version
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+             ON CONFLICT(item_id) DO UPDATE SET summary = excluded.summary,
+               priority = excluded.priority, priority_reason = excluded.priority_reason,
+               due_at = excluded.due_at, due_at_set = excluded.due_at_set,
+               labels = excluded.labels, people = excluded.people,
+               leadership_score = excluded.leadership_score,
+               attention = excluded.attention, plan = excluded.plan,
+               next_steps = excluded.next_steps,
+               base_fingerprint = excluded.base_fingerprint,
+               base_source_updated_at = excluded.base_source_updated_at,
+               applied_at = excluded.applied_at, provenance = excluded.provenance,
+               version = item_enrichments.version + 1`
+        ).run(
+          itemId,
+          input.summary ?? null,
+          priority ?? null,
+          input.priorityReason ?? null,
+          dueAt ?? null,
+          dueAtSet,
+          input.labels !== void 0 ? JSON.stringify(input.labels) : null,
+          input.people !== void 0 ? JSON.stringify(input.people) : null,
+          dynaLeadershipScore(input.people ?? []),
+          input.attention ?? null,
+          input.plan !== void 0 ? JSON.stringify(input.plan) : null,
+          input.nextSteps !== void 0 ? JSON.stringify(input.nextSteps) : null,
+          expectedFingerprint,
+          requiredString(base, "source_updated_at"),
+          instant,
+          input.provenance
+        );
+        this.#touchDashboardsForItem(itemId, instant);
+        this.#audit("item.enriched.cli", itemId, instant);
+        return DynaItemEnrichResultSchema.parse({
+          schema: "dyna/item-enrich-result-v1",
+          requestId: input.requestId,
+          itemId,
+          enrichmentVersion: currentVersion + 1,
+          deduplicated: false
+        });
+      }
+    );
+  }
+  placeItemFromCli(dashboardId, itemId, expectedRevision, expectedFingerprint, input) {
+    const targetPriority = DynaPrioritySchema.parse(input.targetPriority);
+    return this.#cliMutation(
+      dashboardId,
+      itemId,
+      input.requestId,
+      "item.place",
+      { expectedRevision, expectedFingerprint, input },
+      () => {
+        const revisionRow = this.#one(
+          this.#database.prepare("SELECT revision FROM dashboards WHERE id = ?"),
+          dashboardId
+        );
+        if (!revisionRow || requiredNumber(revisionRow, "revision") !== expectedRevision) {
+          throw new DynaCliStoreError(
+            "stale_dashboard",
+            "The Dyna dashboard changed; run item show before moving this item."
+          );
+        }
+        const item = this.#itemBaseRow(itemId);
+        if (requiredString(item, "fingerprint") !== expectedFingerprint) {
+          throw new DynaCliStoreError(
+            "stale_item",
+            "The Dyna item changed; run item show before moving it."
+          );
+        }
+        const positioned = this.#database.prepare(
+          `${DYNA_ELIGIBLE_CTE}
+             SELECT id, effective_priority, completed_group, priority_position
+             FROM positioned ORDER BY completed_group, priority_position`
+        ).all(dashboardId);
+        const source = positioned.find((candidate) => requiredString(candidate, "id") === itemId);
+        if (!source) {
+          throw new DynaCliStoreError(
+            "archived_item",
+            "Archived Dyna items cannot be placed; restore the item first."
+          );
+        }
+        if (requiredNumber(source, "completed_group") !== 0) {
+          throw new DynaCliStoreError(
+            "completed_item",
+            "Completed Dyna items cannot be placed; create a follow-up for continued work."
+          );
+        }
+        const currentPriority = DynaPrioritySchema.parse(
+          requiredString(source, "effective_priority")
+        );
+        const currentGroup = positioned.filter(
+          (candidate) => requiredNumber(candidate, "completed_group") === 0 && requiredString(candidate, "effective_priority") === currentPriority
+        );
+        const targetGroup = positioned.filter(
+          (candidate) => requiredNumber(candidate, "completed_group") === 0 && requiredString(candidate, "effective_priority") === targetPriority && requiredString(candidate, "id") !== itemId
+        );
+        if (input.beforeItemId === itemId) {
+          return DynaItemPlaceResultSchema.parse({
+            schema: "dyna/item-place-result-v1",
+            requestId: input.requestId,
+            itemId,
+            changed: false,
+            deduplicated: false
+          });
+        }
+        const insertAt = input.beforeItemId ? targetGroup.findIndex(
+          (candidate) => requiredString(candidate, "id") === input.beforeItemId
+        ) : targetGroup.length;
+        if (input.beforeItemId && insertAt < 0) {
+          throw new DynaCliStoreError(
+            "stale_dashboard",
+            "The queue target changed; run item show before moving this item."
+          );
+        }
+        targetGroup.splice(insertAt, 0, source);
+        const currentIds = currentGroup.map((candidate) => requiredString(candidate, "id"));
+        const nextIds = targetGroup.map((candidate) => requiredString(candidate, "id"));
+        const changed = currentPriority !== targetPriority || currentIds.join("\n") !== nextIds.join("\n");
+        if (changed) {
+          const instant = this.#now();
+          const setSourcePreference = this.#database.prepare(
+            `INSERT INTO item_preferences (
+               dashboard_id, item_id, priority_override, sequence, updated_at
+             ) VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT(dashboard_id, item_id) DO UPDATE SET
+               priority_override = excluded.priority_override,
+               sequence = excluded.sequence, updated_at = excluded.updated_at`
+          );
+          const setSequence = this.#database.prepare(
+            `INSERT INTO item_preferences (dashboard_id, item_id, sequence, updated_at)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(dashboard_id, item_id) DO UPDATE SET
+               sequence = excluded.sequence, updated_at = excluded.updated_at`
+          );
+          const addEvent = this.#database.prepare(
+            `INSERT INTO item_preference_events (
+               id, dashboard_id, item_id, action, priority, sequence, created_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+          );
+          const priorities = ["critical", "high", "normal", "low"];
+          const sourceAction = currentPriority !== targetPriority ? priorities.indexOf(targetPriority) < priorities.indexOf(currentPriority) ? "bump" : "lower" : nextIds.indexOf(itemId) < currentIds.indexOf(itemId) ? "earlier" : "later";
+          targetGroup.forEach((candidate, position) => {
+            const candidateId = requiredString(candidate, "id");
+            const sequence = position * 100;
+            if (candidateId === itemId) {
+              setSourcePreference.run(dashboardId, candidateId, targetPriority, sequence, instant);
+            } else {
+              setSequence.run(dashboardId, candidateId, sequence, instant);
+            }
+            addEvent.run(
+              (0, import_node_crypto5.randomUUID)(),
+              dashboardId,
+              candidateId,
+              candidateId === itemId ? sourceAction : "resequence",
+              targetPriority,
+              sequence,
+              instant
+            );
+          });
+          this.#touchDashboards([dashboardId], instant);
+          this.#audit(`item.organized.${sourceAction}.cli`, itemId, instant);
+        }
+        return DynaItemPlaceResultSchema.parse({
+          schema: "dyna/item-place-result-v1",
+          requestId: input.requestId,
+          itemId,
+          changed,
+          deduplicated: false
+        });
+      }
+    );
+  }
+  archiveItemFromCli(dashboardId, itemId, expectedRevision, expectedFingerprint, input) {
+    const reason = DynaArchiveReasonSchema.parse(input.reason);
+    const reasonDetail = input.reasonDetail?.trim();
+    if (reason === "other" && !reasonDetail) {
+      throw new DynaCliStoreError(
+        "invalid_input",
+        "Other archive reasons require a short explanation."
+      );
+    }
+    if (reason !== "other" && reasonDetail) {
+      throw new DynaCliStoreError(
+        "invalid_input",
+        "Archive reason details are only accepted for Other."
+      );
+    }
+    return this.#cliMutation(
+      dashboardId,
+      itemId,
+      input.requestId,
+      "item.archive",
+      { expectedRevision, expectedFingerprint, input: { ...input, reasonDetail } },
+      () => {
+        const revision = this.#one(
+          this.#database.prepare("SELECT revision FROM dashboards WHERE id = ?"),
+          dashboardId
+        );
+        if (!revision || requiredNumber(revision, "revision") !== expectedRevision) {
+          throw new DynaCliStoreError(
+            "stale_dashboard",
+            "The Dyna dashboard changed; run item show before archiving this item."
+          );
+        }
+        const row = this.#one(
+          this.#database.prepare(`${DYNA_ELIGIBLE_CTE} SELECT * FROM positioned WHERE id = ?`),
+          dashboardId,
+          itemId
+        );
+        if (!row) {
+          throw new DynaCliStoreError("archived_item", "The Dyna item is already archived.");
+        }
+        if (requiredString(row, "fingerprint") !== expectedFingerprint) {
+          throw new DynaCliStoreError(
+            "stale_item",
+            "The Dyna item changed; run item show before archiving it."
+          );
+        }
+        if (reason === "completed" && requiredWorkflowState(row) !== "completed") {
+          throw new DynaCliStoreError(
+            "invalid_input",
+            "Only controller-confirmed completed work can use the Completed disposition."
+          );
+        }
+        const archived = this.#insertArchiveEvent(dashboardId, row, reason, reasonDetail, "manual");
+        this.#touchDashboards([dashboardId], archived.archivedAt);
+        this.#audit(`item.archived.${reason}.manual.cli`, itemId, archived.archivedAt);
+        return DynaItemArchiveResultSchema.parse({
+          schema: "dyna/item-archive-result-v1",
+          requestId: input.requestId,
+          itemId,
+          archiveId: archived.archiveId,
+          archivedAt: archived.archivedAt,
+          reason,
+          deduplicated: false
+        });
+      }
+    );
+  }
+  restoreItemFromCli(dashboardId, itemId, expectedRevision, expectedFingerprint, requestId) {
+    return this.#cliMutation(
+      dashboardId,
+      itemId,
+      requestId,
+      "item.restore",
+      { expectedRevision, expectedFingerprint },
+      () => {
+        const revision = this.#one(
+          this.#database.prepare("SELECT revision FROM dashboards WHERE id = ?"),
+          dashboardId
+        );
+        const item = this.#itemBaseRow(itemId);
+        if (!revision || requiredNumber(revision, "revision") !== expectedRevision) {
+          throw new DynaCliStoreError(
+            "stale_dashboard",
+            "The Dyna dashboard changed; run item show before restoring this item."
+          );
+        }
+        if (requiredString(item, "fingerprint") !== expectedFingerprint) {
+          throw new DynaCliStoreError(
+            "stale_item",
+            "The Dyna item changed; run item show before restoring it."
+          );
+        }
+        const archive = this.#one(
+          this.#database.prepare(
+            "SELECT id FROM item_archive_events WHERE dashboard_id = ? AND item_id = ? AND restored_at IS NULL"
+          ),
+          dashboardId,
+          itemId
+        );
+        if (!archive) {
+          throw new DynaCliStoreError(
+            "invalid_input",
+            "The Dyna item is not currently archived in this dashboard."
+          );
+        }
+        const restoredAt = this.#now();
+        this.#database.prepare(
+          `UPDATE item_archive_events SET restored_at = ?, restored_at_ms = ?
+             WHERE id = ? AND restored_at IS NULL`
+        ).run(restoredAt, Date.parse(restoredAt), requiredString(archive, "id"));
+        this.#touchDashboards([dashboardId], restoredAt);
+        this.#audit("item.restored.cli", itemId, restoredAt);
+        return DynaItemRestoreResultSchema.parse({
+          schema: "dyna/item-restore-result-v1",
+          requestId,
+          itemId,
+          restoredAt,
+          deduplicated: false
+        });
+      }
+    );
+  }
+  createFollowUpFromCli(dashboardId, sourceItemId, expectedRevision, expectedFingerprint, input) {
+    const todo = DynaTodoInputSchema.parse({
+      title: input.title,
+      ...input.summary ? { summary: input.summary } : {},
+      priority: input.priority,
+      labels: input.labels,
+      ...input.attention ? { attention: input.attention } : {},
+      followUpOfItemId: sourceItemId
+    });
+    return this.#cliMutation(
+      dashboardId,
+      sourceItemId,
+      input.requestId,
+      "follow-up.create",
+      { expectedRevision, expectedFingerprint, input },
+      () => {
+        const revision = this.#one(
+          this.#database.prepare("SELECT revision FROM dashboards WHERE id = ?"),
+          dashboardId
+        );
+        const source = this.#itemBaseRow(sourceItemId);
+        if (!revision || requiredNumber(revision, "revision") !== expectedRevision) {
+          throw new DynaCliStoreError(
+            "stale_dashboard",
+            "The Dyna dashboard changed; run item show before creating a follow-up."
+          );
+        }
+        if (requiredString(source, "fingerprint") !== expectedFingerprint) {
+          throw new DynaCliStoreError(
+            "stale_item",
+            "The Dyna item changed; run item show before creating a follow-up."
+          );
+        }
+        const archived = Boolean(
+          this.#one(
+            this.#database.prepare(
+              "SELECT 1 AS present FROM item_archive_events WHERE dashboard_id = ? AND item_id = ? AND restored_at IS NULL"
+            ),
+            dashboardId,
+            sourceItemId
+          )
+        );
+        const active = archived ? void 0 : this.#one(
+          this.#database.prepare(
+            `${DYNA_ELIGIBLE_CTE} SELECT workflow_state FROM positioned WHERE id = ?`
+          ),
+          dashboardId,
+          sourceItemId
+        );
+        if (!archived && (!active || requiredWorkflowState(active) !== "completed")) {
+          throw new DynaCliStoreError(
+            "invalid_input",
+            "Follow-ups can only be created from completed or archived Dyna items."
+          );
+        }
+        const instant = this.#now();
+        let mapping = this.#one(
+          this.#database.prepare(
+            "SELECT publisher_id FROM dashboard_manual_publishers WHERE dashboard_id = ?"
+          ),
+          dashboardId
+        );
+        if (!mapping) {
+          this.#assertPublisherCapacity();
+          const publisherId2 = (0, import_node_crypto5.randomUUID)();
+          this.#database.prepare(
+            `INSERT INTO publishers (
+                 id, name, token_hash, schedule_state, stale_after_minutes, credential_mode,
+                 last_run_status, created_at
+               ) VALUES (?, ?, ?, 'unknown', 43200, 'disabled', 'never', ?)`
+          ).run(publisherId2, "Dyna to-dos", tokenHash(token()), instant);
+          this.#database.prepare("INSERT INTO dashboard_publishers (dashboard_id, publisher_id) VALUES (?, ?)").run(dashboardId, publisherId2);
+          this.#database.prepare(
+            "INSERT INTO dashboard_manual_publishers (dashboard_id, publisher_id) VALUES (?, ?)"
+          ).run(dashboardId, publisherId2);
+          mapping = { publisher_id: publisherId2 };
+        }
+        const publisherId = requiredString(mapping, "publisher_id");
+        const todoId = (0, import_node_crypto5.randomUUID)();
+        const published = normalizedPublishedItem({
+          externalId: todoId,
+          sourceRef: { source: "manual", todoId },
+          sourceScope: `manual:${dashboardId}`,
+          title: todo.title,
+          summary: todo.summary ?? "Follow-up work created from Dyna.",
+          priority: todo.priority,
+          priorityReason: "Follow-up created from completed or archived Dyna work.",
+          sourceUpdatedAt: instant,
+          labels: todo.labels,
+          people: [],
+          ...todo.attention ? { attention: todo.attention } : {},
+          plan: [],
+          nextSteps: []
+        });
+        const itemId = (0, import_node_crypto5.randomUUID)();
+        const fingerprint = sha256(JSON.stringify(published));
+        this.#database.prepare(
+          `INSERT INTO items (
+               id, publisher_id, external_id, identity_key, source, source_ref, source_scope,
+               title, summary, priority, priority_reason, source_updated_at, source_updated_ms,
+               due_at, labels, people, leadership_score, attention, plan, next_steps,
+               follow_up_of_item_id, fingerprint, updated_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, 0, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          itemId,
+          publisherId,
+          published.externalId,
+          identityKey(publisherId, published.sourceRef),
+          published.sourceRef.source,
+          JSON.stringify(published.sourceRef),
+          published.sourceScope,
+          published.title,
+          published.summary,
+          published.priority,
+          published.priorityReason,
+          published.sourceUpdatedAt,
+          Date.parse(published.sourceUpdatedAt),
+          JSON.stringify(published.labels),
+          JSON.stringify(published.people),
+          published.attention ?? null,
+          JSON.stringify(published.plan),
+          JSON.stringify(published.nextSteps),
+          sourceItemId,
+          fingerprint,
+          instant
+        );
+        this.#database.prepare(
+          `INSERT INTO publisher_items (
+               publisher_id, external_id, item_id, active, last_seen_run_id
+             ) VALUES (?, ?, ?, 1, ?)`
+        ).run(publisherId, published.externalId, itemId, `manual:${todoId}`);
+        this.#touchDashboards([dashboardId], instant);
+        this.#audit("todo.follow_up.created.cli", itemId, instant);
+        return DynaFollowUpCreateResultSchema.parse({
+          schema: "dyna/follow-up-create-result-v1",
+          requestId: input.requestId,
+          itemId,
+          sourceItemId,
+          fingerprint,
+          deduplicated: false
+        });
+      }
+    );
+  }
+  #pruneCodexSessionCaches() {
+    const now = this.#nowMs();
+    for (const [requestId, entry] of this.#codexSessionCandidateLists) {
+      if (entry.expiresAtMs <= now) this.#codexSessionCandidateLists.delete(requestId);
+    }
+    for (const [requestId, entry] of this.#codexSessionAttachAuthorizations) {
+      if (entry.expiresAtMs <= now || !this.#codexSessionCandidateLists.has(entry.sessionListRequestId)) {
+        this.#codexSessionAttachAuthorizations.delete(requestId);
+      }
+    }
+  }
+  #rememberCodexSessionCandidates(requestId, row, candidates) {
+    this.#pruneCodexSessionCaches();
+    const parsed = DynaCodexSessionCandidatesSchema.parse(candidates);
+    const viewTokenHash = storedTokenHashKey(row["view_token_hash"]);
+    const itemId = optionalString(row, "item_id");
+    if (!viewTokenHash || !itemId) {
+      throw new Error("The Dyna Codex session request is missing its authorization context.");
+    }
+    const expiresAtMs = Math.min(
+      Date.parse(requiredString(row, "expires_at")),
+      this.#nowMs() + CODEX_SESSION_CANDIDATE_TTL_MS
+    );
+    this.#codexSessionCandidateLists.delete(requestId);
+    this.#codexSessionCandidateLists.set(requestId, {
+      dashboardId: requiredString(row, "dashboard_id"),
+      itemId,
+      viewTokenHash,
+      expiresAtMs,
+      candidates: parsed
+    });
+    while (this.#codexSessionCandidateLists.size > MAX_CODEX_SESSION_CANDIDATE_LISTS) {
+      const oldest = this.#codexSessionCandidateLists.keys().next().value;
+      if (!oldest) break;
+      this.#codexSessionCandidateLists.delete(oldest);
+    }
+    this.#pruneCodexSessionCaches();
+  }
+  #authorizeCodexSessionCandidate(viewToken, dashboardId, itemId, sessionListRequestId, taskId, hostId) {
+    this.#pruneCodexSessionCaches();
+    const row = this.#one(
+      this.#database.prepare("SELECT * FROM action_requests WHERE id = ?"),
+      sessionListRequestId
+    );
+    const cache = this.#codexSessionCandidateLists.get(sessionListRequestId);
+    const viewTokenHash = tokenHash(viewToken).toString("hex");
+    if (!row || requiredString(row, "kind") !== "list_codex_sessions" || requiredString(row, "state") !== "succeeded" || requiredString(row, "dashboard_id") !== dashboardId || optionalString(row, "item_id") !== itemId || !hashesMatch(viewToken, row["view_token_hash"]) || requiredString(row, "expires_at") <= this.#now() || cache?.dashboardId !== dashboardId || cache.itemId !== itemId || cache.viewTokenHash !== viewTokenHash || cache.expiresAtMs <= this.#nowMs()) {
+      throw new Error(
+        "The Codex session list expired or belongs to another Dyna view; refresh it."
+      );
+    }
+    if (!cache.candidates.some(
+      (candidate) => candidate.taskId === taskId && candidate.hostId === hostId
+    )) {
+      throw new Error("The selected Codex session is not in the authorized session list.");
+    }
+    return { sessionListRequestId, expiresAtMs: cache.expiresAtMs };
+  }
+  #rememberCodexSessionAttachAuthorization(requestId, authorization) {
+    this.#pruneCodexSessionCaches();
+    this.#codexSessionAttachAuthorizations.delete(requestId);
+    this.#codexSessionAttachAuthorizations.set(requestId, authorization);
+    while (this.#codexSessionAttachAuthorizations.size > MAX_CODEX_SESSION_ATTACH_AUTHORIZATIONS) {
+      const oldest = this.#codexSessionAttachAuthorizations.keys().next().value;
+      if (!oldest) break;
+      this.#codexSessionAttachAuthorizations.delete(oldest);
+    }
+  }
+  #assertCodexSessionAttachAuthorization(row) {
+    this.#pruneCodexSessionCaches();
+    const requestId = requiredString(row, "id");
+    const authorization = this.#codexSessionAttachAuthorizations.get(requestId);
+    const cache = authorization ? this.#codexSessionCandidateLists.get(authorization.sessionListRequestId) : void 0;
+    const taskId = optionalString(row, "task_id");
+    const hostId = optionalString(row, "host_id");
+    const viewTokenHash = storedTokenHashKey(row["view_token_hash"]);
+    if (!authorization || authorization.expiresAtMs <= this.#nowMs() || !cache || cache.expiresAtMs <= this.#nowMs() || cache.dashboardId !== requiredString(row, "dashboard_id") || cache.itemId !== optionalString(row, "item_id") || !viewTokenHash || cache.viewTokenHash !== viewTokenHash || !taskId || !hostId || !cache.candidates.some(
+      (candidate) => candidate.taskId === taskId && candidate.hostId === hostId
+    )) {
+      throw new Error(
+        "The selected Codex session authorization expired; refresh the session list."
+      );
+    }
   }
   prepareAction(viewToken, kind, values) {
     DynaActionKindSchema.parse(kind);
     const dashboardId = this.authorizeView(viewToken, values.itemId);
+    let attachAuthorization;
     const result = this.#transaction(() => {
       const instant = this.#now();
+      if (kind === "attach_codex_task") {
+        if (!values.taskId || !values.taskHostId || !values.sessionListRequestId) {
+          throw new Error(
+            "Attaching a Codex session requires its exact task, host, and authorized session list."
+          );
+        }
+      } else if (values.sessionListRequestId) {
+        throw new Error("Only a Codex session attachment can use a session list request.");
+      }
       const existing = this.#one(
         this.#database.prepare(
           "SELECT * FROM action_requests WHERE dashboard_id = ? AND idempotency_key = ?"
@@ -55977,6 +57738,24 @@ var DynaStore = class {
           throw new Error("The Dyna idempotency key was already used for another action.");
         }
         return this.#actionFromRow(existing);
+      }
+      if (kind === "attach_codex_task") {
+        const taskId = values.taskId;
+        const taskHostId = values.taskHostId;
+        const sessionListRequestId = values.sessionListRequestId;
+        if (!taskId || !taskHostId || !sessionListRequestId) {
+          throw new Error(
+            "Attaching a Codex session requires its exact task, host, and authorized session list."
+          );
+        }
+        attachAuthorization = this.#authorizeCodexSessionCandidate(
+          viewToken,
+          dashboardId,
+          values.itemId,
+          sessionListRequestId,
+          taskId,
+          taskHostId
+        );
       }
       const revisionRow = this.#one(
         this.#database.prepare("SELECT revision FROM dashboards WHERE id = ?"),
@@ -55992,7 +57771,7 @@ var DynaStore = class {
       if (kind === "open_source" && requiredString(item, "source") === "manual") {
         throw new Error("This Dyna to-do has no originating source to open.");
       }
-      if (kind === "open_codex_task" || kind === "refresh_codex_status") {
+      if (kind === "open_codex_task" || kind === "refresh_codex_status" || kind === "attach_codex_task") {
         if (!values.taskId || !values.taskHostId) {
           throw new Error("This Dyna action requires a linked Codex task and host.");
         }
@@ -56004,11 +57783,22 @@ var DynaStore = class {
           values.taskId,
           values.taskHostId
         );
-        if (!linked) throw new Error("The Codex task is not linked to this Dyna item.");
+        if (kind !== "attach_codex_task" && !linked) {
+          throw new Error("The Codex task is not linked to this Dyna item.");
+        }
+        if (kind === "attach_codex_task" && !linked) {
+          const attachmentBlocker = this.#newTaskAttachmentBlocker(dashboardId, values.itemId);
+          if (attachmentBlocker) throw new Error(attachmentBlocker.message);
+          if (!this.#taskBindingCapacityAvailable(values.itemId)) {
+            throw new Error("A Dyna item cannot link more than eight Codex tasks.");
+          }
+        }
       } else if (values.taskId || values.taskHostId) {
         throw new Error("This Dyna action cannot target an existing Codex task.");
       }
       if (kind === "create_codex_task") {
+        const attachmentBlocker = this.#newTaskAttachmentBlocker(dashboardId, values.itemId);
+        if (attachmentBlocker) throw new Error(attachmentBlocker.message);
         this.#database.prepare(
           `UPDATE action_requests SET state = 'needs_reconciliation', uncertain_effect = 1,
                failure_message = ?, claim_token_hash = NULL, claim_expires_at = NULL,
@@ -56073,6 +57863,7 @@ var DynaStore = class {
       const request = DynaActionRequestSchema.parse({
         id: (0, import_node_crypto5.randomUUID)(),
         kind,
+        dashboardId,
         itemId: values.itemId,
         ...values.taskId ? { taskId: values.taskId } : {},
         ...values.taskHostId ? { taskHostId: values.taskHostId } : {},
@@ -56110,6 +57901,9 @@ var DynaStore = class {
       return request;
     });
     if ("error" in result) throw new Error(result.error);
+    if (kind === "attach_codex_task" && attachAuthorization) {
+      this.#rememberCodexSessionAttachAuthorization(result.id, attachAuthorization);
+    }
     return result;
   }
   markDelivered(viewToken, requestId) {
@@ -56205,7 +57999,13 @@ var DynaStore = class {
       );
       if (!row) throw new Error("Dyna action request was not found in this view.");
     }
-    return this.#actionFromRow(row);
+    const request = this.#actionFromRow(row);
+    this.#pruneCodexSessionCaches();
+    const cache = request.kind === "list_codex_sessions" && request.state === "succeeded" ? this.#codexSessionCandidateLists.get(request.id) : void 0;
+    return {
+      ...request,
+      ...cache ? { candidates: cache.candidates.map((candidate) => ({ ...candidate })) } : {}
+    };
   }
   claimAction(requestId) {
     const claimToken = token();
@@ -56233,6 +58033,35 @@ var DynaStore = class {
         dashboardId,
         itemId
       ) : void 0;
+      const kind = requiredString(requestRow, "kind");
+      const selectedTaskId = optionalString(requestRow, "task_id");
+      const selectedTaskHostId = optionalString(requestRow, "host_id");
+      const attachingNewTask = kind === "attach_codex_task" && itemId && selectedTaskId && selectedTaskHostId ? !this.#taskBindingExists(itemId, selectedTaskId, selectedTaskHostId) : false;
+      let sessionAuthorizationError;
+      if (kind === "attach_codex_task") {
+        try {
+          this.#assertCodexSessionAttachAuthorization(requestRow);
+        } catch {
+          sessionAuthorizationError = "The selected Codex session authorization expired; refresh the session list.";
+        }
+      }
+      if (sessionAuthorizationError && requiredString(requestRow, "state") === "delivered" && requiredString(requestRow, "expires_at") > instant) {
+        this.#database.prepare(
+          `UPDATE action_requests SET state = 'failed', failure_message = ?,
+               uncertain_effect = 0, claim_token_hash = NULL, claim_expires_at = NULL,
+               updated_at = ? WHERE id = ? AND state = 'delivered'`
+        ).run(sessionAuthorizationError, instant, requestId);
+        return { error: sessionAuthorizationError };
+      }
+      const attachmentBlocker = dashboardId && itemId && (kind === "create_codex_task" || attachingNewTask) ? this.#newTaskAttachmentBlocker(dashboardId, itemId) : void 0;
+      if (attachmentBlocker && requiredString(requestRow, "state") === "delivered" && requiredString(requestRow, "expires_at") > instant) {
+        this.#database.prepare(
+          `UPDATE action_requests SET state = 'failed', failure_message = ?,
+               uncertain_effect = 0, claim_token_hash = NULL, claim_expires_at = NULL,
+               updated_at = ? WHERE id = ? AND state = 'delivered'`
+        ).run(attachmentBlocker.message, instant, requestId);
+        return { error: attachmentBlocker.message };
+      }
       if (!dashboard || !item || !membership || requiredNumber(dashboard, "revision") !== requiredNumber(requestRow, "dashboard_revision") || requiredString(item, "fingerprint") !== requiredString(requestRow, "item_fingerprint")) {
         this.#database.prepare(
           `UPDATE action_requests SET state = 'needs_reconciliation', failure_message = ?,
@@ -56246,13 +58075,13 @@ var DynaStore = class {
         );
         return { error: "The Dyna action preconditions changed before it could be claimed." };
       }
-      if (itemId && requiredString(requestRow, "kind") === "create_codex_task" && requiredString(requestRow, "state") === "delivered" && requiredString(requestRow, "expires_at") > instant && !this.#taskBindingCapacityAvailable(itemId)) {
+      if (itemId && (kind === "create_codex_task" || attachingNewTask) && requiredString(requestRow, "state") === "delivered" && requiredString(requestRow, "expires_at") > instant && !this.#taskBindingCapacityAvailable(itemId)) {
         this.#database.prepare(
           `UPDATE action_requests SET state = 'failed', failure_message = ?,
                uncertain_effect = 0, claim_token_hash = NULL, claim_expires_at = NULL,
                updated_at = ? WHERE id = ? AND state = 'delivered'`
         ).run(
-          "The linked Codex task limit was reached before creation started.",
+          kind === "create_codex_task" ? "The linked Codex task limit was reached before creation started." : "The linked Codex task limit was reached before attachment started.",
           instant,
           requestId
         );
@@ -56277,7 +58106,7 @@ var DynaStore = class {
         claimToken,
         context: {
           ...request.itemId ? { item: this.#actionItemContext(request.itemId) } : {},
-          ...request.taskId && request.taskHostId && request.itemId ? { task: this.#task(request.itemId, request.taskId, request.taskHostId) } : {}
+          ...(request.kind === "open_codex_task" || request.kind === "refresh_codex_status") && request.taskId && request.taskHostId && request.itemId ? { task: this.#task(request.itemId, request.taskId, request.taskHostId) } : {}
         }
       };
     });
@@ -56286,7 +58115,8 @@ var DynaStore = class {
   }
   completeAction(requestId, claimToken, result) {
     const publicFailureMessage = result.outcome === "succeeded" ? void 0 : sanitizePublicFailureMessage(result.failureMessage);
-    return this.#transaction(() => {
+    let candidateCache;
+    const completed = this.#transaction(() => {
       const row = this.#one(
         this.#database.prepare("SELECT * FROM action_requests WHERE id = ? AND state = 'claimed'"),
         requestId
@@ -56308,16 +58138,81 @@ var DynaStore = class {
       }
       const kind = requiredString(row, "kind");
       if (result.outcome === "succeeded") {
-        if ((kind === "create_codex_task" || kind === "refresh_codex_status") && !result.task) {
+        if ((kind === "create_codex_task" || kind === "refresh_codex_status" || kind === "attach_codex_task") && !result.task) {
           throw new Error("The successful Dyna action requires controller-reported task metadata.");
         }
-        if ((kind === "open_codex_task" || kind === "open_source") && result.task) {
+        if ((kind === "open_codex_task" || kind === "open_source" || kind === "list_codex_sessions") && result.task) {
           throw new Error("Opening a Dyna target cannot attach task metadata.");
         }
-        if (kind === "refresh_codex_status" && result.task && (result.task.taskId !== optionalString(row, "task_id") || result.task.hostId !== optionalString(row, "host_id"))) {
-          throw new Error("The refreshed Codex task does not match the claimed request.");
+        if (kind === "list_codex_sessions") {
+          if (!result.candidates) {
+            throw new Error("A successful Codex session list requires bounded candidates.");
+          }
+          candidateCache = {
+            row,
+            candidates: DynaCodexSessionCandidatesSchema.parse(result.candidates)
+          };
+        } else if (result.candidates) {
+          throw new Error("Only a Codex session list can return session candidates.");
         }
-        if (result.task) {
+        if ((kind === "refresh_codex_status" || kind === "attach_codex_task") && result.task && (result.task.taskId !== optionalString(row, "task_id") || result.task.hostId !== optionalString(row, "host_id"))) {
+          throw new Error("The controller-observed Codex task does not match the claimed request.");
+        }
+        if (kind === "create_codex_task" && result.task) {
+          const dashboardId = requiredString(row, "dashboard_id");
+          const itemId = optionalString(row, "item_id");
+          if (!itemId) throw new Error("The Dyna action has no item to link.");
+          const attachmentBlocker = this.#newTaskAttachmentBlocker(dashboardId, itemId);
+          if (attachmentBlocker) {
+            this.#database.prepare(
+              `UPDATE action_requests SET state = 'needs_reconciliation', failure_message = ?,
+                   uncertain_effect = 1, result_task_id = NULL,
+                   claim_token_hash = NULL, claim_expires_at = NULL, updated_at = ?
+                 WHERE id = ? AND state = 'claimed'`
+            ).run(attachmentBlocker.message, instant, requestId);
+            this.#audit("action.needs_reconciliation", requestId, instant);
+            return this.actionStatus(requestId);
+          }
+        }
+        if (kind === "attach_codex_task" && result.task) {
+          const itemId = optionalString(row, "item_id");
+          if (!itemId) throw new Error("The Dyna action has no item to link.");
+          const dashboardId = requiredString(row, "dashboard_id");
+          const alreadyLinked = this.#taskBindingExists(
+            itemId,
+            result.task.taskId,
+            result.task.hostId
+          );
+          try {
+            this.#assertCodexSessionAttachAuthorization(row);
+          } catch {
+            const message = "The selected Codex session authorization expired; refresh the session list.";
+            this.#database.prepare(
+              `UPDATE action_requests SET state = 'failed', failure_message = ?,
+                   uncertain_effect = 0, result_task_id = NULL,
+                   claim_token_hash = NULL, claim_expires_at = NULL, updated_at = ?
+                 WHERE id = ? AND state = 'claimed'`
+            ).run(message, instant, requestId);
+            this.#audit("action.failed", requestId, instant);
+            return this.actionStatus(requestId);
+          }
+          if (!alreadyLinked) {
+            const attachmentBlocker = this.#newTaskAttachmentBlocker(dashboardId, itemId);
+            const capacityAvailable = this.#taskBindingCapacityAvailable(itemId);
+            if (attachmentBlocker || !capacityAvailable) {
+              const message = attachmentBlocker?.message ?? "The Dyna item cannot link another Codex task.";
+              this.#database.prepare(
+                `UPDATE action_requests SET state = 'failed', failure_message = ?,
+                     uncertain_effect = 0, result_task_id = NULL,
+                     claim_token_hash = NULL, claim_expires_at = NULL, updated_at = ?
+                   WHERE id = ? AND state = 'claimed'`
+              ).run(message, instant, requestId);
+              this.#audit("action.failed", requestId, instant);
+              return this.actionStatus(requestId);
+            }
+          }
+          this.#upsertTaskStatus(itemId, result.task);
+        } else if (result.task) {
           const itemId = optionalString(row, "item_id");
           if (!itemId) throw new Error("The Dyna action has no item to link.");
           this.#upsertTaskStatus(
@@ -56345,6 +58240,17 @@ var DynaStore = class {
       this.#audit(`action.${result.outcome}`, requestId, instant);
       return this.actionStatus(requestId);
     });
+    if (candidateCache && completed.state === "succeeded") {
+      this.#rememberCodexSessionCandidates(
+        requestId,
+        candidateCache.row,
+        candidateCache.candidates
+      );
+    }
+    if (completed.kind === "attach_codex_task" && ["succeeded", "failed", "needs_reconciliation"].includes(completed.state)) {
+      this.#codexSessionAttachAuthorizations.delete(requestId);
+    }
+    return completed;
   }
   resolveActionReconciliation(requestId, resolution) {
     const publicExplanation = resolution.outcome === "no_task_created" ? sanitizePublicFailureMessage(resolution.explanation) : void 0;
@@ -56361,6 +58267,9 @@ var DynaStore = class {
       if (!itemId) throw new Error("The Dyna action has no item to reconcile.");
       const instant = this.#now();
       if (resolution.outcome === "task_linked") {
+        const dashboardId = requiredString(row, "dashboard_id");
+        const attachmentBlocker = this.#newTaskAttachmentBlocker(dashboardId, itemId);
+        if (attachmentBlocker) throw new Error(attachmentBlocker.message);
         this.#upsertTaskStatus(itemId, resolution.task, requestId);
       }
       this.#database.prepare(
@@ -56407,10 +58316,23 @@ var DynaStore = class {
     }
     return requiredNumber(taskCount, "total") + requiredNumber(reservationCount, "total") < MAX_TASK_BINDINGS_PER_ITEM;
   }
+  #taskBindingExists(itemId, taskId, hostId) {
+    return Boolean(
+      this.#one(
+        this.#database.prepare(
+          "SELECT 1 AS present FROM task_bindings WHERE item_id = ? AND task_id = ? AND host_id = ?"
+        ),
+        itemId,
+        taskId,
+        hostId
+      )
+    );
+  }
   #actionFromRow(row) {
     return DynaActionRequestSchema.parse({
       id: requiredString(row, "id"),
       kind: requiredString(row, "kind"),
+      dashboardId: requiredString(row, "dashboard_id"),
       ...optionalString(row, "item_id") ? { itemId: optionalString(row, "item_id") } : {},
       ...optionalString(row, "task_id") ? { taskId: optionalString(row, "task_id") } : {},
       ...optionalString(row, "host_id") ? { taskHostId: optionalString(row, "host_id") } : {},
@@ -56427,6 +58349,62 @@ var DynaStore = class {
       this.#upsertTaskStatus(itemId, status);
     });
   }
+  upsertTaskStatusForDashboard(dashboardId, itemId, status) {
+    this.#transaction(() => {
+      const parsed = DynaTaskStatusSchema.parse(status);
+      this.assertDashboardContainsItem(dashboardId, itemId);
+      const existing = this.#one(
+        this.#database.prepare(
+          "SELECT 1 AS present FROM task_bindings WHERE item_id = ? AND task_id = ? AND host_id = ?"
+        ),
+        itemId,
+        parsed.taskId,
+        parsed.hostId
+      );
+      if (!existing) {
+        const attachmentBlocker = this.#newTaskAttachmentBlocker(dashboardId, itemId);
+        if (attachmentBlocker) {
+          throw new DynaCliStoreError(attachmentBlocker.code, attachmentBlocker.message);
+        }
+      }
+      this.#upsertTaskStatus(itemId, parsed);
+    });
+  }
+  #newTaskAttachmentBlocker(dashboardId, itemId) {
+    const archived = this.#one(
+      this.#database.prepare(
+        "SELECT 1 AS present FROM item_archive_events WHERE dashboard_id = ? AND item_id = ? AND restored_at IS NULL"
+      ),
+      dashboardId,
+      itemId
+    );
+    if (archived) {
+      return {
+        code: "archived_item",
+        message: "A new Codex task cannot be attached to an archived Dyna item; restore it or create a follow-up."
+      };
+    }
+    const active = this.#one(
+      this.#database.prepare(
+        `${DYNA_ELIGIBLE_CTE} SELECT workflow_state FROM positioned WHERE id = ?`
+      ),
+      dashboardId,
+      itemId
+    );
+    if (!active) {
+      return {
+        code: "outside_dashboard",
+        message: "A new Codex task cannot be attached because the Dyna item is no longer active."
+      };
+    }
+    if (requiredWorkflowState(active) === "completed") {
+      return {
+        code: "completed_item",
+        message: "A new Codex task cannot be attached to completed Dyna work; create a follow-up."
+      };
+    }
+    return void 0;
+  }
   #upsertTaskStatus(itemId, status, reservedCreateRequestId) {
     const parsed = DynaTaskStatusSchema.parse(status);
     this.#itemBaseRow(itemId);
@@ -56442,6 +58420,12 @@ var DynaStore = class {
     );
     if (!existing && !this.#taskBindingCapacityAvailable(itemId, reservedCreateRequestId)) {
       throw new Error("A Dyna item cannot link more than eight Codex tasks.");
+    }
+    if (existing && requiredString(existing, "state") === "succeeded" && parsed.state !== "succeeded") {
+      throw new DynaCliStoreError(
+        "request_conflict",
+        "A controller-confirmed Codex success is terminal; continued work requires a follow-up item."
+      );
     }
     if (existing && observedTime.epoch > requiredNumber(existing, "observed_ms") && statusTime.epoch === requiredNumber(existing, "status_updated_ms") && (parsed.state !== requiredString(existing, "state") || parsed.title !== requiredString(existing, "title") || parsed.outcome !== optionalString(existing, "outcome"))) {
       throw new Error("Dyna rejected conflicting Codex task data at the same status timestamp.");
@@ -56582,6 +58566,50 @@ var DynaStore = class {
       })
     );
   }
+  #workUpdates(itemId, limit = MAX_WORK_UPDATES_PER_CARD) {
+    return this.#database.prepare(
+      "SELECT * FROM work_updates WHERE item_id = ? ORDER BY created_at_ms DESC, rowid DESC LIMIT ?"
+    ).all(itemId, limit).map((row) => this.#workUpdateFromRow(row));
+  }
+  #workUpdateCount(itemId) {
+    const row = this.#one(
+      this.#database.prepare("SELECT COUNT(*) AS total FROM work_updates WHERE item_id = ?"),
+      itemId
+    );
+    if (!row) throw new Error("Dyna could not count item work updates.");
+    return requiredNumber(row, "total");
+  }
+  #workUpdatePage(itemId, limit, cursor) {
+    const rows = this.#database.prepare(
+      `SELECT *, rowid AS insertion_sequence FROM work_updates
+         WHERE item_id = ?
+         ${cursor ? `AND (created_at_ms < ? OR (
+                  created_at_ms = ? AND rowid < ?
+                ))` : ""}
+         ORDER BY created_at_ms DESC, rowid DESC LIMIT ?`
+    ).all(
+      itemId,
+      ...cursor ? [cursor.createdAtMs, cursor.createdAtMs, cursor.insertionSequence] : [],
+      limit + 1
+    );
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    return {
+      updates: page.map((row) => this.#workUpdateFromRow(row)),
+      ...rows.length > limit && last ? {
+        nextCursor: historyCursor(
+          "work",
+          requiredNumber(last, "created_at_ms"),
+          requiredNumber(last, "insertion_sequence")
+        )
+      } : {}
+    };
+  }
+  #linkedTasks(itemId) {
+    return this.#database.prepare(
+      "SELECT * FROM task_bindings WHERE item_id = ? ORDER BY observed_ms DESC, task_id, host_id LIMIT ?"
+    ).all(itemId, MAX_TASK_BINDINGS_PER_ITEM).map((row) => this.#taskFromRow(row));
+  }
   #actionItemContext(itemId) {
     const item = this.#item(itemId);
     return DynaActionItemContextSchema.parse({
@@ -56593,7 +58621,7 @@ var DynaStore = class {
       trustBoundary: "untrusted_reference_data"
     });
   }
-  #cardsFromSnapshotRows(rows) {
+  #cardsFromSnapshotRows(rows, searchTerms = []) {
     if (rows.length === 0) return [];
     const ids = rows.map((row) => requiredString(row, "id"));
     const placeholders = ids.map(() => "?").join(", ");
@@ -56613,6 +58641,33 @@ var DynaStore = class {
            FROM task_bindings WHERE item_id IN (${placeholders})
          ) WHERE item_rank <= 8 ORDER BY item_id, observed_ms DESC`
     ).all(...ids);
+    const workUpdateRows = this.#database.prepare(
+      `SELECT * FROM (
+           SELECT work_update.*, work_update.rowid AS insertion_seq, ROW_NUMBER() OVER (
+             PARTITION BY item_id ORDER BY created_at_ms DESC, work_update.rowid DESC
+           ) AS item_rank
+           FROM work_updates work_update WHERE item_id IN (${placeholders})
+         ) WHERE item_rank <= ? ORDER BY item_id, created_at_ms DESC, insertion_seq DESC`
+    ).all(...ids, MAX_WORK_UPDATES_PER_CARD);
+    const workUpdateCountRows = this.#database.prepare(
+      `SELECT item_id, COUNT(*) AS total FROM work_updates
+         WHERE item_id IN (${placeholders}) GROUP BY item_id`
+    ).all(...ids);
+    const activitySearchExpression = activitySearchSql("work_update");
+    const activityTermMatches = searchTerms.map(() => `instr(${activitySearchExpression}, ?) > 0`);
+    const activityCoverage = activityTermMatches.map((match) => `CASE WHEN ${match} THEN 1 ELSE 0 END`).join(" + ");
+    const matchingActivityRows = searchTerms.length === 0 ? [] : this.#database.prepare(
+      `SELECT * FROM (
+                 SELECT work_update.*, ROW_NUMBER() OVER (
+                   PARTITION BY item_id ORDER BY (${activityCoverage}) DESC,
+                     created_at_ms DESC, rowid DESC
+                 ) AS item_rank
+                 FROM work_updates work_update
+                 WHERE item_id IN (${placeholders}) AND (
+                   ${activityTermMatches.join(" OR ")}
+                 )
+               ) WHERE item_rank = 1`
+    ).all(...searchTerms, ...ids, ...searchTerms);
     const annotations = /* @__PURE__ */ new Map();
     for (const annotation of annotationRows) {
       const itemId = requiredString(annotation, "item_id");
@@ -56634,6 +58689,22 @@ var DynaStore = class {
       values.push(this.#taskFromRow(task));
       tasks.set(itemId, values);
     }
+    const workUpdates = /* @__PURE__ */ new Map();
+    for (const update of workUpdateRows) {
+      const itemId = requiredString(update, "item_id");
+      const values = workUpdates.get(itemId) ?? [];
+      values.push(this.#workUpdateFromRow(update));
+      workUpdates.set(itemId, values);
+    }
+    const workUpdateCounts = /* @__PURE__ */ new Map();
+    for (const count of workUpdateCountRows) {
+      workUpdateCounts.set(requiredString(count, "item_id"), requiredNumber(count, "total"));
+    }
+    const matchedActivities = /* @__PURE__ */ new Map();
+    for (const activity of matchingActivityRows) {
+      const summary = matchedActivitySummary(this.#workUpdateFromRow(activity), searchTerms);
+      if (summary) matchedActivities.set(requiredString(activity, "item_id"), summary);
+    }
     return rows.map((row) => {
       const id = requiredString(row, "id");
       const item = this.#itemFromSnapshotRow(row);
@@ -56645,11 +58716,15 @@ var DynaStore = class {
       const completedAt = workflowState === "completed" ? linkedTasks.reduce(
         (latest, task) => task.state === "succeeded" && (!latest || task.statusUpdatedAt > latest) ? task.statusUpdatedAt : latest,
         void 0
-      ) : void 0;
+      ) ?? optionalString(row, "user_workflow_created_at") : void 0;
+      const completionOutcome = workflowState === "completed" ? completedTask?.outcome ?? optionalString(row, "user_workflow_outcome") : void 0;
       const leadershipPriority = effectiveDynaPriority(item.priority, item.people);
       const storedPriority = optionalString(row, "preference_priority");
       const manualPriority = storedPriority ? DynaPrioritySchema.parse(storedPriority) : void 0;
       const sequenceValue = row["preference_sequence"];
+      const workConditionTaskId = optionalString(row, "work_condition_task_id");
+      const workConditionHostId = optionalString(row, "work_condition_host_id");
+      const matchedActivity = matchedActivities.get(id);
       return {
         id,
         fingerprint: item.fingerprint,
@@ -56672,16 +58747,59 @@ var DynaStore = class {
         canMoveLater: requiredNumber(row, "priority_position") < requiredNumber(row, "priority_count"),
         workflowState,
         ...completedAt ? { completedAt } : {},
-        ...workflowState === "completed" && completedTask?.outcome ? { outcome: completedTask.outcome } : {},
+        ...completionOutcome ? { outcome: completionOutcome } : {},
         ...optionalString(row, "follow_up_of_item_id") ? { followUpOfItemId: optionalString(row, "follow_up_of_item_id") } : {},
         ...item.attention ? { attention: item.attention } : {},
         plan: item.plan,
         nextSteps: item.nextSteps,
         ...item.enrichment ? { enrichmentState: item.enrichment.state } : {},
         annotations: annotations.get(id) ?? [],
+        workUpdates: workUpdates.get(id) ?? [],
+        workUpdateCount: workUpdateCounts.get(id) ?? 0,
+        ...workflowState !== "completed" && optionalString(row, "work_state") ? { workState: optionalString(row, "work_state") } : {},
+        ...workflowState !== "completed" && optionalString(row, "work_condition_summary") ? { workConditionSummary: optionalString(row, "work_condition_summary") } : {},
+        ...workflowState !== "completed" && workConditionTaskId && workConditionHostId ? {
+          workConditionTask: {
+            taskId: workConditionTaskId,
+            hostId: workConditionHostId
+          }
+        } : {},
+        ...matchedActivity ? { matchedActivity: matchedActivity.slice(0, 500) } : {},
+        blocked: workflowState !== "completed" && requiredNumber(row, "work_blocked") === 1,
         linkedTasks,
         ...optionalString(row, "archive_id") ? { archive: this.#archiveStateFromRow(row, "archive_") } : {}
       };
+    });
+  }
+  #workUpdateFromRow(row) {
+    return DynaWorkUpdateSchema.parse({
+      schema: "dyna/work-update-v1",
+      id: requiredString(row, "id"),
+      itemId: requiredString(row, "item_id"),
+      originDashboardId: requiredString(row, "origin_dashboard_id"),
+      workAttemptId: requiredString(row, "work_attempt_id"),
+      kind: requiredString(row, "kind"),
+      body: requiredString(row, "body"),
+      ...optionalString(row, "outcome") ? { outcome: optionalString(row, "outcome") } : {},
+      artifacts: parseJson(requiredString(row, "artifacts")),
+      ...optionalString(row, "task_id") && optionalString(row, "host_id") ? {
+        task: {
+          taskId: optionalString(row, "task_id"),
+          hostId: optionalString(row, "host_id"),
+          ...optionalString(row, "task_title") ? { title: optionalString(row, "task_title") } : {}
+        }
+      } : {},
+      createdAt: requiredString(row, "created_at")
+    });
+  }
+  #userWorkflowEventFromRow(row) {
+    return DynaUserWorkflowEventSchema.parse({
+      id: requiredString(row, "id"),
+      itemId: requiredString(row, "item_id"),
+      originDashboardId: requiredString(row, "origin_dashboard_id"),
+      targetStage: requiredString(row, "target_stage"),
+      ...optionalString(row, "outcome") ? { outcome: optionalString(row, "outcome") } : {},
+      createdAt: requiredString(row, "created_at")
     });
   }
   #taskFromRow(row) {
@@ -56736,7 +58854,7 @@ var DynaService = class {
   render(dashboardId) {
     const snapshot = this.store.snapshot(dashboardId);
     const payload = {
-      schema: "dyna/ui-v6",
+      schema: "dyna/ui-v7",
       viewToken: this.store.createView(dashboardId),
       snapshot
     };
@@ -56745,7 +58863,7 @@ var DynaService = class {
   refresh(viewToken, query = "", scope = "active") {
     const snapshot = this.store.snapshotForView(viewToken, query, scope);
     return DynaUiPayloadSchema.parse({
-      schema: "dyna/ui-v6",
+      schema: "dyna/ui-v7",
       viewToken,
       snapshot
     });
@@ -56759,14 +58877,78 @@ var DynaService = class {
   snapshot(dashboardId) {
     return DynaDashboardSnapshotSchema.parse(this.store.snapshot(dashboardId));
   }
-  updateTask(itemId, status) {
-    this.store.upsertTaskStatus(itemId, status);
+  updateTask(dashboardId, itemId, status) {
+    this.store.upsertTaskStatusForDashboard(dashboardId, itemId, status);
+  }
+  showItem(dashboardId, itemId) {
+    return this.store.showItem(dashboardId, itemId);
+  }
+  itemHistory(dashboardId, itemId, options) {
+    return this.store.itemHistory(dashboardId, itemId, options);
+  }
+  itemActivityPage(dashboardId, itemId, options) {
+    return this.store.itemActivityPage(dashboardId, itemId, options);
+  }
+  setItemStatus(input) {
+    return this.store.setItemStatus(input);
+  }
+  recordWorkUpdate(dashboardId, itemId, expectedFingerprint, input) {
+    return this.store.recordWorkUpdate(dashboardId, itemId, expectedFingerprint, input);
+  }
+  enrichItem(dashboardId, itemId, expectedFingerprint, expectedEnrichmentVersion, input) {
+    return this.store.enrichItemFromCli(
+      dashboardId,
+      itemId,
+      expectedFingerprint,
+      expectedEnrichmentVersion,
+      input
+    );
+  }
+  placeItem(dashboardId, itemId, expectedRevision, expectedFingerprint, input) {
+    return this.store.placeItemFromCli(
+      dashboardId,
+      itemId,
+      expectedRevision,
+      expectedFingerprint,
+      input
+    );
+  }
+  archiveItem(dashboardId, itemId, expectedRevision, expectedFingerprint, input) {
+    return this.store.archiveItemFromCli(
+      dashboardId,
+      itemId,
+      expectedRevision,
+      expectedFingerprint,
+      input
+    );
+  }
+  restoreItem(dashboardId, itemId, expectedRevision, expectedFingerprint, requestId) {
+    return this.store.restoreItemFromCli(
+      dashboardId,
+      itemId,
+      expectedRevision,
+      expectedFingerprint,
+      requestId
+    );
+  }
+  createFollowUp(dashboardId, sourceItemId, expectedRevision, expectedFingerprint, input) {
+    return this.store.createFollowUpFromCli(
+      dashboardId,
+      sourceItemId,
+      expectedRevision,
+      expectedFingerprint,
+      input
+    );
   }
 };
 
 // packages/mcp-server/src/plugins/dyna.ts
 var DYNA_PLUGIN_ID = "dyna";
-var DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v9.html";
+var DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v12.html";
+var LEGACY_DYNA_TEMPLATE_URIS = [
+  "ui://flowzone/dyna/v11.html",
+  "ui://flowzone/dyna/v10.html"
+];
 var DashboardIdSchema = external_exports.object({ dashboardId: external_exports.uuid() }).strict();
 var ViewTokenSchema = external_exports.object({
   viewToken: external_exports.string().min(32).max(128),
@@ -56807,6 +58989,65 @@ var OrganizeItemInputSchema = external_exports.object({
 var EmptyResultSchema2 = external_exports.object({ ok: external_exports.literal(true) }).strict();
 var DashboardListSchema = external_exports.object({ dashboards: external_exports.array(DynaDashboardSchema).max(100) }).strict();
 var IdentifierSchema3 = external_exports.string().trim().min(1).max(256);
+var PrepareActionInputSchema = external_exports.object({
+  viewToken: external_exports.string().min(32).max(128),
+  itemId: external_exports.uuid(),
+  taskId: IdentifierSchema3.optional(),
+  taskHostId: IdentifierSchema3.optional(),
+  sessionListRequestId: external_exports.uuid().optional(),
+  kind: DynaActionKindSchema,
+  expectedRevision: external_exports.number().int().nonnegative(),
+  expectedFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
+  idempotencyKey: external_exports.string().trim().min(1).max(1024)
+}).strict().superRefine((input, context) => {
+  const exactTaskTarget = Boolean(input.taskId && input.taskHostId);
+  if (Boolean(input.taskId) !== Boolean(input.taskHostId)) {
+    context.addIssue({
+      code: "custom",
+      path: [input.taskId ? "taskHostId" : "taskId"],
+      message: "A Codex task target requires both task and host identifiers."
+    });
+  }
+  if (input.kind === "attach_codex_task") {
+    if (!exactTaskTarget) {
+      context.addIssue({
+        code: "custom",
+        path: ["taskId"],
+        message: "A Codex session attachment requires an exact task and host."
+      });
+    }
+    if (!input.sessionListRequestId) {
+      context.addIssue({
+        code: "custom",
+        path: ["sessionListRequestId"],
+        message: "A Codex session attachment requires its authorized session list."
+      });
+    }
+    return;
+  }
+  if (input.sessionListRequestId) {
+    context.addIssue({
+      code: "custom",
+      path: ["sessionListRequestId"],
+      message: "Only a Codex session attachment can use a session list request."
+    });
+  }
+  if (input.kind === "open_codex_task" || input.kind === "refresh_codex_status") {
+    if (!exactTaskTarget) {
+      context.addIssue({
+        code: "custom",
+        path: ["taskId"],
+        message: "This Dyna action requires an exact linked task and host."
+      });
+    }
+  } else if (input.taskId || input.taskHostId) {
+    context.addIssue({
+      code: "custom",
+      path: ["taskId"],
+      message: "This Dyna action cannot target a Codex task."
+    });
+  }
+});
 var ScheduleSchema = external_exports.object({
   scheduleId: IdentifierSchema3,
   scheduleTitle: external_exports.string().trim().min(1).max(200),
@@ -56828,6 +59069,12 @@ var SearchItemSchema = external_exports.object({
   plan: external_exports.array(external_exports.string().trim().min(1).max(200)).max(4),
   nextSteps: external_exports.array(DynaNextStepSchema).max(4),
   outcome: external_exports.string().trim().min(1).max(200).optional(),
+  workState: DynaWorkStateSchema.optional(),
+  workUpdates: external_exports.array(DynaWorkUpdateSchema).max(1),
+  workUpdateCount: external_exports.number().int().nonnegative(),
+  workConditionSummary: external_exports.string().trim().min(1).max(200).optional(),
+  workConditionTask: DynaWorkTaskAttributionSchema.optional(),
+  matchedActivity: external_exports.string().trim().min(1).max(500).optional(),
   linkedTasks: external_exports.array(DynaTaskStatusSchema).max(8),
   archive: DynaArchiveStateSchema.optional()
 }).strict();
@@ -56851,7 +59098,8 @@ var CompletionInputSchema = external_exports.discriminatedUnion("outcome", [
     requestId: external_exports.uuid(),
     claimToken: external_exports.string().min(32).max(128),
     outcome: external_exports.literal("succeeded"),
-    task: DynaTaskStatusSchema.optional()
+    task: DynaTaskStatusSchema.optional(),
+    candidates: DynaCodexSessionCandidatesSchema.optional()
   }).strict(),
   external_exports.object({
     requestId: external_exports.uuid(),
@@ -56881,7 +59129,7 @@ function appTools(service) {
       inputSchema: ViewTokenSchema,
       outputSchema: external_exports.object({ revision: external_exports.number().int().nonnegative(), changed: external_exports.boolean() }).strict(),
       annotations: {
-        readOnlyHint: true,
+        readOnlyHint: false,
         destructiveHint: false,
         openWorldHint: false,
         idempotentHint: true
@@ -56894,6 +59142,74 @@ function appTools(service) {
           structuredContent: { revision: payload.snapshot.revision, changed },
           content: [],
           _meta: { dynaDashboard: payload }
+        };
+      }
+    },
+    {
+      name: "dyna_get_item_activity",
+      title: "Load Dyna item activity",
+      description: "Return one bounded activity page for an item in the capability-bound Dyna view.",
+      inputSchema: external_exports.object({
+        viewToken: external_exports.string().min(32).max(128),
+        itemId: external_exports.uuid(),
+        cursor: external_exports.string().trim().min(1).max(512).optional(),
+        limit: external_exports.number().int().min(1).max(25).default(25)
+      }).strict(),
+      outputSchema: external_exports.object({
+        itemId: external_exports.uuid(),
+        returned: external_exports.number().int().nonnegative().max(25),
+        total: external_exports.number().int().nonnegative(),
+        hasMore: external_exports.boolean()
+      }).strict(),
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+        idempotentHint: true
+      },
+      handler(input) {
+        const { viewToken, itemId, cursor, limit } = external_exports.object({
+          viewToken: external_exports.string().min(32).max(128),
+          itemId: external_exports.uuid(),
+          cursor: external_exports.string().trim().min(1).max(512).optional(),
+          limit: external_exports.number().int().min(1).max(25).default(25)
+        }).strict().parse(input);
+        const dashboardId = service.store.authorizeView(viewToken, itemId);
+        const page = DynaWorkActivityPageSchema.parse(
+          service.itemActivityPage(dashboardId, itemId, {
+            limit,
+            ...cursor ? { cursor } : {}
+          })
+        );
+        return {
+          structuredContent: {
+            itemId,
+            returned: page.updates.length,
+            total: page.total,
+            hasMore: page.nextCursor !== void 0
+          },
+          content: [],
+          _meta: { dynaWorkActivity: page }
+        };
+      }
+    },
+    {
+      name: "dyna_set_item_status",
+      title: "Change Dyna item status",
+      description: "Retry-safely change the user-controlled lifecycle status of a taskless item in this capability-bound Dyna view.",
+      inputSchema: DynaSetItemStatusInputSchema,
+      outputSchema: DynaItemStatusResultSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+        idempotentHint: true
+      },
+      handler(input) {
+        const parsed = DynaSetItemStatusInputSchema.parse(input);
+        return {
+          structuredContent: service.setItemStatus(parsed),
+          content: []
         };
       }
     },
@@ -57071,16 +59387,7 @@ function appTools(service) {
       name: "dyna_prepare_action",
       title: "Prepare Dyna action",
       description: "Prepare a short-lived, capability-bound request for the current Codex task to handle.",
-      inputSchema: external_exports.object({
-        viewToken: external_exports.string().min(32).max(128),
-        itemId: external_exports.uuid(),
-        taskId: IdentifierSchema3.optional(),
-        taskHostId: IdentifierSchema3.optional(),
-        kind: DynaActionKindSchema,
-        expectedRevision: external_exports.number().int().nonnegative(),
-        expectedFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
-        idempotencyKey: external_exports.string().trim().min(1).max(1024)
-      }).strict(),
+      inputSchema: PrepareActionInputSchema,
       outputSchema: external_exports.object({ requestId: external_exports.uuid(), expiresAt: external_exports.iso.datetime({ offset: true }) }).strict(),
       annotations: {
         readOnlyHint: false,
@@ -57089,20 +59396,12 @@ function appTools(service) {
         idempotentHint: false
       },
       handler(input) {
-        const parsed = external_exports.object({
-          viewToken: external_exports.string().min(32).max(128),
-          itemId: external_exports.uuid(),
-          taskId: IdentifierSchema3.optional(),
-          taskHostId: IdentifierSchema3.optional(),
-          kind: DynaActionKindSchema,
-          expectedRevision: external_exports.number().int().nonnegative(),
-          expectedFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
-          idempotencyKey: external_exports.string().trim().min(1).max(1024)
-        }).strict().parse(input);
+        const parsed = PrepareActionInputSchema.parse(input);
         const request = service.store.prepareAction(parsed.viewToken, parsed.kind, {
           itemId: parsed.itemId,
           ...parsed.taskId ? { taskId: parsed.taskId } : {},
           ...parsed.taskHostId ? { taskHostId: parsed.taskHostId } : {},
+          ...parsed.sessionListRequestId ? { sessionListRequestId: parsed.sessionListRequestId } : {},
           expectedRevision: parsed.expectedRevision,
           expectedFingerprint: parsed.expectedFingerprint,
           idempotencyKey: parsed.idempotencyKey
@@ -57145,8 +59444,13 @@ function appTools(service) {
       },
       handler(input) {
         const { viewToken, requestId } = external_exports.object({ viewToken: external_exports.string().min(32).max(128), requestId: external_exports.uuid() }).strict().parse(input);
-        const request = service.store.actionStatusForView(viewToken, requestId);
-        return { structuredContent: request, content: [] };
+        const status = service.store.actionStatusForView(viewToken, requestId);
+        const { candidates, ...request } = status;
+        return {
+          structuredContent: request,
+          content: [],
+          ...candidates ? { _meta: { dynaCodexSessionCandidates: candidates } } : {}
+        };
       }
     }
   ];
@@ -57265,7 +59569,7 @@ function createDynaPlugin(options = {}) {
           total: external_exports.number().int().nonnegative(),
           items: external_exports.array(SearchItemSchema).max(20)
         }).strict(),
-        risk: { readOnly: true, destructive: false, openWorld: false, idempotent: true },
+        risk: { readOnly: false, destructive: false, openWorld: false, idempotent: true },
         executor: {
           kind: "module",
           execute(input) {
@@ -57286,7 +59590,7 @@ function createDynaPlugin(options = {}) {
                   fingerprint: card.fingerprint,
                   title: card.title,
                   summary: card.summary,
-                  sourceRef: service.store.itemContext(card.id).sourceRef,
+                  sourceRef: card.sourceRef,
                   priority: card.priority,
                   priorityReason: card.priorityReason,
                   sourceUpdatedAt: card.sourceUpdatedAt,
@@ -57296,6 +59600,12 @@ function createDynaPlugin(options = {}) {
                   plan: card.plan,
                   nextSteps: card.nextSteps,
                   ...card.outcome ? { outcome: card.outcome } : {},
+                  ...card.workState ? { workState: card.workState } : {},
+                  workUpdates: card.workUpdates,
+                  workUpdateCount: card.workUpdateCount,
+                  ...card.workConditionSummary ? { workConditionSummary: card.workConditionSummary } : {},
+                  ...card.workConditionTask ? { workConditionTask: card.workConditionTask } : {},
+                  ...card.matchedActivity ? { matchedActivity: card.matchedActivity } : {},
                   linkedTasks: card.linkedTasks,
                   ...card.archive ? { archive: card.archive } : {}
                 }))
@@ -57633,14 +59943,15 @@ function createDynaPlugin(options = {}) {
       {
         id: "get-item-context",
         title: "Get Dyna item context",
-        description: "Read the bounded immutable source context for a Dyna item before executing an approved action.",
-        inputSchema: external_exports.object({ itemId: external_exports.uuid() }).strict(),
+        description: "Read the bounded immutable source context for an exact dashboard item before executing an approved action.",
+        inputSchema: external_exports.object({ dashboardId: external_exports.uuid(), itemId: external_exports.uuid() }).strict(),
         outputSchema: DynaItemContextSchema,
         risk: { readOnly: true, destructive: false, openWorld: false, idempotent: true },
         executor: {
           kind: "module",
           execute(input) {
-            const { itemId } = external_exports.object({ itemId: external_exports.uuid() }).strict().parse(input);
+            const { dashboardId, itemId } = external_exports.object({ dashboardId: external_exports.uuid(), itemId: external_exports.uuid() }).strict().parse(input);
+            service.store.assertDashboardContainsItem(dashboardId, itemId);
             return { result: service.store.itemContext(itemId) };
           }
         }
@@ -57648,15 +59959,47 @@ function createDynaPlugin(options = {}) {
       {
         id: "get-item-history",
         title: "Get Dyna item history",
-        description: "Read dashboard-local archive dispositions, restorations, and priority ordering history for retrospective reporting.",
-        inputSchema: external_exports.object({ dashboardId: external_exports.uuid(), itemId: external_exports.uuid() }).strict(),
+        description: "Read archive, priority ordering, user workflow, and work-update history for retrospective reporting.",
+        inputSchema: external_exports.object({
+          dashboardId: external_exports.uuid(),
+          itemId: external_exports.uuid(),
+          limit: external_exports.number().int().min(1).max(50).default(50),
+          archiveCursor: external_exports.string().trim().min(1).max(512).optional(),
+          orderCursor: external_exports.string().trim().min(1).max(512).optional(),
+          statusCursor: external_exports.string().trim().min(1).max(512).optional(),
+          workCursor: external_exports.string().trim().min(1).max(512).optional()
+        }).strict(),
         outputSchema: DynaItemHistorySchema,
         risk: { readOnly: true, destructive: false, openWorld: false, idempotent: true },
         executor: {
           kind: "module",
           execute(input) {
-            const { dashboardId, itemId } = external_exports.object({ dashboardId: external_exports.uuid(), itemId: external_exports.uuid() }).strict().parse(input);
-            return { result: service.store.itemHistory(dashboardId, itemId) };
+            const {
+              dashboardId,
+              itemId,
+              limit,
+              archiveCursor,
+              orderCursor,
+              statusCursor,
+              workCursor
+            } = external_exports.object({
+              dashboardId: external_exports.uuid(),
+              itemId: external_exports.uuid(),
+              limit: external_exports.number().int().min(1).max(50).default(50),
+              archiveCursor: external_exports.string().trim().min(1).max(512).optional(),
+              orderCursor: external_exports.string().trim().min(1).max(512).optional(),
+              statusCursor: external_exports.string().trim().min(1).max(512).optional(),
+              workCursor: external_exports.string().trim().min(1).max(512).optional()
+            }).strict().parse(input);
+            return {
+              result: service.itemHistory(dashboardId, itemId, {
+                limit,
+                ...archiveCursor ? { archiveCursor } : {},
+                ...orderCursor ? { orderCursor } : {},
+                ...statusCursor ? { statusCursor } : {},
+                ...workCursor ? { workCursor } : {}
+              })
+            };
           }
         }
       },
@@ -57664,14 +60007,14 @@ function createDynaPlugin(options = {}) {
         id: "attach-codex-task",
         title: "Attach Codex task to Dyna item",
         description: "Attach controller-observed metadata for an existing Codex task so its status can be shown and refreshed from the dashboard.",
-        inputSchema: external_exports.object({ itemId: external_exports.uuid(), task: DynaTaskStatusSchema }).strict(),
+        inputSchema: external_exports.object({ dashboardId: external_exports.uuid(), itemId: external_exports.uuid(), task: DynaTaskStatusSchema }).strict(),
         outputSchema: EmptyResultSchema2,
         risk: { readOnly: false, destructive: false, openWorld: false, idempotent: true },
         executor: {
           kind: "module",
           execute(input) {
-            const { itemId, task } = external_exports.object({ itemId: external_exports.uuid(), task: DynaTaskStatusSchema }).strict().parse(input);
-            service.store.upsertTaskStatus(itemId, task);
+            const { dashboardId, itemId, task } = external_exports.object({ dashboardId: external_exports.uuid(), itemId: external_exports.uuid(), task: DynaTaskStatusSchema }).strict().parse(input);
+            service.updateTask(dashboardId, itemId, task);
             return { result: { ok: true } };
           }
         }
@@ -57713,7 +60056,11 @@ function createDynaPlugin(options = {}) {
               result: service.store.completeAction(
                 parsed.requestId,
                 parsed.claimToken,
-                parsed.outcome === "succeeded" ? { outcome: parsed.outcome, ...parsed.task ? { task: parsed.task } : {} } : { outcome: parsed.outcome, failureMessage: parsed.failureMessage }
+                parsed.outcome === "succeeded" ? {
+                  outcome: parsed.outcome,
+                  ...parsed.task ? { task: parsed.task } : {},
+                  ...parsed.candidates ? { candidates: parsed.candidates } : {}
+                } : { outcome: parsed.outcome, failureMessage: parsed.failureMessage }
               )
             };
           }
@@ -57749,7 +60096,7 @@ function createDynaPlugin(options = {}) {
           revision: external_exports.number().int().nonnegative(),
           itemCount: external_exports.number().int().nonnegative()
         }).strict(),
-        risk: { readOnly: true, destructive: false, openWorld: false, idempotent: false },
+        risk: { readOnly: false, destructive: false, openWorld: false, idempotent: false },
         ui: {
           view: "dashboard",
           payloadSchema: DynaUiPayloadSchema,
@@ -57803,7 +60150,14 @@ function createBundledFlowZoneServer() {
         assetLoader: dynaAssetLoader,
         description: "Dyna is a responsive executive dashboard for prioritized scheduled signals and Codex actions.",
         permissions: { clipboardWrite: {} }
-      }
+      },
+      ...LEGACY_DYNA_TEMPLATE_URIS.map((resourceUri) => ({
+        name: `FlowZone Dyna UI (legacy ${resourceUri})`,
+        resourceUri,
+        assetLoader: dynaAssetLoader,
+        description: "Dyna is a responsive executive dashboard for prioritized scheduled signals and Codex actions.",
+        permissions: { clipboardWrite: {} }
+      }))
     ],
     plugins: [createMarkdownReviewPlugin(), createDynaPlugin()]
   });

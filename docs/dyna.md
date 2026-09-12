@@ -15,6 +15,7 @@ Dyna turns bounded output from recurring Codex jobs into persistent, mobile-frie
 - Archive is a disposition, not a progress stage. Active work can be archived as **Invalid**, **Duplicate**, **No action needed**, **Superseded**, or **Other**; completed work uses **Completed**. Archived records never count as active work, remain searchable with their source/task/note/outcome and priority/order histories, support undo and restore, and are removed only by an explicit destructive dashboard or publisher purge. A later source refresh may update the record and mark it **Changed since archive**, but cannot reactivate it. Follow-ups are new active to-dos linked to an unchanged historical original.
 - Leadership context is explicit provenance, not inferred authority. Only credible sender, author, owner, or approver evidence can raise an item, by at most one band; `critical` remains source-defined urgency.
 - Task creation, attachment, navigation, and status inspection use the native Codex controller. Dyna stores the host/project identity and monotonic status observations only for explicitly linked tasks; it never scrapes or mirrors task transcripts.
+- Every copied or Dyna-created work prompt carries a bounded `dyna/work-item-v1` reference. Any local Codex task can use the bundled item CLI to append durable progress, decisions, input requests, blockers, handoffs, completion reports, and typed result links without exposing a view capability, publisher credential, or database path. Task-authored completion remains pending until the native controller verifies success.
 - The component must remain usable in the mobile app through a Codex Remote connection.
 
 ## Architecture
@@ -29,29 +30,30 @@ Codex scheduled tasks                Codex task controller
             ▲                                         │
             │ annotations / enrichment                ▼
             └──────────── app-only tools ──────> Dyna MCP Apps UI
-                                                dyna/ui-v6
+                                                dyna/ui-v7
 ```
 
 The packages divide responsibility as follows:
 
-| Package                     | Responsibility                                                                            |
-| --------------------------- | ----------------------------------------------------------------------------------------- |
-| `@flowzone/dyna-contracts`  | Strict Zod source records, actions, snapshots, and snapshot-only UI payload               |
-| `@flowzone/dyna-node`       | SQLite persistence, capability tokens, action state machine, and snapshots                |
-| `@flowzone/dyna-ui`         | Responsive React renderer, Apps SDK UI controls, annotations, polling, and host messaging |
-| `@flowzone/mcp-server/dyna` | Model-visible actions, private app tools, and the dedicated presentation tool             |
+| Package                     | Responsibility                                                                                  |
+| --------------------------- | ----------------------------------------------------------------------------------------------- |
+| `@flowzone/dyna-contracts`  | Strict source, work/activity, action, snapshot, CLI-result, and UI payload schemas              |
+| `@flowzone/dyna-node`       | SQLite persistence, append-only activity, capability/action state, and snapshots                |
+| `@flowzone/dyna-ui`         | Responsive React renderer, Apps SDK UI controls, activity, polling, and host messaging          |
+| `@flowzone/mcp-server/dyna` | Model-visible actions, private app tools, and the dedicated presentation tool                   |
+| `<plugin-root>/bin/dyna`    | Item-scoped cross-task show, update, enrichment, lifecycle, placement, and follow-up operations |
 
-The dedicated `render_dyna_dashboard` tool renders `ui://flowzone/dyna/v9.html`. It is separate from Markdown Review so Dyna does not inherit Mermaid's bundle weight. It keeps a closed network CSP and requests clipboard-write permission only for the explicit **Copy work prompt** action; selected text uses the host's native context menu. Its combined checked-in HTML, JavaScript, and CSS budget is 825 KiB, including locally embedded Latin variable fonts so Remote/mobile rendering never depends on a font CDN. The versioned URI is the host cache key and must change whenever the shipped UI bundle changes materially.
+The dedicated `render_dyna_dashboard` tool renders `ui://flowzone/dyna/v12.html`. It is separate from Markdown Review so Dyna does not inherit Mermaid's bundle weight. It keeps a closed network CSP and requests clipboard-write permission only for explicit copy actions. A bounded, static context menu gives exact selected text, links, linked Codex tasks, work items, and the dashboard context-appropriate actions while unselected editable fields retain the host's native editing menu; touch-generated selection menus also stay native. Its combined checked-in HTML, JavaScript, and CSS budget is 856 KiB, including locally embedded Latin variable fonts so Remote/mobile rendering never depends on a font CDN. The versioned URI is the host cache key and must change whenever the shipped UI bundle changes materially.
 
 ### UI component decision
 
 Dyna deliberately uses a small closed stack rather than a general-purpose dashboard framework:
 
-1. Strict Zod contracts accept only the bounded `dyna/ui-v6` snapshot. Scheduled output cannot supply component names, implementation code, styling, prompts, or actions. A typed `DynaComponentCatalog` in the browser owns the only permitted projections.
-2. `@openai/apps-sdk-ui` supplies Codex-native `Button`, `Badge`, `Input`, `Textarea`, `Alert`, icons, and theme integration. Dyna maps the supplied neutral OKLCH theme onto those host-aware semantics, uses locally bundled Oxanium for the interface and Geist Mono for compact operational metadata, and retains the SDK focus behavior without pulling a second design system into the app.
+1. Strict Zod contracts accept only the bounded `dyna/ui-v7` payload containing a `dyna/snapshot-v5` snapshot. Scheduled output cannot supply component names, implementation code, styling, prompts, or actions. A typed `DynaComponentCatalog` in the browser owns the only permitted projections.
+2. `@openai/apps-sdk-ui` supplies Codex-native `Button`, `Badge`, `Input`, `Textarea`, `Alert`, and theme integration. Dyna maps the supplied neutral OKLCH theme onto those host-aware semantics, uses locally bundled Oxanium for the interface and Geist Mono for compact operational metadata, and retains the SDK focus behavior without pulling a second design system into the app.
 3. Small semantic Dyna components implement the product-specific attention ledger, locally bundled provider marks, all-stage progress grouping, direct queue movement, and responsive inspector. Provider names remain in accessible labels, filters, and provenance while compact rows use offline SVG marks. Native `select` and `details` elements cover the remaining simple semantics. Heavy generic menus, popovers, selectors, dashboards, and community registries stay off the mobile critical path.
 
-The installed Apps SDK UI 0.2.2 package provides useful atoms but no dense ledger row, pipeline rail, data grid, tabs, drawer/sheet, or responsive side-inspector primitive. The build enforces an 825 KiB single-resource budget; the current HTML, JavaScript, and CSS total is 839,357 bytes, leaving 5,443 bytes of headroom. This includes the two offline Latin font files. Prior incremental bundle measurements showed about 49 KiB for the json-render browser renderer, 31 KiB for `SegmentedControl`, 106 KiB for `Menu`, and 116 KiB for `Select`. `EmptyMessage` fits at about 2 KiB but provides no semantic or density improvement over Dyna's action-aware empty state. These are bundled JavaScript and CSS deltas, not npm package sizes. Dyna exact-pins Apps SDK UI because its selective theme stylesheet imports are intentionally smaller than the package's full public CSS export; every SDK upgrade must re-audit those paths and the payload budget.
+The installed Apps SDK UI 0.2.2 package provides useful atoms but no dense ledger row, pipeline rail, data grid, tabs, drawer/sheet, or responsive side-inspector primitive. The build enforces an 856 KiB single-resource budget; the current HTML, JavaScript, and CSS total is 874,069 bytes, leaving 2,475 bytes of headroom. This includes the two offline Latin font files, bounded activity-page contracts that keep historical work out of the initial snapshot, the lazy metadata-only Codex session picker, guarded workflow changes, and the dependency-free accessible context menu. Prior incremental bundle measurements showed about 49 KiB for the json-render browser renderer, 31 KiB for `SegmentedControl`, 106 KiB for `Menu`, and 116 KiB for `Select`; the picker and status control therefore use compact native selects rather than importing those SDK components. Decorative glyphs are local SVGs so the broad icon barrel does not pull unused modules into the offline resource. `EmptyMessage` fits at about 2 KiB but provides no semantic or density improvement over Dyna's action-aware empty state. These are bundled JavaScript and CSS deltas, not npm package sizes. Dyna exact-pins Apps SDK UI because its selective theme stylesheet imports are intentionally smaller than the package's full public CSS export; every SDK upgrade must re-audit those paths and the payload budget.
 
 The larger controls are also a weaker semantic fit. Queue and Pipeline are real tab panels, while Apps SDK UI's `SegmentedControl` is a Radix toggle group. The three bounded filters contain four to six options, where native `select` preserves the operating system's compact mobile picker. Queue order uses direct pointer drag, arrow-key movement, and a row-level disclosed Move fallback for touch rather than an inspector-only application menu. Dyna therefore does not add shadcn/ui, TanStack Table, another headless component system, CopilotKit, or Tambo. Those choices would duplicate the Codex visual/runtime layer or force a desktop table onto a mobile-first action queue. A ready-made primitive is adopted only when it adds behavior or host consistency that the native element cannot provide within the payload, semantics, and touch-target budgets.
 
@@ -61,7 +63,7 @@ The earlier implementation also compiled every snapshot to a json-render spec, v
 
 ## Persistence and refresh
 
-Dyna uses Node's built-in `node:sqlite` API and therefore requires Node 22.13 or newer. Its plugin-root-relative launchers prefer the Node runtime bundled with the Codex desktop app, then standard system locations; controlled hosts can set `FLOWZONE_NODE_PATH` to a trusted executable. The database lives under the operating system's per-user application-data directory, or under `FLOWZONE_DATA_DIR` in tests and controlled deployments. The connection enables WAL, foreign keys, and a five-second busy timeout. The formal schema is version 5: migrations and integrity checks run transactionally, future versions and foreign-key-corrupt legacy databases fail closed, and rejected schema/data changes roll back. The data directory is mode `0700`; the database, WAL, SHM, and verified backups are mode `0600`. Mutations use prepared statements and revision increments. View and action capabilities plus optional local-preview credentials are stored only as SHA-256 hashes.
+Dyna uses Node's built-in `node:sqlite` API and therefore requires Node 22.13 or newer. Its plugin-root-relative launchers prefer the Node runtime bundled with the Codex desktop app, then standard system locations; controlled hosts can set `FLOWZONE_NODE_PATH` to a trusted executable. The database lives under the operating system's per-user application-data directory, or under `FLOWZONE_DATA_DIR` in tests and controlled deployments. The connection enables WAL, foreign keys, and a five-second busy timeout. The formal schema is version 7: migrations and integrity checks run transactionally, future versions and foreign-key-corrupt legacy databases fail closed, and rejected schema/data changes roll back. The data directory is mode `0700`; the database, WAL, SHM, and verified backups are mode `0600`. Mutations use prepared statements and revision increments. View and action capabilities plus optional local-preview credentials are stored only as SHA-256 hashes.
 
 Each publisher is registered against its native Codex schedule ID, title, state, freshness SLA (`staleAfterMinutes`), and last-run result. Every publisher created through the current MCP action must register its complete immutable manifest of up to 50 unique required `(source, sourceScope)` pairs. Existing publishers migrated without a manifest may register one later during binding/status reconciliation, provided it covers every slice with active records; afterward only the identical set is accepted, because changing or removing scopes could strand records. Inventory returns the registered manifest. A dashboard accepts at most 50 bound schedules. A successful global `replace` run is an atomic full snapshot: omitted publisher memberships become inactive. The store retains `upsert` only as an internal compatibility shape; migration never authorizes it. A multi-source run declares unique `sourceSlices` with a `succeeded` or `failed` result. When a publisher has a manifest, each run must declare exactly that set—including failed and successful-empty slices—and missing, extra, or duplicate declarations are rejected before any run or item state changes; the manifest is read and compared under the same immediate publication transaction as credential validation and persistence. Source-sliced runs use `replace`: omitted records retire only in successful slices, including successful empty slices, while failed slices preserve their last-known records. Items must belong to a declared successful slice, slice declarations determine the overall succeeded/partial/failed status, and partial or failed status requires a bounded aggregate error. External publishers migrated from pre-v3 schemas retain their records and any registered manifests, but migration disables them, invalidates their old credentials, and marks cached native schedule state `unknown`; it cannot pause a host-owned Codex task. Reconcile and pause the native task before re-registering a manifest-backed publisher for an explicit local preview. Manifest enrollment on the disabled legacy identity preserves its source declaration but does not reactivate the retired credential, and migration never authorizes manifestless publication. A source-sliced or legacy partial run visibly marks the schedule and aggregate dashboard stale; a fully failed run contains no items and preserves all prior records. Public failure diagnostics are normalized to one line, redacted for common credential forms, and capped before persistence. Every publication supplies both a stable run ID and the schedule execution's `sourceCompletedAt`. The run ID and a canonical request digest deduplicate exact retries—including source declarations supplied in another order—and reject conflicting reuse; the completion time prevents a delayed older execution from replacing a newer slice. Superseded runs are recorded but do not change the dashboard. Canonical identity is publisher-scoped so one scheduled authority cannot overwrite another. Scheduled records may carry bounded untrusted `people`, `attention`, `plan`, and `nextSteps` data, while only control-path enrichment marked `twg_org_tree` or `user_configured` can lift priority. That provenance is caller-attested in the local preview until a host-controlled identity registry or evidence adapter is available. Conversation-driven enrichment replaces those fields without mutating the source slice. User-created to-dos use dashboard-scoped request IDs for retry safety; priority/sequence choices are also dashboard-scoped, so both views update immediately without leaking preferences into another dashboard. Model-visible `search-items` returns at most 20 actionable records with stable IDs for non-UI clients and later enrichment. Publishers can be rotated, revoked, or revoked with record purge; bindings can be removed independently, and a dashboard can be purged after exact-ID confirmation.
 
@@ -79,7 +81,7 @@ This is intentionally a same-user trust boundary: any process running under that
 
 ### Local scheduled publication
 
-The scheduled task normalizes records to this envelope and pipes it to the bundled launcher:
+The scheduled task normalizes records to this envelope and sends it to the bundled launcher through the documented echo-disabled PTY workflow:
 
 ```json
 {
@@ -94,15 +96,58 @@ The scheduled task normalizes records to this envelope and pipes it to the bundl
 
 Connector login remains host-owned and independent. An Outlook source can use the user's existing manually authenticated session; Dyna never receives or manages that credential.
 
+## Cross-session item synchronization
+
+The installed `<plugin-root>/bin/dyna` launcher gives any local Codex task a narrow item-scoped interface to the same store. It is resolved from the installed `$flowzone:dyna` skill rather than assumed to be on `PATH`. The launcher requires Node.js 22.13 or newer, accepts exact dashboard/item identifiers and expected versions in argv, and returns bounded JSON for `--help`, `--version`, and `setup`. Every mutation consumes one strict, bounded JSON object through an echo-disabled PTY and returns concise JSON control metadata. Launcher preflight failures use the same redacted JSON error envelope. It never accepts a database path, SQL, source-record mutation, publisher or schedule controls, deletion, purge, or credentials.
+
+The shared local store sits outside ordinary project workspaces, so unattended and separately sandboxed tasks require a one-time user-layer Codex rule. From the installed plugin, run `<plugin-root>/skills/dyna/scripts/reconcile-cli-rule.sh --check`; with explicit user approval, use `--install` when it reports `missing` or `stale`. The reconciler refuses source checkouts and atomically owns only `flowzone-dyna-worker.rules`. Its rules match the exact installed `<plugin-root>/bin/dyna` plus the current item verbs, `follow-up create`, and `setup`—never a shell, Node.js, database path, future verb, or general writable root. Restart Codex when it reports `restartRequired: true`. Re-run it after every FlowZone update because the cache path changes and the old launcher must stop matching.
+
+Copied and Dyna-created prompts begin with a non-secret synchronization reference:
+
+```text
+Use $flowzone:dyna to keep this item synchronized while you work.
+
+Dyna work reference:
+{
+  "schema": "dyna/work-item-v1",
+  "dashboardId": "...",
+  "dashboardName": "...",
+  "itemId": "...",
+  "expectedFingerprint": "...",
+  "sourceUpdatedAt": "...",
+  "copiedAt": "...",
+  "workAttemptId": "...",
+  "linkedTasks": []
+}
+
+BEGIN UNTRUSTED DYNA CONTEXT
+...
+END UNTRUSTED DYNA CONTEXT
+```
+
+The reference contains no view token, claim token, publisher credential, database path, or reusable mutation request ID. Identifiers and fingerprints prevent accidental writes; under Dyna's accepted single-user trust boundary, they are not credentials against another process running as that user.
+
+`dyna item show` returns current bounded context, the latest activity, total activity count, and mutation preconditions. Snapshot cards likewise carry only the latest update and its total count; the component retrieves older activity in pages of at most 25, while retrospective history uses independent bounded cursors. `item update` appends durable typed activity and up to four `http:`/`https:` artifact links. `item enrich` replaces the bounded evidence-derived overlay. `item place`, `archive`, and `restore` reuse dashboard-local lifecycle behavior. `follow-up create` creates new active work linked to an unchanged completed or archived original. Every logical mutation has a unique request UUID; an exact uncertain retry reuses it, while conflicting reuse or stale fingerprint/revision/enrichment context fails without partial writes.
+
+Work updates are append-only and item-global, so the same record remains synchronized across dashboards. Placement, ordering, and archive disposition stay dashboard-local. Activity, outcomes, and artifacts survive completion, archive, restoration, full-text search, retrospective reporting, and routine refresh. A refresh may update an archived record and mark it changed, but never reactivates it.
+
+Task-authored `needs_input` and `blocked` conditions surface immediately. A later task-authored progress update clears them. `completion_reported` remains **In Codex** with verification pending. Only a native controller observation attached to the exact task and host can supersede a task report or certify success, and **Done** still requires every linked task to be controller-observed as succeeded. For taskless items, the user can move between **To Do** and **Needs You**, or mark work **Done** with a required one-line outcome. The same guarded transition path powers the per-item status menu and Progress-lane drag-and-drop. Moving a taskless item to **In Codex** starts the native task flow; linked-item lane choices open or refresh the exact Codex task rather than manufacturing task state. Completed work cannot be reopened in place and instead creates a linked follow-up. `CODEX_THREAD_ID`, when available, is only a lookup hint for native task verification.
+
+The companion skill records only durable milestones, decisions, exact input requests, blockers with recovery steps, handoffs, verified outcomes, and result artifacts. It excludes command narration, raw logs, speculative hypotheses, source bodies, secrets, and chain of thought. Routine updates and evidence-bound enrichment are permitted within assigned work; priority/order changes, archive, and restore require explicit user direction. Completed or archived originals cannot receive new execution state, so continued work creates a linked follow-up.
+
 ## Action protocol
 
 For Slack, Outlook, GitLab, GitHub, Discord, Jira, Confluence, and other explicitly supported providers, the UI derives an `http` or `https` destination from the validated typed source identity. It never accepts an arbitrary URL from a publisher. The item title, inspector action, and provenance reference are real anchors, so normal open-in-new-tab, copy-link, and context-menu behavior works; a capable MCP Apps host receives the same derived destination through `openLink`. Source types without a verified portable URL, including Codex-only records, continue through the bounded opaque action flow below rather than inventing a link.
 
-The browser never receives a native Codex session API. It prepares an allowlisted action through a capability-bound private tool and sends the current task only:
+The browser never receives a native Codex session API or task transcript. It prepares allowlisted actions through a capability-bound private tool and sends the current task only:
 
 `Handle Dyna action request <request-id> with $flowzone:dyna.`
 
-No source text, prompt, tool name, file path, or task transcript is included in that message. The `$flowzone:dyna` workflow claims the request once and receives immutable context plus a one-time completion token. It then uses the native Codex task tools and completes the state machine:
+No source text, prompt, tool name, file path, or task transcript is included in that message. The `$flowzone:dyna` workflow claims the request once and receives immutable context plus a one-time completion token. For `create_codex_task`, it resolves the exact claimed dashboard ID, retrieves context through the exact dashboard/item pair, and revalidates item membership and fingerprint before native creation. It then builds the new task prompt with exactly the same `dyna/work-item-v1` fields and untrusted-context envelope used by **Copy work prompt**, using fresh copy/attempt IDs and current linked tasks; action/view/claim/publisher tokens and request IDs are excluded.
+
+Existing-task association is a two-step variant of the same flow. `list_codex_sessions` asks the native controller for at most 50 accessible Codex tasks and returns only task ID, host ID, optional project ID, title, and update time. The bounded list is held in memory for at most ten minutes, bound to the requesting view, dashboard, item, and action expiry, and exposed to the component only through app-private result metadata after view-token authorization. It is not stored in SQLite or returned in model-visible structured action status. The selected `attach_codex_task` action must cite that exact list request and candidate identity. At claim and completion Dyna rechecks the short-lived authorization, active item lifecycle, linked-task capacity, and exact controller-reported task/host pair before using the existing task binding path. The skill performs an exact native task status read for the selected identity and persists only bounded controller status metadata and an optional verified one-line outcome—never its prompt, transcript, turn summaries, or raw output.
+
+The workflow then completes the state machine:
 
 ```text
 PREPARED → DELIVERED → CLAIMED → SUCCEEDED
@@ -129,15 +174,14 @@ A release is not considered mobile-ready from browser emulation alone. Acceptanc
 7. Interrupt connectivity during creation and verify the request becomes failed or needs reconciliation rather than silently succeeding.
 8. Verify light/dark themes, large text, screen-reader labels, and 320-pixel-wide layout.
 
-## Delivery plan
+## Delivery status
 
-The implemented vertical slice includes strict contracts, the SQLite store, native schedule inventory, atomic publisher-isolated run slices, fingerprint-and-version-bound enrichment overlays, provenance-gated leadership ranking, retry-safe manual to-dos, dashboard-local priority and full-group sequence preferences with append-only history, server-backed full-text filtering, a bounded model-visible brief, the active priority queue, complete progress pipeline, durable searchable archive with undo and restore, annotations, publisher/binding/dashboard lifecycle controls, the leased one-time action protocol, existing-task attachment, conservative multi-session status aggregation and outcomes, completed and archived follow-ups, the dedicated UI resource, integration tests against the checked-in Node bundle, and Dyna-specific accessibility/action/reflow journeys on Chromium, WebKit, mobile Chromium, and mobile WebKit.
+The implemented vertical slice includes strict contracts, the SQLite store, native schedule inventory, atomic publisher-isolated run slices, fingerprint-and-version-bound enrichment overlays, provenance-gated leadership ranking, retry-safe manual to-dos, dashboard-local priority and full-group sequence preferences with append-only history, server-backed full-text filtering, a bounded model-visible brief, the active priority queue, complete progress pipeline, durable searchable archive with undo and restore, annotations, publisher/binding/dashboard lifecycle controls, the leased one-time action protocol, existing-task attachment, conservative multi-session status aggregation and outcomes, copied work references, append-only cross-task activity and typed artifacts, the item-scoped CLI and exact installed-launcher rule reconciler, completed and archived follow-ups, the dedicated UI resource, integration tests against the checked-in Node bundles, and Dyna-specific accessibility/action/reflow journeys on Chromium, WebKit, mobile Chromium, and mobile WebKit.
 
-Before declaring the feature generally available:
+The remaining release acceptance is deliberately host- or operator-owned:
 
-1. Add a host-provided protected credential channel for scheduled publishers; until then, scheduled publishers remain disabled by default, with an explicit trusted local-preview escape hatch limited to single-user non-production data.
-2. Back leadership lifts with a host-controlled VIP registry using stable identities or an opaque evidence capability from a trusted org adapter; until then, enrichment provenance is caller-attested.
-3. Run the physical Remote acceptance matrix above, verify the host-selected panel location, and record host/app versions.
-4. Expose backup retention and offline restore through a documented trusted-operator workflow; the verified store primitive is intentionally not a model-visible action.
+1. Back leadership lifts with a host-controlled VIP registry using stable identities or an opaque evidence capability from a trusted org adapter; until then, enrichment provenance is caller-attested.
+2. Run the physical Remote acceptance matrix above and record host/app versions.
+3. Expose backup retention and offline restore through a documented trusted-operator workflow; the verified store primitive is intentionally not a model-visible action.
 
-The design follows the official [OpenAI plugin UI guidelines](https://developers.openai.com/plugins/concepts/ui-guidelines), [MCP Apps UI reference](https://developers.openai.com/plugins/reference), [scheduled tasks guidance](https://learn.chatgpt.com/docs/automations), and [Remote connections guidance](https://learn.chatgpt.com/docs/remote-connections).
+The design follows the official [OpenAI plugin UI guidelines](https://developers.openai.com/plugins/concepts/ui-guidelines), [MCP Apps UI reference](https://developers.openai.com/plugins/reference), [scheduled tasks guidance](https://learn.chatgpt.com/docs/automations), [Remote connections guidance](https://learn.chatgpt.com/docs/remote-connections), and [agent-friendly CLI guidance](https://learn.chatgpt.com/use-cases/agent-friendly-clis).

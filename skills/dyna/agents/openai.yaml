@@ -1,8 +1,8 @@
 interface:
   display_name: "Dyna"
-  short_description: "List schedules and open named executive dashboards"
+  short_description: "Operate executive dashboards and synchronize item work"
   brand_color: "#2563EB"
-  default_prompt: "Use $flowzone:dyna to list my scheduled jobs and open the named dashboard."
+  default_prompt: "Use $flowzone:dyna to open my named dashboard and keep its work items synchronized."
 
 policy:
   allow_implicit_invocation: true

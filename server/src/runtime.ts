@@ -6,7 +6,11 @@ import {
   createMarkdownReviewPlugin,
   developerModeEnabled,
 } from "@flowzone/mcp-server";
-import { createDynaPlugin, DYNA_TEMPLATE_URI } from "@flowzone/mcp-server/dyna";
+import {
+  createDynaPlugin,
+  DYNA_TEMPLATE_URI,
+  LEGACY_DYNA_TEMPLATE_URIS,
+} from "@flowzone/mcp-server/dyna";
 
 const pluginRoot = resolve(__dirname, "../..");
 
@@ -32,6 +36,14 @@ export function createBundledFlowZoneServer() {
           "Dyna is a responsive executive dashboard for prioritized scheduled signals and Codex actions.",
         permissions: { clipboardWrite: {} },
       },
+      ...LEGACY_DYNA_TEMPLATE_URIS.map((resourceUri) => ({
+        name: `FlowZone Dyna UI (legacy ${resourceUri})`,
+        resourceUri,
+        assetLoader: dynaAssetLoader,
+        description:
+          "Dyna is a responsive executive dashboard for prioritized scheduled signals and Codex actions.",
+        permissions: { clipboardWrite: {} },
+      })),
     ],
     plugins: [createMarkdownReviewPlugin(), createDynaPlugin()],
   });

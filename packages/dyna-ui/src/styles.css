@@ -72,7 +72,7 @@
   --destructive: #bf616a;
   --chart-3: #81a1c1;
   --d-high: #d08770;
-  --d-critical-label: #e58c93;
+  --d-critical-label: #f0a0a7;
   --d-low: var(--muted-foreground);
   --d-success: #a3be8c;
   --d-deadline: #ebcb8b;
@@ -251,10 +251,37 @@ body {
   backdrop-filter: blur(14px);
 }
 
-.dyna-commandbar > button[aria-label="Add to-do"] {
-  width: auto;
-  min-height: 32px;
+.dyna-command-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
   justify-self: end;
+}
+
+.dyna-command-actions > button {
+  min-height: 32px;
+}
+
+.dyna-command-actions > button[aria-label="Add to-do"] {
+  width: auto;
+}
+
+.dyna-refresh-action {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+}
+
+.dyna-refresh-action[aria-busy="true"] .dyna-icon {
+  animation: dyna-refresh-spin 700ms linear infinite;
+}
+
+@keyframes dyna-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .dyna-tabs {
@@ -292,6 +319,7 @@ body {
 .dyna-stat:focus-visible,
 .dyna-source-link:focus-visible,
 .dyna-action-link:focus-visible,
+.dyna-artifact-link:focus-visible,
 .dyna-card:focus-visible,
 .dyna-source-health > summary:focus-visible,
 .dyna-filters > summary:focus-visible,
@@ -569,6 +597,7 @@ body {
 }
 
 .dyna-section[data-drop-active="true"],
+.dyna-pipeline-stage[data-drop-active="true"],
 .dyna-card[data-drop-active="true"] {
   outline: 2px solid var(--d-ring);
   outline-offset: -2px;
@@ -804,6 +833,57 @@ body {
   font-weight: 620;
 }
 
+.dyna-status-control {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+  max-width: 45%;
+  align-items: center;
+  padding: 1px 15px 1px 3px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.dyna-status-control .dyna-row-status {
+  max-width: 100%;
+}
+
+.dyna-status-control::after {
+  position: absolute;
+  right: 4px;
+  color: var(--d-muted);
+  content: "⌄";
+  font-size: 11px;
+  pointer-events: none;
+}
+
+.dyna-status-control:hover {
+  background: var(--d-surface-muted);
+}
+
+.dyna-status-control:focus-within {
+  outline: 2px solid var(--d-ring);
+  outline-offset: 1px;
+}
+
+.dyna-status-select {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  right: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(-50%);
+}
+
+.dyna-status-select:disabled {
+  cursor: wait;
+}
+
 .dyna-row-condition {
   overflow: hidden;
   max-width: 120px;
@@ -819,7 +899,12 @@ body {
 
 .dyna-row-condition[data-condition="blocked"] {
   background: color-mix(in srgb, var(--d-critical) 10%, transparent);
-  color: var(--d-critical);
+  color: var(--d-critical-label);
+}
+
+.dyna-row-condition[data-condition="verification"] {
+  background: color-mix(in srgb, var(--d-normal) 10%, transparent);
+  color: var(--d-text);
 }
 
 .dyna-row-time[data-has-deadline="true"] {
@@ -852,6 +937,12 @@ body {
   gap: 5px;
   align-items: center;
   text-decoration: none;
+}
+
+.dyna-row-title.dyna-source-link {
+  width: fit-content;
+  max-width: 100%;
+  flex: 0 1 auto;
 }
 
 .dyna-source-link > span {
@@ -1177,6 +1268,11 @@ body {
   color: var(--d-critical-label) !important;
 }
 
+.dyna-inspector-blocked {
+  color: var(--d-critical);
+  font-weight: 680;
+}
+
 .dyna-inspector h2 {
   margin: 0;
   font-size: 16px;
@@ -1190,7 +1286,7 @@ body {
   display: flex;
   min-width: 0;
   flex-wrap: nowrap;
-  gap: 6px;
+  gap: 4px;
   align-items: center;
   justify-content: space-between;
   padding-top: 7px;
@@ -1200,7 +1296,8 @@ body {
 .dyna-inspector-actions .dyna-actions {
   min-width: 0;
   flex: 1 1 auto;
-  gap: 4px;
+  flex-wrap: nowrap;
+  gap: 3px;
 }
 
 .dyna-utility-actions {
@@ -1214,7 +1311,7 @@ body {
 .dyna-inspector-actions .dyna-action-link {
   height: 28px;
   min-height: 28px;
-  padding-inline: 8px;
+  padding-inline: 7px;
   border-radius: 7px;
   font-size: 12px;
 }
@@ -1257,6 +1354,7 @@ body {
 }
 
 .dyna-inspector-scroll {
+  --d-priority: var(--d-normal);
   display: grid;
   min-height: 0;
   flex: 1 1 auto;
@@ -1266,6 +1364,22 @@ body {
   overscroll-behavior: contain;
   padding: 14px max(14px, env(safe-area-inset-right), var(--d-safe-right, 0px)) 18px
     max(14px, env(safe-area-inset-left), var(--d-safe-left, 0px));
+}
+
+.dyna-inspector-scroll[data-priority="critical"] {
+  --d-priority: var(--d-critical);
+}
+
+.dyna-inspector-scroll[data-priority="high"] {
+  --d-priority: var(--d-high);
+}
+
+.dyna-inspector-scroll[data-priority="normal"] {
+  --d-priority: var(--d-normal);
+}
+
+.dyna-inspector-scroll[data-priority="low"] {
+  --d-priority: var(--d-low);
 }
 
 .dyna-archive-heading {
@@ -1374,26 +1488,121 @@ body {
   border-top: 1px solid var(--d-border);
 }
 
-.dyna-people {
+.dyna-codex-work {
+  gap: 8px;
+}
+
+.dyna-codex-work-heading {
   display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
+  min-width: 0;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dyna-codex-work-heading > button {
+  min-height: 28px;
+  padding-inline: 7px;
+  font-size: 12px;
+}
+
+.dyna-codex-work-empty {
+  margin: 0;
+  color: var(--d-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.dyna-task-list {
+  display: grid;
+  gap: 6px;
+}
+
+.dyna-session-picker {
+  display: grid;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--d-border);
+}
+
+.dyna-session-picker-heading {
+  display: flex;
+  min-width: 0;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dyna-session-picker-heading > button,
+.dyna-session-picker-actions > button {
+  min-height: 28px;
+  padding-inline: 8px;
+  font-size: 12px;
+}
+
+.dyna-session-search {
+  min-height: 28px;
+  font-size: 12px;
+}
+
+.dyna-session-picker-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.dyna-native-select.dyna-session-select {
+  width: 100%;
+  min-height: 28px;
+  padding: 3px 24px 3px 8px;
+  border-radius: 6px;
+  font: 12px/1.3 var(--d-font-sans);
+}
+
+.dyna-session-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.dyna-session-picker-status {
+  min-height: 15px;
+  margin: 0;
+  color: var(--d-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.dyna-session-picker-status[data-error="true"] {
+  color: var(--d-critical-label);
+}
+
+.dyna-people {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
 }
 
 .dyna-person {
-  display: inline-flex;
-  gap: 4px;
-  align-items: baseline;
-  padding: 4px 7px;
-  border: 1px solid var(--d-border);
-  border-radius: 999px;
+  display: grid;
+  gap: 1px;
+  padding: 5px 0;
   color: var(--d-text);
   font-size: 12px;
 }
 
-.dyna-person small {
+.dyna-person + .dyna-person {
+  border-top: 1px solid var(--d-border);
+}
+
+.dyna-person strong {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.dyna-person span {
   color: var(--d-muted);
   font-size: 12px;
+  line-height: 1.35;
 }
 
 .dyna-next,
@@ -1542,6 +1751,70 @@ body {
   white-space: pre-wrap;
 }
 
+.dyna-work-list {
+  gap: 9px;
+}
+
+.dyna-work-list > li {
+  gap: 5px;
+}
+
+.dyna-work-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 7px;
+  align-items: baseline;
+  color: var(--d-muted);
+  font: 10px/1.3 var(--d-font-mono);
+}
+
+.dyna-work-kind {
+  color: var(--d-text);
+  font-size: 11px;
+  font-weight: 740;
+}
+
+.dyna-work-task {
+  color: var(--d-normal);
+  font-size: 11px;
+  font-weight: 620;
+}
+
+.dyna-work-list > li > p {
+  margin: 0;
+  color: var(--d-text);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.dyna-work-list .dyna-work-outcome {
+  padding: 6px 8px;
+}
+
+.dyna-work-artifacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dyna-activity-status {
+  margin: 0;
+  color: var(--d-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.dyna-activity-more {
+  width: fit-content;
+  min-height: 28px;
+  justify-self: start;
+}
+
 .dyna-outcome {
   display: grid;
   gap: 3px;
@@ -1593,6 +1866,7 @@ body {
 
 .dyna-inspector-footer .dyna-actions {
   flex: 1 1 auto;
+  flex-wrap: wrap;
 }
 
 .dyna-overflow {
@@ -1644,6 +1918,69 @@ body {
 }
 
 .dyna-overflow-separator {
+  height: 1px;
+  margin: 3px -4px;
+  background: var(--d-border);
+}
+
+.dyna-context-layer {
+  position: fixed;
+  z-index: 120;
+  inset: 0;
+  pointer-events: none;
+}
+
+.dyna-context-menu {
+  position: fixed;
+  top: 0;
+  left: 0;
+  display: grid;
+  width: min(220px, calc(100vw - 16px));
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px;
+  border: 1px solid var(--d-border);
+  border-radius: 8px;
+  background: var(--d-surface);
+  box-shadow: 0 10px 28px color-mix(in srgb, #000 22%, transparent);
+  color: var(--d-text);
+  font-family: var(--d-font-sans);
+  pointer-events: auto;
+}
+
+.dyna-context-menu button {
+  min-height: 34px;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: 620 13px/1.25 var(--d-font-sans);
+  text-align: left;
+}
+
+.dyna-context-menu button:hover:not(:disabled),
+.dyna-context-menu button:focus-visible {
+  background: var(--d-surface-muted);
+}
+
+.dyna-context-menu button:focus-visible {
+  outline: 2px solid var(--d-ring);
+  outline-offset: -2px;
+}
+
+.dyna-context-menu button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.dyna-context-menu button[data-danger="true"] {
+  color: var(--d-critical-label);
+}
+
+.dyna-context-menu [role="separator"] {
   height: 1px;
   margin: 3px -4px;
   background: var(--d-border);
@@ -1867,8 +2204,13 @@ body {
 :root[data-touch="true"] .dyna summary,
 :root[data-touch="true"] .dyna .dyna-source-link,
 :root[data-touch="true"] .dyna-inspector-layer button,
+:root[data-touch="true"] .dyna-inspector-layer input,
+:root[data-touch="true"] .dyna-inspector-layer select,
+:root[data-touch="true"] .dyna-inspector-layer textarea,
 :root[data-touch="true"] .dyna-inspector-layer summary,
 :root[data-touch="true"] .dyna-inspector-layer .dyna-action-link,
+:root[data-touch="true"] .dyna-inspector-layer .dyna-origin-link,
+:root[data-touch="true"] .dyna-inspector-layer .dyna-artifact-link,
 :root[data-touch="true"] .dyna-dialog button,
 :root[data-touch="true"] .dyna-dialog input,
 :root[data-touch="true"] .dyna-dialog select,
@@ -1895,16 +2237,23 @@ body {
   padding-bottom: max(78px, calc(env(safe-area-inset-bottom) + 66px));
 }
 
+:root[data-touch="true"] .dyna-session-search,
+:root[data-touch="true"] .dyna-session-search input,
+:root[data-touch="true"] .dyna-session-select {
+  min-height: 44px !important;
+}
+
 :root[data-touch="true"] .dyna button.dyna-row-main {
   min-height: 82px;
 }
 
 :root[data-touch="true"] .dyna-search-clear,
 :root[data-touch="true"] .dyna-inspector-close,
-:root[data-touch="true"] .dyna-commandbar button[aria-label="Add to-do"],
+:root[data-touch="true"] .dyna-command-actions button,
 :root[data-touch="true"] .dyna-drag-handle,
 :root[data-touch="true"] .dyna-row-primary,
-:root[data-touch="true"] .dyna-icon-action {
+:root[data-touch="true"] .dyna-icon-action,
+:root[data-touch="true"] .dyna-context-menu button {
   min-width: 44px !important;
   min-height: 44px !important;
 }
@@ -1916,13 +2265,18 @@ body {
   .dyna textarea,
   .dyna summary,
   .dyna-inspector-layer button,
+  .dyna-inspector-layer input,
+  .dyna-inspector-layer select,
+  .dyna-inspector-layer textarea,
   .dyna-inspector-layer summary,
   .dyna-dialog button,
   .dyna-dialog input,
   .dyna-dialog select,
   .dyna-dialog textarea,
   .dyna-source-link,
-  .dyna-action-link {
+  .dyna-action-link,
+  .dyna-origin-link,
+  .dyna-artifact-link {
     min-height: 44px;
   }
 
@@ -1934,12 +2288,19 @@ body {
     min-height: 44px;
   }
 
+  .dyna-session-search,
+  .dyna-session-search input,
+  .dyna-session-select {
+    min-height: 44px !important;
+  }
+
   .dyna-search-clear,
   .dyna-inspector-close,
-  .dyna-commandbar button[aria-label="Add to-do"],
+  .dyna-command-actions button,
   .dyna-drag-handle,
   .dyna-row-primary,
-  .dyna-icon-action {
+  .dyna-icon-action,
+  .dyna-context-menu button {
     min-width: 44px !important;
     min-height: 44px !important;
   }
@@ -1957,8 +2318,8 @@ body {
 
   .dyna-commandbar {
     grid-template-areas:
-      "tabs filters add"
-      "search search search";
+      "tabs tabs filters"
+      "search search actions";
     grid-template-columns: auto minmax(0, 1fr) auto;
   }
 
@@ -1976,8 +2337,8 @@ body {
     position: static;
   }
 
-  .dyna-commandbar > button[aria-label="Add to-do"] {
-    grid-area: add;
+  .dyna-command-actions {
+    grid-area: actions;
     justify-self: end;
   }
 

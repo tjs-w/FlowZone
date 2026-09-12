@@ -3,17 +3,6 @@ import "./styles.css";
 import { Alert } from "@openai/apps-sdk-ui/components/Alert";
 import { Badge } from "@openai/apps-sdk-ui/components/Badge";
 import { Button } from "@openai/apps-sdk-ui/components/Button";
-import {
-  Archive,
-  ArrowLeft,
-  ChevronRight,
-  Copy,
-  ExternalLink,
-  Plus,
-  RestoreUntrash,
-  Search,
-  X,
-} from "@openai/apps-sdk-ui/components/Icon";
 import { Input } from "@openai/apps-sdk-ui/components/Input";
 import { Textarea } from "@openai/apps-sdk-ui/components/Textarea";
 import { applyDocumentTheme } from "@openai/apps-sdk-ui/theme";
@@ -24,13 +13,17 @@ import {
   type McpUiHostContext,
 } from "@modelcontextprotocol/ext-apps";
 import {
+  DynaWorkActivityPageSchema,
   DynaUiPayloadSchema,
   dynaSourceUrl,
+  type DynaCodexSessionCandidate,
   type DynaSourceRef,
+  type DynaWorkActivityPage,
   type DynaUiPayload,
 } from "@flowzone/dyna-contracts";
 import {
   createContext,
+  type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type RefObject,
@@ -45,11 +38,54 @@ import {
 import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
 
+interface DynaIconProps {
+  readonly className?: string;
+  readonly "aria-hidden"?: boolean | "true" | "false";
+}
+
+function dynaIcon(path: string) {
+  return function DynaIcon(props: DynaIconProps) {
+    return (
+      <svg
+        {...props}
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.5"
+        focusable="false"
+      >
+        <path d={path} />
+      </svg>
+    );
+  };
+}
+
+const Archive = dynaIcon("M3 5h10v9H3zM2 2h12v3H2M6 8h4");
+const ArrowLeft = dynaIcon("M13 8H3m4-4L3 8l4 4");
+const ChevronRight = dynaIcon("m6 3 5 5-5 5");
+const Copy = dynaIcon("M5 5h9v9H5zM2 11V2h9");
+const ExternalLink = dynaIcon("M9 2h5v5m0-5L7 9m5 0v5H2V4h5");
+const Plus = dynaIcon("M8 3v10M3 8h10");
+const RefreshCw = dynaIcon("M13 4V1h-3m2 2a6 6 0 1 0 2 6");
+const RestoreUntrash = dynaIcon("M3 8a5 5 0 1 0 2-4M3 2v4h4");
+const Search = dynaIcon("M7 2a5 5 0 1 0 0 10A5 5 0 0 0 7 2m4 9 3 3");
+const X = dynaIcon("M3 3l10 10M13 3 3 13");
+
 type ActionName =
-  "annotate" | "open_source" | "create_codex_task" | "open_codex_task" | "refresh_codex_status";
+  | "annotate"
+  | "open_source"
+  | "create_codex_task"
+  | "open_codex_task"
+  | "refresh_codex_status"
+  | "list_codex_sessions"
+  | "attach_codex_task";
 
 type TodoPriority = "critical" | "high" | "normal" | "low";
 type WorkflowStage = "todo" | "executing" | "needs_you" | "completed";
+type WorkflowChoice = WorkflowStage | "follow_up";
+type ManualWorkflowStage = "todo" | "needs_you" | "done";
 type PriorityFilter = TodoPriority | "all";
 type WorkflowFilter = WorkflowStage | "blocked" | "all";
 type DashboardView = "queue" | "pipeline" | "archive";
@@ -57,6 +93,7 @@ type ScrollSurface = DashboardView;
 type ArchiveReason = "invalid" | "duplicate" | "no_action_needed" | "superseded" | "other";
 
 const INLINE_SUMMARY_MAX_LENGTH = 240;
+const CARD_MATCH_MAX_LENGTH = 180;
 const DYNA_DRAG_TYPE = "application/x-flowzone-dyna-item";
 
 type DynaHostContext = McpUiHostContext & {
@@ -91,7 +128,27 @@ interface DynaUiController {
     beforeItemId: string | undefined,
     trigger: HTMLElement,
   ): Promise<void>;
+  moveToStage(
+    itemId: string,
+    fingerprint: string,
+    target: WorkflowChoice,
+    trigger: HTMLElement,
+  ): Promise<void>;
   copyContext(card: CardViewProps): Promise<void>;
+  refreshLatest(trigger: HTMLElement): Promise<void>;
+  readonly loadActivity: (itemId: string, cursor?: string) => Promise<DynaActivityPage>;
+  loadCodexSessions(
+    itemId: string,
+    fingerprint: string,
+    trigger: HTMLElement,
+  ): Promise<DynaCodexSessionList>;
+  associateCodexSession(
+    itemId: string,
+    fingerprint: string,
+    candidate: DynaCodexSessionCandidate,
+    sessionListRequestId: string,
+    trigger: HTMLElement,
+  ): Promise<void>;
   archive(
     itemId: string,
     fingerprint: string,
@@ -109,6 +166,7 @@ interface DynaUiController {
     trigger?: HTMLElement,
   ): Promise<void>;
   readonly busy: boolean;
+  readonly refreshing: boolean;
   readonly blocked: boolean;
   readonly codexActionsBlocked: boolean;
   readonly readOnly: boolean;
@@ -267,6 +325,7 @@ function InspectorShell({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (document.querySelector(".dyna-context-menu")) return;
       if (event.key === "Escape") {
         if (document.querySelector(".dyna-dialog")) return;
         event.preventDefault();
@@ -320,11 +379,107 @@ function toolResultFailed(result: unknown): boolean {
   );
 }
 
+interface DynaCodexSessionList {
+  readonly requestId: string;
+  readonly candidates: readonly DynaCodexSessionCandidate[];
+}
+
+interface DynaActionDispatch {
+  readonly requestId: string;
+  readonly state: string;
+}
+
+interface DynaActionStatus {
+  readonly state: string;
+  readonly candidates?: readonly DynaCodexSessionCandidate[];
+}
+
+function codexSessionKey(candidate: Pick<DynaCodexSessionCandidate, "hostId" | "taskId">): string {
+  return JSON.stringify([candidate.hostId, candidate.taskId]);
+}
+
+function parseCodexSessionCandidates(
+  value: unknown,
+): readonly DynaCodexSessionCandidate[] | undefined {
+  if (!Array.isArray(value) || value.length > 50) return undefined;
+  const candidates: DynaCodexSessionCandidate[] = [];
+  const keys = new Set<string>();
+  for (const candidate of value) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return undefined;
+    const record = candidate as Readonly<Record<string, unknown>>;
+    const taskId = record["taskId"];
+    const hostId = record["hostId"];
+    const title = record["title"];
+    const updatedAt = record["updatedAt"];
+    const projectId = record["projectId"];
+    if (
+      typeof taskId !== "string" ||
+      taskId.length === 0 ||
+      taskId.length > 256 ||
+      typeof hostId !== "string" ||
+      hostId.length === 0 ||
+      hostId.length > 256 ||
+      typeof title !== "string" ||
+      title.trim().length === 0 ||
+      title.length > 200 ||
+      typeof updatedAt !== "string" ||
+      updatedAt.length > 64 ||
+      !Number.isFinite(Date.parse(updatedAt)) ||
+      (projectId !== undefined &&
+        (typeof projectId !== "string" || projectId.length === 0 || projectId.length > 256))
+    ) {
+      return undefined;
+    }
+    const parsed: DynaCodexSessionCandidate = {
+      taskId,
+      hostId,
+      title: title.trim(),
+      updatedAt,
+      ...(typeof projectId === "string" ? { projectId } : {}),
+    };
+    const key = codexSessionKey(parsed);
+    if (!keys.has(key)) {
+      keys.add(key);
+      candidates.push(parsed);
+    }
+  }
+  return candidates;
+}
+
+function parseDynaActionStatus(result: unknown): DynaActionStatus | undefined {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return undefined;
+  const resultRecord = result as Readonly<Record<string, unknown>>;
+  const structured = resultRecord["structuredContent"];
+  if (!structured || typeof structured !== "object" || Array.isArray(structured)) return undefined;
+  const record = structured as Readonly<Record<string, unknown>>;
+  const state = record["state"];
+  if (typeof state !== "string") return undefined;
+  const metadata = resultRecord["_meta"];
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return { state };
+  const metadataRecord = metadata as Readonly<Record<string, unknown>>;
+  if (!("dynaCodexSessionCandidates" in metadataRecord)) return { state };
+  const candidates = parseCodexSessionCandidates(metadataRecord["dynaCodexSessionCandidates"]);
+  return candidates ? { state, candidates } : undefined;
+}
+
 type DynaSnapshot = DynaUiPayload["snapshot"];
 type DynaCard = DynaSnapshot["cards"][number];
 type DynaSchedule = DynaSnapshot["schedules"][number];
 type DynaSourceSlice = NonNullable<DynaSchedule["lastSourceSlices"]>[number];
 type DynaTask = DynaCard["linkedTasks"][number];
+type DynaWorkUpdate = DynaCard["workUpdates"][number];
+
+type DynaActivityPage = DynaWorkActivityPage;
+
+interface DynaCardUxFields {
+  readonly workUpdateCount?: number;
+  readonly workConditionSummary?: string;
+  readonly workConditionTask?: {
+    readonly taskId: string;
+    readonly hostId: string;
+  };
+  readonly matchedActivity?: string;
+}
 
 function sourceSliceLabel(source: DynaSourceSlice["source"]): string {
   return {
@@ -338,6 +493,44 @@ function sourceSliceLabel(source: DynaSourceSlice["source"]): string {
     twg: "TWG",
     skill: "Skill",
   }[source];
+}
+
+function workUpdateKindLabel(kind: DynaWorkUpdate["kind"]): string {
+  return {
+    note: "Note",
+    progress: "Progress",
+    decision: "Decision",
+    needs_input: "Needs input",
+    blocked: "Blocked",
+    completion_reported: "Completion reported",
+    handoff: "Handoff",
+  }[kind];
+}
+
+function workUpdateTaskLabel(update: DynaWorkUpdate): string | undefined {
+  if (!update.task) return undefined;
+  return update.task.title ?? `Codex task ${update.task.taskId}`;
+}
+
+function compactLine(value: string, maximum = CARD_MATCH_MAX_LENGTH): string {
+  const line = value.replaceAll(/\s+/gu, " ").trim();
+  if (line.length <= maximum) return line;
+  return `${line.slice(0, Math.max(1, maximum - 1)).trimEnd()}…`;
+}
+
+function activityPage(value: unknown, expectedItemId: string): DynaActivityPage | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const metadata = (value as Readonly<Record<string, unknown>>)["_meta"];
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return undefined;
+  const page = (metadata as Readonly<Record<string, unknown>>)["dynaWorkActivity"];
+  const parsed = DynaWorkActivityPageSchema.safeParse(page);
+  return parsed.success && parsed.data.itemId === expectedItemId ? parsed.data : undefined;
+}
+
+function untrustedPromptText(value: string): string {
+  return value
+    .replaceAll("BEGIN UNTRUSTED DYNA CONTEXT", "[escaped BEGIN UNTRUSTED DYNA CONTEXT]")
+    .replaceAll("END UNTRUSTED DYNA CONTEXT", "[escaped END UNTRUSTED DYNA CONTEXT]");
 }
 
 const SOURCE_ICONS = {
@@ -396,17 +589,27 @@ function SourceFavicon({
   );
 }
 
-function readDragItem(
-  dataTransfer: DataTransfer,
-): { readonly itemId: string; readonly fingerprint: string } | undefined {
+function readDragItem(dataTransfer: DataTransfer):
+  | {
+      readonly itemId: string;
+      readonly fingerprint: string;
+      readonly workflowStage: WorkflowStage;
+    }
+  | undefined {
   const raw = dataTransfer.getData(DYNA_DRAG_TYPE);
   if (!raw) return undefined;
   try {
     const parsed = JSON.parse(raw) as Readonly<Record<string, unknown>>;
     return typeof parsed["itemId"] === "string" &&
       typeof parsed["fingerprint"] === "string" &&
+      typeof parsed["workflowStage"] === "string" &&
+      PIPELINE_STAGES.some(([stage]) => stage === parsed["workflowStage"]) &&
       /^[a-f0-9]{64}$/.test(parsed["fingerprint"])
-      ? { itemId: parsed["itemId"], fingerprint: parsed["fingerprint"] }
+      ? {
+          itemId: parsed["itemId"],
+          fingerprint: parsed["fingerprint"],
+          workflowStage: parsed["workflowStage"] as WorkflowStage,
+        }
       : undefined;
   } catch {
     return undefined;
@@ -420,18 +623,89 @@ interface ActionDescriptor {
   readonly taskHostId?: string;
 }
 
-type CardViewProps = Omit<DynaCard, "id" | "annotations" | "linkedTasks"> & {
-  readonly itemId: string;
-  readonly searchText: string;
-  readonly annotationPreview: readonly {
-    readonly body: string;
-    readonly createdAt: string;
-  }[];
-  readonly actions: readonly ActionDescriptor[];
-  readonly workflowStage: WorkflowStage;
-  readonly workflowCondition?: string;
-  readonly sourceUrl?: string;
-};
+type CardViewProps = Omit<DynaCard, "id" | "annotations" | "linkedTasks"> &
+  DynaCardUxFields & {
+    readonly dashboardId: string;
+    readonly dashboardName: string;
+    readonly itemId: string;
+    readonly searchText: string;
+    readonly annotationPreview: readonly {
+      readonly body: string;
+      readonly createdAt: string;
+    }[];
+    readonly actions: readonly ActionDescriptor[];
+    readonly linkedTasks: readonly DynaTask[];
+    readonly workflowStage: WorkflowStage;
+    readonly workflowCondition?: string;
+    readonly workflowSummary?: string;
+    readonly sourceUrl?: string;
+  };
+
+type DynaContextMenuKind = "selection" | "link" | "item" | "task" | "dashboard";
+
+interface DynaContextMenuState {
+  readonly kind: DynaContextMenuKind;
+  readonly x: number;
+  readonly y: number;
+  readonly invoker: HTMLElement;
+  readonly keyboard: boolean;
+  readonly inspector?: boolean;
+  readonly itemId?: string;
+  readonly linkUrl?: string;
+  readonly selection?: string;
+  readonly taskId?: string;
+  readonly taskHostId?: string;
+}
+
+function contextSelection(
+  target: Element,
+  x: number,
+  y: number,
+  keyboard: boolean,
+): string | undefined {
+  const field = target.closest<HTMLInputElement | HTMLTextAreaElement>("input, textarea");
+  if (field) {
+    const start = field.selectionStart;
+    const end = field.selectionEnd;
+    return start !== null && end !== null && end > start
+      ? field.value.slice(start, end)
+      : undefined;
+  }
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return undefined;
+  const text = selection.toString();
+  if (!text) return undefined;
+  const range = selection.getRangeAt(0);
+  if (keyboard) {
+    try {
+      return range.intersectsNode(target) ? text : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return [...range.getClientRects()].some(
+    (rect) =>
+      rect.width > 0 &&
+      rect.height > 0 &&
+      x >= rect.left - 2 &&
+      x <= rect.right + 2 &&
+      y >= rect.top - 2 &&
+      y <= rect.bottom + 2,
+  )
+    ? text
+    : undefined;
+}
+
+function contextLink(target: Element): string | undefined {
+  const href = target.closest<HTMLAnchorElement>("a[href]")?.href;
+  if (!href) return undefined;
+  try {
+    const url = new URL(href);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 interface ComponentArgs<Props> {
   readonly props: Props;
@@ -559,6 +833,95 @@ function OrganizationMenu({
         Move later in group
       </button>
     </div>
+  );
+}
+
+function StatusSelect({ card }: { readonly card: CardViewProps }) {
+  const controller = useController();
+  const [engaged, setEngaged] = useState(false);
+  const linked = card.linkedTasks.length > 0;
+  const completed = card.workflowStage === "completed";
+  // Keep the 200-item queue light: native options are only needed once the
+  // control is about to be used. Progress and the selected item's inspector
+  // keep their options mounted for deterministic keyboard and test behavior.
+  const showOptions =
+    engaged || controller.view !== "queue" || controller.selectedItemId === card.itemId;
+  return card.archive ? (
+    <span className="dyna-row-status">Archived</span>
+  ) : (
+    <label className="dyna-status-control">
+      <span className="dyna-row-status" aria-hidden="true">
+        {workflowStageLabel(card.workflowStage)}
+      </span>
+      <select
+        className="dyna-status-select"
+        data-dyna-status-item={card.itemId}
+        data-dyna-action={`${card.itemId}:status`}
+        aria-label={`Change status for ${card.title}`}
+        value={card.workflowStage}
+        disabled={controller.busy || controller.blocked}
+        onFocus={() => {
+          setEngaged(true);
+        }}
+        onBlur={() => {
+          setEngaged(false);
+        }}
+        onPointerDownCapture={() => {
+          setEngaged(true);
+        }}
+        onChange={(event) => {
+          const target = event.currentTarget.value as WorkflowChoice;
+          void controller.moveToStage(card.itemId, card.fingerprint, target, event.currentTarget);
+        }}
+      >
+        {showOptions ? (
+          <>
+            <option value="todo" disabled={linked || completed}>
+              {linked ? "To Do — linked to Codex" : "To Do"}
+            </option>
+            <option value="executing" disabled={completed}>
+              {linked
+                ? card.workflowStage === "needs_you"
+                  ? "Open in Codex…"
+                  : "In Codex"
+                : "Start in Codex…"}
+            </option>
+            <option value="needs_you" disabled={linked || completed}>
+              {linked ? "Needs You — set by Codex" : "Needs You"}
+            </option>
+            <option value="completed" disabled={completed}>
+              {linked ? "Verify Done…" : "Done…"}
+            </option>
+            {completed ? <option value="follow_up">Create follow-up…</option> : null}
+          </>
+        ) : null}
+      </select>
+    </label>
+  );
+}
+
+function RefreshButton() {
+  const controller = useController();
+  const label = controller.refreshing ? "Refreshing dashboard" : "Refresh dashboard";
+  return (
+    <Button
+      className="dyna-refresh-action"
+      data-dyna-refresh="true"
+      color="secondary"
+      size="xs"
+      variant="ghost"
+      uniform
+      aria-label={label}
+      aria-busy={controller.refreshing}
+      title="Refresh dashboard"
+      disabled={controller.busy || controller.refreshing || controller.readOnly}
+      onClick={(event) => {
+        event.currentTarget.focus({ preventScroll: true });
+        void controller.refreshLatest(event.currentTarget);
+      }}
+    >
+      <RefreshCw className="dyna-icon" aria-hidden="true" />
+    </Button>
   );
 }
 
@@ -742,6 +1105,797 @@ function InspectorActions({ card }: { readonly card: CardViewProps }) {
   );
 }
 
+function DynaContextMenu({
+  state,
+  card,
+  onClose,
+  onCopy,
+}: {
+  readonly state: DynaContextMenuState;
+  readonly card?: CardViewProps;
+  readonly onClose: (restoreFocus: boolean) => void;
+  readonly onCopy: (value: string, message: string) => Promise<void>;
+}) {
+  const controller = useController();
+  const menu = useRef<HTMLDivElement | null>(null);
+  const actions: ReactNode[] = [];
+  const primaryAction = card?.actions.find(
+    (action) => action.name === "create_codex_task" || action.name === "open_codex_task",
+  );
+  const sourceAction = card?.actions.find((action) => action.name === "open_source");
+  const noteAction = card?.actions.find((action) => action.name === "annotate");
+  const task = card?.linkedTasks.find(
+    (candidate) => candidate.taskId === state.taskId && candidate.hostId === state.taskHostId,
+  );
+  const add = (
+    key: string,
+    label: string,
+    action: () => void,
+    disabled = false,
+    danger = false,
+  ) => {
+    actions.push(
+      <button
+        key={key}
+        type="button"
+        role="menuitem"
+        disabled={disabled}
+        data-danger={danger || undefined}
+        onClick={(event) => {
+          event.stopPropagation();
+          onClose(false);
+          action();
+        }}
+      >
+        {label}
+      </button>,
+    );
+  };
+  const divide = () => {
+    actions.push(<div key={`separator-${String(actions.length)}`} role="separator" />);
+  };
+
+  if (state.kind === "selection" && state.selection) {
+    add("copy-selection", "Copy selected text", () => {
+      void onCopy(state.selection ?? "", "Selected text copied.");
+    });
+    if (state.linkUrl) {
+      add("copy-link", "Copy link", () => {
+        void onCopy(state.linkUrl ?? "", "Link copied.");
+      });
+    }
+  } else if (state.kind === "link" && state.linkUrl) {
+    add(
+      "open-link",
+      "Open link",
+      () => {
+        void controller.openExternal(state.linkUrl ?? "");
+      },
+      !controller.externalLinks,
+    );
+    add("copy-link", "Copy link", () => {
+      void onCopy(state.linkUrl ?? "", "Link copied.");
+    });
+  } else if (state.kind === "task" && card && task) {
+    add(
+      "open-task",
+      "Open task",
+      () => {
+        void controller.request(
+          card.itemId,
+          card.fingerprint,
+          "open_codex_task",
+          task.taskId,
+          task.hostId,
+          state.invoker,
+        );
+      },
+      controller.busy || controller.codexActionsBlocked,
+    );
+    add(
+      "refresh-task",
+      "Refresh task status",
+      () => {
+        void controller.request(
+          card.itemId,
+          card.fingerprint,
+          "refresh_codex_status",
+          task.taskId,
+          task.hostId,
+          state.invoker,
+        );
+      },
+      controller.busy || controller.codexActionsBlocked,
+    );
+  } else if (state.kind === "item" && card) {
+    if (!state.inspector) {
+      add("details", "Open details", () => {
+        void controller.openDetails(card.itemId, state.invoker);
+      });
+    }
+    if (card.workflowStage === "completed" || card.archive) {
+      add(
+        "follow-up",
+        "Create follow-up",
+        () => {
+          controller.startTodo(
+            state.invoker,
+            `Follow up: ${card.title}`,
+            `Continue from historical work: ${card.outcome ?? card.summary}`,
+            card.itemId,
+          );
+        },
+        controller.busy || controller.blocked,
+      );
+    } else if (primaryAction) {
+      add(
+        "codex",
+        primaryAction.label,
+        () => {
+          void controller.request(
+            card.itemId,
+            card.fingerprint,
+            primaryAction.name as Exclude<ActionName, "annotate">,
+            primaryAction.taskId,
+            primaryAction.taskHostId,
+            state.invoker,
+          );
+        },
+        controller.busy || controller.codexActionsBlocked,
+      );
+    }
+    add("copy-work", "Copy work prompt", () => {
+      void controller.copyContext(card);
+    });
+    if (sourceAction) {
+      add(
+        "source",
+        "Open source",
+        () => {
+          if (card.sourceUrl) void controller.openExternal(card.sourceUrl);
+          else
+            void controller.request(
+              card.itemId,
+              card.fingerprint,
+              sourceAction.name as Exclude<ActionName, "annotate">,
+              undefined,
+              undefined,
+              state.invoker,
+            );
+        },
+        card.sourceUrl
+          ? !controller.externalLinks
+          : controller.busy || controller.codexActionsBlocked,
+      );
+    }
+    if (noteAction) {
+      add(
+        "note",
+        "Add note",
+        () => {
+          controller.annotate(card.itemId, state.invoker);
+        },
+        controller.busy || controller.blocked,
+      );
+    }
+    divide();
+    if (card.archive) {
+      add(
+        "restore",
+        "Restore…",
+        () => {
+          controller.restore(card.itemId, card.fingerprint, card.title, state.invoker);
+        },
+        controller.busy || controller.blocked,
+      );
+    } else {
+      add(
+        "archive",
+        card.workflowStage === "completed" ? "Archive now" : "Archive…",
+        () => {
+          controller.archive(
+            card.itemId,
+            card.fingerprint,
+            card.title,
+            state.invoker,
+            card.workflowStage === "completed" ? "completed" : undefined,
+          );
+        },
+        controller.busy || controller.blocked,
+        true,
+      );
+    }
+  } else if (state.kind === "dashboard") {
+    add(
+      "new-todo",
+      "New to-do",
+      () => {
+        controller.startTodo(state.invoker);
+      },
+      controller.busy || controller.blocked,
+    );
+    add(
+      "refresh",
+      "Refresh dashboard",
+      () => {
+        void controller.refreshLatest(state.invoker);
+      },
+      controller.busy || controller.refreshing || controller.readOnly,
+    );
+  }
+
+  useLayoutEffect(() => {
+    const element = menu.current;
+    if (!element) return;
+    const rect = element.getBoundingClientRect();
+    element.style.left = `${String(Math.max(8, Math.min(state.x, innerWidth - rect.width - 8)))}px`;
+    element.style.top = `${String(Math.max(8, Math.min(state.y, innerHeight - rect.height - 8)))}px`;
+    element
+      .querySelector<HTMLButtonElement>("button:not(:disabled)")
+      ?.focus({ preventScroll: true });
+  }, [state]);
+
+  useEffect(() => {
+    const openedAt = performance.now();
+    const dismiss = (event?: Event) => {
+      if (event?.target instanceof Node && menu.current?.contains(event.target)) return;
+      onClose(false);
+    };
+    const dismissAfterSettling = (event: Event) => {
+      if (performance.now() - openedAt < 120) return;
+      dismiss(event);
+    };
+    document.addEventListener("pointerdown", dismiss, true);
+    window.addEventListener("blur", dismiss);
+    window.addEventListener("resize", dismiss);
+    window.addEventListener("scroll", dismissAfterSettling, true);
+    return () => {
+      document.removeEventListener("pointerdown", dismiss, true);
+      window.removeEventListener("blur", dismiss);
+      window.removeEventListener("resize", dismiss);
+      window.removeEventListener("scroll", dismissAfterSettling, true);
+    };
+  }, [onClose]);
+
+  if (actions.length === 0) return null;
+  const label =
+    state.kind === "selection"
+      ? "Selected text actions"
+      : state.kind === "link"
+        ? "Link actions"
+        : state.kind === "task"
+          ? `Actions for ${task?.title ?? "Codex task"}`
+          : state.kind === "item"
+            ? `Actions for ${card?.title ?? "item"}`
+            : "Dashboard actions";
+  return createPortal(
+    <div className="dyna-context-layer" role="region" aria-label="Context actions">
+      <div
+        ref={menu}
+        className="dyna-context-menu"
+        role="menu"
+        aria-label={label}
+        onContextMenu={(event) => {
+          event.preventDefault();
+        }}
+        onKeyDown={(event) => {
+          event.stopPropagation();
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onClose(true);
+            return;
+          }
+          if (event.key === "Tab") {
+            onClose(false);
+            return;
+          }
+          const items = [
+            ...event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"),
+          ];
+          const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement);
+          const nextIndex =
+            event.key === "Home"
+              ? 0
+              : event.key === "End"
+                ? items.length - 1
+                : event.key === "ArrowDown"
+                  ? (currentIndex + 1) % items.length
+                  : event.key === "ArrowUp"
+                    ? (currentIndex - 1 + items.length) % items.length
+                    : -1;
+          if (nextIndex >= 0) {
+            event.preventDefault();
+            items[nextIndex]?.focus({ preventScroll: true });
+          }
+        }}
+      >
+        {actions}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function CodexWork({
+  card,
+  children,
+}: {
+  readonly card: CardViewProps;
+  readonly children: ReactNode;
+}) {
+  const controller = useController();
+  const [linking, setLinking] = useState(false);
+  const [candidates, setCandidates] = useState<readonly DynaCodexSessionCandidate[]>([]);
+  const [sessionListRequestId, setSessionListRequestId] = useState<string>();
+  const [selectedKey, setSelectedKey] = useState("");
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [associating, setAssociating] = useState(false);
+  const [error, setError] = useState<string>();
+  const requestInFlight = useRef(false);
+  const linkedKeys = useMemo(
+    () => new Set(card.linkedTasks.map((task) => codexSessionKey(task))),
+    [card.linkedTasks],
+  );
+  const available = useMemo(
+    () => candidates.filter((candidate) => !linkedKeys.has(codexSessionKey(candidate))),
+    [candidates, linkedKeys],
+  );
+  const matches = useMemo(() => {
+    const terms = query.toLocaleLowerCase(controller.locale).trim().split(/\s+/u).filter(Boolean);
+    if (terms.length === 0) return available;
+    return available.filter((candidate) => {
+      const text = [candidate.title, candidate.projectId ?? "", candidate.hostId, candidate.taskId]
+        .join(" ")
+        .toLocaleLowerCase(controller.locale);
+      return terms.every((term) => text.includes(term));
+    });
+  }, [available, controller.locale, query]);
+  const selected = matches.find((candidate) => codexSessionKey(candidate) === selectedKey);
+  const atLimit = card.linkedTasks.length >= 8;
+  const unavailable = controller.codexActionsBlocked || controller.busy;
+  const canLink = !card.archive && card.workflowStage !== "completed";
+  const showSearch = available.length > 8;
+
+  useEffect(() => {
+    if (selectedKey && !available.some((candidate) => codexSessionKey(candidate) === selectedKey)) {
+      setSelectedKey("");
+    }
+  }, [available, selectedKey]);
+
+  const load = async (trigger: HTMLElement) => {
+    if (requestInFlight.current || loading || associating || atLimit || unavailable) return;
+    requestInFlight.current = true;
+    setLoading(true);
+    setError(undefined);
+    try {
+      const result = await controller.loadCodexSessions(card.itemId, card.fingerprint, trigger);
+      setCandidates(result.candidates);
+      setSessionListRequestId(result.requestId);
+      setSelectedKey((current) =>
+        result.candidates.some((candidate) => codexSessionKey(candidate) === current)
+          ? current
+          : "",
+      );
+    } catch {
+      setError(
+        candidates.length > 0
+          ? "Couldn’t refresh Codex sessions. Your current selection is unchanged."
+          : "Couldn’t load Codex sessions. Try again.",
+      );
+    } finally {
+      requestInFlight.current = false;
+      setLoading(false);
+    }
+  };
+
+  const associate = async (trigger: HTMLElement) => {
+    if (
+      requestInFlight.current ||
+      !selected ||
+      !sessionListRequestId ||
+      loading ||
+      associating ||
+      atLimit ||
+      unavailable
+    ) {
+      return;
+    }
+    requestInFlight.current = true;
+    setAssociating(true);
+    setError(undefined);
+    const taskAction = `${card.itemId}:open_codex_task:${selected.taskId}`;
+    try {
+      await controller.associateCodexSession(
+        card.itemId,
+        card.fingerprint,
+        selected,
+        sessionListRequestId,
+        trigger,
+      );
+      setCandidates([]);
+      setSessionListRequestId(undefined);
+      setSelectedKey("");
+      setQuery("");
+      setLinking(false);
+      window.requestAnimationFrame(() => {
+        window.setTimeout(() => {
+          [...document.querySelectorAll<HTMLElement>("[data-dyna-action]")]
+            .find((element) => element.dataset["dynaAction"] === taskAction)
+            ?.focus();
+        }, 0);
+      });
+    } catch {
+      setError("Couldn’t associate this session. Refresh sessions and try again.");
+    } finally {
+      requestInFlight.current = false;
+      setAssociating(false);
+    }
+  };
+
+  const status = atLimit
+    ? "This item already has the maximum of 8 associated sessions."
+    : unavailable
+      ? "Session association is unavailable on this host."
+      : !sessionListRequestId
+        ? "Load recent sessions to link one."
+        : available.length === 0
+          ? candidates.length === 0
+            ? "No recent Codex sessions are available."
+            : "All loaded sessions are already associated."
+          : query.trim()
+            ? `${String(matches.length)} matching session${matches.length === 1 ? "" : "s"}.`
+            : `${String(available.length)} recent session${available.length === 1 ? "" : "s"}.`;
+
+  return (
+    <section className="dyna-inspector-section dyna-codex-work">
+      <div className="dyna-codex-work-heading">
+        <h3>Codex Work</h3>
+        {canLink && !atLimit ? (
+          <Button
+            color="secondary"
+            size="xs"
+            variant="ghost"
+            aria-expanded={linking}
+            aria-controls={`dyna-session-picker-${card.itemId}`}
+            disabled={unavailable}
+            onClick={() => {
+              setLinking((current) => !current);
+              setError(undefined);
+            }}
+          >
+            {linking ? "Close" : "Link existing session"}
+          </Button>
+        ) : null}
+      </div>
+      {card.linkedTasks.length > 0 ? (
+        <div className="dyna-task-list">{children}</div>
+      ) : (
+        <p className="dyna-codex-work-empty">
+          {canLink ? "No session linked." : "No Codex session was linked."}
+        </p>
+      )}
+      {canLink && linking ? (
+        <div
+          id={`dyna-session-picker-${card.itemId}`}
+          className="dyna-session-picker"
+          aria-busy={loading || associating}
+        >
+          <div className="dyna-session-picker-heading">
+            <p
+              className="dyna-session-picker-status"
+              data-error={Boolean(error)}
+              role="status"
+              aria-live="polite"
+            >
+              {loading
+                ? "Loading recent Codex sessions…"
+                : associating
+                  ? "Linking session…"
+                  : (error ?? status)}
+            </p>
+            <Button
+              color="secondary"
+              size="xs"
+              variant="ghost"
+              loading={loading}
+              aria-label={sessionListRequestId ? "Refresh session list" : "Load sessions"}
+              disabled={loading || associating || atLimit || unavailable}
+              data-dyna-action={`${card.itemId}:list_codex_sessions`}
+              onClick={(event) => {
+                void load(event.currentTarget);
+              }}
+            >
+              {sessionListRequestId ? "Refresh" : "Load sessions"}
+            </Button>
+          </div>
+          {sessionListRequestId && available.length > 0 && showSearch ? (
+            <Input
+              className="dyna-session-search"
+              aria-label="Find Codex sessions"
+              type="search"
+              size="sm"
+              value={query}
+              maxLength={200}
+              placeholder="Find a session…"
+              disabled={loading || associating}
+              onChange={(event) => {
+                setQuery(event.currentTarget.value);
+              }}
+            />
+          ) : null}
+          {sessionListRequestId && available.length > 0 ? (
+            <select
+              className="dyna-native-select dyna-session-select"
+              aria-label="Codex session"
+              value={selected ? selectedKey : ""}
+              disabled={loading || associating}
+              onChange={(event) => {
+                setSelectedKey(event.currentTarget.value);
+                setError(undefined);
+              }}
+            >
+              <option value="">Choose a recent session…</option>
+              {matches.map((candidate) => (
+                <option key={codexSessionKey(candidate)} value={codexSessionKey(candidate)}>
+                  {candidate.title}
+                  {` · ${candidate.hostId}`}
+                  {candidate.projectId ? ` · ${candidate.projectId}` : ""}
+                  {` · ${relativeTime(candidate.updatedAt, controller.locale)}`}
+                </option>
+              ))}
+            </select>
+          ) : null}
+          {sessionListRequestId && available.length > 0 ? (
+            <div className="dyna-session-picker-actions">
+              <span aria-hidden="true" />
+              <Button
+                color="primary"
+                size="xs"
+                loading={associating}
+                disabled={!selected || loading || associating || atLimit || unavailable}
+                data-dyna-action={`${card.itemId}:attach_codex_task`}
+                onClick={(event) => {
+                  void associate(event.currentTarget);
+                }}
+              >
+                Link
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {atLimit ? <p className="dyna-session-picker-status">Maximum of 8 sessions linked.</p> : null}
+    </section>
+  );
+}
+
+function mergeWorkUpdates(
+  current: readonly DynaWorkUpdate[],
+  incoming: readonly DynaWorkUpdate[],
+): DynaWorkUpdate[] {
+  const byId = new Map(current.map((update) => [update.id, update]));
+  for (const update of incoming) byId.set(update.id, update);
+  return [...byId.values()].sort((left, right) => {
+    const byTime = Date.parse(right.createdAt) - Date.parse(left.createdAt);
+    return byTime !== 0 ? byTime : right.id.localeCompare(left.id);
+  });
+}
+
+function WorkActivity({
+  itemId,
+  initialUpdates,
+  workUpdateCount,
+}: {
+  readonly itemId: string;
+  readonly initialUpdates: readonly DynaWorkUpdate[];
+  readonly workUpdateCount: number;
+}) {
+  const controller = useController();
+  const loadActivity = controller.loadActivity;
+  const [updates, setUpdates] = useState(() => [...initialUpdates]);
+  const [total, setTotal] = useState(Math.max(workUpdateCount, initialUpdates.length));
+  const [nextCursor, setNextCursor] = useState<string>();
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const updatesRef = useRef<readonly DynaWorkUpdate[]>(initialUpdates);
+  const requestGeneration = useRef(0);
+  const initialUpdateIds = initialUpdates.map((update) => update.id).join(":");
+  const snapshotRef = useRef({
+    itemId,
+    updateIds: initialUpdateIds,
+    total: workUpdateCount,
+  });
+  const snapshotInitialized = useRef(false);
+
+  const applyUpdates = useCallback((next: readonly DynaWorkUpdate[]) => {
+    updatesRef.current = next;
+    setUpdates([...next]);
+  }, []);
+
+  useEffect(() => {
+    const previous = snapshotRef.current;
+    const itemChanged = !snapshotInitialized.current || previous.itemId !== itemId;
+    snapshotInitialized.current = true;
+    snapshotRef.current = { itemId, updateIds: initialUpdateIds, total: workUpdateCount };
+    const generation = ++requestGeneration.current;
+
+    if (itemChanged) {
+      applyUpdates(initialUpdates);
+      setNextCursor(undefined);
+    } else {
+      applyUpdates(mergeWorkUpdates(updatesRef.current, initialUpdates));
+    }
+    setTotal(Math.max(workUpdateCount, initialUpdates.length));
+    setLoadError(false);
+    if (workUpdateCount <= initialUpdates.length) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    void loadActivity(itemId)
+      .then((page) => {
+        if (requestGeneration.current !== generation || snapshotRef.current.itemId !== itemId) {
+          return;
+        }
+        const merged = mergeWorkUpdates(updatesRef.current, page.updates);
+        applyUpdates(merged);
+        setTotal(Math.max(page.total, merged.length));
+        setNextCursor(merged.length < page.total ? page.nextCursor : undefined);
+      })
+      .catch(() => {
+        if (requestGeneration.current === generation && snapshotRef.current.itemId === itemId) {
+          setLoadError(true);
+        }
+      })
+      .finally(() => {
+        if (requestGeneration.current === generation && snapshotRef.current.itemId === itemId) {
+          setLoading(false);
+        }
+      });
+    return () => {
+      if (requestGeneration.current === generation) requestGeneration.current += 1;
+    };
+  }, [applyUpdates, initialUpdateIds, itemId, loadActivity, workUpdateCount]);
+
+  const loadMore = async () => {
+    if (loading || (!nextCursor && !loadError)) return;
+    const generation = requestGeneration.current;
+    const requestedItemId = itemId;
+    setLoading(true);
+    setLoadError(false);
+    try {
+      const page = await loadActivity(itemId, nextCursor);
+      if (
+        requestGeneration.current !== generation ||
+        snapshotRef.current.itemId !== requestedItemId
+      ) {
+        return;
+      }
+      const merged = mergeWorkUpdates(updatesRef.current, page.updates);
+      applyUpdates(merged);
+      setTotal(Math.max(page.total, merged.length));
+      setNextCursor(merged.length < page.total ? page.nextCursor : undefined);
+    } catch {
+      if (
+        requestGeneration.current === generation &&
+        snapshotRef.current.itemId === requestedItemId
+      ) {
+        setLoadError(true);
+      }
+    } finally {
+      if (
+        requestGeneration.current === generation &&
+        snapshotRef.current.itemId === requestedItemId
+      ) {
+        setLoading(false);
+      }
+    }
+  };
+
+  const remaining = Math.max(0, total - updates.length);
+  return (
+    <section
+      className="dyna-inspector-section dyna-work-activity"
+      aria-busy={loading}
+      data-work-update-count={total}
+    >
+      <h3>Work Activity</h3>
+      <ol className="dyna-note-list dyna-work-list" aria-label="Work Activity">
+        {updates.map((update) => {
+          const taskLabel = workUpdateTaskLabel(update);
+          return (
+            <li key={update.id} data-work-update-kind={update.kind}>
+              <div className="dyna-work-meta">
+                <span className="dyna-work-kind">{workUpdateKindLabel(update.kind)}</span>
+                {taskLabel ? (
+                  <span
+                    className="dyna-work-task"
+                    title={`Identity matched to linked Codex task ${update.task?.taskId ?? ""} on ${update.task?.hostId ?? ""}`}
+                    aria-label={`Update from linked Codex task ${taskLabel}; task identity ${update.task?.taskId ?? ""} on host ${update.task?.hostId ?? ""} was verified, but the update content was not independently verified`}
+                  >
+                    From linked task · {taskLabel}
+                  </span>
+                ) : null}
+                <time dateTime={update.createdAt} title={update.createdAt}>
+                  {exactDateTime(update.createdAt, controller.locale)}
+                </time>
+              </div>
+              <p>{update.body}</p>
+              {update.outcome ? (
+                <div className="dyna-outcome dyna-work-outcome">
+                  <span>Reported outcome</span>
+                  <p>{update.outcome}</p>
+                </div>
+              ) : null}
+              {update.artifacts.length > 0 ? (
+                <ul className="dyna-work-artifacts" aria-label="Result links">
+                  {update.artifacts.map((artifact, index) => (
+                    <li key={`${artifact.kind}:${artifact.url}:${String(index)}`}>
+                      <a
+                        className="dyna-origin-link dyna-artifact-link"
+                        data-dyna-artifact-link={update.id}
+                        href={artifact.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label={`Open artifact: ${artifact.label}`}
+                        onClick={(event) => {
+                          if (
+                            event.button !== 0 ||
+                            event.metaKey ||
+                            event.ctrlKey ||
+                            event.shiftKey ||
+                            event.altKey ||
+                            !controller.externalLinks
+                          ) {
+                            return;
+                          }
+                          event.preventDefault();
+                          void controller.openExternal(artifact.url);
+                        }}
+                      >
+                        <ExternalLink className="dyna-source-link-icon" aria-hidden="true" />
+                        <span>{artifact.label}</span>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </li>
+          );
+        })}
+      </ol>
+      {loadError ? (
+        <p className="dyna-activity-status" role="alert">
+          Older activity could not be loaded. Try again.
+        </p>
+      ) : null}
+      {nextCursor || (loadError && total > updates.length) ? (
+        <Button
+          className="dyna-activity-more"
+          color="secondary"
+          size="xs"
+          variant="ghost"
+          loading={loading}
+          disabled={loading}
+          onClick={() => {
+            void loadMore();
+          }}
+        >
+          {nextCursor
+            ? `Load older activity${remaining > 0 ? ` (${String(remaining)})` : ""}`
+            : "Retry activity"}
+        </Button>
+      ) : loading ? (
+        <span className="dyna-activity-status" role="status">
+          Loading activity…
+        </span>
+      ) : null}
+    </section>
+  );
+}
+
 const dynaComponents: DynaComponentCatalog = {
   Dashboard: ({ props, children }) => {
     const controller = useController();
@@ -783,6 +1937,7 @@ const dynaComponents: DynaComponentCatalog = {
           {props.description ? <p className="dyna-description">{props.description}</p> : null}
           {controller.condenseInline ? (
             <div className="dyna-inline-controls">
+              <RefreshButton />
               <Button
                 color="secondary"
                 variant="ghost"
@@ -1011,19 +2166,22 @@ const dynaComponents: DynaComponentCatalog = {
                 </div>
               </div>
             </details>
-            <Button
-              color="primary"
-              size="sm"
-              onClick={(event) => {
-                controller.startTodo(event.currentTarget);
-              }}
-              disabled={controller.busy || controller.blocked}
-              aria-label="Add to-do"
-              title="New to-do"
-            >
-              <Plus className="dyna-icon" aria-hidden="true" />
-              <span className="dyna-add-label">New to-do</span>
-            </Button>
+            <div className="dyna-command-actions">
+              <RefreshButton />
+              <Button
+                color="primary"
+                size="sm"
+                onClick={(event) => {
+                  controller.startTodo(event.currentTarget);
+                }}
+                disabled={controller.busy || controller.blocked}
+                aria-label="Add to-do"
+                title="New to-do"
+              >
+                <Plus className="dyna-icon" aria-hidden="true" />
+                <span className="dyna-add-label">New to-do</span>
+              </Button>
+            </div>
           </div>
         ) : null}
         <div className="dyna-workspace">{children}</div>
@@ -1185,21 +2343,57 @@ const dynaComponents: DynaComponentCatalog = {
       </div>
     ) : null;
   },
-  PipelineStage: ({ props, children }) => (
-    <section
-      className="dyna-pipeline-stage"
-      data-workflow-stage={props.state}
-      aria-labelledby={`dyna-stage-title-${props.state}`}
-    >
-      <header>
-        <h2 id={`dyna-stage-title-${props.state}`}>{props.title}</h2>
-        <span>{props.count}</span>
-      </header>
-      <div className="dyna-pipeline-items" role="list">
-        {props.count > 0 ? children : <p className="dyna-pipeline-empty">Nothing here.</p>}
-      </div>
-    </section>
-  ),
+  PipelineStage: ({ props, children }) => {
+    const controller = useController();
+    const [dropActive, setDropActive] = useState(false);
+    const acceptsDrop = !controller.busy && !controller.blocked;
+    return (
+      <section
+        className="dyna-pipeline-stage"
+        data-workflow-stage={props.state}
+        data-drop-active={dropActive}
+        aria-labelledby={`dyna-stage-title-${props.state}`}
+        onDragOver={(event) => {
+          if (!acceptsDrop || !event.dataTransfer.types.includes(DYNA_DRAG_TYPE)) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+          setDropActive(true);
+        }}
+        onDragLeave={(event) => {
+          if (
+            event.relatedTarget instanceof Node &&
+            event.currentTarget.contains(event.relatedTarget)
+          ) {
+            return;
+          }
+          setDropActive(false);
+        }}
+        onDrop={(event) => {
+          setDropActive(false);
+          delete document.documentElement.dataset["dynaDragging"];
+          if (!acceptsDrop) return;
+          const dragged = readDragItem(event.dataTransfer);
+          if (!dragged) return;
+          event.preventDefault();
+          if (dragged.workflowStage === props.state) return;
+          void controller.moveToStage(
+            dragged.itemId,
+            dragged.fingerprint,
+            props.state,
+            event.currentTarget,
+          );
+        }}
+      >
+        <header>
+          <h2 id={`dyna-stage-title-${props.state}`}>{props.title}</h2>
+          <span>{props.count}</span>
+        </header>
+        <div className="dyna-pipeline-items">
+          {props.count > 0 ? children : <p className="dyna-pipeline-empty">Nothing here.</p>}
+        </div>
+      </section>
+    );
+  },
   ArchiveView: ({ props, children }) => {
     const controller = useController();
     return controller.view === "archive" ? (
@@ -1232,22 +2426,54 @@ const dynaComponents: DynaComponentCatalog = {
     const inspectorId = `dyna-inspector-${props.itemId}`;
     const lead = props.people[0];
     const detailLabel = `Open details for ${props.title}`;
-    const workflowLabel = workflowStageLabel(props.workflowStage);
-    const statusLabel = props.archive ? "Archived" : workflowLabel;
     const sourceMark = sourceIcon(props.sourceRef);
     const sourceMarkLabel =
       props.sourceRef.source === "twg" && sourceMark !== "twg"
         ? `${humanize(sourceMark)} via TWG`
         : props.sourceLabel;
     const summaryNeedsDisclosure = props.summary.length > INLINE_SUMMARY_MAX_LENGTH;
+    const matchedActivity = controller.query.trim() ? props.matchedActivity?.trim() : undefined;
+    const rowDetail = matchedActivity
+      ? `Matched activity: ${compactLine(matchedActivity)}`
+      : compactLine(props.workflowSummary ?? props.attention ?? props.priorityReason);
     const showPriority = presentation !== "queue" || controller.condenseInline;
     const showQueueMove =
       controller.view === "queue" &&
       !controller.condenseInline &&
       !props.archive &&
       props.workflowStage !== "completed";
+    const showPipelineMove =
+      controller.view === "pipeline" && !props.archive && props.workflowStage !== "completed";
     const canOrganize = showQueueMove && !controller.busy && !controller.blocked;
-    const canDrag = canOrganize && window.matchMedia("(pointer: fine)").matches;
+    const canDrag =
+      (showQueueMove || showPipelineMove) &&
+      !controller.busy &&
+      !controller.blocked &&
+      window.matchMedia("(pointer: fine)").matches;
+    const startDrag = (event: ReactDragEvent<HTMLElement>) => {
+      document.documentElement.dataset["dynaDragging"] = "true";
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData(
+        DYNA_DRAG_TYPE,
+        JSON.stringify({
+          itemId: props.itemId,
+          fingerprint: props.fingerprint,
+          workflowStage: props.workflowStage,
+        }),
+      );
+      event.dataTransfer.setData("text/plain", props.itemId);
+      const card = event.currentTarget.closest<HTMLElement>(".dyna-card");
+      if (card) {
+        card.dataset["dragging"] = "true";
+        event.dataTransfer.setDragImage(card, 18, 18);
+      }
+    };
+    const endDrag = (event: ReactDragEvent<HTMLElement>) => {
+      delete document.documentElement.dataset["dynaDragging"];
+      const card = event.currentTarget.closest<HTMLElement>(".dyna-card");
+      if (card) delete card.dataset["dragging"];
+      setDropActive(false);
+    };
     const priorityColor =
       props.priority === "critical"
         ? "danger"
@@ -1266,10 +2492,11 @@ const dynaComponents: DynaComponentCatalog = {
         data-workflow-state={props.workflowState}
         data-workflow-stage={props.workflowStage}
         data-selected={selected}
-        data-has-move={showQueueMove}
+        data-has-move={showQueueMove || (showPipelineMove && canDrag)}
         data-drop-active={dropActive}
         onDragOver={(event) => {
-          if (!canDrag || !event.dataTransfer.types.includes(DYNA_DRAG_TYPE)) return;
+          if (!showQueueMove || !canDrag || !event.dataTransfer.types.includes(DYNA_DRAG_TYPE))
+            return;
           event.preventDefault();
           event.stopPropagation();
           event.dataTransfer.dropEffect = "move";
@@ -1287,7 +2514,7 @@ const dynaComponents: DynaComponentCatalog = {
         onDrop={(event) => {
           setDropActive(false);
           delete document.documentElement.dataset["dynaDragging"];
-          if (!canDrag) return;
+          if (!showQueueMove || !canDrag) return;
           const dragged = readDragItem(event.dataTransfer);
           if (!dragged) return;
           event.preventDefault();
@@ -1307,7 +2534,9 @@ const dynaComponents: DynaComponentCatalog = {
           onClick={(event) => {
             if (
               event.target instanceof Element &&
-              event.target.closest("a, button, summary, .dyna-overflow-menu")
+              event.target.closest(
+                "a, button, select, summary, .dyna-status-control, .dyna-overflow-menu",
+              )
             ) {
               return;
             }
@@ -1333,27 +2562,8 @@ const dynaComponents: DynaComponentCatalog = {
                     onClick={(event) => {
                       if (!canOrganize) event.preventDefault();
                     }}
-                    onDragStart={(event) => {
-                      document.documentElement.dataset["dynaDragging"] = "true";
-                      const value = JSON.stringify({
-                        itemId: props.itemId,
-                        fingerprint: props.fingerprint,
-                      });
-                      event.dataTransfer.effectAllowed = "move";
-                      event.dataTransfer.setData(DYNA_DRAG_TYPE, value);
-                      event.dataTransfer.setData("text/plain", props.itemId);
-                      const card = event.currentTarget.closest<HTMLElement>(".dyna-card");
-                      if (card) {
-                        card.dataset["dragging"] = "true";
-                        event.dataTransfer.setDragImage(card, 18, 18);
-                      }
-                    }}
-                    onDragEnd={(event) => {
-                      delete document.documentElement.dataset["dynaDragging"];
-                      const card = event.currentTarget.closest<HTMLElement>(".dyna-card");
-                      if (card) delete card.dataset["dragging"];
-                      setDropActive(false);
-                    }}
+                    onDragStart={startDrag}
+                    onDragEnd={endDrag}
                     onKeyDown={(event) => {
                       const action = {
                         ArrowUp: "earlier",
@@ -1383,6 +2593,19 @@ const dynaComponents: DynaComponentCatalog = {
                   </summary>
                   <OrganizationMenu card={props} trigger={rowMoveTrigger} label="Move item" />
                 </details>
+              ) : showPipelineMove && canDrag ? (
+                <button
+                  type="button"
+                  className="dyna-drag-handle"
+                  draggable={canDrag}
+                  data-dyna-drag-item={props.itemId}
+                  aria-label={`Drag ${props.title} to another status`}
+                  title="Drag to another status · use the status menu with a keyboard or touch"
+                  onDragStart={startDrag}
+                  onDragEnd={endDrag}
+                >
+                  ⠿
+                </button>
               ) : null}
               <SourceFavicon kind={sourceMark} label={sourceMarkLabel} />
               {props.sourceUrl ? (
@@ -1435,17 +2658,25 @@ const dynaComponents: DynaComponentCatalog = {
             </div>
             <div className="dyna-row-top">
               {showPriority ? <span className="dyna-priority-label">{props.priority}</span> : null}
-              <span className="dyna-row-status" data-workflow-stage={props.workflowStage}>
-                {statusLabel}
-              </span>
+              <StatusSelect card={props} />
               {props.workflowCondition ? (
                 <span
                   className="dyna-row-condition"
+                  title={props.workflowCondition}
                   data-condition={
-                    props.workflowCondition === "Input needed" ? "waiting" : "blocked"
+                    props.workflowCondition === "Input needed"
+                      ? "waiting"
+                      : props.workflowCondition === "Completion reported—verification pending"
+                        ? "verification"
+                        : "blocked"
                   }
                 >
                   {props.workflowCondition}
+                </span>
+              ) : null}
+              {props.blocked && props.workflowCondition !== "Blocked" ? (
+                <span className="dyna-row-condition" data-condition="blocked" title="Blocked">
+                  Blocked
                 </span>
               ) : null}
               {lead ? (
@@ -1458,7 +2689,9 @@ const dynaComponents: DynaComponentCatalog = {
               ) : null}
             </div>
             <div className="dyna-row-foot">
-              <span className="dyna-row-attention">{props.attention ?? props.priorityReason}</span>
+              <span className="dyna-row-attention" title={rowDetail}>
+                {rowDetail}
+              </span>
             </div>
           </div>
         </div>
@@ -1506,9 +2739,12 @@ const dynaComponents: DynaComponentCatalog = {
                     {props.priority}
                   </Badge>
                   <SourceFavicon kind={sourceMark} label={sourceMarkLabel} />
-                  <span>{statusLabel}</span>
+                  <StatusSelect card={props} />
                   {props.archive ? <span>{humanize(props.archive.reason)}</span> : null}
                   {props.workflowCondition ? <span>{props.workflowCondition}</span> : null}
+                  {props.blocked && props.workflowCondition !== "Blocked" ? (
+                    <span className="dyna-inspector-blocked">Blocked</span>
+                  ) : null}
                   {props.dueAt ? (
                     <span>Due {relativeTime(props.dueAt, controller.locale)}</span>
                   ) : null}
@@ -1544,26 +2780,6 @@ const dynaComponents: DynaComponentCatalog = {
               {summaryNeedsDisclosure ? null : (
                 <p className="dyna-inspector-summary">{props.summary}</p>
               )}
-              {props.people.length > 0 ? (
-                <section className="dyna-inspector-section">
-                  <h3>People</h3>
-                  <div className="dyna-people" aria-label="Relevant people">
-                    {props.people.slice(0, 4).map((person, index) => (
-                      <span
-                        className="dyna-person"
-                        key={`${person.displayName}-${person.involvement}-${index}`}
-                        title={`${humanize(person.leadershipLevel)} · ${humanize(person.relationship)} · ${person.provenance}`}
-                      >
-                        {person.displayName}
-                        <small>
-                          {person.title ?? humanize(person.leadershipLevel)} ·{" "}
-                          {humanize(person.involvement)}
-                        </small>
-                      </span>
-                    ))}
-                  </div>
-                </section>
-              ) : null}
               {props.nextSteps.length > 0 ? (
                 <section className="dyna-inspector-section">
                   <h3>Immediate Next Steps</h3>
@@ -1586,6 +2802,29 @@ const dynaComponents: DynaComponentCatalog = {
                   </ol>
                 </section>
               ) : null}
+              <CodexWork key={props.itemId} card={props}>
+                {children}
+              </CodexWork>
+              {props.people.length > 0 ? (
+                <section className="dyna-inspector-section">
+                  <h3>People</h3>
+                  <ul className="dyna-people" aria-label="Relevant people">
+                    {props.people.slice(0, 4).map((person, index) => (
+                      <li
+                        className="dyna-person"
+                        key={`${person.displayName}-${person.involvement}-${index}`}
+                        title={`${humanize(person.leadershipLevel)} · ${humanize(person.relationship)} · ${person.provenance}`}
+                      >
+                        <strong>{person.displayName}</strong>
+                        <span>
+                          {person.title ?? humanize(person.leadershipLevel)} ·{" "}
+                          {humanize(person.involvement)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
               {summaryNeedsDisclosure ? (
                 <details className="dyna-context-details dyna-summary-details">
                   <summary>
@@ -1601,11 +2840,13 @@ const dynaComponents: DynaComponentCatalog = {
                   <p>{props.outcome}</p>
                 </div>
               ) : null}
-              {props.actions.some((action) => action.name === "open_codex_task") ? (
-                <section className="dyna-inspector-section">
-                  <h3>Codex Tasks</h3>
-                  {children}
-                </section>
+              {props.workUpdateCount > 0 ? (
+                <WorkActivity
+                  key={props.itemId}
+                  itemId={props.itemId}
+                  initialUpdates={props.workUpdates}
+                  workUpdateCount={props.workUpdateCount}
+                />
               ) : null}
               <details className="dyna-context-details">
                 <summary>
@@ -1712,7 +2953,12 @@ const dynaComponents: DynaComponentCatalog = {
   TaskStatus: ({ props }) => {
     const controller = useController();
     return (
-      <div className="dyna-task">
+      <div
+        className="dyna-task"
+        data-dyna-item-id={props.itemId}
+        data-dyna-task-id={props.taskId}
+        data-dyna-task-host={props.hostId}
+      >
         <span>
           <strong>{props.title}</strong>
           <br />
@@ -1756,6 +3002,7 @@ const dynaComponents: DynaComponentCatalog = {
           </Button>
           <Button
             data-dyna-action={`${props.itemId}:refresh_codex_status:${props.taskId}`}
+            aria-label={`Refresh status for ${props.title}`}
             color="secondary"
             variant="ghost"
             size="xs"
@@ -1898,13 +3145,105 @@ function cardWorkflowStage(card: Pick<DynaCard, "workflowState">): WorkflowStage
     : card.workflowState;
 }
 
-function cardWorkflowCondition(
-  card: Pick<DynaCard, "workflowState" | "linkedTasks">,
-): string | undefined {
-  if (card.linkedTasks.some((task) => task.state === "failed")) return "Task failed";
-  if (card.linkedTasks.some((task) => task.state === "unknown")) return "Status unknown";
-  if (card.linkedTasks.some((task) => task.state === "waiting")) return "Input needed";
-  return card.workflowState === "attention" ? "Needs attention" : undefined;
+type ActionableTaskCard = Pick<
+  DynaCard,
+  "blocked" | "linkedTasks" | "workflowState" | "workState" | "workUpdates"
+> & {
+  readonly workConditionSummary?: string | undefined;
+  readonly workConditionTask?: DynaCardUxFields["workConditionTask"] | undefined;
+};
+
+interface ActionableTaskSelection {
+  readonly task?: DynaTask;
+  readonly condition?: string;
+  readonly summary?: string;
+}
+
+function taskWithIdentity(
+  card: Pick<DynaCard, "linkedTasks">,
+  identity: DynaCardUxFields["workConditionTask"],
+): DynaTask | undefined {
+  if (!identity) return undefined;
+  return card.linkedTasks.find(
+    (task) => task.taskId === identity.taskId && task.hostId === identity.hostId,
+  );
+}
+
+function reportedConditionTask(
+  card: ActionableTaskCard,
+  kind: "needs_input" | "blocked",
+): DynaTask | undefined {
+  if (card.workState !== kind) return undefined;
+  const projectedTask = taskWithIdentity(card, card.workConditionTask);
+  if (projectedTask) return projectedTask;
+  const updateTask = card.workUpdates.find((update) => update.kind === kind)?.task;
+  return taskWithIdentity(card, updateTask);
+}
+
+function sameTask(
+  left: DynaTask | undefined,
+  right: DynaTask | DynaCardUxFields["workConditionTask"] | undefined,
+): boolean {
+  return (
+    left?.taskId !== undefined &&
+    right?.taskId !== undefined &&
+    left.taskId === right.taskId &&
+    left.hostId === right.hostId
+  );
+}
+
+function actionableTaskSelection(card: ActionableTaskCard): ActionableTaskSelection {
+  if (card.workflowState === "completed") {
+    const task = card.linkedTasks[0];
+    return task ? { task } : {};
+  }
+
+  const reportedInput = reportedConditionTask(card, "needs_input");
+  const nativeWaiting = card.linkedTasks.find((task) => task.state === "waiting");
+  const nativeFailure =
+    card.linkedTasks.find((task) => task.state === "failed") ??
+    card.linkedTasks.find((task) => task.state === "unknown");
+  const reportedBlocker = reportedConditionTask(card, "blocked");
+  const activeTask = card.linkedTasks.find(
+    (task) => task.state === "running" || task.state === "queued",
+  );
+  const task =
+    reportedInput ??
+    nativeWaiting ??
+    nativeFailure ??
+    reportedBlocker ??
+    activeTask ??
+    card.linkedTasks[0];
+
+  const condition = sameTask(task, reportedInput)
+    ? "Input needed"
+    : task?.state === "waiting"
+      ? "Input needed"
+      : task?.state === "failed"
+        ? "Task failed"
+        : task?.state === "unknown"
+          ? "Status unknown"
+          : sameTask(task, reportedBlocker)
+            ? "Blocked"
+            : card.workState === "completion_reported"
+              ? "Completion reported—verification pending"
+              : card.workflowState === "paused"
+                ? "Input needed"
+                : card.workflowState === "attention" && !card.blocked
+                  ? "Needs attention"
+                  : undefined;
+  const summaryMatchesCondition =
+    sameTask(task, card.workConditionTask) &&
+    ((card.workState === "needs_input" && condition === "Input needed") ||
+      (card.workState === "blocked" && condition === "Blocked"));
+
+  return {
+    ...(task ? { task } : {}),
+    ...(condition ? { condition } : {}),
+    ...(summaryMatchesCondition && card.workConditionSummary
+      ? { summary: card.workConditionSummary }
+      : {}),
+  };
 }
 
 function workflowStageLabel(stage: WorkflowStage): string {
@@ -1912,9 +3251,18 @@ function workflowStageLabel(stage: WorkflowStage): string {
 }
 
 function workPrompt(card: CardViewProps, locale: string): string {
-  const lines = [
-    "Work on this Dyna item using the retained context below. Verify current source and task state before taking consequential action.",
-    "",
+  const reference = {
+    schema: "dyna/work-item-v1",
+    dashboardId: card.dashboardId,
+    dashboardName: card.dashboardName,
+    itemId: card.itemId,
+    expectedFingerprint: card.fingerprint,
+    sourceUpdatedAt: card.sourceUpdatedAt,
+    copiedAt: new Date().toISOString(),
+    workAttemptId: crypto.randomUUID(),
+    linkedTasks: card.linkedTasks,
+  };
+  const contextLines = [
     `Title: ${card.title}`,
     `Priority: ${humanize(card.priority)}`,
     `Status: ${card.archive ? "Archived" : workflowStageLabel(card.workflowStage)}${card.workflowCondition ? ` (${card.workflowCondition})` : ""}`,
@@ -1925,7 +3273,7 @@ function workPrompt(card: CardViewProps, locale: string): string {
     `Context: ${card.summary}`,
   ];
   if (card.nextSteps.length > 0) {
-    lines.push(
+    contextLines.push(
       "",
       "Immediate next steps:",
       ...card.nextSteps.map(
@@ -1934,10 +3282,12 @@ function workPrompt(card: CardViewProps, locale: string): string {
       ),
     );
   }
-  if (card.plan.length > 0) lines.push("", "Plan:", ...card.plan.map((step) => `- ${step}`));
-  if (card.outcome) lines.push("", `Recorded outcome: ${card.outcome}`);
+  if (card.plan.length > 0) {
+    contextLines.push("", "Plan:", ...card.plan.map((step) => `- ${step}`));
+  }
+  if (card.outcome) contextLines.push("", `Recorded outcome: ${card.outcome}`);
   if (card.annotationPreview.length > 0) {
-    lines.push(
+    contextLines.push(
       "",
       "Recent notes:",
       ...card.annotationPreview.map(
@@ -1945,11 +3295,38 @@ function workPrompt(card: CardViewProps, locale: string): string {
       ),
     );
   }
-  return lines.join("\n");
+  if (card.workUpdates.length > 0) {
+    contextLines.push("", "Recent work activity:");
+    for (const update of card.workUpdates) {
+      const taskLabel = workUpdateTaskLabel(update);
+      contextLines.push(
+        `- ${exactDateTime(update.createdAt, locale)} · ${workUpdateKindLabel(update.kind)}${taskLabel ? ` · from linked task ${taskLabel}` : ""}: ${update.body}`,
+      );
+      if (update.outcome) contextLines.push(`  Outcome: ${update.outcome}`);
+      for (const artifact of update.artifacts) {
+        contextLines.push(`  Artifact: ${artifact.label} — ${artifact.url}`);
+      }
+    }
+  }
+  return [
+    "Use $flowzone:dyna to keep this item synchronized while you work.",
+    "",
+    "Dyna work reference:",
+    "```json",
+    JSON.stringify(reference, null, 2).replaceAll("`", "\\u0060"),
+    "```",
+    "",
+    "BEGIN UNTRUSTED DYNA CONTEXT",
+    untrustedPromptText(contextLines.join("\n")),
+    "END UNTRUSTED DYNA CONTEXT",
+  ].join("\n");
 }
 
-function cardIsBlocked(card: Pick<DynaCard, "linkedTasks">): boolean {
-  return card.linkedTasks.some((task) => task.state === "failed" || task.state === "unknown");
+function cardIsBlocked(card: Pick<DynaCard, "blocked" | "linkedTasks">): boolean {
+  return (
+    card.blocked ||
+    card.linkedTasks.some((task) => task.state === "failed" || task.state === "unknown")
+  );
 }
 
 function compareCards(left: DynaCard, right: DynaCard): number {
@@ -1967,17 +3344,18 @@ function compareCards(left: DynaCard, right: DynaCard): number {
   return byUpdated !== 0 ? byUpdated : left.id.localeCompare(right.id);
 }
 
-function cardActions(card: DynaCard): readonly ActionDescriptor[] {
-  const linkedTask = card.linkedTasks[0];
+function cardActions(
+  card: DynaCard & DynaCardUxFields,
+  selection: ActionableTaskSelection,
+): readonly ActionDescriptor[] {
+  const linkedTask = selection.task;
   const sourceActions =
     card.source === "manual" ? [] : [{ name: "open_source" as const, label: "Open source" }];
   return linkedTask
     ? [
         {
           name: "open_codex_task",
-          label: card.linkedTasks.some((task) => task.state === "waiting")
-            ? "Respond in Codex"
-            : "Open Codex",
+          label: selection.condition === "Input needed" ? "Respond in Codex" : "Open Codex",
           taskId: linkedTask.taskId,
           taskHostId: linkedTask.hostId,
         },
@@ -1992,6 +3370,7 @@ function cardActions(card: DynaCard): readonly ActionDescriptor[] {
 }
 
 function cardSearchText(card: DynaCard): string {
+  const ux = card as DynaCard & DynaCardUxFields;
   return [
     card.title,
     card.summary,
@@ -2004,6 +3383,8 @@ function cardSearchText(card: DynaCard): string {
     card.archive?.reason ?? "",
     card.archive?.reasonDetail ?? "",
     card.archive?.changedSinceArchive ? "changed since archive" : "",
+    ux.workConditionSummary ?? "",
+    ux.matchedActivity ?? "",
     ...card.labels,
     ...card.plan,
     ...card.nextSteps.flatMap((step) => [step.label, step.owner ?? ""]),
@@ -2015,6 +3396,15 @@ function cardSearchText(card: DynaCard): string {
       person.relationship,
     ]),
     ...card.annotations.map((annotation) => annotation.body),
+    ...card.workUpdates.flatMap((update) => [
+      workUpdateKindLabel(update.kind),
+      update.body,
+      update.outcome ?? "",
+      update.task?.taskId ?? "",
+      update.task?.hostId ?? "",
+      update.task?.title ?? "",
+      ...update.artifacts.flatMap((artifact) => [artifact.kind, artifact.label, artifact.url]),
+    ]),
     ...card.linkedTasks.flatMap((task) => [task.title, task.state, task.outcome ?? ""]),
   ].join(" ");
 }
@@ -2042,31 +3432,44 @@ function cardPassesFilters(
   );
 }
 
-function cardViewProps(card: DynaCard): CardViewProps {
-  const { id, annotations, linkedTasks, ...props } = card;
-  const workflowCondition = cardWorkflowCondition(card);
+function cardViewProps(
+  card: DynaCard,
+  dashboard: Pick<DynaSnapshot["dashboard"], "id" | "name">,
+): CardViewProps {
+  const cardWithUx = card as DynaCard & DynaCardUxFields;
+  const { id, annotations, linkedTasks, ...props } = cardWithUx;
+  const selection = actionableTaskSelection(cardWithUx);
   const sourceUrl = dynaSourceUrl(card.sourceRef);
-  void linkedTasks;
   return {
     ...props,
+    dashboardId: dashboard.id,
+    dashboardName: dashboard.name,
     itemId: id,
     searchText: cardSearchText(card),
     annotationPreview: annotations.slice(0, 3).map((annotation) => ({
       body: annotation.body,
       createdAt: annotation.createdAt,
     })),
-    actions: cardActions(card),
+    actions: cardActions(cardWithUx, selection),
+    linkedTasks,
     workflowStage: cardWorkflowStage(card),
-    ...(workflowCondition ? { workflowCondition } : {}),
+    ...(selection.condition ? { workflowCondition: selection.condition } : {}),
+    ...(selection.summary ? { workflowSummary: selection.summary } : {}),
     ...(sourceUrl ? { sourceUrl } : {}),
   };
 }
 
-function CardView({ card }: { readonly card: DynaCard }) {
+function CardView({
+  card,
+  dashboard,
+}: {
+  readonly card: DynaCard;
+  readonly dashboard: Pick<DynaSnapshot["dashboard"], "id" | "name">;
+}) {
   const PriorityCard = dynaComponents.PriorityCard;
   const TaskStatus = dynaComponents.TaskStatus;
   return (
-    <PriorityCard props={cardViewProps(card)}>
+    <PriorityCard props={cardViewProps(card, dashboard)}>
       {card.linkedTasks.map((task) => (
         <TaskStatus
           key={`${task.hostId}:${task.taskId}`}
@@ -2149,7 +3552,7 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
         }}
       >
         {inlineCards.map((card) => (
-          <CardView key={card.id} card={card} />
+          <CardView key={card.id} card={card} dashboard={snapshot.dashboard} />
         ))}
         {queueCards.length > controller.inlineCardLimit ? (
           <p className="dyna-inline-more">
@@ -2176,7 +3579,7 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
                 }}
               >
                 {grouped.map((card) => (
-                  <CardView key={card.id} card={card} />
+                  <CardView key={card.id} card={card} dashboard={snapshot.dashboard} />
                 ))}
               </Section>
             );
@@ -2263,7 +3666,7 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
               }}
             >
               {stage.cards.map((card) => (
-                <CardView key={card.id} card={card} />
+                <CardView key={card.id} card={card} dashboard={snapshot.dashboard} />
               ))}
             </PipelineStage>
           ))}
@@ -2284,7 +3687,7 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
               }}
             >
               {archiveCards.map((card) => (
-                <CardView key={card.id} card={card} />
+                <CardView key={card.id} card={card} dashboard={snapshot.dashboard} />
               ))}
             </Section>
           ) : (
@@ -2332,6 +3735,9 @@ function DynaApp({ app }: { readonly app: App }) {
   const [leadershipOnly, setLeadershipOnlyState] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [contextMenu, setContextMenu] = useState<DynaContextMenuState>();
+  const [actionFocusEpoch, setActionFocusEpoch] = useState(0);
   const [toast, setToast] = useState<string>();
   const [undoArchive, setUndoArchive] = useState<{
     readonly itemId: string;
@@ -2347,6 +3753,12 @@ function DynaApp({ app }: { readonly app: App }) {
     readonly fingerprint: string;
     readonly title: string;
   }>();
+  const [completionTarget, setCompletionTarget] = useState<{
+    readonly itemId: string;
+    readonly fingerprint: string;
+    readonly title: string;
+  }>();
+  const [completionOutcome, setCompletionOutcome] = useState("");
   const [archiveReason, setArchiveReason] = useState<ArchiveReason>("no_action_needed");
   const [archiveReasonDetail, setArchiveReasonDetail] = useState("");
   const [connectionError, setConnectionError] = useState<string>();
@@ -2362,6 +3774,16 @@ function DynaApp({ app }: { readonly app: App }) {
   const [locale, setLocale] = useState(navigator.language);
   const current = useRef<DynaUiPayload | undefined>(undefined);
   const refreshInFlight = useRef(false);
+  const manualRefreshInFlight = useRef(false);
+  const refreshFocusTrigger = useRef<HTMLElement | null>(null);
+  const pendingSecondarySelection = useRef<
+    | {
+        readonly target: Element;
+        readonly selection: string | null;
+        readonly recordedAt: number;
+      }
+    | undefined
+  >(undefined);
   const refreshGeneration = useRef(0);
   const queryRef = useRef("");
   const selectedItemRef = useRef<string | undefined>(undefined);
@@ -2380,26 +3802,31 @@ function DynaApp({ app }: { readonly app: App }) {
   );
   const archiveRequestIds = useRef(new Map<string, string>());
   const restoreRequestIds = useRef(new Map<string, string>());
+  const statusRequestIds = useRef(new Map<string, string>());
   const annotationTrigger = useRef<HTMLElement | null>(null);
   const detailTrigger = useRef<HTMLElement | null>(null);
   const todoTrigger = useRef<HTMLElement | null>(null);
   const archiveTrigger = useRef<HTMLElement | null>(null);
   const restoreTrigger = useRef<HTMLElement | null>(null);
+  const statusTrigger = useRef<HTMLElement | null>(null);
   const expansionTrigger = useRef<HTMLElement | null>(null);
   const actionTrigger = useRef<{ readonly element: HTMLElement; readonly key: string } | null>(
     null,
   );
   const annotationFocusAfterSave = useRef<string | undefined>(undefined);
   const dialog = useRef<HTMLDivElement | null>(null);
+  const contextMenuRef = useRef<DynaContextMenuState | undefined>(undefined);
   current.current = payload;
   queryRef.current = query;
   selectedItemRef.current = selectedItemId;
   viewRef.current = view;
+  contextMenuRef.current = contextMenu;
   const backgroundLocked =
     annotationItem !== undefined ||
     todoOpen ||
     archiveTarget !== undefined ||
     restoreTarget !== undefined ||
+    completionTarget !== undefined ||
     (selectedItemId !== undefined && !wideLayout);
 
   const acceptPayload = useCallback((candidate: unknown) => {
@@ -2420,9 +3847,190 @@ function DynaApp({ app }: { readonly app: App }) {
       setToast("The selected item is no longer in this view.");
     }
     setPayload(parsed.data);
+    setContextMenu((menu) =>
+      menu?.itemId && !parsed.data.snapshot.cards.some((card) => card.id === menu.itemId)
+        ? undefined
+        : menu,
+    );
     setConnectionError(undefined);
     return true;
   }, []);
+
+  const closeContextMenu = useCallback((restoreFocus: boolean) => {
+    const active = contextMenuRef.current;
+    setContextMenu(undefined);
+    if (restoreFocus && active?.invoker.isConnected) {
+      window.setTimeout(() => {
+        active.invoker.focus({ preventScroll: true });
+      }, 0);
+    }
+  }, []);
+
+  const copyMenuText = useCallback(async (value: string, message: string) => {
+    try {
+      await writeClipboardText(value);
+      setToast(message);
+    } catch {
+      setToast("Clipboard unavailable. Press Command+C or Control+C.");
+    }
+  }, []);
+
+  const openContextMenuAt = useCallback(
+    (
+      target: Element,
+      x: number,
+      y: number,
+      keyboard: boolean,
+      selectionOverride?: string | null,
+    ): boolean => {
+      if (
+        !current.current ||
+        !target.closest(
+          ".dyna, .dyna-inspector-layer, .dyna-dialog, .dyna-toast, .dyna-context-menu",
+        )
+      ) {
+        return false;
+      }
+      if (target.closest(".dyna-context-menu")) return true;
+      const selection =
+        selectionOverride === undefined
+          ? contextSelection(target, x, y, keyboard)
+          : (selectionOverride ?? undefined);
+      const link = target.closest<HTMLAnchorElement>("a[href]");
+      const linkUrl = contextLink(link ?? target);
+      const inspector = Boolean(target.closest(".dyna-inspector"));
+      const cardElement = target.closest<HTMLElement>(".dyna-card");
+      const taskElement = target.closest<HTMLElement>(".dyna-task[data-dyna-task-id]");
+      const itemId =
+        taskElement?.dataset["dynaItemId"] ??
+        cardElement?.dataset["itemId"] ??
+        (inspector ? selectedItemRef.current : undefined);
+      const focusable = target.closest<HTMLElement>(
+        "a[href], button, input, textarea, select, summary, [tabindex]:not([tabindex='-1'])",
+      );
+      const itemTrigger = itemId
+        ? document.querySelector<HTMLElement>(
+            `${inspector ? ".dyna-inspector " : ""}[data-dyna-${inspector ? "copy-context" : "details-item"}="${CSS.escape(itemId)}"]`,
+          )
+        : undefined;
+      const invoker = link ?? focusable ?? itemTrigger ?? (target as HTMLElement);
+      const show = (
+        kind: DynaContextMenuKind,
+        details: Partial<
+          Omit<DynaContextMenuState, "kind" | "x" | "y" | "invoker" | "keyboard">
+        > = {},
+      ) => {
+        setContextMenu({ kind, x, y, invoker, keyboard, ...details });
+      };
+
+      if (selection) {
+        show("selection", { selection, ...(linkUrl ? { linkUrl } : {}) });
+        return true;
+      }
+      if (target.closest("input, textarea, [contenteditable]:not([contenteditable='false'])")) {
+        setContextMenu(undefined);
+        return false;
+      }
+      if (linkUrl) {
+        show("link", { linkUrl });
+        return true;
+      }
+      const control = target.closest("button, select, summary");
+      if (taskElement && (!control || keyboard) && itemId) {
+        const taskId = taskElement.dataset["dynaTaskId"];
+        const taskHostId = taskElement.dataset["dynaTaskHost"];
+        if (taskId && taskHostId) {
+          show("task", { itemId, taskId, taskHostId, inspector: true });
+          return true;
+        }
+      }
+      if (!control || keyboard) {
+        if (itemId) {
+          show("item", { itemId, inspector });
+          return true;
+        }
+      }
+      if (control || target.closest(".dyna-dialog, .dyna-toast")) {
+        setContextMenu(undefined);
+        return true;
+      }
+      if (target.closest(".dyna")) {
+        show("dashboard");
+        return true;
+      }
+      return true;
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const onMouseDown = (event: MouseEvent) => {
+      if (
+        !(event.target instanceof Element) ||
+        (event.button !== 2 && !(event.button === 0 && event.ctrlKey))
+      ) {
+        return;
+      }
+      if (
+        !event.target.closest(
+          ".dyna, .dyna-inspector-layer, .dyna-dialog, .dyna-toast, .dyna-context-menu",
+        )
+      ) {
+        return;
+      }
+      pendingSecondarySelection.current = {
+        target: event.target,
+        selection: contextSelection(event.target, event.clientX, event.clientY, false) ?? null,
+        recordedAt: performance.now(),
+      };
+    };
+    const onContextMenu = (event: MouseEvent) => {
+      if (!(event.target instanceof Element)) return;
+      const pending = pendingSecondarySelection.current;
+      pendingSecondarySelection.current = undefined;
+      const selectionOverride =
+        pending &&
+        performance.now() - pending.recordedAt < 1_000 &&
+        (pending.target === event.target ||
+          pending.target.contains(event.target) ||
+          event.target.contains(pending.target))
+          ? pending.selection
+          : undefined;
+      const recentMouseSecondary = selectionOverride !== undefined;
+      if (Reflect.get(event, "pointerType") === "touch" && !recentMouseSecondary) return;
+      if (
+        document.documentElement.dataset["flowzoneDeveloperMode"] === "true" &&
+        event.shiftKey &&
+        (event.clientX !== 0 || event.clientY !== 0)
+      ) {
+        closeContextMenu(false);
+        return;
+      }
+      if (openContextMenuAt(event.target, event.clientX, event.clientY, false, selectionOverride)) {
+        event.preventDefault();
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        (event.key !== "ContextMenu" && !(event.key === "F10" && event.shiftKey)) ||
+        !(event.target instanceof Element)
+      ) {
+        return;
+      }
+      const rect = event.target.getBoundingClientRect();
+      if (openContextMenuAt(event.target, rect.left, rect.bottom, true)) event.preventDefault();
+    };
+    document.addEventListener("pointerdown", onMouseDown, true);
+    document.addEventListener("mousedown", onMouseDown, true);
+    document.addEventListener("contextmenu", onContextMenu, true);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", onMouseDown, true);
+      document.removeEventListener("mousedown", onMouseDown, true);
+      document.removeEventListener("contextmenu", onContextMenu, true);
+      document.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, [closeContextMenu, openContextMenuAt]);
 
   useEffect(() => {
     if (!backgroundLocked) return;
@@ -2487,6 +4095,10 @@ function DynaApp({ app }: { readonly app: App }) {
           },
         });
         if (toolResultFailed(result)) throw new Error("Snapshot refresh failed.");
+        const changed =
+          (result.structuredContent as Readonly<Record<string, unknown>> | undefined)?.[
+            "changed"
+          ] === true;
         if (
           generation !== refreshGeneration.current ||
           requestedQuery !== queryRef.current.trim()
@@ -2496,18 +4108,52 @@ function DynaApp({ app }: { readonly app: App }) {
         const next = metadataPayload(result);
         if (next && !acceptPayload(next)) throw new Error("Snapshot identity validation failed.");
         if (!next) setConnectionError(undefined);
+        return changed;
       } catch {
         if (generation === refreshGeneration.current) {
           setConnectionError(
             "Dashboard updates are disconnected. Actions are paused until the Remote host reconnects.",
           );
         }
+        return undefined;
       } finally {
         if (generation === refreshGeneration.current) refreshInFlight.current = false;
       }
     },
     [acceptPayload, app],
   );
+
+  const refreshLatest = useCallback(
+    async (trigger: HTMLElement) => {
+      if (manualRefreshInFlight.current || busy) return;
+      manualRefreshInFlight.current = true;
+      refreshFocusTrigger.current = trigger;
+      setRefreshing(true);
+      try {
+        const changed = await refresh(true);
+        if (changed !== undefined) {
+          setOperationError(undefined);
+          setToast(changed ? "Dashboard updated." : "Dashboard is up to date.");
+        }
+      } finally {
+        manualRefreshInFlight.current = false;
+        setRefreshing(false);
+      }
+    },
+    [busy, refresh],
+  );
+
+  useLayoutEffect(() => {
+    if (refreshing || !refreshFocusTrigger.current) return;
+    const original = refreshFocusTrigger.current;
+    refreshFocusTrigger.current = null;
+    const fallback = [...document.querySelectorAll<HTMLElement>("[data-dyna-refresh]")].find(
+      (candidate) => candidate.getClientRects().length > 0,
+    );
+    const target =
+      original.isConnected && original.getClientRects().length > 0 ? original : fallback;
+    target?.focus({ preventScroll: true });
+  }, [payload?.snapshot.revision, refreshing]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -2715,7 +4361,7 @@ function DynaApp({ app }: { readonly app: App }) {
       ? pending.element
       : document.querySelector<HTMLElement>(`[data-dyna-action="${CSS.escape(pending.key)}"]`);
     window.setTimeout(() => target?.focus(), 0);
-  }, [busy, payload]);
+  }, [actionFocusEpoch, busy, payload]);
 
   const closeAnnotation = useCallback(() => {
     setAnnotation("");
@@ -2746,6 +4392,12 @@ function DynaApp({ app }: { readonly app: App }) {
   const closeRestore = useCallback(() => {
     setRestoreTarget(undefined);
     window.setTimeout(() => restoreTrigger.current?.focus(), 0);
+  }, []);
+
+  const closeCompletion = useCallback(() => {
+    setCompletionTarget(undefined);
+    setCompletionOutcome("");
+    window.setTimeout(() => statusTrigger.current?.focus(), 0);
   }, []);
 
   const closeDetails = useCallback(() => {
@@ -2835,6 +4487,7 @@ function DynaApp({ app }: { readonly app: App }) {
       if (value !== viewRef.current) {
         prepareScrollTransition(value);
         viewRef.current = value;
+        setContextMenu(undefined);
         setViewState(value);
       }
       setSelectedItemId(undefined);
@@ -2922,6 +4575,62 @@ function DynaApp({ app }: { readonly app: App }) {
     [app, busy, connectionError, refresh],
   );
 
+  const executeStatusChange = useCallback(
+    async (
+      itemId: string,
+      fingerprint: string,
+      targetStage: ManualWorkflowStage,
+      trigger: HTMLElement,
+      outcome?: string,
+    ) => {
+      const active = current.current;
+      if (!active || busy || connectionError || !hostCapabilitiesRef.current.serverTools) return;
+      const clientRequestId = statusRequestIds.current.get(itemId) ?? crypto.randomUUID();
+      statusRequestIds.current.set(itemId, clientRequestId);
+      statusTrigger.current = trigger;
+      setOperationError(undefined);
+      setBusy(true);
+      try {
+        const result = await app.callServerTool({
+          name: "dyna_set_item_status",
+          arguments: {
+            viewToken: active.viewToken,
+            itemId,
+            targetStage,
+            ...(outcome?.trim() ? { outcome: outcome.trim() } : {}),
+            expectedRevision: active.snapshot.revision,
+            expectedFingerprint: fingerprint,
+            clientRequestId,
+          },
+        });
+        if (toolResultFailed(result)) throw new Error("Status change failed.");
+        statusRequestIds.current.delete(itemId);
+        setCompletionTarget(undefined);
+        setCompletionOutcome("");
+        await refresh(true);
+        window.setTimeout(() => {
+          const status = document.querySelector<HTMLElement>(
+            `[data-dyna-status-item="${CSS.escape(itemId)}"]`,
+          );
+          (status ?? trigger).focus();
+        }, 0);
+        setToast(
+          targetStage === "todo"
+            ? "Moved to To Do."
+            : targetStage === "needs_you"
+              ? "Moved to Needs You."
+              : "Marked Done.",
+        );
+        setConnectionError(undefined);
+      } catch {
+        setOperationError("Could not change the status. Refresh the dashboard and try again.");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [app, busy, connectionError, refresh],
+  );
+
   useEffect(() => {
     const itemId = createdTodoFocus.current;
     if (!itemId || busy || todoOpen) return;
@@ -2933,14 +4642,17 @@ function DynaApp({ app }: { readonly app: App }) {
   }, [busy, payload, todoOpen]);
 
   useEffect(() => {
-    if (!annotationItem && !todoOpen && !archiveTarget && !restoreTarget) return;
+    if (!annotationItem && !todoOpen && !archiveTarget && !restoreTarget && !completionTarget)
+      return;
     const modal = dialog.current;
     const onKeyDown = (event: KeyboardEvent) => {
+      if (document.querySelector(".dyna-context-menu")) return;
       if (event.key === "Escape") {
         event.preventDefault();
         if (annotationItem) closeAnnotation();
         else if (archiveTarget) closeArchive();
         else if (restoreTarget) closeRestore();
+        else if (completionTarget) closeCompletion();
         else closeTodo();
         return;
       }
@@ -2966,15 +4678,227 @@ function DynaApp({ app }: { readonly app: App }) {
     archiveTarget,
     closeAnnotation,
     closeArchive,
+    closeCompletion,
     closeRestore,
     closeTodo,
     restoreTarget,
+    completionTarget,
     todoOpen,
   ]);
+
+  const loadActivity = useCallback(
+    async (itemId: string, cursor?: string): Promise<DynaActivityPage> => {
+      const active = current.current;
+      if (!active || !hostCapabilitiesRef.current.serverTools) {
+        throw new Error("Dyna activity is unavailable on this host.");
+      }
+      const result = await app.callServerTool({
+        name: "dyna_get_item_activity",
+        arguments: {
+          viewToken: active.viewToken,
+          itemId,
+          ...(cursor ? { cursor } : {}),
+        },
+      });
+      if (toolResultFailed(result)) throw new Error("Dyna activity could not be loaded.");
+      const page = activityPage(result, itemId);
+      if (!page) throw new Error("Dyna returned invalid activity metadata.");
+      return page;
+    },
+    [app],
+  );
+
+  const readActionStatus = useCallback(
+    async (requestId: string): Promise<DynaActionStatus> => {
+      const active = current.current;
+      if (!active || !hostCapabilitiesRef.current.serverTools) {
+        throw new Error("Dyna action status is unavailable on this host.");
+      }
+      const result = await app.callServerTool({
+        name: "dyna_action_status",
+        arguments: { viewToken: active.viewToken, requestId },
+      });
+      if (toolResultFailed(result)) throw new Error("Dyna action status could not be loaded.");
+      const status = parseDynaActionStatus(result);
+      if (!status) throw new Error("Dyna returned invalid action status metadata.");
+      return status;
+    },
+    [app],
+  );
+
+  const waitForAction = useCallback(
+    async (requestId: string): Promise<DynaActionStatus> => {
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        const status = await readActionStatus(requestId);
+        if (["succeeded", "failed", "needs_reconciliation"].includes(status.state)) {
+          return status;
+        }
+        await new Promise<void>((resolve) => {
+          window.setTimeout(resolve, 750);
+        });
+      }
+      throw new Error("Dyna action status timed out.");
+    },
+    [readActionStatus],
+  );
+
+  const dispatchAction = useCallback(
+    async (
+      itemId: string,
+      fingerprint: string,
+      kind: Exclude<ActionName, "annotate">,
+      taskId?: string,
+      taskHostId?: string,
+      trigger?: HTMLElement,
+      sessionListRequestId?: string,
+      localFeedback = false,
+    ): Promise<DynaActionDispatch | undefined> => {
+      const active = current.current;
+      if (!active || (!localFeedback && busy) || connectionError) return undefined;
+      if (!hostCapabilitiesRef.current.serverTools) {
+        if (!localFeedback) setOperationError("This host does not support dashboard actions.");
+        return undefined;
+      }
+      if (!hostCapabilitiesRef.current.message?.text) {
+        if (!localFeedback) setOperationError("This host cannot send Dyna actions to Codex.");
+        return undefined;
+      }
+      const settledFocus =
+        !localFeedback && trigger
+          ? {
+              element: trigger,
+              key: trigger.getAttribute("data-dyna-action") ?? `${itemId}:${kind}`,
+            }
+          : undefined;
+      if (!localFeedback) {
+        setOperationError(undefined);
+        setBusy(true);
+      }
+      const actionKey = [
+        active.snapshot.dashboard.id,
+        active.snapshot.revision,
+        itemId,
+        fingerprint,
+        kind,
+        taskId ?? "",
+        taskHostId ?? "",
+        sessionListRequestId ?? "",
+      ].join(":");
+      let preparationComplete = false;
+      try {
+        let pending = pendingActions.current.get(actionKey);
+        preparationComplete = Boolean(pending);
+        if (!pending) {
+          const idempotencyKey = `${actionKey}:${crypto.randomUUID()}`;
+          const prepared = await app.callServerTool({
+            name: "dyna_prepare_action",
+            arguments: {
+              viewToken: active.viewToken,
+              itemId,
+              kind,
+              ...(taskId ? { taskId } : {}),
+              ...(taskHostId ? { taskHostId } : {}),
+              ...(sessionListRequestId ? { sessionListRequestId } : {}),
+              expectedRevision: active.snapshot.revision,
+              expectedFingerprint: fingerprint,
+              idempotencyKey,
+            },
+          });
+          if (toolResultFailed(prepared)) throw new Error("Action preparation failed.");
+          const structured = prepared.structuredContent as Record<string, unknown> | undefined;
+          const preparedId = structured?.["requestId"];
+          if (typeof preparedId !== "string") throw new Error("No action request was prepared.");
+          pending = { requestId: preparedId, idempotencyKey };
+          pendingActions.current.set(actionKey, pending);
+          preparationComplete = true;
+        }
+        const requestId = pending.requestId;
+        const delivery = await app.callServerTool({
+          name: "dyna_mark_action_delivered",
+          arguments: { viewToken: active.viewToken, requestId },
+        });
+        if (toolResultFailed(delivery)) throw new Error("Action delivery failed.");
+        const deliveryStateValue = (
+          delivery.structuredContent as Record<string, unknown> | undefined
+        )?.["state"];
+        const deliveryState = typeof deliveryStateValue === "string" ? deliveryStateValue : "";
+        if (["claimed", "succeeded", "failed", "needs_reconciliation"].includes(deliveryState)) {
+          if (deliveryState !== "claimed") pendingActions.current.delete(actionKey);
+          if (!localFeedback) {
+            setToast(
+              deliveryState === "claimed"
+                ? "Codex is handling this request."
+                : deliveryState === "needs_reconciliation"
+                  ? "Review required before another task-creation attempt."
+                  : `This request is already ${deliveryState.replaceAll("_", " ")}.`,
+            );
+          }
+          return { requestId, state: deliveryState };
+        }
+        const send = () =>
+          app.sendMessage({
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: `Handle Dyna action request ${requestId} with $flowzone:dyna.`,
+              },
+            ],
+          });
+        const sent = await send();
+        if (sent.isError) {
+          const status = await readActionStatus(requestId);
+          if (status.state === "delivered") {
+            const retried = await send();
+            if (retried.isError) throw new Error("Action delivery remains uncertain.");
+          } else if (status.state === "claimed" || status.state === "succeeded") {
+            if (status.state === "succeeded") pendingActions.current.delete(actionKey);
+            if (!localFeedback) setToast("Codex is handling this request.");
+            return { requestId, state: status.state };
+          } else if (status.state === "failed" || status.state === "needs_reconciliation") {
+            pendingActions.current.delete(actionKey);
+            if (!localFeedback) {
+              setToast(
+                status.state === "needs_reconciliation"
+                  ? "Review required before another task-creation attempt."
+                  : "The request failed. Try again.",
+              );
+            }
+            return { requestId, state: status.state };
+          } else {
+            throw new Error("The action request could not be reconciled.");
+          }
+        }
+        if (!localFeedback) setToast("Request sent to Codex.");
+        pendingActions.current.delete(actionKey);
+        setConnectionError(undefined);
+        return { requestId, state: "delivered" };
+      } catch {
+        if (!localFeedback) {
+          setOperationError(
+            preparationComplete
+              ? "Action delivery is uncertain. Reconnect, then retry; Dyna will reuse the same request."
+              : "Request was not sent. Refresh the dashboard and try again.",
+          );
+        }
+        return undefined;
+      } finally {
+        if (!localFeedback) {
+          if (settledFocus) {
+            actionTrigger.current = settledFocus;
+            setActionFocusEpoch((epoch) => epoch + 1);
+          }
+          setBusy(false);
+        }
+      }
+    },
+    [app, busy, connectionError, readActionStatus],
+  );
 
   const controller = useMemo<DynaUiController>(
     () => ({
       busy,
+      refreshing,
       blocked: Boolean(connectionError) || !hostCapabilities?.serverTools,
       codexActionsBlocked:
         Boolean(connectionError) ||
@@ -2991,7 +4915,8 @@ function DynaApp({ app }: { readonly app: App }) {
         annotationItem !== undefined ||
         todoOpen ||
         archiveTarget !== undefined ||
-        restoreTarget !== undefined,
+        restoreTarget !== undefined ||
+        completionTarget !== undefined,
       canExpand,
       condenseInline: displayMode === "inline" && (canExpand || initialExpansionPending),
       initialExpansionPending,
@@ -3013,7 +4938,9 @@ function DynaApp({ app }: { readonly app: App }) {
       setSourceFilter,
       setWorkflowFilter,
       setView,
+      refreshLatest,
       openExternal,
+      loadActivity,
       closeDetails,
       openDetails,
       archive(itemId, fingerprint, title, trigger, reason) {
@@ -3142,6 +5069,93 @@ function DynaApp({ app }: { readonly app: App }) {
           setBusy(false);
         }
       },
+      async moveToStage(itemId, fingerprint, target, trigger) {
+        const active = current.current;
+        const card = active?.snapshot.cards.find((candidate) => candidate.id === itemId);
+        if (card?.fingerprint !== fingerprint || busy || connectionError) return;
+        const currentStage = cardWorkflowStage(card);
+        if (card.archive) {
+          setOperationError("Restore this item before changing its status.");
+          return;
+        }
+        if (target === "follow_up" || (currentStage === "completed" && target !== "completed")) {
+          todoTrigger.current = trigger;
+          todoRequestId.current = crypto.randomUUID();
+          setTodoTitle(`Follow up: ${card.title}`);
+          setTodoSummary(`Follow-up to completed Dyna item: ${card.title}`);
+          setTodoPriority("normal");
+          setTodoFollowUpOf(card.id);
+          setTodoOpen(true);
+          return;
+        }
+        if (target === currentStage) {
+          setToast(`Already in ${workflowStageLabel(currentStage)}.`);
+          return;
+        }
+
+        const linked = card.linkedTasks.length > 0;
+        if (linked) {
+          if (target === "todo" || target === "needs_you") {
+            setOperationError(
+              "This status follows the linked Codex task. Open that task to change what happens next.",
+            );
+            return;
+          }
+          const selectedTask = actionableTaskSelection(card).task;
+          if (target === "executing") {
+            if (!selectedTask) {
+              setOperationError("No linked Codex task is available to open.");
+              return;
+            }
+            await dispatchAction(
+              itemId,
+              fingerprint,
+              "open_codex_task",
+              selectedTask.taskId,
+              selectedTask.hostId,
+              trigger,
+            );
+            return;
+          }
+          const unfinishedTask =
+            selectedTask && selectedTask.state !== "succeeded"
+              ? selectedTask
+              : card.linkedTasks.find((task) => task.state !== "succeeded");
+          if (!unfinishedTask) {
+            await refresh(true);
+            setToast("All linked tasks are complete. Status refreshed.");
+            return;
+          }
+          await dispatchAction(
+            itemId,
+            fingerprint,
+            "refresh_codex_status",
+            unfinishedTask.taskId,
+            unfinishedTask.hostId,
+            trigger,
+          );
+          return;
+        }
+
+        if (target === "executing") {
+          await dispatchAction(
+            itemId,
+            fingerprint,
+            "create_codex_task",
+            undefined,
+            undefined,
+            trigger,
+          );
+          return;
+        }
+        if (target === "completed") {
+          statusTrigger.current = trigger;
+          setCompletionOutcome("");
+          setCompletionTarget({ itemId, fingerprint, title: card.title });
+          return;
+        }
+        await executeStatusChange(itemId, fingerprint, target, trigger);
+      },
       async expand(trigger) {
         if (busy) return;
         expansionTrigger.current = trigger ?? null;
@@ -3160,141 +5174,51 @@ function DynaApp({ app }: { readonly app: App }) {
         }
       },
       async request(itemId, fingerprint, kind, taskId, taskHostId, trigger) {
-        const active = current.current;
-        if (!active || busy || connectionError) return;
-        if (!hostCapabilitiesRef.current.serverTools) {
-          setOperationError("This host does not support dashboard actions.");
-          return;
-        }
-        if (!hostCapabilitiesRef.current.message?.text) {
-          setOperationError("This host cannot send Dyna actions to Codex.");
-          return;
-        }
-        if (trigger) {
-          actionTrigger.current = {
-            element: trigger,
-            key: trigger.getAttribute("data-dyna-action") ?? `${itemId}:${kind}`,
-          };
-        }
-        setOperationError(undefined);
-        setBusy(true);
-        const actionKey = [
-          active.snapshot.dashboard.id,
-          active.snapshot.revision,
+        await dispatchAction(itemId, fingerprint, kind, taskId, taskHostId, trigger);
+      },
+      async loadCodexSessions(itemId, fingerprint, trigger) {
+        const dispatched = await dispatchAction(
           itemId,
           fingerprint,
-          kind,
-          taskId ?? "",
-          taskHostId ?? "",
-        ].join(":");
-        let preparationComplete = false;
-        try {
-          let pending = pendingActions.current.get(actionKey);
-          preparationComplete = Boolean(pending);
-          if (!pending) {
-            const idempotencyKey = `${actionKey}:${crypto.randomUUID()}`;
-            const prepared = await app.callServerTool({
-              name: "dyna_prepare_action",
-              arguments: {
-                viewToken: active.viewToken,
-                itemId,
-                kind,
-                ...(taskId ? { taskId } : {}),
-                ...(taskHostId ? { taskHostId } : {}),
-                expectedRevision: active.snapshot.revision,
-                expectedFingerprint: fingerprint,
-                idempotencyKey,
-              },
-            });
-            if (toolResultFailed(prepared)) throw new Error("Action preparation failed.");
-            const structured = prepared.structuredContent as Record<string, unknown> | undefined;
-            const preparedId = structured?.["requestId"];
-            if (typeof preparedId !== "string") throw new Error("No action request was prepared.");
-            pending = { requestId: preparedId, idempotencyKey };
-            pendingActions.current.set(actionKey, pending);
-            preparationComplete = true;
-          }
-          const requestId = pending.requestId;
-          const delivery = await app.callServerTool({
-            name: "dyna_mark_action_delivered",
-            arguments: { viewToken: active.viewToken, requestId },
-          });
-          if (toolResultFailed(delivery)) throw new Error("Action delivery failed.");
-          const deliveryState = (
-            delivery.structuredContent as Record<string, unknown> | undefined
-          )?.["state"];
-          if (
-            ["claimed", "succeeded", "failed", "needs_reconciliation"].includes(
-              String(deliveryState),
-            )
-          ) {
-            if (deliveryState !== "claimed") pendingActions.current.delete(actionKey);
-            setToast(
-              deliveryState === "claimed"
-                ? "Codex is handling this request."
-                : deliveryState === "needs_reconciliation"
-                  ? "Review required before another task-creation attempt."
-                  : `This request is already ${String(deliveryState).replaceAll("_", " ")}.`,
-            );
-            return;
-          }
-          const send = () =>
-            app.sendMessage({
-              role: "user",
-              content: [
-                {
-                  type: "text",
-                  text: `Handle Dyna action request ${requestId} with $flowzone:dyna.`,
-                },
-              ],
-            });
-          const sent = await send();
-          if (sent.isError) {
-            const status = await app.callServerTool({
-              name: "dyna_action_status",
-              arguments: { viewToken: active.viewToken, requestId },
-            });
-            if (toolResultFailed(status)) throw new Error("Action status check failed.");
-            const state = (status.structuredContent as Record<string, unknown> | undefined)?.[
-              "state"
-            ];
-            if (state === "delivered") {
-              const retried = await send();
-              if (retried.isError) throw new Error("Action delivery remains uncertain.");
-            } else if (state === "claimed" || state === "succeeded") {
-              if (state === "succeeded") pendingActions.current.delete(actionKey);
-              setToast("Codex is handling this request.");
-              return;
-            } else if (state === "failed" || state === "needs_reconciliation") {
-              pendingActions.current.delete(actionKey);
-              setToast(
-                state === "needs_reconciliation"
-                  ? "Review required before another task-creation attempt."
-                  : "The request failed. Try again.",
-              );
-              return;
-            } else {
-              throw new Error("The action request could not be reconciled.");
-            }
-          }
-          setToast("Request sent to Codex.");
-          pendingActions.current.delete(actionKey);
-          setConnectionError(undefined);
-        } catch {
-          setOperationError(
-            preparationComplete
-              ? "Action delivery is uncertain. Reconnect, then retry; Dyna will reuse the same request."
-              : "Request was not sent. Refresh the dashboard and try again.",
-          );
-        } finally {
-          setBusy(false);
+          "list_codex_sessions",
+          undefined,
+          undefined,
+          trigger,
+          undefined,
+          true,
+        );
+        if (!dispatched) throw new Error("Session list request was not sent.");
+        const status = await waitForAction(dispatched.requestId);
+        if (status.state !== "succeeded" || !status.candidates) {
+          throw new Error("Session list request did not succeed.");
         }
+        return { requestId: dispatched.requestId, candidates: status.candidates };
+      },
+      async associateCodexSession(itemId, fingerprint, candidate, sessionListRequestId, trigger) {
+        const dispatched = await dispatchAction(
+          itemId,
+          fingerprint,
+          "attach_codex_task",
+          candidate.taskId,
+          candidate.hostId,
+          trigger,
+          sessionListRequestId,
+          true,
+        );
+        if (!dispatched) throw new Error("Session association request was not sent.");
+        const status = await waitForAction(dispatched.requestId);
+        if (status.state !== "succeeded") {
+          throw new Error("Session association did not succeed.");
+        }
+        await refresh(true);
+        setToast("Codex session associated.");
       },
     }),
     [
       app,
       annotationItem,
       archiveTarget,
+      completionTarget,
       busy,
       canExpand,
       connectionError,
@@ -3310,6 +5234,8 @@ function DynaApp({ app }: { readonly app: App }) {
       requestExpandedPresentation,
       query,
       refresh,
+      refreshLatest,
+      refreshing,
       restoreTarget,
       selectedItemId,
       setLeadershipOnly,
@@ -3321,8 +5247,12 @@ function DynaApp({ app }: { readonly app: App }) {
       closeDetails,
       executeArchive,
       executeRestore,
+      executeStatusChange,
+      dispatchAction,
       openDetails,
       openExternal,
+      loadActivity,
+      waitForAction,
       setQuery,
       setView,
       view,
@@ -3433,11 +5363,18 @@ function DynaApp({ app }: { readonly app: App }) {
     );
   }
   const routeDetailsOpen = Boolean(selectedItemId) && !wideLayout;
+  const contextCard = contextMenu?.itemId
+    ? payload.snapshot.cards.find((card) => card.id === contextMenu.itemId)
+    : undefined;
+  const contextCardProps = contextCard
+    ? cardViewProps(contextCard, payload.snapshot.dashboard)
+    : undefined;
   const dashboardUnavailable =
     annotationItem !== undefined ||
     todoOpen ||
     archiveTarget !== undefined ||
     restoreTarget !== undefined ||
+    completionTarget !== undefined ||
     routeDetailsOpen;
   return (
     <ControllerContext.Provider value={controller}>
@@ -3487,6 +5424,14 @@ function DynaApp({ app }: { readonly app: App }) {
       >
         <SnapshotDashboard snapshot={payload.snapshot} />
       </div>
+      {contextMenu ? (
+        <DynaContextMenu
+          state={contextMenu}
+          {...(contextCardProps ? { card: contextCardProps } : {})}
+          onClose={closeContextMenu}
+          onCopy={copyMenuText}
+        />
+      ) : null}
       {annotationItem ? (
         <div
           ref={dialog}
@@ -3626,6 +5571,77 @@ function DynaApp({ app }: { readonly app: App }) {
               </Button>
             </div>
           </div>
+        </div>
+      ) : null}
+      {completionTarget ? (
+        <div
+          ref={dialog}
+          className="dyna-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="completion-title"
+          aria-describedby="completion-description"
+        >
+          <form
+            className="dyna-sheet dyna-confirm-sheet"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!completionOutcome.trim() || busy || connectionError) return;
+              void executeStatusChange(
+                completionTarget.itemId,
+                completionTarget.fingerprint,
+                "done",
+                statusTrigger.current ?? event.currentTarget,
+                completionOutcome,
+              );
+            }}
+          >
+            <div className="dyna-sheet-header">
+              <h2 id="completion-title">Mark Item Done</h2>
+              <p>{completionTarget.title}</p>
+            </div>
+            <div className="dyna-sheet-body">
+              <label htmlFor="dyna-completion-outcome">Outcome</label>
+              <Input
+                id="dyna-completion-outcome"
+                className="dyna-field"
+                type="text"
+                size="sm"
+                value={completionOutcome}
+                maxLength={200}
+                placeholder="What was completed?"
+                aria-describedby="completion-description"
+                onChange={(event) => {
+                  setCompletionOutcome(event.currentTarget.value);
+                }}
+                autoFocus
+              />
+              <p id="completion-description" className="dyna-modal-note">
+                Add a precise one-line result. Done is a short confirmation state before automatic
+                archiving.
+              </p>
+            </div>
+            <div className="dyna-sheet-actions">
+              <Button
+                type="button"
+                color="secondary"
+                size="sm"
+                variant="ghost"
+                onClick={closeCompletion}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                color="primary"
+                size="sm"
+                loading={busy}
+                disabled={!completionOutcome.trim() || Boolean(connectionError) || busy}
+              >
+                Mark Done
+              </Button>
+            </div>
+          </form>
         </div>
       ) : null}
       {archiveTarget ? (

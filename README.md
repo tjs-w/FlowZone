@@ -15,7 +15,8 @@ Installing FlowZone installs the shared `flowzone` MCP server and both qualified
 - Re-rendering after scheduled updates, durable conversation-driven enrichment overlays, annotations, and one shared item set projected as a priority queue, Codex progress pipeline, or searchable archive with one-line outcomes and linked follow-ups.
 - Revision-bound, claim-revalidated, per-attempt idempotent action requests with expiring leases for native Codex task creation, existing-task attachment, navigation, and status inspection.
 - Scheduled publishers can use the bundled `<plugin-root>/bin/flowzone-publish` CLI with a fixed publisher ID and schema-valid JSON stdin. It relies on the local macOS user boundary and stores no publisher secret in the prompt.
-- A dedicated `ui://flowzone/dyna/v9.html` resource below an 825 KiB payload budget with a closed network CSP and clipboard-write permission only for the explicit **Copy work prompt** action; ordinary selected-text copying stays native to the host.
+- After its exact installed-launcher Codex rule is explicitly installed and reconciled, any local task can use the bundled `<plugin-root>/bin/dyna` CLI to resolve an exact referenced item, append durable work updates and typed result links, replace evidence-bound enrichment, or perform an explicitly authorized placement, archive, restore, or linked follow-up. The rule never grants a shell, runtime, database path, or future CLI verb; task reports never certify native task success.
+- A dedicated `ui://flowzone/dyna/v12.html` resource below an 856 KiB payload budget with a closed network CSP and clipboard-write permission for explicit copy actions. Its bounded context menu prioritizes exact selected text, links, Codex tasks, work items, and dashboard actions; unselected editable fields retain the host's native editing menu.
 
 See [Dyna executive dashboards](./docs/dyna.md) for requirements, architecture, action protocol, implementation status, and the mobile Remote acceptance matrix.
 
@@ -46,7 +47,7 @@ FlowZone McpServer
        │              └── markdown-review/open
        ├── typed app-only component tools
        ├── render_markdown_review → ui://flowzone/v5.html
-       └── render_dyna_dashboard → ui://flowzone/dyna/v9.html
+       └── render_dyna_dashboard → ui://flowzone/dyna/v12.html
 ```
 
 FlowZone exposes one model-visible `flowzone` data router plus a dedicated model-visible presentation tool for each rendered surface. The startup-built router union enumerates non-visual plugin/action/input combinations and validates both selected input and plugin-owned output. Dedicated presentation tools carry their own risk and MCP Apps resource metadata. Typed helpers used by a UI stay separate and are forcibly registered with `_meta.ui.visibility: ["app"]`.
@@ -213,8 +214,9 @@ Review only files you intend to expose to the local FlowZone process. Submitted 
 | `packages/host-mcp-apps/`          | Standard MCP Apps host adapter and native browser image decode |
 | `packages/mcp-server/`             | Generic FlowZone registry plus bundled plugin factories        |
 | `server/src/main.ts`, `runtime.ts` | Static plugin list and Node stdio composition root             |
-| `server/src/publish.ts`            | Strict local scheduled-publication CLI                         |
-| `server/dist/*.cjs`                | Checked-in MCP server and publisher CLI bundles                |
+| `server/src/publish.ts`, `dyna.ts` | Strict scheduled-publication and item-synchronization CLIs     |
+| `server/dist/*.cjs`                | Checked-in MCP server and CLI bundles                          |
+| `bin/dyna`                         | Installed cross-task Dyna item launcher                        |
 | `web/flowzone.html`                | Universal accessible FlowZone UI shell                         |
 | `web/dist/flowzone.js`             | Checked-in minified MCP Apps UI bundle                         |
 | `web/dyna.html`, `web/dist/dyna.*` | Dedicated checked-in Dyna MCP Apps resource                    |

@@ -244,8 +244,7 @@ try {
       taskId: `task-${index}`,
       hostId: "local",
       title: `Task ${index}`,
-      state: "succeeded",
-      outcome: `Task ${index} completed successfully.`,
+      state: "running",
       statusUpdatedAt: now,
       observedAt: now,
     });

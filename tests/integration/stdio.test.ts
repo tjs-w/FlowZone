@@ -103,6 +103,8 @@ describe("checked-in Node stdio bundle", () => {
         "recover_markdown_review_document",
         "load_markdown_review_image_chunk",
         "dyna_get_snapshot",
+        "dyna_get_item_activity",
+        "dyna_set_item_status",
         "dyna_archive_item",
         "dyna_restore_item",
         "dyna_add_annotation",
@@ -112,6 +114,13 @@ describe("checked-in Node stdio bundle", () => {
         "dyna_mark_action_delivered",
         "dyna_action_status",
       ]);
+      for (const toolName of ["render_dyna_dashboard", "dyna_get_snapshot"] as const) {
+        expect(tools.tools.find((tool) => tool.name === toolName)?.annotations).toMatchObject({
+          readOnlyHint: false,
+          destructiveHint: false,
+          openWorldHint: false,
+        });
+      }
 
       const resource = await client.readResource({ uri: "ui://flowzone/v5.html" });
       const content = resource.contents[0];

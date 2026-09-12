@@ -1,0 +1,131 @@
+#!/bin/sh
+
+set -eu
+
+DYNA_TTY_STATE=
+DYNA_CHILD_PID=
+
+dyna_restore_tty() {
+  if [ -n "$DYNA_TTY_STATE" ] && [ -t 0 ]; then
+    stty "$DYNA_TTY_STATE" 2>/dev/null || :
+  fi
+}
+
+dyna_finish() {
+  DYNA_EXIT_STATUS=$1
+  dyna_restore_tty
+  trap - 0
+  exit "$DYNA_EXIT_STATUS"
+}
+
+dyna_handle_signal() {
+  DYNA_SIGNAL=$1
+  DYNA_SIGNAL_STATUS=$2
+  trap - "$DYNA_SIGNAL"
+  if [ -n "$DYNA_CHILD_PID" ] && kill -0 "$DYNA_CHILD_PID" 2>/dev/null; then
+    kill -"$DYNA_SIGNAL" "$DYNA_CHILD_PID" 2>/dev/null || :
+    wait "$DYNA_CHILD_PID" 2>/dev/null || :
+  fi
+  dyna_finish "$DYNA_SIGNAL_STATUS"
+}
+
+dyna_handle_stop() {
+  trap - TSTP
+  dyna_restore_tty
+  if [ -n "$DYNA_CHILD_PID" ] && kill -0 "$DYNA_CHILD_PID" 2>/dev/null; then
+    # A terminal-generated Ctrl-Z may already have stopped the child. Queue a
+    # termination and continue it so it can exit instead of leaving a hidden
+    # suspended process behind after terminal echo is restored.
+    kill -TERM "$DYNA_CHILD_PID" 2>/dev/null || :
+    kill -CONT "$DYNA_CHILD_PID" 2>/dev/null || :
+    wait "$DYNA_CHILD_PID" 2>/dev/null || :
+  fi
+  dyna_finish 148
+}
+
+dyna_fail() {
+  printf '{"schema":"dyna/error-v1","code":"%s","message":"%s"}\n' "$1" "$2" >&2
+  exit "$3"
+}
+
+dyna_node_is_supported() {
+  "$1" -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 22 || (major === 22 && minor >= 13) ? 0 : 1)' </dev/null >/dev/null 2>&1
+}
+
+dyna_run_node() {
+  DYNA_SELECTED_NODE=$1
+  shift
+  FLOWZONE_DYNA_TTY_STATE=$DYNA_TTY_STATE
+  export FLOWZONE_DYNA_TTY_STATE
+  "$DYNA_SELECTED_NODE" "$DYNA_BUNDLE_PATH" "$@" <&0 &
+  DYNA_CHILD_PID=$!
+  if wait "$DYNA_CHILD_PID"; then
+    DYNA_CHILD_STATUS=0
+  else
+    DYNA_CHILD_STATUS=$?
+  fi
+  DYNA_CHILD_PID=
+  dyna_finish "$DYNA_CHILD_STATUS"
+}
+
+# Disable terminal echo before inspecting arguments so even malformed mutation
+# commands cannot copy private JSON into terminal or tool output.
+if [ -t 0 ]; then
+  if ! DYNA_TTY_STATE=$(stty -g 2>/dev/null) || [ -z "$DYNA_TTY_STATE" ]; then
+    dyna_fail "unavailable" "Dyna could not capture terminal input settings." 126
+  fi
+  trap 'dyna_restore_tty' 0
+  trap 'dyna_handle_signal HUP 129' HUP
+  trap 'dyna_handle_signal INT 130' INT
+  trap 'dyna_handle_signal TERM 143' TERM
+  trap 'dyna_handle_stop' TSTP
+  if ! stty -echo -echonl 2>/dev/null; then
+    dyna_fail "unavailable" "Dyna could not secure terminal input." 126
+  fi
+fi
+
+DYNA_LAUNCHER_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
+DYNA_BUNDLE_PATH="$DYNA_LAUNCHER_DIR/../server/dist/dyna.cjs"
+
+if [ ! -f "$DYNA_BUNDLE_PATH" ]; then
+  dyna_fail "unavailable" "Dyna's bundled CLI is unavailable." 127
+fi
+
+if [ -n "${FLOWZONE_NODE_PATH:-}" ]; then
+  if [ ! -x "$FLOWZONE_NODE_PATH" ]; then
+    dyna_fail "unavailable" "The configured Node.js runtime is unavailable." 127
+  fi
+  if ! dyna_node_is_supported "$FLOWZONE_NODE_PATH"; then
+    dyna_fail "unsupported_runtime" "Dyna requires Node.js 22.13.0 or newer." 126
+  fi
+  dyna_run_node "$FLOWZONE_NODE_PATH" "$@"
+fi
+
+DYNA_UNSUPPORTED_NODE_FOUND=0
+
+for DYNA_NODE_CANDIDATE in \
+  "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node" \
+  "/opt/homebrew/bin/node" \
+  "/usr/local/bin/node" \
+  "/usr/bin/node"
+do
+  if [ -x "$DYNA_NODE_CANDIDATE" ]; then
+    if dyna_node_is_supported "$DYNA_NODE_CANDIDATE"; then
+      dyna_run_node "$DYNA_NODE_CANDIDATE" "$@"
+    fi
+    DYNA_UNSUPPORTED_NODE_FOUND=1
+  fi
+done
+
+if command -v node >/dev/null 2>&1; then
+  if dyna_node_is_supported node; then
+    dyna_run_node node "$@"
+  fi
+  DYNA_UNSUPPORTED_NODE_FOUND=1
+fi
+
+if [ "$DYNA_UNSUPPORTED_NODE_FOUND" -eq 1 ]; then
+  dyna_fail "unsupported_runtime" "Dyna requires Node.js 22.13.0 or newer." 126
+fi
+
+dyna_fail "unavailable" "Node.js is unavailable for Dyna." 127

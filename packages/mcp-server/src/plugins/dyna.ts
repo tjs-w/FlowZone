@@ -5,10 +5,12 @@ import {
   DynaActionStateSchema,
   DynaArchiveReasonSchema,
   DynaArchiveStateSchema,
+  DynaCodexSessionCandidatesSchema,
   DynaCredentialModeSchema,
   DynaDashboardSchema,
   DynaItemContextSchema,
   DynaItemHistorySchema,
+  DynaItemStatusResultSchema,
   DynaNextStepSchema,
   DynaPersonSignalSchema,
   DynaPrioritySchema,
@@ -17,9 +19,14 @@ import {
   DynaRequiredSourceSlicesSchema,
   DynaScheduledPublishedItemSchema,
   DynaSourceRefSchema,
+  DynaSetItemStatusInputSchema,
   DynaTaskStatusSchema,
   DynaTodoInputSchema,
   DynaUiPayloadSchema,
+  DynaWorkStateSchema,
+  DynaWorkActivityPageSchema,
+  DynaWorkTaskAttributionSchema,
+  DynaWorkUpdateSchema,
 } from "@flowzone/dyna-contracts";
 import { DynaService } from "@flowzone/dyna-node";
 import { z } from "zod";
@@ -27,7 +34,11 @@ import { z } from "zod";
 import type { FlowZoneAppTool, FlowZonePlugin } from "../plugin.js";
 
 export const DYNA_PLUGIN_ID = "dyna";
-export const DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v9.html";
+export const DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v12.html";
+export const LEGACY_DYNA_TEMPLATE_URIS = [
+  "ui://flowzone/dyna/v11.html",
+  "ui://flowzone/dyna/v10.html",
+] as const;
 
 const DashboardIdSchema = z.object({ dashboardId: z.uuid() }).strict();
 const ViewTokenSchema = z
@@ -78,6 +89,68 @@ const DashboardListSchema = z
   .object({ dashboards: z.array(DynaDashboardSchema).max(100) })
   .strict();
 const IdentifierSchema = z.string().trim().min(1).max(256);
+const PrepareActionInputSchema = z
+  .object({
+    viewToken: z.string().min(32).max(128),
+    itemId: z.uuid(),
+    taskId: IdentifierSchema.optional(),
+    taskHostId: IdentifierSchema.optional(),
+    sessionListRequestId: z.uuid().optional(),
+    kind: DynaActionKindSchema,
+    expectedRevision: z.number().int().nonnegative(),
+    expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+    idempotencyKey: z.string().trim().min(1).max(1_024),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    const exactTaskTarget = Boolean(input.taskId && input.taskHostId);
+    if (Boolean(input.taskId) !== Boolean(input.taskHostId)) {
+      context.addIssue({
+        code: "custom",
+        path: [input.taskId ? "taskHostId" : "taskId"],
+        message: "A Codex task target requires both task and host identifiers.",
+      });
+    }
+    if (input.kind === "attach_codex_task") {
+      if (!exactTaskTarget) {
+        context.addIssue({
+          code: "custom",
+          path: ["taskId"],
+          message: "A Codex session attachment requires an exact task and host.",
+        });
+      }
+      if (!input.sessionListRequestId) {
+        context.addIssue({
+          code: "custom",
+          path: ["sessionListRequestId"],
+          message: "A Codex session attachment requires its authorized session list.",
+        });
+      }
+      return;
+    }
+    if (input.sessionListRequestId) {
+      context.addIssue({
+        code: "custom",
+        path: ["sessionListRequestId"],
+        message: "Only a Codex session attachment can use a session list request.",
+      });
+    }
+    if (input.kind === "open_codex_task" || input.kind === "refresh_codex_status") {
+      if (!exactTaskTarget) {
+        context.addIssue({
+          code: "custom",
+          path: ["taskId"],
+          message: "This Dyna action requires an exact linked task and host.",
+        });
+      }
+    } else if (input.taskId || input.taskHostId) {
+      context.addIssue({
+        code: "custom",
+        path: ["taskId"],
+        message: "This Dyna action cannot target a Codex task.",
+      });
+    }
+  });
 const ScheduleSchema = z
   .object({
     scheduleId: IdentifierSchema,
@@ -102,6 +175,12 @@ const SearchItemSchema = z
     plan: z.array(z.string().trim().min(1).max(200)).max(4),
     nextSteps: z.array(DynaNextStepSchema).max(4),
     outcome: z.string().trim().min(1).max(200).optional(),
+    workState: DynaWorkStateSchema.optional(),
+    workUpdates: z.array(DynaWorkUpdateSchema).max(1),
+    workUpdateCount: z.number().int().nonnegative(),
+    workConditionSummary: z.string().trim().min(1).max(200).optional(),
+    workConditionTask: DynaWorkTaskAttributionSchema.optional(),
+    matchedActivity: z.string().trim().min(1).max(500).optional(),
     linkedTasks: z.array(DynaTaskStatusSchema).max(8),
     archive: DynaArchiveStateSchema.optional(),
   })
@@ -135,6 +214,7 @@ const CompletionInputSchema = z.discriminatedUnion("outcome", [
       claimToken: z.string().min(32).max(128),
       outcome: z.literal("succeeded"),
       task: DynaTaskStatusSchema.optional(),
+      candidates: DynaCodexSessionCandidatesSchema.optional(),
     })
     .strict(),
   z
@@ -178,7 +258,7 @@ function appTools(service: DynaService): readonly FlowZoneAppTool[] {
         .object({ revision: z.number().int().nonnegative(), changed: z.boolean() })
         .strict(),
       annotations: {
-        readOnlyHint: true,
+        readOnlyHint: false,
         destructiveHint: false,
         openWorldHint: false,
         idempotentHint: true,
@@ -191,6 +271,83 @@ function appTools(service: DynaService): readonly FlowZoneAppTool[] {
           structuredContent: { revision: payload.snapshot.revision, changed },
           content: [],
           _meta: { dynaDashboard: payload },
+        };
+      },
+    },
+    {
+      name: "dyna_get_item_activity",
+      title: "Load Dyna item activity",
+      description:
+        "Return one bounded activity page for an item in the capability-bound Dyna view.",
+      inputSchema: z
+        .object({
+          viewToken: z.string().min(32).max(128),
+          itemId: z.uuid(),
+          cursor: z.string().trim().min(1).max(512).optional(),
+          limit: z.number().int().min(1).max(25).default(25),
+        })
+        .strict(),
+      outputSchema: z
+        .object({
+          itemId: z.uuid(),
+          returned: z.number().int().nonnegative().max(25),
+          total: z.number().int().nonnegative(),
+          hasMore: z.boolean(),
+        })
+        .strict(),
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+        idempotentHint: true,
+      },
+      handler(input) {
+        const { viewToken, itemId, cursor, limit } = z
+          .object({
+            viewToken: z.string().min(32).max(128),
+            itemId: z.uuid(),
+            cursor: z.string().trim().min(1).max(512).optional(),
+            limit: z.number().int().min(1).max(25).default(25),
+          })
+          .strict()
+          .parse(input);
+        const dashboardId = service.store.authorizeView(viewToken, itemId);
+        const page = DynaWorkActivityPageSchema.parse(
+          service.itemActivityPage(dashboardId, itemId, {
+            limit,
+            ...(cursor ? { cursor } : {}),
+          }),
+        );
+        return {
+          structuredContent: {
+            itemId,
+            returned: page.updates.length,
+            total: page.total,
+            hasMore: page.nextCursor !== undefined,
+          },
+          content: [],
+          _meta: { dynaWorkActivity: page },
+        };
+      },
+    },
+    {
+      name: "dyna_set_item_status",
+      title: "Change Dyna item status",
+      description:
+        "Retry-safely change the user-controlled lifecycle status of a taskless item in this capability-bound Dyna view.",
+      inputSchema: DynaSetItemStatusInputSchema,
+      outputSchema: DynaItemStatusResultSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+        idempotentHint: true,
+      },
+      handler(input) {
+        const parsed = DynaSetItemStatusInputSchema.parse(input);
+        return {
+          structuredContent: service.setItemStatus(parsed),
+          content: [],
         };
       },
     },
@@ -394,18 +551,7 @@ function appTools(service: DynaService): readonly FlowZoneAppTool[] {
       title: "Prepare Dyna action",
       description:
         "Prepare a short-lived, capability-bound request for the current Codex task to handle.",
-      inputSchema: z
-        .object({
-          viewToken: z.string().min(32).max(128),
-          itemId: z.uuid(),
-          taskId: IdentifierSchema.optional(),
-          taskHostId: IdentifierSchema.optional(),
-          kind: DynaActionKindSchema,
-          expectedRevision: z.number().int().nonnegative(),
-          expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
-          idempotencyKey: z.string().trim().min(1).max(1_024),
-        })
-        .strict(),
+      inputSchema: PrepareActionInputSchema,
       outputSchema: z
         .object({ requestId: z.uuid(), expiresAt: z.iso.datetime({ offset: true }) })
         .strict(),
@@ -416,23 +562,14 @@ function appTools(service: DynaService): readonly FlowZoneAppTool[] {
         idempotentHint: false,
       },
       handler(input) {
-        const parsed = z
-          .object({
-            viewToken: z.string().min(32).max(128),
-            itemId: z.uuid(),
-            taskId: IdentifierSchema.optional(),
-            taskHostId: IdentifierSchema.optional(),
-            kind: DynaActionKindSchema,
-            expectedRevision: z.number().int().nonnegative(),
-            expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
-            idempotencyKey: z.string().trim().min(1).max(1_024),
-          })
-          .strict()
-          .parse(input);
+        const parsed = PrepareActionInputSchema.parse(input);
         const request = service.store.prepareAction(parsed.viewToken, parsed.kind, {
           itemId: parsed.itemId,
           ...(parsed.taskId ? { taskId: parsed.taskId } : {}),
           ...(parsed.taskHostId ? { taskHostId: parsed.taskHostId } : {}),
+          ...(parsed.sessionListRequestId
+            ? { sessionListRequestId: parsed.sessionListRequestId }
+            : {}),
           expectedRevision: parsed.expectedRevision,
           expectedFingerprint: parsed.expectedFingerprint,
           idempotencyKey: parsed.idempotencyKey,
@@ -486,8 +623,13 @@ function appTools(service: DynaService): readonly FlowZoneAppTool[] {
           .object({ viewToken: z.string().min(32).max(128), requestId: z.uuid() })
           .strict()
           .parse(input);
-        const request = service.store.actionStatusForView(viewToken, requestId);
-        return { structuredContent: request, content: [] };
+        const status = service.store.actionStatusForView(viewToken, requestId);
+        const { candidates, ...request } = status;
+        return {
+          structuredContent: request,
+          content: [],
+          ...(candidates ? { _meta: { dynaCodexSessionCandidates: candidates } } : {}),
+        };
       },
     },
   ];
@@ -629,7 +771,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
             items: z.array(SearchItemSchema).max(20),
           })
           .strict(),
-        risk: { readOnly: true, destructive: false, openWorld: false, idempotent: true },
+        risk: { readOnly: false, destructive: false, openWorld: false, idempotent: true },
         executor: {
           kind: "module",
           execute(input) {
@@ -653,7 +795,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
                   fingerprint: card.fingerprint,
                   title: card.title,
                   summary: card.summary,
-                  sourceRef: service.store.itemContext(card.id).sourceRef,
+                  sourceRef: card.sourceRef,
                   priority: card.priority,
                   priorityReason: card.priorityReason,
                   sourceUpdatedAt: card.sourceUpdatedAt,
@@ -663,6 +805,14 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
                   plan: card.plan,
                   nextSteps: card.nextSteps,
                   ...(card.outcome ? { outcome: card.outcome } : {}),
+                  ...(card.workState ? { workState: card.workState } : {}),
+                  workUpdates: card.workUpdates,
+                  workUpdateCount: card.workUpdateCount,
+                  ...(card.workConditionSummary
+                    ? { workConditionSummary: card.workConditionSummary }
+                    : {}),
+                  ...(card.workConditionTask ? { workConditionTask: card.workConditionTask } : {}),
+                  ...(card.matchedActivity ? { matchedActivity: card.matchedActivity } : {}),
                   linkedTasks: card.linkedTasks,
                   ...(card.archive ? { archive: card.archive } : {}),
                 })),
@@ -1063,25 +1213,9 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
         id: "get-item-context",
         title: "Get Dyna item context",
         description:
-          "Read the bounded immutable source context for a Dyna item before executing an approved action.",
-        inputSchema: z.object({ itemId: z.uuid() }).strict(),
-        outputSchema: DynaItemContextSchema,
-        risk: { readOnly: true, destructive: false, openWorld: false, idempotent: true },
-        executor: {
-          kind: "module",
-          execute(input) {
-            const { itemId } = z.object({ itemId: z.uuid() }).strict().parse(input);
-            return { result: service.store.itemContext(itemId) };
-          },
-        },
-      },
-      {
-        id: "get-item-history",
-        title: "Get Dyna item history",
-        description:
-          "Read dashboard-local archive dispositions, restorations, and priority ordering history for retrospective reporting.",
+          "Read the bounded immutable source context for an exact dashboard item before executing an approved action.",
         inputSchema: z.object({ dashboardId: z.uuid(), itemId: z.uuid() }).strict(),
-        outputSchema: DynaItemHistorySchema,
+        outputSchema: DynaItemContextSchema,
         risk: { readOnly: true, destructive: false, openWorld: false, idempotent: true },
         executor: {
           kind: "module",
@@ -1090,7 +1224,61 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
               .object({ dashboardId: z.uuid(), itemId: z.uuid() })
               .strict()
               .parse(input);
-            return { result: service.store.itemHistory(dashboardId, itemId) };
+            service.store.assertDashboardContainsItem(dashboardId, itemId);
+            return { result: service.store.itemContext(itemId) };
+          },
+        },
+      },
+      {
+        id: "get-item-history",
+        title: "Get Dyna item history",
+        description:
+          "Read archive, priority ordering, user workflow, and work-update history for retrospective reporting.",
+        inputSchema: z
+          .object({
+            dashboardId: z.uuid(),
+            itemId: z.uuid(),
+            limit: z.number().int().min(1).max(50).default(50),
+            archiveCursor: z.string().trim().min(1).max(512).optional(),
+            orderCursor: z.string().trim().min(1).max(512).optional(),
+            statusCursor: z.string().trim().min(1).max(512).optional(),
+            workCursor: z.string().trim().min(1).max(512).optional(),
+          })
+          .strict(),
+        outputSchema: DynaItemHistorySchema,
+        risk: { readOnly: true, destructive: false, openWorld: false, idempotent: true },
+        executor: {
+          kind: "module",
+          execute(input) {
+            const {
+              dashboardId,
+              itemId,
+              limit,
+              archiveCursor,
+              orderCursor,
+              statusCursor,
+              workCursor,
+            } = z
+              .object({
+                dashboardId: z.uuid(),
+                itemId: z.uuid(),
+                limit: z.number().int().min(1).max(50).default(50),
+                archiveCursor: z.string().trim().min(1).max(512).optional(),
+                orderCursor: z.string().trim().min(1).max(512).optional(),
+                statusCursor: z.string().trim().min(1).max(512).optional(),
+                workCursor: z.string().trim().min(1).max(512).optional(),
+              })
+              .strict()
+              .parse(input);
+            return {
+              result: service.itemHistory(dashboardId, itemId, {
+                limit,
+                ...(archiveCursor ? { archiveCursor } : {}),
+                ...(orderCursor ? { orderCursor } : {}),
+                ...(statusCursor ? { statusCursor } : {}),
+                ...(workCursor ? { workCursor } : {}),
+              }),
+            };
           },
         },
       },
@@ -1099,17 +1287,19 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
         title: "Attach Codex task to Dyna item",
         description:
           "Attach controller-observed metadata for an existing Codex task so its status can be shown and refreshed from the dashboard.",
-        inputSchema: z.object({ itemId: z.uuid(), task: DynaTaskStatusSchema }).strict(),
+        inputSchema: z
+          .object({ dashboardId: z.uuid(), itemId: z.uuid(), task: DynaTaskStatusSchema })
+          .strict(),
         outputSchema: EmptyResultSchema,
         risk: { readOnly: false, destructive: false, openWorld: false, idempotent: true },
         executor: {
           kind: "module",
           execute(input) {
-            const { itemId, task } = z
-              .object({ itemId: z.uuid(), task: DynaTaskStatusSchema })
+            const { dashboardId, itemId, task } = z
+              .object({ dashboardId: z.uuid(), itemId: z.uuid(), task: DynaTaskStatusSchema })
               .strict()
               .parse(input);
-            service.store.upsertTaskStatus(itemId, task);
+            service.updateTask(dashboardId, itemId, task);
             return { result: { ok: true as const } };
           },
         },
@@ -1158,7 +1348,11 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
                 parsed.requestId,
                 parsed.claimToken,
                 parsed.outcome === "succeeded"
-                  ? { outcome: parsed.outcome, ...(parsed.task ? { task: parsed.task } : {}) }
+                  ? {
+                      outcome: parsed.outcome,
+                      ...(parsed.task ? { task: parsed.task } : {}),
+                      ...(parsed.candidates ? { candidates: parsed.candidates } : {}),
+                    }
                   : { outcome: parsed.outcome, failureMessage: parsed.failureMessage },
               ),
             };
@@ -1201,7 +1395,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
             itemCount: z.number().int().nonnegative(),
           })
           .strict(),
-        risk: { readOnly: true, destructive: false, openWorld: false, idempotent: false },
+        risk: { readOnly: false, destructive: false, openWorld: false, idempotent: false },
         ui: {
           view: "dashboard",
           payloadSchema: DynaUiPayloadSchema,

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -40,18 +41,26 @@ describe("Dyna checked-in Node bundle", () => {
     try {
       const resources = await client.listResources();
       const dynaResource = resources.resources.find(
-        (resource) => resource.uri === "ui://flowzone/dyna/v9.html",
+        (resource) => resource.uri === "ui://flowzone/dyna/v12.html",
+      );
+      expect(resources.resources.map((resource) => resource.uri)).toContain(
+        "ui://flowzone/dyna/v11.html",
+      );
+      expect(resources.resources.map((resource) => resource.uri)).toContain(
+        "ui://flowzone/dyna/v10.html",
       );
       expect(dynaResource?._meta?.["ui"]).toEqual({
         prefersBorder: true,
         csp: { connectDomains: [], resourceDomains: [], frameDomains: [] },
         permissions: { clipboardWrite: {} },
       });
-      const dynaHtml = await client.readResource({ uri: "ui://flowzone/dyna/v9.html" });
+      const dynaHtml = await client.readResource({ uri: "ui://flowzone/dyna/v12.html" });
       const dynaContent = dynaHtml.contents[0];
       expect(dynaContent && "text" in dynaContent ? dynaContent.text : "").toContain(
         'id="dyna-root"',
       );
+      const legacyDynaHtml = await client.readResource({ uri: "ui://flowzone/dyna/v11.html" });
+      expect(legacyDynaHtml.contents[0]?.uri).toBe("ui://flowzone/dyna/v11.html");
 
       const create = await client.callTool({
         name: "flowzone",
@@ -262,7 +271,7 @@ describe("Dyna checked-in Node bundle", () => {
         "The MR is ready for review.",
       );
       const payload = record(record(rendered._meta)["dynaDashboard"]);
-      expect(payload["schema"]).toBe("dyna/ui-v6");
+      expect(payload["schema"]).toBe("dyna/ui-v7");
       expect("spec" in payload).toBe(false);
       const viewToken = payload["viewToken"];
       const snapshot = record(payload["snapshot"]);
@@ -270,6 +279,23 @@ describe("Dyna checked-in Node bundle", () => {
       if (typeof viewToken !== "string" || !Array.isArray(cards))
         throw new Error("Missing private Dyna payload");
       expect(record(cards[0])["id"]).toBe(itemId);
+
+      const emptyActivity = await client.callTool({
+        name: "dyna_get_item_activity",
+        arguments: { viewToken, itemId, limit: 25 },
+      });
+      expect(emptyActivity.structuredContent).toEqual({
+        itemId,
+        returned: 0,
+        total: 0,
+        hasMore: false,
+      });
+      expect(record(emptyActivity._meta?.["dynaWorkActivity"])).toEqual({
+        itemId,
+        updates: [],
+        total: 0,
+      });
+      expect(JSON.stringify(emptyActivity.structuredContent)).not.toContain("updates");
 
       const annotationRequestId = "8300a8a9-e686-4d6f-8c1e-2b30bd9cff47";
       const annotationArguments = {
@@ -395,7 +421,7 @@ describe("Dyna checked-in Node bundle", () => {
         arguments: { viewToken },
       });
       const refreshedPayload = record(record(refreshed._meta)["dynaDashboard"]);
-      expect(refreshedPayload["schema"]).toBe("dyna/ui-v6");
+      expect(refreshedPayload["schema"]).toBe("dyna/ui-v7");
       expect("spec" in refreshedPayload).toBe(false);
       const refreshedSnapshot = record(refreshedPayload["snapshot"]);
       expect(record(refreshedSnapshot["counts"])["critical"]).toBe(1);
@@ -504,7 +530,9 @@ describe("Dyna checked-in Node bundle", () => {
         },
       });
       const sourceOpenClaim = record(record(claimedSourceOpen.structuredContent)["result"]);
-      expect(record(sourceOpenClaim["request"])["kind"]).toBe("open_source");
+      const sourceOpenRequest = record(sourceOpenClaim["request"]);
+      expect(sourceOpenRequest["kind"]).toBe("open_source");
+      expect(sourceOpenRequest["dashboardId"]).toBe(dashboardId);
       const sourceOpenContext = record(record(sourceOpenClaim["context"])["item"]);
       expect(sourceOpenContext["trustBoundary"]).toBe("untrusted_reference_data");
       expect(record(sourceOpenContext["sourceRef"])["projectPath"]).toBe("group/project");
@@ -676,12 +704,56 @@ describe("Dyna checked-in Node bundle", () => {
       });
       expect(completionReplay.isError).toBe(true);
 
-      await client.callTool({
+      const swappedDashboardContext = await client.callTool({
+        name: "flowzone",
+        arguments: {
+          plugin: "dyna",
+          action: "get-item-context",
+          input: { dashboardId: otherDashboardId, itemId },
+        },
+      });
+      expect(swappedDashboardContext.isError).toBe(true);
+      const exactDashboardContext = await client.callTool({
+        name: "flowzone",
+        arguments: {
+          plugin: "dyna",
+          action: "get-item-context",
+          input: { dashboardId, itemId },
+        },
+      });
+      expect(exactDashboardContext.isError).toBeUndefined();
+      expect(record(record(exactDashboardContext.structuredContent)["result"])["fingerprint"]).toBe(
+        initialItemFingerprint,
+      );
+
+      const swappedDashboardAttach = await client.callTool({
         name: "flowzone",
         arguments: {
           plugin: "dyna",
           action: "attach-codex-task",
           input: {
+            dashboardId: otherDashboardId,
+            itemId,
+            task: {
+              taskId: "task-123",
+              hostId: "local",
+              title: "Wrong dashboard",
+              state: "failed",
+              statusUpdatedAt: "2020-01-01T00:00:00.000Z",
+              observedAt: new Date().toISOString(),
+            },
+          },
+        },
+      });
+      expect(swappedDashboardAttach.isError).toBe(true);
+
+      const skillShapedAttach = await client.callTool({
+        name: "flowzone",
+        arguments: {
+          plugin: "dyna",
+          action: "attach-codex-task",
+          input: {
+            dashboardId,
             itemId,
             task: {
               taskId: "task-123",
@@ -694,6 +766,7 @@ describe("Dyna checked-in Node bundle", () => {
           },
         },
       });
+      expect(skillShapedAttach.isError).toBeUndefined();
       const taskRefresh = await client.callTool({
         name: "dyna_get_snapshot",
         arguments: { viewToken },
@@ -1035,6 +1108,174 @@ describe("Dyna checked-in Node bundle", () => {
       const emptySnapshot = record(record(record(emptyRefresh._meta)["dynaDashboard"])["snapshot"]);
       expect(emptySnapshot["cards"]).toEqual([]);
       expect(record(emptySnapshot["counts"])["total"]).toBe(0);
+    } finally {
+      await client.close();
+    }
+  }, 20_000);
+
+  test("refreshes an exact task binding but rejects new bindings after completion and archive", async () => {
+    const dataDirectory = await mkdtemp(join(tmpdir(), "flowzone-dyna-task-lifecycle-"));
+    temporaryDirectories.push(dataDirectory);
+    const transport = new StdioClientTransport({
+      command: "node",
+      args: [resolve(pluginRoot, "server/dist/server.cjs")],
+      cwd: pluginRoot,
+      env: { FLOWZONE_DATA_DIR: dataDirectory, PATH: process.env["PATH"] ?? "" },
+      stderr: "pipe",
+    });
+    const client = new Client({ name: "dyna-task-lifecycle-test", version: "0.1.0" });
+    await client.connect(transport);
+
+    try {
+      const created = await client.callTool({
+        name: "flowzone",
+        arguments: {
+          plugin: "dyna",
+          action: "create-dashboard",
+          input: { name: "Task lifecycle", description: "Binding boundary coverage" },
+        },
+      });
+      const dashboardId = record(record(created.structuredContent)["result"])["id"];
+      if (typeof dashboardId !== "string") throw new Error("Missing lifecycle dashboard ID");
+      const rendered = await client.callTool({
+        name: "render_dyna_dashboard",
+        arguments: { dashboardId },
+      });
+      const viewToken = record(record(rendered._meta)["dynaDashboard"])["viewToken"];
+      if (typeof viewToken !== "string") throw new Error("Missing lifecycle view token");
+      const added = await client.callTool({
+        name: "dyna_add_todo",
+        arguments: {
+          viewToken,
+          clientRequestId: randomUUID(),
+          title: "Verify task binding lifecycle",
+          priority: "normal",
+          labels: [],
+        },
+      });
+      const itemId = record(added.structuredContent)["itemId"];
+      if (typeof itemId !== "string") throw new Error("Missing lifecycle item ID");
+
+      const attach = (task: Readonly<Record<string, unknown>>) =>
+        client.callTool({
+          name: "flowzone",
+          arguments: {
+            plugin: "dyna",
+            action: "attach-codex-task",
+            input: { dashboardId, itemId, task },
+          },
+        });
+      const now = Date.now();
+      expect(
+        (
+          await attach({
+            taskId: "task-bound",
+            hostId: "local",
+            title: "Initial task",
+            state: "running",
+            statusUpdatedAt: new Date(now - 4_000).toISOString(),
+            observedAt: new Date(now - 4_000).toISOString(),
+          })
+        ).isError,
+      ).toBeUndefined();
+      expect(
+        (
+          await attach({
+            taskId: "task-bound",
+            hostId: "local",
+            title: "Completed task",
+            state: "succeeded",
+            outcome: "Verified the task binding lifecycle.",
+            statusUpdatedAt: new Date(now - 3_000).toISOString(),
+            observedAt: new Date(now - 3_000).toISOString(),
+          })
+        ).isError,
+      ).toBeUndefined();
+
+      const completedRefresh = await attach({
+        taskId: "task-bound",
+        hostId: "local",
+        title: "Completed task, refreshed",
+        state: "succeeded",
+        outcome: "Verified the task binding lifecycle and refreshed controller metadata.",
+        statusUpdatedAt: new Date(now - 2_000).toISOString(),
+        observedAt: new Date(now - 2_000).toISOString(),
+      });
+      expect(completedRefresh.isError).toBeUndefined();
+      const completedNewBinding = await attach({
+        taskId: "task-new-after-completion",
+        hostId: "local",
+        title: "Must not attach",
+        state: "running",
+        statusUpdatedAt: new Date(now - 1_000).toISOString(),
+        observedAt: new Date(now - 1_000).toISOString(),
+      });
+      expect(completedNewBinding.isError).toBe(true);
+
+      const activeRefresh = await client.callTool({
+        name: "dyna_get_snapshot",
+        arguments: { viewToken },
+      });
+      const activeSnapshot = record(
+        record(record(activeRefresh._meta)["dynaDashboard"])["snapshot"],
+      );
+      const activeCards = activeSnapshot["cards"];
+      if (!Array.isArray(activeCards)) throw new Error("Missing lifecycle active cards");
+      const completedCard = activeCards.map(record).find((card) => card["id"] === itemId);
+      if (!completedCard) throw new Error("Missing completed lifecycle card");
+      expect(completedCard["workflowState"]).toBe("completed");
+      const completedTasks = completedCard["linkedTasks"];
+      if (!Array.isArray(completedTasks)) throw new Error("Missing completed linked tasks");
+      expect(completedTasks).toHaveLength(1);
+      expect(record(completedTasks[0])["title"]).toBe("Completed task, refreshed");
+
+      const archived = await client.callTool({
+        name: "dyna_archive_item",
+        arguments: {
+          viewToken,
+          itemId,
+          reason: "completed",
+          expectedRevision: activeSnapshot["revision"],
+          expectedFingerprint: completedCard["fingerprint"],
+          clientRequestId: randomUUID(),
+        },
+      });
+      expect(archived.isError).toBeUndefined();
+      const archivedNewBinding = await attach({
+        taskId: "task-new-after-archive",
+        hostId: "local",
+        title: "Must not attach",
+        state: "running",
+        statusUpdatedAt: new Date(now).toISOString(),
+        observedAt: new Date(now).toISOString(),
+      });
+      expect(archivedNewBinding.isError).toBe(true);
+      const archivedExistingRefresh = await attach({
+        taskId: "task-bound",
+        hostId: "local",
+        title: "Archived task, refreshed",
+        state: "succeeded",
+        outcome: "Verified archived task metadata remains refreshable.",
+        statusUpdatedAt: new Date(now + 1_000).toISOString(),
+        observedAt: new Date(now + 1_000).toISOString(),
+      });
+      expect(archivedExistingRefresh.isError).toBeUndefined();
+
+      const archiveRefresh = await client.callTool({
+        name: "dyna_get_snapshot",
+        arguments: { viewToken, scope: "archive" },
+      });
+      const archiveSnapshot = record(
+        record(record(archiveRefresh._meta)["dynaDashboard"])["snapshot"],
+      );
+      const archiveCards = archiveSnapshot["cards"];
+      if (!Array.isArray(archiveCards)) throw new Error("Missing lifecycle archive cards");
+      const archiveCard = archiveCards.map(record).find((card) => card["id"] === itemId);
+      if (!archiveCard) throw new Error("Missing archived lifecycle card");
+      const archivedTasks = archiveCard["linkedTasks"];
+      if (!Array.isArray(archivedTasks)) throw new Error("Missing archived linked tasks");
+      expect(archivedTasks).toHaveLength(1);
+      expect(record(archivedTasks[0])["title"]).toBe("Archived task, refreshed");
     } finally {
       await client.close();
     }

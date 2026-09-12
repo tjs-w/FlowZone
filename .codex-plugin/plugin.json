@@ -1,6 +1,6 @@
 {
   "name": "flowzone",
-  "version": "0.1.0+codex.20260908064356",
+  "version": "0.1.0+codex.20260911032807",
   "description": "Run secure FlowZone apps, including Markdown Review and Dyna executive dashboards for scheduled signals.",
   "author": {
     "name": "Tejas",
@@ -21,7 +21,7 @@
   "interface": {
     "displayName": "FlowZone",
     "shortDescription": "Markdown review and scheduled executive dashboards.",
-    "longDescription": "Runs statically registered FlowZone apps through one local MCP server. Includes Markdown Review for line-anchored document feedback and Dyna for persistent executive priority queues and Codex progress pipelines built from scheduled email, messaging, source-control, TWG, skill, and Codex signals.",
+    "longDescription": "Runs statically registered FlowZone apps through one local MCP server. Includes Markdown Review for line-anchored document feedback and Dyna for persistent executive priority queues, Codex progress pipelines, and safe cross-task work synchronization built from scheduled email, messaging, source-control, TWG, skill, and Codex signals.",
     "developerName": "Tejas",
     "category": "Productivity",
     "capabilities": [
@@ -31,7 +31,7 @@
     ],
     "defaultPrompt": [
       "Use $flowzone:markdown-review to review this Markdown file.",
-      "Use $flowzone:dyna to open my executive dashboard."
+      "Use $flowzone:dyna to open my executive dashboard and keep its work items synchronized."
     ],
     "brandColor": "#7057D9"
   },

@@ -9,6 +9,10 @@ import { compile as compileTailwind } from "tailwindcss";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const checkOnly = process.argv.includes("--check");
 const temporaryRoot = checkOnly ? await mkdtemp(join(tmpdir(), "flowzone-build-")) : root;
+// Keep a narrow explicit ceiling while allowing bounded activity history, the
+// session picker, and the dependency-free accessible context menu.
+const DYNA_BROWSER_BUDGET_KIB = 856;
+const DYNA_BROWSER_BUDGET_BYTES = DYNA_BROWSER_BUDGET_KIB * 1024;
 
 const outputs = [
   {
@@ -24,6 +28,16 @@ const outputs = [
   {
     source: resolve(root, "server/src/publish.ts"),
     destination: "server/dist/flowzone-publish.cjs",
+    options: {
+      platform: "node",
+      format: "cjs",
+      target: "node22",
+      minify: true,
+    } satisfies BuildOptions,
+  },
+  {
+    source: resolve(root, "server/src/dyna.ts"),
+    destination: "server/dist/dyna.cjs",
     options: {
       platform: "node",
       format: "cjs",
@@ -67,10 +81,13 @@ async function compile(): Promise<void> {
       outfile: resolve(temporaryRoot, output.destination),
       sourcemap: false,
     });
-    if (output.destination === "server/dist/flowzone-publish.cjs") {
-      const publisherPath = resolve(temporaryRoot, output.destination);
-      const publisher = await readFile(publisherPath, "utf8");
-      await writeFile(publisherPath, publisher.replace(/[ \t]+$/gm, ""));
+    if (
+      output.destination === "server/dist/flowzone-publish.cjs" ||
+      output.destination === "server/dist/dyna.cjs"
+    ) {
+      const cliPath = resolve(temporaryRoot, output.destination);
+      const cli = await readFile(cliPath, "utf8");
+      await writeFile(cliPath, cli.replace(/[ \t]+$/gm, ""));
     }
   }
   const dynaStylesheetPath = resolve(temporaryRoot, "web/dist/dyna.css");
@@ -102,6 +119,7 @@ async function assertBudgets(): Promise<void> {
   const serverBytes = await Promise.all([
     stat(resolve(temporaryRoot, "server/dist/server.cjs")),
     stat(resolve(temporaryRoot, "server/dist/flowzone-publish.cjs")),
+    stat(resolve(temporaryRoot, "server/dist/dyna.cjs")),
   ]).then((values) => values.reduce((total, value) => total + value.size, 0));
   const browserBytes = await Promise.all([
     stat(resolve(root, "web/flowzone.html")),
@@ -121,8 +139,10 @@ async function assertBudgets(): Promise<void> {
   if (browserBytes > 4 * 1024 * 1024) {
     throw new Error(`Browser payload is ${browserBytes} bytes; the limit is 4 MiB.`);
   }
-  if (dynaBytes > 825 * 1024) {
-    throw new Error(`Dyna browser payload is ${dynaBytes} bytes; the limit is 825 KiB.`);
+  if (dynaBytes > DYNA_BROWSER_BUDGET_BYTES) {
+    throw new Error(
+      `Dyna browser payload is ${dynaBytes} bytes; the limit is ${String(DYNA_BROWSER_BUDGET_KIB)} KiB.`,
+    );
   }
 }
 

@@ -18,19 +18,45 @@ function action(actions, id) {
   return found;
 }
 
+function appTool(appTools, name) {
+  const found = appTools.find((candidate) => candidate.name === name);
+  if (!found) throw new Error(`Missing Dyna app tool ${name}`);
+  return found;
+}
+
 async function execute(target, input, executionContext = context) {
   if (target.executor.kind !== "module") throw new Error("Expected a module action");
   return (await target.executor.execute(input, executionContext)).result;
 }
 
 const service = new DynaService({ databasePath: ":memory:" });
-const actions = createDynaPlugin({ service }).actions;
+const plugin = createDynaPlugin({ service });
+const actions = plugin.actions;
+const appTools = plugin.appTools ?? [];
 const requiredSourceSlices = [
   { source: "slack", sourceScope: "slack:executive/release" },
   { source: "gitlab", sourceScope: "gitlab:corp/group/project" },
 ];
 
 try {
+  assert.deepEqual(appTool(appTools, "dyna_get_snapshot").annotations, {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+    idempotentHint: true,
+  });
+  assert.deepEqual(action(actions, "search-items").risk, {
+    readOnly: false,
+    destructive: false,
+    openWorld: false,
+    idempotent: true,
+  });
+  assert.deepEqual(action(actions, "render-dashboard").risk, {
+    readOnly: false,
+    destructive: false,
+    openWorld: false,
+    idempotent: false,
+  });
   const dashboard = service.store.createDashboard("Manifest", "Action schema coverage");
   const created = await execute(action(actions, "create-publisher"), {
     name: "Executive rollup",
@@ -246,6 +272,7 @@ try {
       updateSchema: true,
       inventory: true,
       immutable: true,
+      mutationAnnotations: true,
     }),
   );
 } finally {

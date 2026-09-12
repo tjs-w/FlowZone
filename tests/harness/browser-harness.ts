@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -110,6 +111,19 @@ async function dynaBackend(request: IncomingMessage): Promise<DynaHarnessBackend
   return pending;
 }
 
+async function resetDynaBackend(request: IncomingMessage): Promise<DynaHarnessBackend> {
+  const partition = dynaPartition(request);
+  if (partition === "default") return { client, dataDirectory: dynaDataDirectory };
+  const existing = dynaBackendPromises.get(partition);
+  dynaBackendPromises.delete(partition);
+  if (existing) {
+    const backend = await existing;
+    await backend.client.close();
+    await rm(backend.dataDirectory, { force: true, recursive: true });
+  }
+  return dynaBackend(request);
+}
+
 const resource = await client.readResource({ uri: "ui://flowzone/v5.html" });
 const resourceContent = resource.contents[0];
 if (!resourceContent || !("text" in resourceContent)) {
@@ -128,13 +142,160 @@ function resultRecord(value: unknown): Readonly<Record<string, unknown>> {
   return value as Readonly<Record<string, unknown>>;
 }
 
-const dynaResource = await client.readResource({ uri: "ui://flowzone/dyna/v9.html" });
+const dynaSessionPickerCandidates = [
+  {
+    taskId: "picker-running-task",
+    hostId: "local",
+    projectId: "picker-project",
+    title: "Review release guard",
+    updatedAt: "2026-09-10T18:30:00.000Z",
+  },
+  {
+    taskId: "picker-waiting-task",
+    hostId: "remote-picker",
+    projectId: "picker-project",
+    title: "Review release guard",
+    updatedAt: "2026-09-10T17:15:00.000Z",
+  },
+  {
+    taskId: "picker-completed-task",
+    hostId: "local",
+    title: "Document rollout outcome",
+    updatedAt: "2026-09-10T16:00:00.000Z",
+  },
+] as const;
+
+function flowzoneResult(value: unknown): Readonly<Record<string, unknown>> {
+  const call = resultRecord(value);
+  return resultRecord(resultRecord(call["structuredContent"])["result"]);
+}
+
+async function handleDynaControllerAction(
+  request: IncomingMessage,
+  requestId: string,
+): Promise<Readonly<Record<string, unknown>>> {
+  const backend = await dynaBackend(request);
+  const claimedCall = await backend.client.callTool({
+    name: "flowzone",
+    arguments: {
+      plugin: "dyna",
+      action: "claim-action",
+      input: { requestId },
+    },
+  });
+  if (claimedCall.isError) throw new Error("Could not claim the Dyna browser action.");
+  const claimed = flowzoneResult(claimedCall);
+  const actionRequest = resultRecord(claimed["request"]);
+  const claimToken = claimed["claimToken"];
+  const kind = actionRequest["kind"];
+  if (typeof claimToken !== "string" || typeof kind !== "string") {
+    throw new Error("The claimed Dyna browser action is incomplete.");
+  }
+
+  let completionInput: Readonly<Record<string, unknown>>;
+  if (kind === "list_codex_sessions") {
+    completionInput = {
+      requestId,
+      claimToken,
+      outcome: "succeeded",
+      candidates: dynaSessionPickerCandidates,
+    };
+  } else if (kind === "attach_codex_task") {
+    const taskId = actionRequest["taskId"];
+    const hostId = actionRequest["taskHostId"];
+    if (typeof taskId !== "string" || typeof hostId !== "string") {
+      throw new Error("The Dyna session attachment has no exact task identity.");
+    }
+    const candidate = dynaSessionPickerCandidates.find(
+      (entry) => entry.taskId === taskId && entry.hostId === hostId,
+    );
+    if (!candidate) throw new Error("The selected Dyna session fixture does not exist.");
+    const observedAt = new Date().toISOString();
+    completionInput = {
+      requestId,
+      claimToken,
+      outcome: "succeeded",
+      task: {
+        taskId,
+        hostId,
+        ...("projectId" in candidate ? { projectId: candidate.projectId } : {}),
+        title: candidate.title,
+        state: taskId === "picker-waiting-task" ? "waiting" : "running",
+        statusUpdatedAt: candidate.updatedAt,
+        observedAt,
+      },
+    };
+  } else {
+    return { handled: false, kind };
+  }
+
+  const completedCall = await backend.client.callTool({
+    name: "flowzone",
+    arguments: {
+      plugin: "dyna",
+      action: "complete-action",
+      input: completionInput,
+    },
+  });
+  if (completedCall.isError) throw new Error("Could not complete the Dyna browser action.");
+  const completed = flowzoneResult(completedCall);
+  return { handled: true, kind, state: completed["state"] };
+}
+
+async function runDynaFixtureUpdate(
+  dataDirectory: string,
+  dashboardId: string,
+  itemId: string,
+  fingerprint: string,
+  input: Readonly<Record<string, unknown>>,
+): Promise<void> {
+  const child = spawn(
+    resolve(pluginRoot, "bin/dyna"),
+    [
+      "item",
+      "update",
+      "--dashboard-id",
+      dashboardId,
+      "--item-id",
+      itemId,
+      "--expected-fingerprint",
+      fingerprint,
+    ],
+    {
+      cwd: pluginRoot,
+      env: { ...process.env, FLOWZONE_DATA_DIR: dataDirectory },
+      stdio: ["pipe", "pipe", "pipe"],
+    },
+  );
+  const stdout: Buffer[] = [];
+  const stderr: Buffer[] = [];
+  child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
+  child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+  child.stdin.end(`${JSON.stringify(input)}\n`);
+  const exitCode = await new Promise<number | null>((resolveExit, rejectExit) => {
+    child.once("error", rejectExit);
+    child.once("close", resolveExit);
+  });
+  const output = Buffer.concat(stdout).toString("utf8");
+  if (exitCode !== 0) {
+    throw new Error(
+      `Dyna fixture update failed (${String(exitCode)}): ${Buffer.concat(stderr).toString("utf8")}`,
+    );
+  }
+  const result = resultRecord(JSON.parse(output));
+  if (result["schema"] !== "dyna/item-update-result-v1" || result["itemId"] !== itemId) {
+    throw new Error("Dyna fixture update returned an unexpected result.");
+  }
+}
+
+const dynaResource = await client.readResource({ uri: "ui://flowzone/dyna/v12.html" });
 const dynaResourceContent = dynaResource.contents[0];
 if (!dynaResourceContent || !("text" in dynaResourceContent)) {
   throw new Error("The Dyna HTML resource was not returned");
 }
 async function createDynaFixture(
   client: Client,
+  dataDirectory: string,
   itemCount = 1,
   includePipeline = false,
   longContent = false,
@@ -142,6 +303,8 @@ async function createDynaFixture(
   failedSchedule = false,
   neverRunSchedule = false,
   revokedSchedule = false,
+  workActivity = false,
+  paginatedActivity = false,
 ): Promise<unknown> {
   const fixtureId = randomUUID();
   const now = new Date().toISOString();
@@ -508,6 +671,7 @@ async function createDynaFixture(
           plugin: "dyna",
           action: "attach-codex-task",
           input: {
+            dashboardId,
             itemId,
             task: {
               taskId: `pipeline-task-${String(offset + 1)}`,
@@ -523,6 +687,209 @@ async function createDynaFixture(
           },
         },
       });
+    }
+    openedDyna = await client.callTool({
+      name: "render_dyna_dashboard",
+      arguments: { dashboardId },
+    });
+  }
+  if (workActivity) {
+    const metadata = resultRecord(openedDyna._meta);
+    const payload = resultRecord(metadata["dynaDashboard"]);
+    const snapshot = resultRecord(payload["snapshot"]);
+    const cards = Array.isArray(snapshot["cards"]) ? snapshot["cards"].map(resultRecord) : [];
+    const cardsByTitle = new Map(
+      cards.flatMap((card) =>
+        typeof card["title"] === "string" ? ([[card["title"], card]] as const) : [],
+      ),
+    );
+    const fixtures = [
+      {
+        title: "Review the release merge request",
+        tasks: [{ taskId: "activity-progress-task", title: "Release guard implementation" }],
+      },
+      {
+        title: "Additional priority 1",
+        tasks: [
+          { taskId: "activity-input-task", title: "Architecture decision" },
+          { taskId: "activity-input-blocker-task", title: "Dependency investigation" },
+        ],
+      },
+      {
+        title: "Additional priority 2",
+        tasks: [{ taskId: "activity-blocked-task", title: "Pipeline repair" }],
+      },
+      {
+        title: "Additional priority 3",
+        tasks: [{ taskId: "activity-completion-task", title: "Release verification" }],
+      },
+      {
+        title: "Additional priority 4",
+        tasks: [{ taskId: "activity-superseded-task", title: "Fresh controller observation" }],
+      },
+    ] as const;
+    for (const fixture of fixtures) {
+      const card = cardsByTitle.get(fixture.title);
+      if (!card || typeof card["id"] !== "string") {
+        throw new Error(`Dyna work activity fixture card was not found: ${fixture.title}`);
+      }
+      for (const task of fixture.tasks) {
+        const attachment = await client.callTool({
+          name: "flowzone",
+          arguments: {
+            plugin: "dyna",
+            action: "attach-codex-task",
+            input: {
+              dashboardId,
+              itemId: card["id"],
+              task: {
+                taskId: task.taskId,
+                hostId: "local",
+                title: task.title,
+                state: "running",
+                statusUpdatedAt: now,
+                observedAt: now,
+              },
+            },
+          },
+        });
+        if (attachment.isError) {
+          throw new Error(`Could not attach the Dyna work activity task: ${task.taskId}`);
+        }
+      }
+    }
+
+    const update = async (
+      title: string,
+      taskId: string,
+      workAttemptId: string,
+      values: {
+        readonly kind: "progress" | "decision" | "needs_input" | "blocked" | "completion_reported";
+        readonly body: string;
+        readonly outcome?: string;
+        readonly artifacts?: readonly {
+          readonly kind: "pipeline" | "report" | "merge_request";
+          readonly label: string;
+          readonly url: string;
+        }[];
+      },
+    ) => {
+      const card = cardsByTitle.get(title);
+      const itemId = card?.["id"];
+      const fingerprint = card?.["fingerprint"];
+      if (typeof itemId !== "string" || typeof fingerprint !== "string") {
+        throw new Error(`Dyna work activity item identity was not found: ${title}`);
+      }
+      await runDynaFixtureUpdate(dataDirectory, dashboardId, itemId, fingerprint, {
+        requestId: randomUUID(),
+        workAttemptId,
+        kind: values.kind,
+        body: values.body,
+        ...(values.outcome ? { outcome: values.outcome } : {}),
+        artifacts: [...(values.artifacts ?? [])],
+        task: { taskId, hostId: "local" },
+      });
+    };
+    if (paginatedActivity) {
+      const historicalAttempt = randomUUID();
+      for (let index = 1; index <= 28; index += 1) {
+        await update(
+          "Review the release merge request",
+          "activity-progress-task",
+          historicalAttempt,
+          {
+            kind: "progress",
+            body: `Historical milestone ${String(index).padStart(2, "0")} retained for retrospective review.`,
+            ...(index === 1
+              ? {
+                  artifacts: [
+                    {
+                      kind: "report" as const,
+                      label: "Historical evidence 01",
+                      url: "https://docs.example.test/release/history-01",
+                    },
+                  ],
+                }
+              : {}),
+          },
+        );
+      }
+    }
+    const progressAttempt = randomUUID();
+    await update("Review the release merge request", "activity-progress-task", progressAttempt, {
+      kind: "progress",
+      body: "Implemented the release guard and verified the focused matrix.",
+      artifacts: [
+        {
+          kind: "pipeline",
+          label: "Passing pipeline 8842",
+          url: "https://gitlab.com/team/project/-/pipelines/8842",
+        },
+        {
+          kind: "report",
+          label: "Release evidence packet",
+          url: "https://docs.example.test/release/evidence-8842",
+        },
+      ],
+    });
+    await update("Review the release merge request", "activity-progress-task", progressAttempt, {
+      kind: "decision",
+      body: "Kept the fail-closed release policy after security review.",
+    });
+    await update("Additional priority 1", "activity-input-task", randomUUID(), {
+      kind: "needs_input",
+      body: "Choose whether the compatibility exception may ship in this release.",
+    });
+    await update("Additional priority 1", "activity-input-blocker-task", randomUUID(), {
+      kind: "blocked",
+      body: "Dependency evidence is missing; rerun the compatibility probe.",
+    });
+    await update("Additional priority 2", "activity-blocked-task", randomUUID(), {
+      kind: "blocked",
+      body: "The protected pipeline is blocked on an unavailable runner.",
+    });
+    await update("Additional priority 3", "activity-completion-task", randomUUID(), {
+      kind: "completion_reported",
+      body: "Implementation and focused verification are complete.",
+      outcome: "Added release safeguards and passed the focused validation matrix.",
+      artifacts: [
+        {
+          kind: "merge_request",
+          label: "Merge request 4242",
+          url: "https://gitlab.com/team/project/-/merge_requests/4242",
+        },
+      ],
+    });
+    await update("Additional priority 4", "activity-superseded-task", randomUUID(), {
+      kind: "needs_input",
+      body: "This old input request is superseded by a newer controller observation.",
+    });
+    const supersededCard = cardsByTitle.get("Additional priority 4");
+    if (!supersededCard || typeof supersededCard["id"] !== "string") {
+      throw new Error("Dyna superseded work activity fixture card was not found.");
+    }
+    const newerObservation = new Date(Date.parse(now) + 120_000).toISOString();
+    const refreshedTask = await client.callTool({
+      name: "flowzone",
+      arguments: {
+        plugin: "dyna",
+        action: "attach-codex-task",
+        input: {
+          dashboardId,
+          itemId: supersededCard["id"],
+          task: {
+            taskId: "activity-superseded-task",
+            hostId: "local",
+            title: "Fresh controller observation",
+            state: "running",
+            statusUpdatedAt: newerObservation,
+            observedAt: newerObservation,
+          },
+        },
+      },
+    });
+    if (refreshedTask.isError) {
+      throw new Error("Could not supersede the Dyna work activity state.");
     }
     openedDyna = await client.callTool({
       name: "render_dyna_dashboard",
@@ -860,6 +1227,16 @@ const dynaHostScript = (dynaResult: unknown) => `<script>
         if (query.get("tool-error") === request.params?.name) {
           result = { isError: true, content: [{ type: "text", text: "fixture failure" }] };
         } else {
+          const activityDelay = Number(query.get("activity-delay-ms"));
+          if (
+            request.params?.name === "dyna_get_item_activity" &&
+            Number.isFinite(activityDelay) &&
+            activityDelay > 0
+          ) {
+            await new Promise((resolveDelay) =>
+              setTimeout(resolveDelay, Math.min(activityDelay, 5_000)),
+            );
+          }
           const response = await fetch("/call", {
             method: "POST",
             headers: { "content-type": "application/json" },
@@ -878,7 +1255,27 @@ const dynaHostScript = (dynaResult: unknown) => `<script>
         state.messages.push(request.params);
         document.documentElement.dataset.dynaMessageCount = String(state.messages.length);
         document.documentElement.dataset.dynaLastMessage = JSON.stringify(request.params);
-        if (query.get("action-error") === "1") result = { isError: true };
+        if (query.get("action-error") === "1") {
+          result = { isError: true };
+        } else if (query.get("session-picker-controller") === "1") {
+          const text = Array.isArray(request.params?.content)
+            ? request.params.content.find((entry) => entry?.type === "text")?.text
+            : undefined;
+          const actionMatch = typeof text === "string"
+            ? /Handle Dyna action request ([0-9a-f-]{36}) with \\$flowzone:dyna\\./u.exec(text)
+            : null;
+          if (actionMatch?.[1]) {
+            const controllerResponse = await fetch("/dyna-controller", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ requestId: actionMatch[1] })
+            });
+            if (!controllerResponse.ok) throw new Error("Dyna fixture controller failed");
+            const controllerResult = await controllerResponse.json();
+            document.documentElement.dataset.dynaLastControllerAction =
+              JSON.stringify(controllerResult);
+          }
+        }
       } else if (request.method === "ui/open-link") {
         state.externalLinks.push(request.params.url);
         document.documentElement.dataset.dynaLastExternalLink = request.params.url;
@@ -946,16 +1343,24 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     return;
   }
   if (request.method === "GET" && requestUrl.pathname === "/dyna") {
-    const backend = await dynaBackend(request);
+    // Each Playwright page gets an isolated store. Keeping one store per browser project
+    // makes unrelated tests consume production inventory limits and leak fixture history.
+    const backend = await resetDynaBackend(request);
     const dynaFixture = await createDynaFixture(
       backend.client,
+      backend.dataDirectory,
       requestUrl.searchParams.get("stress") === "1"
         ? 200
         : requestUrl.searchParams.get("dense") === "1"
           ? 9
           : requestUrl.searchParams.get("many-items") === "1" ||
-              requestUrl.searchParams.get("pipeline") === "1"
-            ? 4
+              requestUrl.searchParams.get("pipeline") === "1" ||
+              requestUrl.searchParams.get("work-activity") === "1" ||
+              requestUrl.searchParams.get("activity-pages") === "1"
+            ? requestUrl.searchParams.get("work-activity") === "1" ||
+              requestUrl.searchParams.get("activity-pages") === "1"
+              ? 5
+              : 4
             : 1,
       requestUrl.searchParams.get("pipeline") === "1",
       requestUrl.searchParams.get("long-content") === "1",
@@ -963,6 +1368,9 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       requestUrl.searchParams.get("failed-schedule") === "1",
       requestUrl.searchParams.get("never-run-schedule") === "1",
       requestUrl.searchParams.get("revoked-schedule") === "1",
+      requestUrl.searchParams.get("work-activity") === "1" ||
+        requestUrl.searchParams.get("activity-pages") === "1",
+      requestUrl.searchParams.get("activity-pages") === "1",
     );
     response.writeHead(200, {
       "cache-control": "no-store",
@@ -993,6 +1401,18 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
         arguments: input.arguments ?? {},
       });
       json(response, 200, result);
+    } catch (error: unknown) {
+      json(response, 400, { error: error instanceof Error ? error.message : String(error) });
+    }
+    return;
+  }
+  if (request.method === "POST" && request.url === "/dyna-controller") {
+    try {
+      const { requestId } = z
+        .object({ requestId: z.uuid() })
+        .strict()
+        .parse(JSON.parse((await readRequestBody(request)).toString("utf8")));
+      json(response, 200, await handleDynaControllerAction(request, requestId));
     } catch (error: unknown) {
       json(response, 400, { error: error instanceof Error ? error.message : String(error) });
     }

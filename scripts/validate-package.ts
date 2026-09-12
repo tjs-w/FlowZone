@@ -17,6 +17,28 @@ async function readJson(path: string): Promise<unknown> {
   return JSON.parse(await readFile(resolve(root, path), "utf8")) as unknown;
 }
 
+async function validateMarkdownReferences(
+  entryPath: string,
+  skillRoot: string,
+  visited = new Set<string>(),
+): Promise<void> {
+  const absoluteEntry = resolve(root, entryPath);
+  const absoluteSkillRoot = resolve(root, skillRoot);
+  if (visited.has(absoluteEntry)) return;
+  visited.add(absoluteEntry);
+  const markdown = await readFile(absoluteEntry, "utf8");
+  for (const match of markdown.matchAll(/\[[^\]]*\]\(([^)]+\.md)(?:#[^)]+)?\)/gu)) {
+    const reference = match[1];
+    if (!reference || reference.includes(":")) continue;
+    const target = resolve(dirname(absoluteEntry), reference);
+    if (target !== absoluteSkillRoot && !target.startsWith(`${absoluteSkillRoot}/`)) {
+      throw new Error(`${entryPath} contains a Markdown reference outside its skill bundle`);
+    }
+    await access(target);
+    await validateMarkdownReferences(target, absoluteSkillRoot, visited);
+  }
+}
+
 async function validateSkill(): Promise<void> {
   const skills = [
     {
@@ -50,6 +72,7 @@ async function validateSkill(): Promise<void> {
     if (!agent.includes(definition.invocation)) {
       throw new Error(`${definition.agentPath} must use its plugin-qualified invocation`);
     }
+    await validateMarkdownReferences(definition.path, dirname(definition.path));
   }
   const markdown = await readFile(resolve(root, "skills/markdown-review/SKILL.md"), "utf8");
   if (!markdown.includes("render_markdown_review")) {
@@ -58,6 +81,58 @@ async function validateSkill(): Promise<void> {
   const dyna = await readFile(resolve(root, "skills/dyna/SKILL.md"), "utf8");
   if (!dyna.includes('plugin: "dyna"') || !dyna.includes("render_dyna_dashboard")) {
     throw new Error("Dyna must document its router and presentation boundaries");
+  }
+  if (!dyna.includes("references/task-updates.md")) {
+    throw new Error("Dyna must route cross-task synchronization through its focused reference");
+  }
+  const taskUpdates = await readFile(
+    resolve(root, "skills/dyna/references/task-updates.md"),
+    "utf8",
+  );
+  for (const requiredContract of [
+    "reconcile-cli-rule.sh --check",
+    "Restart Codex",
+    "Do not set `FLOWZONE_DATA_DIR`",
+    "## Strict mutation inputs",
+    '"targetPriority"',
+    '"reasonDetail"',
+    "`item restore` accepts exactly",
+    "`follow-up create` accepts",
+    "omitted overlay fields are cleared",
+    "Completed and archived items cannot be enriched",
+  ]) {
+    if (!taskUpdates.toLocaleLowerCase().includes(requiredContract.toLocaleLowerCase())) {
+      throw new Error(
+        `Dyna task-update reference must document the CLI contract: ${requiredContract}`,
+      );
+    }
+  }
+  const dynaRuleReconcilerPath = resolve(root, "skills/dyna/scripts/reconcile-cli-rule.sh");
+  const dynaRuleReconciler = await readFile(dynaRuleReconcilerPath, "utf8");
+  for (const requiredBoundary of [
+    '"$DYNA_RULE_CODEX_ROOT"/plugins/cache/*/',
+    "flowzone-dyna-worker.rules",
+    '["show", "update", "enrich", "place", "archive", "restore"]',
+    '"follow-up"',
+    '"create"',
+    'pattern = [\\"$DYNA_RULE_LAUNCHER_LITERAL\\", \\"setup\\"]',
+  ]) {
+    if (!dynaRuleReconciler.includes(requiredBoundary)) {
+      throw new Error(`Dyna rule reconciler must retain its narrow boundary: ${requiredBoundary}`);
+    }
+  }
+  if (
+    dynaRuleReconciler.includes("FLOWZONE_DATA_DIR=") ||
+    dynaRuleReconciler.includes('pattern = ["sh"') ||
+    dynaRuleReconciler.includes('pattern = ["node"')
+  ) {
+    throw new Error(
+      "Dyna rule reconciler must not authorize a database override, shell, or runtime",
+    );
+  }
+  await access(dynaRuleReconcilerPath, constants.X_OK);
+  if (!(await stat(dynaRuleReconcilerPath)).isFile()) {
+    throw new Error("The Dyna rule reconciler must be a regular executable file");
   }
 }
 
@@ -98,6 +173,7 @@ async function validatePlugin(): Promise<void> {
   }
   const launcherPath = resolve(root, "bin/flowzone-mcp");
   const publisherLauncherPath = resolve(root, "bin/flowzone-publish");
+  const dynaLauncherPath = resolve(root, "bin/dyna");
   const launcher = await readFile(launcherPath, "utf8");
   if (!launcher.includes("server/dist/server.cjs")) {
     throw new Error("The MCP launcher must resolve the checked-in Node bundle");
@@ -108,17 +184,27 @@ async function validatePlugin(): Promise<void> {
     throw new Error("The publisher launcher must resolve the checked-in Node bundle");
   }
   await access(publisherLauncherPath, constants.X_OK);
+  const dynaLauncher = await readFile(dynaLauncherPath, "utf8");
+  if (!dynaLauncher.includes("server/dist/dyna.cjs")) {
+    throw new Error("The Dyna launcher must resolve the checked-in CLI bundle");
+  }
+  await access(dynaLauncherPath, constants.X_OK);
   if (!(await stat(launcherPath)).isFile()) {
     throw new Error("The MCP launcher must be a regular executable file");
   }
   if (!(await stat(publisherLauncherPath)).isFile()) {
     throw new Error("The publisher launcher must be a regular executable file");
   }
+  if (!(await stat(dynaLauncherPath)).isFile()) {
+    throw new Error("The Dyna launcher must be a regular executable file");
+  }
   await Promise.all([
     access(launcherPath),
     access(publisherLauncherPath),
+    access(dynaLauncherPath),
     access(resolve(root, "server/dist/server.cjs")),
     access(resolve(root, "server/dist/flowzone-publish.cjs")),
+    access(resolve(root, "server/dist/dyna.cjs")),
     access(resolve(root, "web/flowzone.html")),
     access(resolve(root, "web/dist/flowzone.js")),
     access(resolve(root, "web/dyna.html")),

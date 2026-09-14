@@ -488,9 +488,9 @@ async function createDynaFixture(
     },
     {
       source: "slack",
-      workspaceId: fixtureId,
-      channelId: "releases",
-      messageId: "release-decision",
+      workspaceId: "splunk",
+      channelId: "C0123456789",
+      messageId: "1757811600.123456",
     },
     {
       source: "twg",
@@ -640,13 +640,15 @@ async function createDynaFixture(
                   ? { ...source, entityId: `fixture-pr-${String(index)}` }
                   : source.source === "outlook"
                     ? { ...source, messageId: `quarterly-plan-${String(index)}` }
-                    : source.source === "messaging" || source.source === "slack"
+                    : source.source === "messaging"
                       ? { ...source, messageId: `decision-${String(index)}` }
-                      : source.source === "gitlab"
-                        ? { ...source, iid: index + 1 }
-                        : source.source === "twg"
-                          ? { ...source, recordId: `record-${String(4_242 + index)}` }
-                          : { ...source, taskId: `fixture-codex-task-${String(index)}` };
+                      : source.source === "slack"
+                        ? { ...source, messageId: `175781160${String(index)}.123456` }
+                        : source.source === "gitlab"
+                          ? { ...source, iid: index + 1 }
+                          : source.source === "twg"
+                            ? { ...source, recordId: `record-${String(4_242 + index)}` }
+                            : { ...source, taskId: `fixture-codex-task-${String(index)}` };
               return {
                 externalId: `fixture:${String(index)}`,
                 sourceRef,

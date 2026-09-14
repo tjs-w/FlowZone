@@ -305,6 +305,28 @@ function gitLabEntityPath(entityType: "merge_request" | "issue" | "pipeline"): s
   }[entityType];
 }
 
+const SlackTeamIdPattern = /^T[A-Z0-9]{8,31}$/;
+const SlackConversationIdPattern = /^[CDG][A-Z0-9]{8,31}$/;
+const SlackMessageTimestampPattern = /^(\d{9,12})\.(\d{6})$/;
+const SlackWorkspaceSlugPattern = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+function slackSourceUrl(
+  workspaceId: string,
+  channelId: string,
+  messageId: string,
+): string | undefined {
+  const timestamp = SlackMessageTimestampPattern.exec(messageId);
+  if (!SlackConversationIdPattern.test(channelId) || !timestamp) return undefined;
+
+  if (SlackTeamIdPattern.test(workspaceId)) {
+    return `https://app.slack.com/client/${workspaceId}/${channelId}/thread/${channelId}-${messageId}`;
+  }
+
+  const workspaceSlug = workspaceId.toLocaleLowerCase("en-US");
+  if (!SlackWorkspaceSlugPattern.test(workspaceSlug)) return undefined;
+  return `https://${workspaceSlug}.slack.com/archives/${channelId}/p${timestamp[1]}${timestamp[2]}`;
+}
+
 /**
  * Builds a browser destination from the validated typed source identity. It never
  * accepts a publisher-supplied arbitrary URL.
@@ -312,7 +334,7 @@ function gitLabEntityPath(entityType: "merge_request" | "issue" | "pipeline"): s
 export function dynaSourceUrl(sourceRef: DynaSourceRef): string | undefined {
   switch (sourceRef.source) {
     case "slack":
-      return `https://app.slack.com/client/${encodeURIComponent(sourceRef.workspaceId)}/${encodeURIComponent(sourceRef.channelId)}/thread/${encodeURIComponent(sourceRef.channelId)}-${encodeURIComponent(sourceRef.messageId)}`;
+      return slackSourceUrl(sourceRef.workspaceId, sourceRef.channelId, sourceRef.messageId);
     case "outlook":
       return `https://outlook.office.com/mail/deeplink/read/${encodeURIComponent(sourceRef.messageId)}`;
     case "gitlab": {
@@ -333,7 +355,7 @@ export function dynaSourceUrl(sourceRef: DynaSourceRef): string | undefined {
     case "messaging": {
       const provider = sourceRef.provider.toLocaleLowerCase();
       if (provider.includes("slack")) {
-        return `https://app.slack.com/client/${encodeURIComponent(sourceRef.workspaceId)}/${encodeURIComponent(sourceRef.channelId)}/thread/${encodeURIComponent(sourceRef.channelId)}-${encodeURIComponent(sourceRef.messageId)}`;
+        return slackSourceUrl(sourceRef.workspaceId, sourceRef.channelId, sourceRef.messageId);
       }
       if (provider.includes("discord")) {
         return `https://discord.com/channels/${encodeURIComponent(sourceRef.workspaceId)}/${encodeURIComponent(sourceRef.channelId)}/${encodeURIComponent(sourceRef.messageId)}`;

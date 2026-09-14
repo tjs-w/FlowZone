@@ -483,6 +483,33 @@ describe("Dyna executive signal contracts", () => {
   test("derives safe browser links from typed source identities", () => {
     expect(
       dynaSourceUrl({
+        source: "slack",
+        workspaceId: "splunk",
+        channelId: "C0123456789",
+        messageId: "1757811600.123456",
+      }),
+    ).toBe("https://splunk.slack.com/archives/C0123456789/p1757811600123456");
+    expect(
+      dynaSourceUrl({
+        source: "messaging",
+        provider: "Slack",
+        workspaceId: "engineering-team",
+        channelId: "D0123456789",
+        messageId: "1757811600.123456",
+      }),
+    ).toBe("https://engineering-team.slack.com/archives/D0123456789/p1757811600123456");
+    expect(
+      dynaSourceUrl({
+        source: "slack",
+        workspaceId: "T0123456789",
+        channelId: "G0123456789",
+        messageId: "1757811600.123456",
+      }),
+    ).toBe(
+      "https://app.slack.com/client/T0123456789/G0123456789/thread/G0123456789-1757811600.123456",
+    );
+    expect(
+      dynaSourceUrl({
         source: "gitlab",
         instanceId: "cd.splunkdev.com",
         projectPath: "linus/linus-findings-service",
@@ -514,6 +541,31 @@ describe("Dyna executive signal contracts", () => {
         projectPath: "team/project",
         iid: 1,
         entityType: "issue",
+      }),
+    ).toBeUndefined();
+    expect(
+      dynaSourceUrl({
+        source: "slack",
+        workspaceId: "splunk.example.com",
+        channelId: "C0123456789",
+        messageId: "1757811600.123456",
+      }),
+    ).toBeUndefined();
+    expect(
+      dynaSourceUrl({
+        source: "slack",
+        workspaceId: "splunk",
+        channelId: "general",
+        messageId: "1757811600.123456",
+      }),
+    ).toBeUndefined();
+    expect(
+      dynaSourceUrl({
+        source: "messaging",
+        provider: "Slack",
+        workspaceId: "splunk",
+        channelId: "C0123456789",
+        messageId: "not-a-slack-timestamp",
       }),
     ).toBeUndefined();
   });

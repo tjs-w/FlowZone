@@ -626,6 +626,25 @@ test("opens originating records exactly once through the host link bridge", asyn
   await expect(page.locator("html")).not.toHaveAttribute("data-dyna-message-count", /.+/);
 });
 
+test("opens legacy Slack workspace references with a canonical permalink", async ({ page }) => {
+  await page.goto("/dyna?dense=1");
+  const sourceUrl = "https://splunk.slack.com/archives/C0123456789/p1757811605123456";
+  const rowLink = page.getByRole("link", {
+    name: "Open source: Additional priority 5",
+  });
+  await expect(rowLink).toHaveAttribute("data-dyna-link-url", sourceUrl);
+
+  await rowLink.locator(":scope > span").click();
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-last-external-link", sourceUrl);
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "1");
+
+  await openDetails(page, "Additional priority 5");
+  const inspectorLink = page.getByRole("link", { name: "Open source", exact: true });
+  await expect(inspectorLink).toHaveAttribute("data-dyna-link-url", sourceUrl);
+  await inspectorLink.click();
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "2");
+});
+
 test("retains native link fallback when the host cannot open links", async ({ page }) => {
   await page.goto("/dyna?no-open-links=1&inline-only=1");
   const rowLink = page.getByRole("link", {

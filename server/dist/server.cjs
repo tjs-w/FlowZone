@@ -52377,8 +52377,8 @@ async function snapshotImage(source, alt, markdownPath, budget, pathPolicy) {
     if (width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION || pixels > MAX_IMAGE_PIXELS) {
       throw new Error("its decoded dimensions exceed the safety limit");
     }
-    const sha2562 = (0, import_node_crypto2.createHash)("sha256").update(snapshot.bytes).digest("hex");
-    const duplicate = budget.snapshotsByDigest.get(sha2562);
+    const sha2563 = (0, import_node_crypto2.createHash)("sha256").update(snapshot.bytes).digest("hex");
+    const duplicate = budget.snapshotsByDigest.get(sha2563);
     if (duplicate) {
       budget.snapshotsByPath.set(imagePath, duplicate);
       return imagePlaceholder(alt, duplicate);
@@ -52390,17 +52390,17 @@ async function snapshotImage(source, alt, markdownPath, budget, pathPolicy) {
     const descriptor = {
       id,
       mimeType,
-      revision: sha2562,
+      revision: sha2563,
       modifiedAt: snapshot.modifiedAt,
       byteLength: snapshot.sizeBytes,
       chunkCount: Math.ceil(snapshot.sizeBytes / IMAGE_CHUNK_BYTES),
       width,
       height
     };
-    const stored = { descriptor, bytes: snapshot.bytes, sha256: sha2562 };
+    const stored = { descriptor, bytes: snapshot.bytes, sha256: sha2563 };
     budget.items.push(stored);
     budget.snapshotsByPath.set(imagePath, stored);
-    budget.snapshotsByDigest.set(sha2562, stored);
+    budget.snapshotsByDigest.set(sha2563, stored);
     budget.totalBytes += snapshot.sizeBytes;
     return imagePlaceholder(alt, stored);
   } catch (error51) {
@@ -52929,6 +52929,18 @@ function createMarkdownReviewPlugin(options = {}) {
 // packages/dyna-contracts/src/index.ts
 var IdentifierSchema2 = external_exports.string().trim().min(1).max(256);
 var TimestampSchema2 = external_exports.iso.datetime({ offset: true });
+var DynaItemNumberSchema = external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER);
+function formatDynaItemNumber(itemNumber) {
+  return `:${String(DynaItemNumberSchema.parse(itemNumber))}:`;
+}
+function validateFollowUpReference(value, context) {
+  if (value.followUpOfItemId === void 0 === (value.followUpOfItemNumber === void 0)) return;
+  context.addIssue({
+    code: "custom",
+    message: "A Dyna follow-up must include both the item UUID and human-readable number.",
+    path: [value.followUpOfItemId === void 0 ? "followUpOfItemId" : "followUpOfItemNumber"]
+  });
+}
 var DynaSourceSchema = external_exports.enum([
   "slack",
   "outlook",
@@ -53083,13 +53095,6 @@ function dynaLeadershipScore(people) {
     return Math.max(highest, LEADERSHIP_WEIGHTS[person.leadershipLevel] + relationshipWeight);
   }, 0);
 }
-function effectiveDynaPriority(priority, people) {
-  const score = dynaLeadershipScore(people);
-  if (priority === "critical" || priority === "high") return priority;
-  if (priority === "normal" && score >= 75) return "high";
-  if (priority === "low" && score >= 55) return "normal";
-  return priority;
-}
 function dynaSourceLabel(sourceRef) {
   switch (sourceRef.source) {
     case "slack":
@@ -53232,11 +53237,16 @@ var DynaTaskStateSchema = external_exports.enum([
   "failed",
   "unknown"
 ]);
+var DynaTaskTitleSchema = external_exports.string().min(1).refine((value) => value.trim().length > 0, {
+  message: "A Codex task title cannot contain only whitespace."
+}).refine((value) => Array.from(value).length <= 200, {
+  message: "A Codex task title cannot exceed 200 Unicode characters."
+});
 var DynaTaskStatusBaseSchema = external_exports.object({
   taskId: IdentifierSchema2,
   hostId: IdentifierSchema2,
   projectId: IdentifierSchema2.optional(),
-  title: external_exports.string().trim().min(1).max(200),
+  title: DynaTaskTitleSchema,
   statusUpdatedAt: TimestampSchema2,
   observedAt: TimestampSchema2
 }).strict();
@@ -53292,7 +53302,7 @@ var DynaUserWorkflowEventSchema = external_exports.object({
 var DynaTaskStatusSchema = external_exports.discriminatedUnion("state", [
   DynaTaskStatusBaseSchema.extend({
     state: external_exports.literal("succeeded"),
-    outcome: DynaOneLineOutcomeSchema
+    outcome: DynaOneLineOutcomeSchema.optional()
   }).strict(),
   DynaTaskStatusBaseSchema.extend({
     state: external_exports.enum(["queued", "running", "waiting", "failed", "unknown"]),
@@ -53303,7 +53313,7 @@ var DynaCodexSessionCandidateSchema = external_exports.object({
   taskId: IdentifierSchema2,
   hostId: IdentifierSchema2,
   projectId: IdentifierSchema2.optional(),
-  title: external_exports.string().trim().min(1).max(200),
+  title: DynaTaskTitleSchema,
   updatedAt: TimestampSchema2
 }).strict();
 var DynaCodexSessionCandidatesSchema = external_exports.array(DynaCodexSessionCandidateSchema).max(50).superRefine((candidates, context) => {
@@ -53339,6 +53349,47 @@ var DynaArtifactRefSchema = external_exports.object({
       message: "A Dyna artifact must use an HTTP or HTTPS URL without embedded credentials."
     }
   )
+}).strict();
+var DynaTaskSyncScopeSchema = external_exports.discriminatedUnion("kind", [
+  external_exports.object({ kind: external_exports.literal("dashboard") }).strict(),
+  external_exports.object({
+    kind: external_exports.literal("task"),
+    itemId: external_exports.uuid(),
+    taskId: IdentifierSchema2,
+    hostId: IdentifierSchema2
+  }).strict()
+]);
+var DynaTaskSyncPublicStateSchema = external_exports.enum([
+  "syncing",
+  "updated",
+  "current",
+  "partial",
+  "expired",
+  "unavailable"
+]);
+var DynaTaskSyncSummarySchema = external_exports.object({
+  runId: external_exports.uuid(),
+  dashboardId: external_exports.uuid(),
+  state: DynaTaskSyncPublicStateSchema,
+  processedTasks: external_exports.number().int().min(0).max(200),
+  totalTasks: external_exports.number().int().min(0).max(200),
+  updatedItems: external_exports.number().int().min(0).max(200),
+  unavailableTasks: external_exports.number().int().min(0).max(200),
+  incompleteMetadataTasks: external_exports.number().int().min(0).max(200),
+  remainingTasks: external_exports.number().int().nonnegative(),
+  startedAt: TimestampSchema2,
+  completedAt: TimestampSchema2.optional(),
+  updatedAt: TimestampSchema2
+}).strict();
+var DynaTaskSyncBeginResultSchema = external_exports.object({
+  schema: external_exports.literal("dyna/task-sync-begin-result-v1"),
+  joined: external_exports.boolean(),
+  deliveryRequired: external_exports.boolean(),
+  summary: DynaTaskSyncSummarySchema
+}).strict();
+var DynaTaskSyncStatusResultSchema = external_exports.object({
+  schema: external_exports.literal("dyna/task-sync-status-result-v1"),
+  summary: DynaTaskSyncSummarySchema
 }).strict();
 var DynaWorkUpdateKindSchema = external_exports.enum([
   "note",
@@ -53404,7 +53455,7 @@ var DynaWorkUpdateSchema = external_exports.object({
   outcome: DynaOneLineOutcomeSchema.optional(),
   artifacts: external_exports.array(DynaArtifactRefSchema).max(4),
   task: DynaWorkTaskAttributionSchema.extend({
-    title: external_exports.string().trim().min(1).max(200).optional()
+    title: DynaTaskTitleSchema.optional()
   }).strict().optional(),
   createdAt: TimestampSchema2
 }).strict().superRefine((update, context) => {
@@ -53423,18 +53474,37 @@ var DynaWorkUpdateSchema = external_exports.object({
     });
   }
 });
-var DynaWorkReferenceSchema = external_exports.object({
-  schema: external_exports.literal("dyna/work-item-v1"),
+var DynaWorkReferenceControlFields = {
   dashboardId: external_exports.uuid(),
-  dashboardName: external_exports.string().trim().min(1).max(96),
   itemId: external_exports.uuid(),
   expectedFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
   sourceUpdatedAt: TimestampSchema2,
   copiedAt: TimestampSchema2,
-  workAttemptId: external_exports.uuid(),
+  workAttemptId: external_exports.uuid()
+};
+var DynaLegacyWorkReferenceDisplayFields = {
+  dashboardName: external_exports.string().trim().min(1).max(96),
   linkedTasks: external_exports.array(DynaTaskStatusSchema).max(8)
+};
+var DynaWorkReferenceV1Schema = external_exports.object({
+  schema: external_exports.literal("dyna/work-item-v1"),
+  ...DynaWorkReferenceControlFields,
+  ...DynaLegacyWorkReferenceDisplayFields
 }).strict();
-var DynaHistoryCursorSchema = external_exports.string().trim().min(1).max(512);
+var DynaWorkReferenceSchema = external_exports.object({
+  schema: external_exports.literal("dyna/work-item-v2"),
+  ...DynaWorkReferenceControlFields,
+  itemNumber: DynaItemNumberSchema,
+  // Accepted only so previously copied v2 references remain readable. New
+  // prompts put these untrusted display fields inside the explicit envelope.
+  dashboardName: DynaLegacyWorkReferenceDisplayFields.dashboardName.optional(),
+  linkedTasks: DynaLegacyWorkReferenceDisplayFields.linkedTasks.optional()
+}).strict();
+var DynaCompatibleWorkReferenceSchema = external_exports.discriminatedUnion("schema", [
+  DynaWorkReferenceSchema,
+  DynaWorkReferenceV1Schema
+]);
+var DynaPageCursorSchema = external_exports.string().trim().min(1).max(512);
 var DynaAnnotationSchema = external_exports.object({
   id: external_exports.uuid(),
   itemId: external_exports.uuid(),
@@ -53443,7 +53513,10 @@ var DynaAnnotationSchema = external_exports.object({
 }).strict();
 var DynaItemContextSchema = DynaMaterializedItemSchema.extend({
   id: external_exports.uuid(),
+  itemNumber: DynaItemNumberSchema,
   fingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
+  followUpOfItemId: external_exports.uuid().optional(),
+  followUpOfItemNumber: DynaItemNumberSchema.optional(),
   enrichment: external_exports.object({
     state: external_exports.enum(["active", "stale"]),
     appliedAt: TimestampSchema2,
@@ -53455,7 +53528,7 @@ var DynaItemContextSchema = DynaMaterializedItemSchema.extend({
   workUpdates: external_exports.array(DynaWorkUpdateSchema).max(20),
   workUpdateCount: external_exports.number().int().nonnegative(),
   linkedTasks: external_exports.array(DynaTaskStatusSchema).max(8)
-}).strict();
+}).strict().superRefine(validateFollowUpReference);
 var DynaArchiveReasonSchema = external_exports.enum([
   "completed",
   "invalid",
@@ -53477,6 +53550,9 @@ var DynaArchiveStateSchema = external_exports.object({
 }).strict();
 var DynaItemHistorySchema = external_exports.object({
   itemId: external_exports.uuid(),
+  itemNumber: DynaItemNumberSchema,
+  followUpOfItemId: external_exports.uuid().optional(),
+  followUpOfItemNumber: DynaItemNumberSchema.optional(),
   archives: external_exports.array(
     DynaArchiveStateSchema.extend({
       restoredAt: TimestampSchema2.optional(),
@@ -53495,19 +53571,21 @@ var DynaItemHistorySchema = external_exports.object({
   ).max(50),
   statusChanges: external_exports.array(DynaUserWorkflowEventSchema).max(50),
   workUpdates: external_exports.array(DynaWorkUpdateSchema).max(50),
-  archiveEventsNextCursor: DynaHistoryCursorSchema.optional(),
-  orderHistoryNextCursor: DynaHistoryCursorSchema.optional(),
-  statusHistoryNextCursor: DynaHistoryCursorSchema.optional(),
-  workUpdatesNextCursor: DynaHistoryCursorSchema.optional()
-}).strict();
+  archiveEventsNextCursor: DynaPageCursorSchema.optional(),
+  orderHistoryNextCursor: DynaPageCursorSchema.optional(),
+  statusHistoryNextCursor: DynaPageCursorSchema.optional(),
+  workUpdatesNextCursor: DynaPageCursorSchema.optional()
+}).strict().superRefine(validateFollowUpReference);
 var DynaWorkActivityPageSchema = external_exports.object({
   itemId: external_exports.uuid(),
+  itemNumber: DynaItemNumberSchema,
   updates: external_exports.array(DynaWorkUpdateSchema).max(25),
-  nextCursor: DynaHistoryCursorSchema.optional(),
+  nextCursor: DynaPageCursorSchema.optional(),
   total: external_exports.number().int().nonnegative()
 }).strict();
 var DynaActionItemContextSchema = external_exports.object({
   id: external_exports.uuid(),
+  itemNumber: DynaItemNumberSchema,
   title: external_exports.string().trim().min(1).max(200),
   sourceRef: DynaSourceRefSchema,
   sourceUpdatedAt: TimestampSchema2,
@@ -53546,6 +53624,7 @@ var DynaActionRequestSchema = external_exports.object({
 }).strict();
 var DynaCardSchema = external_exports.object({
   id: external_exports.uuid(),
+  itemNumber: DynaItemNumberSchema,
   fingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
   source: DynaSourceSchema,
   sourceRef: DynaSourceRefSchema,
@@ -53568,6 +53647,7 @@ var DynaCardSchema = external_exports.object({
   completedAt: TimestampSchema2.optional(),
   outcome: external_exports.string().trim().min(1).max(200).optional(),
   followUpOfItemId: external_exports.uuid().optional(),
+  followUpOfItemNumber: DynaItemNumberSchema.optional(),
   attention: external_exports.string().trim().min(1).max(500).optional(),
   plan: external_exports.array(external_exports.string().trim().min(1).max(200)).max(4),
   nextSteps: external_exports.array(DynaNextStepSchema).max(4),
@@ -53580,11 +53660,12 @@ var DynaCardSchema = external_exports.object({
   workConditionTask: DynaWorkTaskAttributionSchema.optional(),
   matchedActivity: external_exports.string().trim().min(1).max(500).optional(),
   blocked: external_exports.boolean().default(false),
+  titleSyncNeeded: external_exports.boolean().default(false),
   linkedTasks: external_exports.array(DynaTaskStatusSchema).max(8),
   archive: DynaArchiveStateSchema.optional()
-}).strict();
+}).strict().superRefine(validateFollowUpReference);
 var DynaDashboardSnapshotSchema = external_exports.object({
-  schema: external_exports.literal("dyna/snapshot-v5"),
+  schema: external_exports.literal("dyna/snapshot-v7"),
   dashboard: DynaDashboardSchema,
   generatedAt: TimestampSchema2,
   query: external_exports.string().max(500),
@@ -53600,20 +53681,166 @@ var DynaDashboardSnapshotSchema = external_exports.object({
     blocked: external_exports.number().int().nonnegative().default(0)
   }).strict(),
   schedules: external_exports.array(DynaPublisherSchema).max(50),
-  cards: external_exports.array(DynaCardSchema).max(200)
+  cards: external_exports.array(DynaCardSchema).max(200),
+  taskSync: DynaTaskSyncSummarySchema.optional()
 }).strict();
 var DynaUiPayloadSchema = external_exports.object({
-  schema: external_exports.literal("dyna/ui-v7"),
+  schema: external_exports.literal("dyna/ui-v9"),
   viewToken: external_exports.string().min(32).max(128),
   snapshot: DynaDashboardSnapshotSchema
 }).strict();
 var DynaItemShowResultSchema = external_exports.object({
-  schema: external_exports.literal("dyna/item-show-result-v1"),
+  schema: external_exports.literal("dyna/item-show-result-v3"),
   dashboard: DynaDashboardSchema,
   revision: external_exports.number().int().nonnegative(),
   enrichmentVersion: external_exports.number().int().nonnegative(),
   item: DynaCardSchema
 }).strict();
+var DynaDashboardListResultSchema = external_exports.object({
+  schema: external_exports.literal("dyna/dashboard-list-result-v1"),
+  dashboards: external_exports.array(DynaDashboardSchema).max(100),
+  total: external_exports.number().int().nonnegative()
+}).strict();
+var DynaDashboardShowResultSchema = external_exports.object({
+  schema: external_exports.literal("dyna/dashboard-show-result-v1"),
+  dashboardId: external_exports.uuid(),
+  name: external_exports.string().trim().min(1).max(96),
+  revision: external_exports.number().int().nonnegative(),
+  freshness: external_exports.enum(["fresh", "aging", "stale"]),
+  counts: external_exports.object({
+    active: external_exports.number().int().nonnegative(),
+    archived: external_exports.number().int().nonnegative()
+  }).strict(),
+  scheduledSources: external_exports.array(
+    external_exports.object({
+      name: external_exports.string().trim().min(1).max(96),
+      scheduleTitle: external_exports.string().trim().min(1).max(200).optional(),
+      scheduleState: external_exports.enum(["active", "paused", "unknown"]),
+      lastRunStatus: external_exports.enum(["never", "succeeded", "partial", "failed"]),
+      lastRunAt: TimestampSchema2.optional(),
+      sourceSlices: external_exports.array(
+        external_exports.object({
+          source: DynaScheduledSourceSchema,
+          status: external_exports.enum(["succeeded", "failed"]),
+          freshness: external_exports.enum(["fresh", "aging", "stale"])
+        }).strict()
+      ).max(50).optional()
+    }).strict()
+  ).max(50)
+}).strict();
+var DynaItemSearchScopeSchema = external_exports.enum(["active", "archive"]);
+var DynaItemSearchBriefSchema = external_exports.object({
+  itemId: external_exports.uuid(),
+  itemNumber: DynaItemNumberSchema,
+  fingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
+  title: external_exports.string().trim().min(1).max(200),
+  summary: external_exports.string().trim().min(1).max(1e3),
+  sourceRef: DynaSourceRefSchema,
+  priority: DynaPrioritySchema,
+  priorityReason: external_exports.string().trim().min(1).max(500),
+  sourceUpdatedAt: TimestampSchema2,
+  dueAt: TimestampSchema2.optional(),
+  workflowState: external_exports.enum(["todo", "executing", "paused", "attention", "completed"]),
+  followUpOfItemId: external_exports.uuid().optional(),
+  followUpOfItemNumber: DynaItemNumberSchema.optional(),
+  attention: external_exports.string().trim().min(1).max(500).optional(),
+  plan: external_exports.array(external_exports.string().trim().min(1).max(200)).max(4),
+  nextSteps: external_exports.array(DynaNextStepSchema).max(4),
+  outcome: external_exports.string().trim().min(1).max(200).optional(),
+  workState: DynaWorkStateSchema.optional(),
+  workUpdates: external_exports.array(DynaWorkUpdateSchema).max(1),
+  workUpdateCount: external_exports.number().int().nonnegative(),
+  workConditionSummary: external_exports.string().trim().min(1).max(200).optional(),
+  workConditionTask: DynaWorkTaskAttributionSchema.optional(),
+  matchedActivity: external_exports.string().trim().min(1).max(500).optional(),
+  titleSyncNeeded: external_exports.boolean().default(false),
+  linkedTasks: external_exports.array(DynaTaskStatusSchema).max(8),
+  archive: DynaArchiveStateSchema.optional()
+}).strict().superRefine(validateFollowUpReference);
+var DynaItemSearchResultSchema = external_exports.object({
+  schema: external_exports.literal("dyna/item-search-result-v3"),
+  dashboardId: external_exports.uuid(),
+  dashboardName: external_exports.string().trim().min(1).max(96),
+  query: external_exports.string().max(500),
+  scope: DynaItemSearchScopeSchema,
+  revision: external_exports.number().int().nonnegative(),
+  freshness: external_exports.enum(["fresh", "aging", "stale"]),
+  items: external_exports.array(DynaItemSearchBriefSchema).max(20),
+  total: external_exports.number().int().nonnegative()
+}).strict();
+var DynaItemHistoryResultSchema = external_exports.object({
+  schema: external_exports.literal("dyna/item-history-result-v2"),
+  dashboardId: external_exports.uuid(),
+  history: DynaItemHistorySchema
+}).strict();
+var DynaItemActivityResultSchema = external_exports.object({
+  schema: external_exports.literal("dyna/item-activity-result-v2"),
+  dashboardId: external_exports.uuid(),
+  activity: DynaWorkActivityPageSchema
+}).strict();
+var DynaWorkEnrichInputSchema = external_exports.object({
+  requestId: external_exports.uuid(),
+  summary: DynaPublishedItemSchema.shape.summary.optional(),
+  priority: DynaPrioritySchema.optional(),
+  priorityReason: DynaPublishedItemSchema.shape.priorityReason.optional(),
+  dueAt: DynaPublishedItemSchema.shape.dueAt.nullable().optional(),
+  labels: DynaPublishedItemSchema.shape.labels.optional(),
+  people: external_exports.array(DynaPersonSignalSchema).max(8).optional(),
+  attention: DynaPublishedItemSchema.shape.attention.optional(),
+  plan: DynaPublishedItemSchema.shape.plan.optional(),
+  nextSteps: external_exports.array(DynaNextStepSchema).max(4).optional()
+}).strict().refine((input) => Object.keys(input).some((key) => key !== "requestId"), {
+  message: "An enrichment must include at least one replacement field."
+});
+var DynaOrganizePlaceInputSchema = external_exports.object({
+  requestId: external_exports.uuid(),
+  targetPriority: DynaPrioritySchema,
+  beforeItemId: external_exports.uuid().optional()
+}).strict();
+var DynaOrganizeSelectedItemSchema = external_exports.object({
+  itemId: external_exports.uuid(),
+  expectedFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/)
+}).strict();
+var DynaOrganizePlaceManyInputSchema = external_exports.object({
+  requestId: external_exports.uuid(),
+  items: external_exports.array(DynaOrganizeSelectedItemSchema).min(1).max(200).superRefine((items, context) => {
+    const seen = /* @__PURE__ */ new Set();
+    for (const [index, item] of items.entries()) {
+      if (seen.has(item.itemId)) {
+        context.addIssue({
+          code: "custom",
+          path: [index, "itemId"],
+          message: "Each Dyna item can appear only once in a bulk priority change."
+        });
+      }
+      seen.add(item.itemId);
+    }
+  }),
+  targetPriority: DynaPrioritySchema
+}).strict();
+var DynaLifecycleArchiveInputSchema = external_exports.object({
+  requestId: external_exports.uuid(),
+  reason: DynaArchiveReasonSchema,
+  reasonDetail: external_exports.string().trim().min(1).max(500).optional()
+}).strict().superRefine((input, context) => {
+  if (input.reason === "other" && !input.reasonDetail) {
+    context.addIssue({
+      code: "custom",
+      path: ["reasonDetail"],
+      message: "Other requires a reason detail."
+    });
+  }
+  if (input.reason !== "other" && input.reasonDetail) {
+    context.addIssue({
+      code: "custom",
+      path: ["reasonDetail"],
+      message: "Reason detail is only allowed for Other."
+    });
+  }
+});
+var DynaLifecycleRestoreInputSchema = external_exports.object({ requestId: external_exports.uuid() }).strict();
+var DynaTodoCreateInputSchema = DynaTodoInputSchema.omit({ followUpOfItemId: true }).extend({ requestId: external_exports.uuid() }).strict();
+var DynaFollowUpCreateInputSchema = DynaTodoInputSchema.omit({ followUpOfItemId: true }).extend({ requestId: external_exports.uuid() }).strict();
 var DynaMutationResultBaseSchema = external_exports.object({
   requestId: external_exports.uuid(),
   itemId: external_exports.uuid(),
@@ -53630,6 +53857,14 @@ var DynaItemEnrichResultSchema = DynaMutationResultBaseSchema.extend({
 var DynaItemPlaceResultSchema = DynaMutationResultBaseSchema.extend({
   schema: external_exports.literal("dyna/item-place-result-v1"),
   changed: external_exports.boolean()
+}).strict();
+var DynaPlaceManyResultSchema = external_exports.object({
+  schema: external_exports.literal("dyna/place-many-result-v1"),
+  requestId: external_exports.uuid(),
+  dashboardId: external_exports.uuid(),
+  changed: external_exports.boolean(),
+  changedCount: external_exports.number().int().nonnegative(),
+  deduplicated: external_exports.boolean()
 }).strict();
 var DynaItemStatusResultSchema = DynaMutationResultBaseSchema.extend({
   schema: external_exports.literal("dyna/item-status-result-v1"),
@@ -53648,8 +53883,15 @@ var DynaItemRestoreResultSchema = DynaMutationResultBaseSchema.extend({
   restoredAt: TimestampSchema2
 }).strict();
 var DynaFollowUpCreateResultSchema = DynaMutationResultBaseSchema.extend({
-  schema: external_exports.literal("dyna/follow-up-create-result-v1"),
+  schema: external_exports.literal("dyna/follow-up-create-result-v2"),
+  itemNumber: DynaItemNumberSchema,
   sourceItemId: external_exports.uuid(),
+  sourceItemNumber: DynaItemNumberSchema,
+  fingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/)
+}).strict();
+var DynaTodoCreateResultSchema = DynaMutationResultBaseSchema.extend({
+  schema: external_exports.literal("dyna/todo-create-result-v2"),
+  itemNumber: DynaItemNumberSchema,
   fingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/)
 }).strict();
 var DynaCliHelpResultSchema = external_exports.object({
@@ -53660,7 +53902,7 @@ var DynaCliHelpResultSchema = external_exports.object({
       readsStdin: external_exports.boolean(),
       description: external_exports.string().trim().min(1).max(200)
     }).strict()
-  ).min(1).max(10)
+  ).min(1).max(17)
 }).strict();
 var DynaCliVersionResultSchema = external_exports.object({
   schema: external_exports.literal("dyna/version-v1"),
@@ -53696,7 +53938,121 @@ var DynaCliErrorSchema = external_exports.object({
   message: external_exports.string().trim().min(1).max(300)
 }).strict();
 
-// packages/dyna-node/src/store.ts
+// packages/dyna-contracts/src/controller.ts
+var IdentifierSchema3 = external_exports.string().trim().min(1).max(512);
+var TimestampSchema3 = external_exports.iso.datetime({ offset: true });
+var DynaOneLineOutcomeSchema2 = external_exports.string().trim().min(1).max(240);
+var DynaTaskSyncTargetSchema = external_exports.object({
+  itemId: external_exports.uuid(),
+  itemNumber: DynaItemNumberSchema,
+  taskId: IdentifierSchema3,
+  hostId: IdentifierSchema3,
+  checkpointVersion: external_exports.number().int().nonnegative(),
+  afterCursor: external_exports.string().trim().min(1).max(2048).optional(),
+  lastTurnId: IdentifierSchema3.optional(),
+  expectedTitle: DynaTaskTitleSchema
+}).strict();
+var DynaTaskSyncClaimSchema = external_exports.object({
+  schema: external_exports.literal("dyna/task-sync-claim-v1"),
+  runId: external_exports.uuid(),
+  dashboardId: external_exports.uuid(),
+  claimToken: external_exports.string().min(32).max(128),
+  leaseExpiresAt: TimestampSchema3,
+  totalTasks: external_exports.number().int().min(0).max(200),
+  remainingTasks: external_exports.number().int().nonnegative(),
+  targets: external_exports.array(DynaTaskSyncTargetSchema).max(200)
+}).strict();
+var DynaTaskSyncDeltaSchema = external_exports.object({
+  kind: external_exports.enum(["progress", "needs_input", "blocked", "completion_reported"]),
+  body: external_exports.string().trim().min(1).max(1e3),
+  outcome: DynaOneLineOutcomeSchema2.optional(),
+  artifacts: external_exports.array(DynaArtifactRefSchema).max(4).default([])
+}).strict().superRefine((delta, context) => {
+  if (delta.kind === "completion_reported" && !delta.outcome) {
+    context.addIssue({
+      code: "custom",
+      message: "A synchronized completion report requires a one-line outcome.",
+      path: ["outcome"]
+    });
+  }
+  if (delta.kind !== "completion_reported" && delta.outcome) {
+    context.addIssue({
+      code: "custom",
+      message: "Only a synchronized completion report can include an outcome.",
+      path: ["outcome"]
+    });
+  }
+});
+var DynaTaskSyncObservationSchema = external_exports.object({
+  taskId: IdentifierSchema3,
+  checkpointVersion: external_exports.number().int().nonnegative(),
+  task: DynaTaskStatusSchema,
+  summaryCoverage: external_exports.enum(["available", "unavailable"]),
+  nextCursor: external_exports.string().trim().min(1).max(2048).optional(),
+  lastTurnId: IdentifierSchema3.optional(),
+  delta: DynaTaskSyncDeltaSchema.optional()
+}).strict().superRefine((observation, context) => {
+  if (observation.task.taskId !== observation.taskId) {
+    context.addIssue({
+      code: "custom",
+      message: "A synchronized task identity must match its native observation.",
+      path: ["task", "taskId"]
+    });
+  }
+  if (observation.summaryCoverage === "unavailable" && observation.delta) {
+    context.addIssue({
+      code: "custom",
+      message: "A status-only task observation cannot include a compact work delta.",
+      path: ["delta"]
+    });
+  }
+});
+var DynaTaskSyncUnavailableSchema = external_exports.object({
+  taskId: IdentifierSchema3,
+  hostId: IdentifierSchema3,
+  checkpointVersion: external_exports.number().int().nonnegative(),
+  reason: external_exports.enum([
+    "not_found",
+    "host_unavailable",
+    "status_unavailable",
+    "cursor_invalid",
+    "read_failed"
+  ])
+}).strict();
+var DynaTaskSyncBatchInputSchema = external_exports.object({
+  requestId: external_exports.uuid(),
+  observations: external_exports.array(DynaTaskSyncObservationSchema).max(8),
+  unavailable: external_exports.array(DynaTaskSyncUnavailableSchema).max(8)
+}).strict().superRefine((input, context) => {
+  const identities = [...input.observations, ...input.unavailable].map((entry) => entry.taskId);
+  if (identities.length < 1 || identities.length > 8) {
+    context.addIssue({
+      code: "custom",
+      message: "A task synchronization batch must contain between one and eight tasks.",
+      path: ["observations"]
+    });
+  }
+  if (new Set(identities).size !== identities.length) {
+    context.addIssue({
+      code: "custom",
+      message: "A task synchronization batch cannot repeat a task.",
+      path: ["observations"]
+    });
+  }
+});
+var DynaTaskSyncBatchResultSchema = external_exports.object({
+  schema: external_exports.literal("dyna/task-sync-batch-result-v1"),
+  acceptedTasks: external_exports.number().int().min(0).max(8),
+  deduplicated: external_exports.boolean(),
+  leaseExpiresAt: TimestampSchema3,
+  summary: DynaTaskSyncSummarySchema
+}).strict();
+var DynaTaskSyncCompleteInputSchema = external_exports.object({ requestId: external_exports.uuid() }).strict();
+
+// packages/dyna-node/src/service.ts
+var import_node_crypto6 = require("node:crypto");
+
+// packages/dyna-node/src/repository.ts
 var import_node_crypto5 = require("node:crypto");
 var import_node_fs3 = require("node:fs");
 var import_node_os = require("node:os");
@@ -53710,16 +54066,24 @@ var DynaCliStoreError = class extends Error {
     this.code = code;
   }
 };
+var DynaCommittedMutationError = class extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "DynaCommittedMutationError";
+  }
+};
 var VIEW_TTL_MS = 30 * 24 * 60 * 60 * 1e3;
 var ACTION_TTL_MS = 10 * 60 * 1e3;
 var CODEX_SESSION_CANDIDATE_TTL_MS = 10 * 60 * 1e3;
 var CLAIM_LEASE_MS = 5 * 60 * 1e3;
 var MAX_CLOCK_SKEW_MS = 5 * 60 * 1e3;
-var DYNA_SCHEMA_VERSION = 7;
+var DYNA_SCHEMA_VERSION = 9;
+var MAX_SAFE_ITEM_NUMBER = Number.MAX_SAFE_INTEGER;
 var MAX_DASHBOARDS = 100;
 var MAX_PUBLISHERS = 100;
 var MAX_SCHEDULES_PER_DASHBOARD = 50;
 var MAX_TASK_BINDINGS_PER_ITEM = 8;
+var MAX_TASK_SYNC_TARGETS = 200;
 var MAX_CODEX_SESSION_CANDIDATE_LISTS = 100;
 var MAX_CODEX_SESSION_ATTACH_AUTHORIZATIONS = 200;
 var MAX_PUBLIC_FAILURE_LENGTH = 500;
@@ -53729,16 +54093,9 @@ var MAX_HISTORY_PAGE_SIZE = 50;
 var MAX_ACTIVITY_PAGE_SIZE = 25;
 var MAX_HISTORY_CURSOR_LENGTH = 256;
 var MAX_MATCHED_ACTIVITY_LENGTH = 500;
-var TASK_ATTRIBUTED_WORK_KINDS = /* @__PURE__ */ new Set([
-  "progress",
-  "needs_input",
-  "blocked",
-  "completion_reported",
-  "handoff"
-]);
 var LEGACY_COMPLETION_OUTCOME = "Completed before outcome tracking; refresh this task for details.";
 var LEGACY_UNSPECIFIED_FAILURE = "An earlier operation reported an unspecified failure.";
-function dynaEligibleCte(scope = "active") {
+function dynaProjectionMembershipCte(scope = "active") {
   const membership = scope === "archive" ? `JOIN item_archive_events ar ON ar.item_id = i.id
           AND ar.dashboard_id = ?1 AND ar.restored_at IS NULL
          JOIN dashboard_publishers dp ON dp.dashboard_id = ar.dashboard_id
@@ -53753,190 +54110,67 @@ function dynaEligibleCte(scope = "active") {
             AND restored.restored_at IS NOT NULL
         )) AND ar.id IS NULL AND dp.dashboard_id = ?1`;
   return `
-  WITH eligible_membership AS (
-    SELECT DISTINCT i.*, dp.dashboard_id AS membership_dashboard_id,
-      ar.id AS membership_archive_id,
-      ar.reason AS membership_archive_reason,
-      ar.reason_detail AS membership_archive_reason_detail,
-      ar.mode AS membership_archive_mode,
-      ar.archived_at AS membership_archive_archived_at,
-      ar.completed_at AS membership_archive_completed_at,
-      ar.outcome_at_archive AS membership_archive_outcome,
-      ar.workflow_state AS membership_archive_workflow_state,
-      ar.fingerprint_at_archive AS membership_archive_fingerprint
-    FROM items i
-    ${membership}
-    WHERE ${visibility}
-  ), current_execution_updates AS (
-    SELECT state_update.*, state_update.rowid AS insertion_seq
-    FROM eligible_membership eligible_item
-    JOIN task_bindings controller ON controller.item_id = eligible_item.id
-    JOIN work_updates state_update ON state_update.rowid = (
-      SELECT candidate.rowid FROM work_updates candidate
-      WHERE candidate.item_id = controller.item_id
-        AND candidate.task_id = controller.task_id
-        AND candidate.host_id = controller.host_id
-        AND candidate.kind IN (
-          'progress', 'needs_input', 'blocked', 'completion_reported', 'handoff'
-        )
-      ORDER BY candidate.created_at_ms DESC, candidate.rowid DESC LIMIT 1
+    WITH projection_membership AS (
+      SELECT DISTINCT i.*, item_number.number AS item_number,
+        follow_up.source_item_id AS follow_up_reference_item_id,
+        follow_up.source_item_number AS follow_up_of_item_number,
+        dp.dashboard_id AS membership_dashboard_id,
+        e.summary AS enrichment_summary,
+        e.priority AS enrichment_priority,
+        e.priority_reason AS enrichment_priority_reason,
+        e.due_at AS enrichment_due_at,
+        e.due_at_set AS enrichment_due_at_set,
+        e.labels AS enrichment_labels,
+        e.people AS enrichment_people,
+        e.leadership_score AS enrichment_leadership_score,
+        e.attention AS enrichment_attention,
+        e.plan AS enrichment_plan,
+        e.next_steps AS enrichment_next_steps,
+        e.base_fingerprint AS enrichment_base_fingerprint,
+        e.base_source_updated_at AS enrichment_base_source_updated_at,
+        e.applied_at AS enrichment_applied_at,
+        e.provenance AS enrichment_provenance,
+        e.version AS enrichment_version,
+        p.priority_override AS preference_priority,
+        p.sequence AS preference_sequence,
+        ar.id AS archive_id,
+        ar.reason AS archive_reason,
+        ar.reason_detail AS archive_reason_detail,
+        ar.mode AS archive_mode,
+        ar.archived_at AS archive_archived_at,
+        ar.completed_at AS archive_completed_at,
+        ar.outcome_at_archive AS archive_outcome,
+        ar.workflow_state AS archive_workflow_state,
+        ar.fingerprint_at_archive AS archive_fingerprint,
+        user_workflow.target_stage AS user_workflow_stage,
+        user_workflow.outcome AS user_workflow_outcome,
+        user_workflow.created_at AS user_workflow_created_at,
+        user_workflow.created_at_ms AS user_workflow_created_ms,
+        (SELECT MAX(history.restored_at_ms) FROM item_archive_events history
+          WHERE history.dashboard_id = dp.dashboard_id AND history.item_id = i.id
+        ) AS last_restored_at_ms
+      FROM items i
+      JOIN item_numbers item_number ON item_number.item_id = i.id
+      LEFT JOIN item_follow_ups follow_up ON follow_up.item_id = i.id
+      ${membership}
+      LEFT JOIN item_enrichments e ON e.item_id = i.id
+      LEFT JOIN item_preferences p ON p.item_id = i.id AND p.dashboard_id = dp.dashboard_id
+      LEFT JOIN item_workflow_events user_workflow ON user_workflow.rowid = (
+        SELECT candidate.rowid FROM item_workflow_events candidate
+        WHERE candidate.item_id = i.id
+        ORDER BY candidate.created_at_ms DESC, candidate.rowid DESC LIMIT 1
+      )
+      WHERE ${visibility}
+    ), projection_ranked AS (
+      SELECT *, ROW_NUMBER() OVER (
+        PARTITION BY identity_key ORDER BY source_updated_ms DESC, updated_at DESC, id
+      ) AS identity_rank
+      FROM projection_membership
+    ), projection_items AS (
+      SELECT * FROM projection_ranked WHERE identity_rank = 1
     )
-    WHERE controller.state <> 'succeeded'
-      AND controller.observed_ms <= state_update.created_at_ms
-  ), effective_task_states AS (
-    SELECT controller.item_id, controller.task_id, controller.host_id,
-      state_update.kind AS work_kind,
-      CASE
-        WHEN controller.state IN ('succeeded', 'waiting', 'failed', 'unknown')
-          THEN controller.state
-        WHEN state_update.kind = 'needs_input' THEN 'waiting'
-        WHEN state_update.kind IN ('progress', 'completion_reported', 'handoff') THEN 'running'
-        ELSE controller.state
-      END AS effective_state,
-      CASE
-        WHEN controller.state IN ('failed', 'unknown') THEN 1
-        WHEN state_update.kind = 'blocked' THEN 1
-        ELSE 0
-      END AS task_blocked
-    FROM task_bindings controller
-    LEFT JOIN current_execution_updates state_update
-      ON state_update.item_id = controller.item_id
-      AND state_update.task_id = controller.task_id
-      AND state_update.host_id = controller.host_id
-    JOIN eligible_membership eligible_item ON eligible_item.id = controller.item_id
-  ), item_work_conditions AS (
-    SELECT * FROM (
-      SELECT state_update.*, ROW_NUMBER() OVER (
-        PARTITION BY state_update.item_id
-        ORDER BY CASE state_update.kind
-          WHEN 'needs_input' THEN 0 WHEN 'blocked' THEN 1 ELSE 2 END,
-          state_update.created_at_ms DESC, state_update.insertion_seq DESC
-      ) AS condition_rank
-      FROM current_execution_updates state_update
-    ) WHERE condition_rank = 1
-  ), eligible_base AS (
-    SELECT DISTINCT i.*,
-      CASE WHEN e.base_fingerprint = i.fingerprint THEN e.summary END AS enrichment_summary,
-      CASE WHEN e.base_fingerprint = i.fingerprint THEN e.priority END AS enrichment_priority,
-      CASE WHEN e.base_fingerprint = i.fingerprint THEN e.priority_reason END AS enrichment_priority_reason,
-      CASE WHEN e.base_fingerprint = i.fingerprint THEN e.due_at END AS enrichment_due_at,
-      CASE WHEN e.base_fingerprint = i.fingerprint THEN e.due_at_set END AS enrichment_due_at_set,
-      CASE WHEN e.base_fingerprint = i.fingerprint THEN e.labels END AS enrichment_labels,
-      CASE WHEN e.base_fingerprint = i.fingerprint THEN e.people END AS enrichment_people,
-      CASE WHEN e.base_fingerprint = i.fingerprint THEN e.attention END AS enrichment_attention,
-      CASE WHEN e.base_fingerprint = i.fingerprint THEN e.plan END AS enrichment_plan,
-      CASE WHEN e.base_fingerprint = i.fingerprint THEN e.next_steps END AS enrichment_next_steps,
-      e.base_fingerprint AS enrichment_base_fingerprint,
-      e.base_source_updated_at AS enrichment_base_source_updated_at,
-      e.applied_at AS enrichment_applied_at,
-      e.provenance AS enrichment_provenance,
-      e.version AS enrichment_version,
-      p.priority_override AS preference_priority,
-      p.sequence AS preference_sequence,
-      i.membership_archive_id AS archive_id,
-      i.membership_archive_reason AS archive_reason,
-      i.membership_archive_reason_detail AS archive_reason_detail,
-      i.membership_archive_mode AS archive_mode,
-      i.membership_archive_archived_at AS archive_archived_at,
-      i.membership_archive_completed_at AS archive_completed_at,
-      i.membership_archive_outcome AS archive_outcome,
-      i.membership_archive_workflow_state AS archive_workflow_state,
-      i.membership_archive_fingerprint AS archive_fingerprint,
-      user_workflow.target_stage AS user_workflow_stage,
-      user_workflow.outcome AS user_workflow_outcome,
-      user_workflow.created_at AS user_workflow_created_at,
-      user_workflow.created_at_ms AS user_workflow_created_ms,
-      CASE
-        WHEN p.priority_override IS NOT NULL THEN p.priority_override
-        WHEN e.base_fingerprint = i.fingerprint AND e.leadership_score >= 75
-          AND COALESCE(e.priority, i.priority) = 'normal' THEN 'high'
-        WHEN e.base_fingerprint = i.fingerprint AND e.leadership_score >= 55
-          AND COALESCE(e.priority, i.priority) = 'low' THEN 'normal'
-        ELSE COALESCE(
-          CASE WHEN e.base_fingerprint = i.fingerprint THEN e.priority END,
-          i.priority
-        )
-      END AS effective_priority,
-      CASE WHEN e.base_fingerprint = i.fingerprint
-        THEN e.leadership_score ELSE i.leadership_score END AS effective_leadership_score,
-      CASE
-        WHEN EXISTS (
-          SELECT 1 FROM effective_task_states task_state
-          WHERE task_state.item_id = i.id AND task_state.effective_state IN ('failed', 'unknown')
-        ) THEN 'attention'
-        WHEN EXISTS (
-          SELECT 1 FROM effective_task_states task_state
-          WHERE task_state.item_id = i.id AND task_state.effective_state = 'waiting'
-        ) THEN 'paused'
-        WHEN EXISTS (
-          SELECT 1 FROM effective_task_states task_state
-          WHERE task_state.item_id = i.id AND task_state.effective_state IN ('queued', 'running')
-        ) THEN 'executing'
-        WHEN NOT EXISTS (
-          SELECT 1 FROM effective_task_states task_state
-          WHERE task_state.item_id = i.id AND task_state.effective_state <> 'succeeded'
-        ) AND EXISTS (
-          SELECT 1 FROM effective_task_states task_state WHERE task_state.item_id = i.id
-        ) THEN 'completed'
-        WHEN EXISTS (
-          SELECT 1 FROM effective_task_states task_state WHERE task_state.item_id = i.id
-        ) THEN 'attention'
-        WHEN user_workflow.target_stage = 'needs_you' THEN 'attention'
-        WHEN user_workflow.target_stage = 'done' THEN 'completed'
-        ELSE 'todo'
-      END AS effective_workflow_state,
-      work_condition.kind AS work_state,
-      CASE WHEN work_condition.kind IN ('needs_input', 'blocked')
-        THEN substr(work_condition.body, 1, 200) END AS work_condition_summary,
-      CASE WHEN work_condition.kind IN ('needs_input', 'blocked')
-        THEN work_condition.task_id END AS work_condition_task_id,
-      CASE WHEN work_condition.kind IN ('needs_input', 'blocked')
-        THEN work_condition.host_id END AS work_condition_host_id,
-      CASE WHEN EXISTS (
-        SELECT 1 FROM effective_task_states task_state
-        WHERE task_state.item_id = i.id AND task_state.task_blocked = 1
-      ) THEN 1 ELSE 0 END AS work_blocked
-    FROM eligible_membership i
-    LEFT JOIN item_enrichments e ON e.item_id = i.id
-    LEFT JOIN item_preferences p ON p.item_id = i.id
-      AND p.dashboard_id = i.membership_dashboard_id
-    LEFT JOIN item_work_conditions work_condition ON work_condition.item_id = i.id
-    LEFT JOIN item_workflow_events user_workflow ON user_workflow.rowid = (
-      SELECT candidate.rowid FROM item_workflow_events candidate
-      WHERE candidate.item_id = i.id
-      ORDER BY candidate.created_at_ms DESC, candidate.rowid DESC LIMIT 1
-    )
-  ), eligible AS (
-    SELECT *, effective_workflow_state AS workflow_state
-    FROM eligible_base
-  ), ranked AS (
-    SELECT *, ROW_NUMBER() OVER (
-      PARTITION BY identity_key ORDER BY source_updated_ms DESC, updated_at DESC, id
-    ) AS identity_rank
-    FROM eligible
-  ), deduplicated AS (
-    SELECT * FROM ranked WHERE identity_rank = 1
-  ), positioned AS (
-    SELECT *,
-      CASE WHEN workflow_state = 'completed' THEN 1 ELSE 0 END AS completed_group,
-      ROW_NUMBER() OVER (
-        PARTITION BY effective_priority,
-          CASE WHEN workflow_state = 'completed' THEN 1 ELSE 0 END
-        ORDER BY COALESCE(preference_sequence, 2147483647),
-          effective_leadership_score DESC,
-          CASE WHEN enrichment_due_at_set = 1
-            THEN COALESCE(enrichment_due_at, '9999') ELSE COALESCE(due_at, '9999') END,
-          source_updated_ms DESC, id
-      ) AS priority_position,
-      COUNT(*) OVER (
-        PARTITION BY effective_priority,
-          CASE WHEN workflow_state = 'completed' THEN 1 ELSE 0 END
-      ) AS priority_count
-    FROM deduplicated
-  )
-`;
+  `;
 }
-var DYNA_ELIGIBLE_CTE = dynaEligibleCte("active");
 function token() {
   return (0, import_node_crypto5.randomBytes)(32).toString("base64url");
 }
@@ -54092,21 +54326,24 @@ function optionalString(row, key) {
   const value = row[key];
   return typeof value === "string" ? value : void 0;
 }
+function followUpReferenceItemId(row) {
+  return optionalString(row, "follow_up_reference_item_id") ?? optionalString(row, "follow_up_of_item_id");
+}
 function requiredNumber(row, key) {
   const value = row[key];
   if (typeof value !== "number") throw new Error(`Dyna database column ${key} is invalid.`);
   return value;
 }
+function requiredItemNumber(row, key) {
+  const value = requiredNumber(row, key);
+  if (!Number.isSafeInteger(value) || value < 1 || value > MAX_SAFE_ITEM_NUMBER) {
+    throw new Error(`Dyna database column ${key} is not a safe item number.`);
+  }
+  return value;
+}
 function publisherCredentialModeFromRow(row) {
   if (requiredNumber(row, "local_cli_enabled") === 1) return "local_cli";
   return DynaCredentialModeSchema.parse(requiredString(row, "credential_mode"));
-}
-function requiredWorkflowState(row) {
-  const value = requiredString(row, "workflow_state");
-  if (value !== "todo" && value !== "executing" && value !== "paused" && value !== "attention" && value !== "completed") {
-    throw new Error("Dyna database workflow state is invalid.");
-  }
-  return value;
 }
 function publicSafeFailureCharacters(value) {
   let result = "";
@@ -54213,9 +54450,10 @@ function defaultDynaDatabasePath(environment = process.env) {
     "dyna.sqlite3"
   );
 }
-var DynaStore = class {
+var SqliteDynaRepository = class {
   #database;
   #clock;
+  #transactionDepth = 0;
   #codexSessionCandidateLists = /* @__PURE__ */ new Map();
   #codexSessionAttachAuthorizations = /* @__PURE__ */ new Map();
   constructor(options = {}) {
@@ -54251,10 +54489,703 @@ var DynaStore = class {
       }
     }
   }
+  read(operation) {
+    return this.#readTransaction(() => operation(this.#readUnitOfWork()));
+  }
+  write(operation) {
+    return this.#transaction(
+      () => operation({
+        ...this.#readUnitOfWork(),
+        appendAudit: (eventKind, entityId, instant) => {
+          this.#audit(eventKind, entityId, instant);
+        },
+        touchDashboards: (dashboardIds, instant) => {
+          this.#touchDashboards(dashboardIds, instant);
+        },
+        findCliReceipt: (requestId) => this.#findCliReceipt(requestId),
+        insertCliReceipt: (requestId, record2, createdAt) => {
+          this.#insertCliReceipt(requestId, record2, createdAt);
+        },
+        findTodoReceipt: (dashboardId, requestId) => this.#findTodoReceipt(dashboardId, requestId),
+        insertTodoReceipt: (dashboardId, requestId, requestHash, itemId) => {
+          this.#insertTodoReceipt(dashboardId, requestId, requestHash, itemId);
+        },
+        insertTaskAssociationReservation: (reservation) => {
+          this.#insertTaskAssociationReservation(reservation);
+        },
+        expireTaskAssociationReservations: (expiredAt) => this.#expireTaskAssociationReservations(expiredAt),
+        transitionTaskAssociationReservation: (requestId, state, updatedAt) => {
+          this.#transitionTaskAssociationReservation(requestId, state, updatedAt);
+        },
+        findOpenArchive: (dashboardId, itemId) => this.#findOpenArchive(dashboardId, itemId),
+        findLinkedTaskTitle: (itemId, taskId, hostId) => this.#findLinkedTaskTitle(itemId, taskId, hostId),
+        findWorkAttemptAttribution: (itemId, workAttemptId) => this.#findWorkAttemptAttribution(itemId, workAttemptId),
+        currentEnrichmentVersion: (itemId) => this.#currentEnrichmentVersion(itemId),
+        completionEvidence: (itemId) => this.#completionEvidence(itemId),
+        findManualPublisher: (dashboardId) => this.#findManualPublisher(dashboardId),
+        countPublishers: () => this.#countPublishers(),
+        listDashboardIdsForItem: (itemId) => this.#listDashboardIdsForItem(itemId),
+        insertWorkUpdate: (update) => {
+          this.#insertCliWorkUpdate(update);
+        },
+        replaceEnrichment: (record2) => this.#replaceCliEnrichment(record2),
+        writePlacements: (dashboardId, writes, instant) => {
+          this.#writeCliPlacements(dashboardId, writes, instant);
+        },
+        insertArchive: (record2) => {
+          this.#insertCliArchive(record2);
+        },
+        restoreArchive: (archiveId, restoredAt, request) => this.#restoreCliArchive(archiveId, restoredAt, request),
+        insertManualPublisher: (dashboardId, publisherId, instant) => {
+          this.#insertCliManualPublisher(dashboardId, publisherId, instant);
+        },
+        insertManualItem: (record2) => {
+          this.#insertCliManualItem(record2);
+        },
+        insertAnnotation: (annotation) => {
+          this.#insertAnnotation(annotation);
+        },
+        insertDashboard: (dashboard) => {
+          this.#insertDashboard(dashboard);
+        },
+        updateDashboardRecord: (dashboard) => {
+          this.#updateDashboardRecord(dashboard);
+        },
+        deleteDashboardRecord: (id) => {
+          this.#deleteDashboardRecord(id);
+        },
+        persistCreatePublisher: (name, schedule, requiredSourceSlices, credentialMode) => this.createPublisher(name, schedule, requiredSourceSlices, credentialMode),
+        persistRotatePublisherSecret: (publisherId) => this.rotatePublisherSecret(publisherId),
+        persistEnableLocalCliPublisher: (publisherId) => {
+          this.enableLocalCliPublisher(publisherId);
+        },
+        persistRevokePublisher: (publisherId, purgePublishedData) => {
+          this.revokePublisher(publisherId, purgePublishedData);
+        },
+        persistBindSchedule: (dashboardId, publisherId, schedule) => {
+          this.bindSchedule(dashboardId, publisherId, schedule);
+        },
+        persistUnbindSchedule: (dashboardId, publisherId) => {
+          this.unbindSchedule(dashboardId, publisherId);
+        },
+        persistUpdateScheduleStatus: (publisherId, schedule) => {
+          this.updateScheduleStatus(publisherId, schedule);
+        },
+        persistPublish: (publisherId, secret, items, options, local) => local ? this.publishLocal(publisherId, items, options) : this.publish(publisherId, secret ?? "", items, options),
+        persistCreateView: (dashboardId) => this.createView(dashboardId),
+        persistItemStatus: (input, positioned) => this.setItemStatus(input, positioned),
+        persistPrepareAction: (viewToken, kind, values, attachmentBlocker) => {
+          try {
+            return {
+              ok: true,
+              value: this.prepareAction(viewToken, kind, values, attachmentBlocker)
+            };
+          } catch (error51) {
+            if (error51 instanceof DynaCommittedMutationError) {
+              return { ok: false, error: error51 };
+            }
+            throw error51;
+          }
+        },
+        persistMarkDelivered: (viewToken, requestId) => this.markDelivered(viewToken, requestId),
+        persistClaimAction: (requestId, attachmentBlocker) => {
+          try {
+            return {
+              ok: true,
+              value: this.claimAction(requestId, attachmentBlocker)
+            };
+          } catch (error51) {
+            if (error51 instanceof DynaCommittedMutationError) {
+              return { ok: false, error: error51 };
+            }
+            throw error51;
+          }
+        },
+        persistCompleteAction: (requestId, claimToken, result, attachmentBlocker) => this.completeAction(requestId, claimToken, result, attachmentBlocker),
+        persistResolveActionReconciliation: (requestId, resolution, attachmentBlocker) => this.resolveActionReconciliation(requestId, resolution, attachmentBlocker),
+        persistTaskStatus: (itemId, status) => {
+          this.upsertTaskStatus(itemId, status);
+        },
+        persistTaskStatusForDashboard: (dashboardId, itemId, status, attachmentBlocker, excludedReservationRequestId) => {
+          this.upsertTaskStatusForDashboard(
+            dashboardId,
+            itemId,
+            status,
+            attachmentBlocker,
+            excludedReservationRequestId
+          );
+        },
+        insertTaskSyncRun: (run) => {
+          this.#insertTaskSyncRun(run);
+        },
+        updateTaskSyncRun: (run) => {
+          this.#updateTaskSyncRun(run);
+        },
+        insertTaskSyncTargets: (runId, targets) => {
+          this.#insertTaskSyncTargets(runId, targets);
+        },
+        stageTaskSyncObservation: (runId, taskId, observation) => this.#stageTaskSyncObservation(runId, taskId, observation),
+        stageTaskSyncUnavailable: (runId, taskId, reason) => this.#stageTaskSyncUnavailable(runId, taskId, reason),
+        markTaskSyncTarget: (runId, taskId, state) => {
+          this.#markTaskSyncTarget(runId, taskId, state);
+        },
+        insertTaskSyncReceipt: (receipt) => {
+          this.#insertTaskSyncReceipt(receipt);
+        },
+        upsertTaskSyncCheckpoint: (checkpoint) => {
+          this.#upsertTaskSyncCheckpoint(checkpoint);
+        },
+        persistTaskStatusForSync: (itemId, status) => this.#upsertTaskStatus(itemId, status, void 0, false)
+      })
+    );
+  }
+  #readUnitOfWork() {
+    return {
+      listDashboards: () => this.listDashboards(),
+      getDashboard: (id) => this.getDashboard(id),
+      listPublishers: (dashboardId) => this.listPublishers(dashboardId),
+      listProjectionItems: (dashboardId, scope) => this.#listProjectionItems(dashboardId, scope),
+      matchingProjectionItemIds: (dashboardId, scope, terms) => this.#matchingProjectionItemIds(dashboardId, scope, terms),
+      loadCardEvidence: (itemIds, searchTerms) => this.#loadCardEvidence(itemIds, searchTerms),
+      findDashboardState: (dashboardId) => this.#findDashboardState(dashboardId),
+      findItemBase: (itemId) => this.#findCliItemBase(itemId),
+      findTaskOwner: (taskId) => this.#findTaskOwner(taskId),
+      countTaskBindingsForItem: (itemId) => this.#countTaskBindingsForItem(itemId),
+      findTaskAssociationReservation: (requestId) => this.#findTaskAssociationReservation(requestId),
+      findActiveTaskAssociationReservation: (taskId) => this.#findActiveTaskAssociationReservation(taskId),
+      countActiveTaskAssociationReservationsForItem: (itemId, excludedRequestId) => this.#countActiveTaskAssociationReservationsForItem(itemId, excludedRequestId),
+      dashboardContainsItem: (dashboardId, itemId) => this.#dashboardContainsItem(dashboardId, itemId),
+      findOpenArchive: (dashboardId, itemId) => this.#findOpenArchive(dashboardId, itemId),
+      findArchiveReceipt: (dashboardId, requestId) => this.#findArchiveReceipt(dashboardId, requestId),
+      findRestoreReceipt: (dashboardId, requestId) => this.#findRestoreReceipt(dashboardId, requestId),
+      authorizeViewToken: (viewToken, itemId) => this.authorizeView(viewToken, itemId),
+      loadItemContext: (itemId) => this.itemContext(itemId),
+      loadItemHistory: (dashboardId, itemId, options) => this.itemHistory(dashboardId, itemId, options),
+      loadItemActivityPage: (dashboardId, itemId, options) => this.itemActivityPage(dashboardId, itemId, options),
+      loadActionForView: (viewToken, requestId) => this.actionStatusForView(viewToken, requestId),
+      loadAction: (requestId) => this.actionStatus(requestId),
+      findAnnotation: (id) => this.#findAnnotation(id),
+      listTaskSyncRuns: (dashboardId, limit) => this.#listTaskSyncRuns(dashboardId, limit),
+      findTaskSyncRun: (runId) => this.#findTaskSyncRun(runId),
+      listTaskSyncCandidates: (dashboardId, scope, limit) => this.#listTaskSyncCandidates(dashboardId, scope, limit),
+      listTaskSyncTargets: (runId) => this.#listTaskSyncTargets(runId),
+      findTaskSyncCheckpoint: (taskId) => this.#findTaskSyncCheckpoint(taskId),
+      findTaskSyncReceipt: (id) => this.#findTaskSyncReceipt(id)
+    };
+  }
+  #findCliReceipt(requestId) {
+    const row = this.#one(
+      this.#database.prepare(
+        "SELECT dashboard_id, operation, item_id, request_hash, result_json FROM cli_requests WHERE request_id = ?"
+      ),
+      requestId
+    );
+    if (!row) return void 0;
+    return {
+      dashboardId: requiredString(row, "dashboard_id"),
+      operation: requiredString(row, "operation"),
+      itemId: requiredString(row, "item_id"),
+      requestHash: requiredString(row, "request_hash"),
+      result: parseJson(requiredString(row, "result_json"))
+    };
+  }
+  #insertCliReceipt(requestId, record2, createdAt) {
+    this.#database.prepare(
+      `INSERT INTO cli_requests (
+           dashboard_id, request_id, operation, item_id, request_hash, result_json, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      record2.dashboardId,
+      requestId,
+      record2.operation,
+      record2.itemId,
+      record2.requestHash,
+      JSON.stringify(record2.result),
+      createdAt
+    );
+  }
+  #findTodoReceipt(dashboardId, requestId) {
+    const row = this.#one(
+      this.#database.prepare(
+        "SELECT request_hash, item_id FROM todo_requests WHERE dashboard_id = ? AND client_request_id = ?"
+      ),
+      dashboardId,
+      requestId
+    );
+    return row ? {
+      requestHash: requiredString(row, "request_hash"),
+      itemId: requiredString(row, "item_id")
+    } : void 0;
+  }
+  #insertTodoReceipt(dashboardId, requestId, requestHash, itemId) {
+    this.#database.prepare(
+      "INSERT INTO todo_requests (dashboard_id, client_request_id, request_hash, item_id) VALUES (?, ?, ?, ?)"
+    ).run(dashboardId, requestId, requestHash, itemId);
+  }
+  #findDashboardState(dashboardId) {
+    const row = this.#one(
+      this.#database.prepare("SELECT archived, revision FROM dashboards WHERE id = ?"),
+      dashboardId
+    );
+    return row ? {
+      archived: requiredNumber(row, "archived") === 1,
+      revision: requiredNumber(row, "revision")
+    } : void 0;
+  }
+  #findCliItemBase(itemId) {
+    const row = this.#one(
+      this.#database.prepare(
+        `SELECT item.id, item_number.number AS item_number, item.fingerprint,
+           item.priority, item.source_updated_at
+         FROM items item
+         JOIN item_numbers item_number ON item_number.item_id = item.id
+         WHERE item.id = ?`
+      ),
+      itemId
+    );
+    return row ? {
+      id: requiredString(row, "id"),
+      itemNumber: requiredItemNumber(row, "item_number"),
+      fingerprint: requiredString(row, "fingerprint"),
+      sourcePriority: DynaPrioritySchema.parse(requiredString(row, "priority")),
+      sourceUpdatedAt: requiredString(row, "source_updated_at")
+    } : void 0;
+  }
+  #findTaskOwner(taskId) {
+    const row = this.#one(
+      this.#database.prepare("SELECT item_id, host_id FROM task_bindings WHERE task_id = ?"),
+      taskId
+    );
+    return row ? { itemId: requiredString(row, "item_id"), hostId: requiredString(row, "host_id") } : void 0;
+  }
+  #countTaskBindingsForItem(itemId) {
+    const row = this.#one(
+      this.#database.prepare("SELECT COUNT(*) AS total FROM task_bindings WHERE item_id = ?"),
+      itemId
+    );
+    if (!row) throw new Error("Dyna could not count linked Codex tasks.");
+    return requiredNumber(row, "total");
+  }
+  #taskAssociationReservationFromRow(row) {
+    const state = requiredString(row, "state");
+    if (state !== "reserved" && state !== "uncertain" && state !== "consumed" && state !== "released" && state !== "expired") {
+      throw new Error("Dyna task-association reservation state is invalid.");
+    }
+    const actionRequestId = optionalString(row, "action_request_id");
+    const expiresAt = optionalString(row, "expires_at");
+    return {
+      requestId: requiredString(row, "request_id"),
+      taskId: requiredString(row, "task_id"),
+      itemId: requiredString(row, "item_id"),
+      ...actionRequestId ? { actionRequestId } : {},
+      state,
+      ...expiresAt ? { expiresAt } : {},
+      createdAt: requiredString(row, "created_at"),
+      updatedAt: requiredString(row, "updated_at")
+    };
+  }
+  #findTaskAssociationReservation(requestId) {
+    const row = this.#one(
+      this.#database.prepare(
+        `SELECT request_id, task_id, item_id, action_request_id, state,
+           expires_at, created_at, updated_at
+         FROM task_association_reservations WHERE request_id = ?`
+      ),
+      requestId
+    );
+    return row ? this.#taskAssociationReservationFromRow(row) : void 0;
+  }
+  #findActiveTaskAssociationReservation(taskId) {
+    const row = this.#one(
+      this.#database.prepare(
+        `SELECT request_id, task_id, item_id, action_request_id, state,
+           expires_at, created_at, updated_at
+         FROM task_association_reservations
+         WHERE task_id = ? AND state IN ('reserved', 'uncertain')`
+      ),
+      taskId
+    );
+    return row ? this.#taskAssociationReservationFromRow(row) : void 0;
+  }
+  #countActiveTaskAssociationReservationsForItem(itemId, excludedRequestId) {
+    const row = this.#one(
+      this.#database.prepare(
+        `SELECT COUNT(*) AS total FROM task_association_reservations
+         WHERE item_id = ? AND state IN ('reserved', 'uncertain')
+           AND (? IS NULL OR request_id <> ?)`
+      ),
+      itemId,
+      excludedRequestId ?? null,
+      excludedRequestId ?? null
+    );
+    if (!row) throw new Error("Dyna could not count task-association reservations.");
+    return requiredNumber(row, "total");
+  }
+  #insertTaskAssociationReservation(reservation) {
+    this.#database.prepare(
+      `INSERT INTO task_association_reservations (
+           request_id, task_id, item_id, action_request_id, state,
+           expires_at, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      reservation.requestId,
+      reservation.taskId,
+      reservation.itemId,
+      reservation.actionRequestId ?? null,
+      reservation.state,
+      reservation.expiresAt ?? null,
+      reservation.createdAt,
+      reservation.updatedAt
+    );
+  }
+  #expireTaskAssociationReservations(expiredAt) {
+    return Number(
+      this.#database.prepare(
+        `UPDATE task_association_reservations
+         SET state = 'expired', updated_at = ?
+         WHERE state = 'reserved' AND expires_at IS NOT NULL AND expires_at <= ?`
+      ).run(expiredAt, expiredAt).changes
+    );
+  }
+  #transitionTaskAssociationReservation(requestId, state, updatedAt) {
+    const changed = this.#database.prepare(
+      "UPDATE task_association_reservations SET state = ?, updated_at = ? WHERE request_id = ?"
+    ).run(state, updatedAt, requestId).changes;
+    if (changed !== 1) throw new Error("Dyna task-association reservation was not found.");
+  }
+  #findOpenArchive(dashboardId, itemId) {
+    const row = this.#one(
+      this.#database.prepare(
+        "SELECT id FROM item_archive_events WHERE dashboard_id = ? AND item_id = ? AND restored_at IS NULL"
+      ),
+      dashboardId,
+      itemId
+    );
+    return row ? { id: requiredString(row, "id") } : void 0;
+  }
+  #findArchiveReceipt(dashboardId, requestId) {
+    const row = this.#one(
+      this.#database.prepare(
+        "SELECT * FROM item_archive_events WHERE dashboard_id = ? AND client_request_id = ?"
+      ),
+      dashboardId,
+      requestId
+    );
+    if (!row) return void 0;
+    return {
+      requestHash: requiredString(row, "request_hash"),
+      result: this.#archiveResultFromRow(row)
+    };
+  }
+  #findRestoreReceipt(dashboardId, requestId) {
+    const row = this.#one(
+      this.#database.prepare(
+        "SELECT item_id, restored_at, restore_request_hash FROM item_archive_events WHERE dashboard_id = ? AND restore_request_id = ?"
+      ),
+      dashboardId,
+      requestId
+    );
+    if (!row) return void 0;
+    return {
+      requestHash: requiredString(row, "restore_request_hash"),
+      itemId: requiredString(row, "item_id"),
+      restoredAt: requiredString(row, "restored_at")
+    };
+  }
+  #findLinkedTaskTitle(itemId, taskId, hostId) {
+    const row = this.#one(
+      this.#database.prepare(
+        "SELECT title FROM task_bindings WHERE item_id = ? AND task_id = ? AND host_id = ?"
+      ),
+      itemId,
+      taskId,
+      hostId
+    );
+    return row ? requiredString(row, "title") : void 0;
+  }
+  #findWorkAttemptAttribution(itemId, workAttemptId) {
+    const row = this.#one(
+      this.#database.prepare(
+        `SELECT task_id, host_id FROM work_updates
+         WHERE item_id = ? AND work_attempt_id = ? AND task_id IS NOT NULL
+         ORDER BY created_at_ms, rowid LIMIT 1`
+      ),
+      itemId,
+      workAttemptId
+    );
+    if (!row) return void 0;
+    const taskId = optionalString(row, "task_id");
+    const hostId = optionalString(row, "host_id");
+    return {
+      ...taskId ? { taskId } : {},
+      ...hostId ? { hostId } : {}
+    };
+  }
+  #currentEnrichmentVersion(itemId) {
+    const row = this.#one(
+      this.#database.prepare("SELECT version FROM item_enrichments WHERE item_id = ?"),
+      itemId
+    );
+    return row ? requiredNumber(row, "version") : 0;
+  }
+  #completionEvidence(itemId) {
+    const completed = this.#one(
+      this.#database.prepare(
+        "SELECT MAX(status_updated_ms) AS completed_at_ms FROM task_bindings WHERE item_id = ? AND state = 'succeeded'"
+      ),
+      itemId
+    );
+    const outcome = this.#one(
+      this.#database.prepare(
+        `SELECT outcome FROM task_bindings
+         WHERE item_id = ? AND state = 'succeeded' AND outcome IS NOT NULL
+         ORDER BY status_updated_ms DESC, task_id, host_id LIMIT 1`
+      ),
+      itemId
+    );
+    const outcomeValue = outcome ? optionalString(outcome, "outcome") : void 0;
+    return {
+      ...typeof completed?.["completed_at_ms"] === "number" ? { completedAtMs: requiredNumber(completed, "completed_at_ms") } : {},
+      ...outcomeValue ? { outcome: outcomeValue } : {}
+    };
+  }
+  #findManualPublisher(dashboardId) {
+    const row = this.#one(
+      this.#database.prepare(
+        "SELECT publisher_id FROM dashboard_manual_publishers WHERE dashboard_id = ?"
+      ),
+      dashboardId
+    );
+    return row ? requiredString(row, "publisher_id") : void 0;
+  }
+  #countPublishers() {
+    const row = this.#one(this.#database.prepare("SELECT COUNT(*) AS total FROM publishers"));
+    return row ? requiredNumber(row, "total") : 0;
+  }
+  #listDashboardIdsForItem(itemId) {
+    return this.#database.prepare(
+      `SELECT DISTINCT dp.dashboard_id FROM dashboard_publishers dp
+           JOIN publisher_items pi ON pi.publisher_id = dp.publisher_id
+           WHERE pi.item_id = ? AND (
+             pi.active = 1 OR EXISTS (
+               SELECT 1 FROM item_archive_events history
+               WHERE history.dashboard_id = dp.dashboard_id AND history.item_id = pi.item_id
+             )
+           )`
+    ).all(itemId).map((row) => requiredString(row, "dashboard_id"));
+  }
+  #insertCliWorkUpdate(update) {
+    this.#database.prepare(
+      `INSERT INTO work_updates (
+           id, item_id, origin_dashboard_id, work_attempt_id, kind, body, outcome,
+           artifacts, task_id, host_id, task_title, created_at, created_at_ms
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      update.id,
+      update.itemId,
+      update.originDashboardId,
+      update.workAttemptId,
+      update.kind,
+      update.body,
+      update.outcome ?? null,
+      JSON.stringify(update.artifacts),
+      update.task?.taskId ?? null,
+      update.task?.hostId ?? null,
+      update.task?.title ?? null,
+      update.createdAt,
+      Date.parse(update.createdAt)
+    );
+  }
+  #findAnnotation(id) {
+    const row = this.#one(this.#database.prepare("SELECT * FROM annotations WHERE id = ?"), id);
+    return row ? DynaAnnotationSchema.parse({
+      id: requiredString(row, "id"),
+      itemId: requiredString(row, "item_id"),
+      body: requiredString(row, "body"),
+      createdAt: requiredString(row, "created_at")
+    }) : void 0;
+  }
+  #insertAnnotation(annotation) {
+    this.#database.prepare("INSERT INTO annotations (id, item_id, body, created_at) VALUES (?, ?, ?, ?)").run(annotation.id, annotation.itemId, annotation.body, annotation.createdAt);
+  }
+  #replaceCliEnrichment(record2) {
+    this.#database.prepare(
+      `INSERT INTO item_enrichments (
+           item_id, summary, priority, priority_reason, due_at, due_at_set, labels, people,
+           leadership_score, attention, plan, next_steps, base_fingerprint,
+           base_source_updated_at, applied_at, provenance, version
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+         ON CONFLICT(item_id) DO UPDATE SET summary = excluded.summary,
+           priority = excluded.priority, priority_reason = excluded.priority_reason,
+           due_at = excluded.due_at, due_at_set = excluded.due_at_set,
+           labels = excluded.labels, people = excluded.people,
+           leadership_score = excluded.leadership_score,
+           attention = excluded.attention, plan = excluded.plan,
+           next_steps = excluded.next_steps,
+           base_fingerprint = excluded.base_fingerprint,
+           base_source_updated_at = excluded.base_source_updated_at,
+           applied_at = excluded.applied_at, provenance = excluded.provenance,
+           version = item_enrichments.version + 1`
+    ).run(
+      record2.itemId,
+      record2.summary ?? null,
+      record2.priority ?? null,
+      record2.priorityReason ?? null,
+      record2.dueAt ?? null,
+      record2.dueAtSet ? 1 : 0,
+      record2.labels === void 0 ? null : JSON.stringify(record2.labels),
+      record2.people === void 0 ? null : JSON.stringify(record2.people),
+      record2.leadershipScore,
+      record2.attention ?? null,
+      record2.plan === void 0 ? null : JSON.stringify(record2.plan),
+      record2.nextSteps === void 0 ? null : JSON.stringify(record2.nextSteps),
+      record2.baseFingerprint,
+      record2.baseSourceUpdatedAt,
+      record2.appliedAt,
+      record2.provenance
+    );
+    return this.#currentEnrichmentVersion(record2.itemId);
+  }
+  #writeCliPlacements(dashboardId, writes, instant) {
+    const setOverride = this.#database.prepare(
+      `INSERT INTO item_preferences (
+         dashboard_id, item_id, priority_override, sequence, updated_at
+       ) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(dashboard_id, item_id) DO UPDATE SET
+         priority_override = excluded.priority_override,
+         sequence = excluded.sequence, updated_at = excluded.updated_at`
+    );
+    const setSequence = this.#database.prepare(
+      `INSERT INTO item_preferences (dashboard_id, item_id, sequence, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(dashboard_id, item_id) DO UPDATE SET
+         sequence = excluded.sequence, updated_at = excluded.updated_at`
+    );
+    const addEvent = this.#database.prepare(
+      `INSERT INTO item_preference_events (
+         id, dashboard_id, item_id, action, priority, sequence, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const write of writes) {
+      if (write.priorityOverride) {
+        setOverride.run(dashboardId, write.itemId, write.priorityOverride, write.sequence, instant);
+      } else {
+        setSequence.run(dashboardId, write.itemId, write.sequence, instant);
+      }
+      addEvent.run(
+        (0, import_node_crypto5.randomUUID)(),
+        dashboardId,
+        write.itemId,
+        write.action,
+        write.priority,
+        write.sequence,
+        instant
+      );
+    }
+  }
+  #insertCliArchive(record2) {
+    this.#database.prepare(
+      `INSERT INTO item_archive_events (
+           id, dashboard_id, item_id, reason, reason_detail, mode,
+           archived_at, archived_at_ms, fingerprint_at_archive, workflow_state,
+           completed_at, completed_at_ms, outcome_at_archive,
+           priority_at_archive, sequence_at_archive, client_request_id, request_hash
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      record2.id,
+      record2.dashboardId,
+      record2.itemId,
+      record2.reason,
+      record2.reasonDetail ?? null,
+      record2.mode,
+      record2.archivedAt,
+      Date.parse(record2.archivedAt),
+      record2.fingerprint,
+      record2.workflowState,
+      record2.completedAtMs === void 0 ? null : new Date(record2.completedAtMs).toISOString(),
+      record2.completedAtMs ?? null,
+      record2.outcome ?? null,
+      record2.priority,
+      record2.sequence ?? null,
+      record2.requestId ?? null,
+      record2.requestHash ?? null
+    );
+  }
+  #restoreCliArchive(archiveId, restoredAt, request) {
+    return this.#database.prepare(
+      `UPDATE item_archive_events
+           SET restored_at = ?, restored_at_ms = ?, restore_request_id = ?, restore_request_hash = ?
+           WHERE id = ? AND restored_at IS NULL`
+    ).run(
+      restoredAt,
+      Date.parse(restoredAt),
+      request?.id ?? null,
+      request?.hash ?? null,
+      archiveId
+    ).changes === 1;
+  }
+  #insertCliManualPublisher(dashboardId, publisherId, instant) {
+    this.#database.prepare(
+      `INSERT INTO publishers (
+           id, name, token_hash, schedule_state, stale_after_minutes, credential_mode,
+           last_run_status, created_at
+         ) VALUES (?, ?, ?, 'unknown', 43200, 'disabled', 'never', ?)`
+    ).run(publisherId, "Dyna to-dos", tokenHash(token()), instant);
+    this.#database.prepare("INSERT INTO dashboard_publishers (dashboard_id, publisher_id) VALUES (?, ?)").run(dashboardId, publisherId);
+    this.#database.prepare("INSERT INTO dashboard_manual_publishers (dashboard_id, publisher_id) VALUES (?, ?)").run(dashboardId, publisherId);
+  }
+  #insertCliManualItem(record2) {
+    const { itemId, publisherId, published, fingerprint, instant, followUpOfItemId } = record2;
+    this.#database.prepare(
+      `INSERT INTO items (
+           id, publisher_id, external_id, identity_key, source, source_ref, source_scope, title,
+           summary, priority, priority_reason, source_updated_at, source_updated_ms, due_at,
+           labels, people, leadership_score, attention, plan, next_steps, follow_up_of_item_id,
+           fingerprint, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, 0, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      itemId,
+      publisherId,
+      published.externalId,
+      identityKey(publisherId, published.sourceRef),
+      published.sourceRef.source,
+      JSON.stringify(published.sourceRef),
+      published.sourceScope,
+      published.title,
+      published.summary,
+      published.priority,
+      published.priorityReason,
+      published.sourceUpdatedAt,
+      Date.parse(published.sourceUpdatedAt),
+      JSON.stringify(published.labels),
+      JSON.stringify(published.people),
+      published.attention ?? null,
+      JSON.stringify(published.plan),
+      JSON.stringify(published.nextSteps),
+      followUpOfItemId ?? null,
+      fingerprint,
+      instant
+    );
+    if (followUpOfItemId) this.#insertFollowUpReference(itemId, followUpOfItemId);
+    this.#database.prepare(
+      `INSERT INTO publisher_items (
+           publisher_id, external_id, item_id, active, last_seen_run_id
+         ) VALUES (?, ?, ?, 1, ?)`
+    ).run(publisherId, published.externalId, itemId, `manual:${published.externalId}`);
+  }
+  #insertFollowUpReference(itemId, sourceItemId) {
+    const inserted = this.#database.prepare(
+      `INSERT INTO item_follow_ups (item_id, source_item_id, source_item_number)
+         SELECT ?, item_number.item_id, item_number.number
+         FROM item_numbers item_number WHERE item_number.item_id = ?`
+    ).run(itemId, sourceItemId).changes;
+    if (inserted !== 1) throw new Error("The Dyna follow-up source has no item number.");
+  }
   close() {
     this.#database.close();
   }
   backup(destinationPath) {
+    this.#assertItemNumberIntegrity();
     const requestedPath = (0, import_node_path5.resolve)(destinationPath);
     const requestedDirectory = (0, import_node_path5.dirname)(requestedPath);
     (0, import_node_fs3.mkdirSync)(requestedDirectory, { mode: 448, recursive: true });
@@ -54291,6 +55222,7 @@ var DynaStore = class {
         if (!versionRow || requiredNumber(versionRow, "user_version") !== DYNA_SCHEMA_VERSION || !integrityRow || requiredString(integrityRow, "integrity_check") !== "ok" || foreignKeyViolations.length > 0) {
           throw new Error("Dyna could not verify the backup database.");
         }
+        this.#assertItemNumberIntegrity(verifier);
       } finally {
         verifier.close();
       }
@@ -54342,6 +55274,36 @@ var DynaStore = class {
         follow_up_of_item_id TEXT REFERENCES items(id) ON DELETE SET NULL,
         fingerprint TEXT NOT NULL,
         updated_at TEXT NOT NULL, UNIQUE (publisher_id, external_id)
+      );
+      CREATE TABLE IF NOT EXISTS item_numbers (
+        number INTEGER PRIMARY KEY AUTOINCREMENT,
+        item_id TEXT NOT NULL UNIQUE,
+        CHECK (number > 0 AND number <= 9007199254740991)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_dyna_item_numbers_identity
+        ON item_numbers(number, item_id);
+      CREATE TRIGGER IF NOT EXISTS trg_dyna_item_number_allocate
+        AFTER INSERT ON items
+        BEGIN
+          INSERT INTO item_numbers (item_id) VALUES (NEW.id);
+        END;
+      CREATE TRIGGER IF NOT EXISTS trg_dyna_item_number_immutable_update
+        BEFORE UPDATE ON item_numbers
+        BEGIN
+          SELECT RAISE(ABORT, 'Dyna item numbers are immutable');
+        END;
+      CREATE TRIGGER IF NOT EXISTS trg_dyna_item_number_immutable_delete
+        BEFORE DELETE ON item_numbers
+        BEGIN
+          SELECT RAISE(ABORT, 'Dyna item numbers are never recycled');
+        END;
+      CREATE TABLE IF NOT EXISTS item_follow_ups (
+        item_id TEXT PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
+        source_item_id TEXT NOT NULL,
+        source_item_number INTEGER NOT NULL,
+        FOREIGN KEY (source_item_number, source_item_id)
+          REFERENCES item_numbers(number, item_id) ON DELETE RESTRICT,
+        CHECK (source_item_number > 0 AND source_item_number <= 9007199254740991)
       );
       CREATE TABLE IF NOT EXISTS publisher_items (
         publisher_id TEXT NOT NULL REFERENCES publishers(id) ON DELETE CASCADE,
@@ -54462,6 +55424,75 @@ var DynaStore = class {
         outcome TEXT,
         PRIMARY KEY (item_id, task_id, host_id)
       );
+      CREATE TABLE IF NOT EXISTS task_sync_checkpoints (
+        task_id TEXT PRIMARY KEY,
+        host_id TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 0 CHECK (version >= 0),
+        cursor TEXT,
+        last_turn_id TEXT,
+        status_updated_at TEXT,
+        observed_at TEXT,
+        observed_at_ms INTEGER,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS task_sync_runs (
+        id TEXT PRIMARY KEY,
+        dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
+        scope_kind TEXT NOT NULL CHECK (scope_kind IN ('dashboard', 'task')),
+        scope_item_id TEXT REFERENCES items(id) ON DELETE CASCADE,
+        scope_task_id TEXT,
+        scope_host_id TEXT,
+        state TEXT NOT NULL CHECK (state IN (
+          'prepared', 'delivered', 'claimed', 'syncing',
+          'completed', 'partial', 'expired', 'unavailable'
+        )),
+        claim_token_hash TEXT,
+        lease_expires_at TEXT,
+        expires_at TEXT NOT NULL,
+        total_tasks INTEGER NOT NULL CHECK (total_tasks >= 0 AND total_tasks <= 200),
+        excess_tasks INTEGER NOT NULL DEFAULT 0 CHECK (excess_tasks >= 0),
+        processed_tasks INTEGER NOT NULL DEFAULT 0 CHECK (processed_tasks >= 0),
+        updated_items INTEGER NOT NULL DEFAULT 0 CHECK (updated_items >= 0),
+        unavailable_tasks INTEGER NOT NULL DEFAULT 0 CHECK (unavailable_tasks >= 0),
+        incomplete_metadata_tasks INTEGER NOT NULL DEFAULT 0
+          CHECK (incomplete_metadata_tasks >= 0 AND incomplete_metadata_tasks <= 200),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT,
+        CHECK (
+          (scope_kind = 'dashboard' AND scope_item_id IS NULL
+            AND scope_task_id IS NULL AND scope_host_id IS NULL) OR
+          (scope_kind = 'task' AND scope_item_id IS NOT NULL
+            AND scope_task_id IS NOT NULL AND scope_host_id IS NOT NULL)
+        )
+      );
+      CREATE TABLE IF NOT EXISTS task_sync_targets (
+        run_id TEXT NOT NULL REFERENCES task_sync_runs(id) ON DELETE CASCADE,
+        item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        item_number INTEGER NOT NULL,
+        item_title TEXT NOT NULL,
+        task_id TEXT NOT NULL,
+        host_id TEXT NOT NULL,
+        checkpoint_version INTEGER NOT NULL CHECK (checkpoint_version >= 0),
+        checkpoint_cursor TEXT,
+        checkpoint_last_turn_id TEXT,
+        checkpoint_observed_at_ms INTEGER,
+        state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN (
+          'pending', 'staged', 'unavailable', 'applied', 'skipped'
+        )),
+        observation_json TEXT,
+        unavailable_reason TEXT,
+        PRIMARY KEY (run_id, task_id)
+      );
+      CREATE TABLE IF NOT EXISTS task_sync_receipts (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES task_sync_runs(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL CHECK (kind IN ('batch', 'observation', 'completion')),
+        task_id TEXT,
+        request_hash TEXT NOT NULL,
+        result_json TEXT,
+        created_at TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS view_sessions (
         token_hash BLOB PRIMARY KEY, dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
         expires_at TEXT NOT NULL
@@ -54475,6 +55506,18 @@ var DynaStore = class {
         result_task_id TEXT, failure_message TEXT, uncertain_effect INTEGER NOT NULL DEFAULT 0,
         expires_at TEXT NOT NULL,
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS task_association_reservations (
+        request_id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL,
+        item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        action_request_id TEXT UNIQUE REFERENCES action_requests(id) ON DELETE CASCADE,
+        state TEXT NOT NULL CHECK (state IN (
+          'reserved', 'uncertain', 'consumed', 'released', 'expired'
+        )),
+        expires_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS audit_events (
         id TEXT PRIMARY KEY, event_kind TEXT NOT NULL, entity_id TEXT NOT NULL, created_at TEXT NOT NULL
@@ -54504,6 +55547,22 @@ var DynaStore = class {
         WHERE task_id IS NOT NULL AND kind IN (
           'progress', 'needs_input', 'blocked', 'completion_reported', 'handoff'
         );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_dyna_active_task_reservation
+        ON task_association_reservations(task_id)
+        WHERE state IN ('reserved', 'uncertain');
+      CREATE INDEX IF NOT EXISTS idx_dyna_task_reservation_expiry
+        ON task_association_reservations(state, expires_at)
+        WHERE state = 'reserved' AND expires_at IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_dyna_active_task_sync_run
+        ON task_sync_runs(dashboard_id)
+        WHERE state IN ('prepared', 'delivered', 'claimed', 'syncing');
+      CREATE INDEX IF NOT EXISTS idx_dyna_task_sync_runs_dashboard_time
+        ON task_sync_runs(dashboard_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_dyna_task_sync_targets_state
+        ON task_sync_targets(run_id, state, task_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_dyna_task_sync_observation_receipt
+        ON task_sync_receipts(task_id, request_hash)
+        WHERE kind = 'observation' AND task_id IS NOT NULL;
     `);
     this.#createActionRequestIndexesWhenSupported();
   }
@@ -54579,6 +55638,373 @@ var DynaStore = class {
       )
     );
   }
+  #schemaObjectSql(type, name) {
+    const row = this.#one(
+      this.#database.prepare("SELECT sql FROM sqlite_schema WHERE type = ? AND name = ?"),
+      type,
+      name
+    );
+    return row ? optionalString(row, "sql") : void 0;
+  }
+  #normalizedSchemaSql(value) {
+    return value.replace(/\s+/gu, "").replace(/;$/u, "").toLowerCase();
+  }
+  #assertItemNumberTableSchema() {
+    const sql = this.#schemaObjectSql("table", "item_numbers");
+    if (!sql) {
+      throw new Error(
+        "The Dyna item-number ledger is missing; reopening it could renumber existing items."
+      );
+    }
+    const columns = this.#database.prepare("PRAGMA table_info(item_numbers)").all();
+    const number4 = columns.find((column) => optionalString(column, "name") === "number");
+    const itemId = columns.find((column) => optionalString(column, "name") === "item_id");
+    const normalized = this.#normalizedSchemaSql(sql);
+    if (columns.length !== 2 || !number4 || optionalString(number4, "type")?.toUpperCase() !== "INTEGER" || requiredNumber(number4, "pk") !== 1 || !itemId || optionalString(itemId, "type")?.toUpperCase() !== "TEXT" || requiredNumber(itemId, "notnull") !== 1 || !normalized.includes("numberintegerprimarykeyautoincrement") || !normalized.includes("item_idtextnotnullunique") || !normalized.includes("check(number>0andnumber<=9007199254740991)")) {
+      throw new Error("The Dyna item-number ledger schema is invalid.");
+    }
+  }
+  #itemNumberTriggersCurrent() {
+    const expected = /* @__PURE__ */ new Map([
+      [
+        "trg_dyna_item_number_allocate",
+        "CREATE TRIGGER trg_dyna_item_number_allocate AFTER INSERT ON items BEGIN INSERT INTO item_numbers (item_id) VALUES (NEW.id); END"
+      ],
+      [
+        "trg_dyna_item_number_immutable_update",
+        "CREATE TRIGGER trg_dyna_item_number_immutable_update BEFORE UPDATE ON item_numbers BEGIN SELECT RAISE(ABORT, 'Dyna item numbers are immutable'); END"
+      ],
+      [
+        "trg_dyna_item_number_immutable_delete",
+        "CREATE TRIGGER trg_dyna_item_number_immutable_delete BEFORE DELETE ON item_numbers BEGIN SELECT RAISE(ABORT, 'Dyna item numbers are never recycled'); END"
+      ]
+    ]);
+    let complete = true;
+    for (const [name, definition] of expected) {
+      const actual = this.#schemaObjectSql("trigger", name);
+      if (!actual) {
+        complete = false;
+        continue;
+      }
+      if (this.#normalizedSchemaSql(actual) !== this.#normalizedSchemaSql(definition)) {
+        throw new Error(`The Dyna item-number trigger ${name} is invalid.`);
+      }
+    }
+    return complete;
+  }
+  #namedIndexMatches(table, name, columns, unique) {
+    const index = this.#database.prepare(`PRAGMA index_list(${table})`).all().find(
+      (candidate) => optionalString(candidate, "name") === name
+    );
+    if (!index) return false;
+    const actualColumns = this.#database.prepare("SELECT name FROM pragma_index_info(?) ORDER BY seqno").all(name).map((column) => requiredString(column, "name"));
+    if (requiredNumber(index, "unique") === 1 !== unique || actualColumns.length !== columns.length || actualColumns.some((column, position) => column !== columns[position])) {
+      throw new Error(`The Dyna database index ${name} is invalid.`);
+    }
+    return true;
+  }
+  #followUpReferenceSchemaCurrent() {
+    const sql = this.#schemaObjectSql("table", "item_follow_ups");
+    if (!sql) return false;
+    const normalized = this.#normalizedSchemaSql(sql);
+    if (!normalized.includes("item_idtextprimarykeyreferencesitems(id)ondeletecascade") || !normalized.includes("source_item_idtextnotnull") || !normalized.includes("source_item_numberintegernotnull") || !normalized.includes(
+      "foreignkey(source_item_number,source_item_id)referencesitem_numbers(number,item_id)ondeleterestrict"
+    )) {
+      throw new Error("The Dyna follow-up reference schema is invalid.");
+    }
+    return true;
+  }
+  #taskAssociationReservationSchemaCurrent() {
+    const sql = this.#schemaObjectSql("table", "task_association_reservations");
+    if (!sql) return false;
+    const normalized = this.#normalizedSchemaSql(sql);
+    if (!normalized.includes("request_idtextprimarykey") || !normalized.includes("task_idtextnotnull") || !normalized.includes("item_idtextnotnullreferencesitems(id)ondeletecascade") || !normalized.includes(
+      "action_request_idtextuniquereferencesaction_requests(id)ondeletecascade"
+    ) || !normalized.includes(
+      "check(statein('reserved','uncertain','consumed','released','expired'))"
+    ) || !normalized.includes("expires_attext") || !normalized.includes("created_attextnotnull") || !normalized.includes("updated_attextnotnull")) {
+      throw new Error("The Dyna task-association reservation schema is invalid.");
+    }
+    const expectedIndexes = /* @__PURE__ */ new Map([
+      [
+        "idx_dyna_active_task_reservation",
+        "CREATE UNIQUE INDEX idx_dyna_active_task_reservation ON task_association_reservations(task_id) WHERE state IN ('reserved', 'uncertain')"
+      ],
+      [
+        "idx_dyna_task_reservation_expiry",
+        "CREATE INDEX idx_dyna_task_reservation_expiry ON task_association_reservations(state, expires_at) WHERE state = 'reserved' AND expires_at IS NOT NULL"
+      ]
+    ]);
+    let complete = true;
+    for (const [name, definition] of expectedIndexes) {
+      const actual = this.#schemaObjectSql("index", name);
+      if (!actual) {
+        complete = false;
+        continue;
+      }
+      if (this.#normalizedSchemaSql(actual) !== this.#normalizedSchemaSql(definition)) {
+        throw new Error(`The Dyna task-association reservation index ${name} is invalid.`);
+      }
+    }
+    return complete;
+  }
+  #assertTaskSyncSchemaCurrent() {
+    const expectedTables = /* @__PURE__ */ new Map([
+      [
+        "task_sync_checkpoints",
+        `CREATE TABLE task_sync_checkpoints (
+          task_id TEXT PRIMARY KEY,
+          host_id TEXT NOT NULL,
+          version INTEGER NOT NULL DEFAULT 0 CHECK (version >= 0),
+          cursor TEXT,
+          last_turn_id TEXT,
+          status_updated_at TEXT,
+          observed_at TEXT,
+          observed_at_ms INTEGER,
+          updated_at TEXT NOT NULL
+        )`
+      ],
+      [
+        "task_sync_runs",
+        `CREATE TABLE task_sync_runs (
+          id TEXT PRIMARY KEY,
+          dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
+          scope_kind TEXT NOT NULL CHECK (scope_kind IN ('dashboard', 'task')),
+          scope_item_id TEXT REFERENCES items(id) ON DELETE CASCADE,
+          scope_task_id TEXT,
+          scope_host_id TEXT,
+          state TEXT NOT NULL CHECK (state IN (
+            'prepared', 'delivered', 'claimed', 'syncing',
+            'completed', 'partial', 'expired', 'unavailable'
+          )),
+          claim_token_hash TEXT,
+          lease_expires_at TEXT,
+          expires_at TEXT NOT NULL,
+          total_tasks INTEGER NOT NULL CHECK (total_tasks >= 0 AND total_tasks <= 200),
+          excess_tasks INTEGER NOT NULL DEFAULT 0 CHECK (excess_tasks >= 0),
+          processed_tasks INTEGER NOT NULL DEFAULT 0 CHECK (processed_tasks >= 0),
+          updated_items INTEGER NOT NULL DEFAULT 0 CHECK (updated_items >= 0),
+          unavailable_tasks INTEGER NOT NULL DEFAULT 0 CHECK (unavailable_tasks >= 0),
+          incomplete_metadata_tasks INTEGER NOT NULL DEFAULT 0
+            CHECK (incomplete_metadata_tasks >= 0 AND incomplete_metadata_tasks <= 200),
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          completed_at TEXT,
+          CHECK (
+            (scope_kind = 'dashboard' AND scope_item_id IS NULL
+              AND scope_task_id IS NULL AND scope_host_id IS NULL) OR
+            (scope_kind = 'task' AND scope_item_id IS NOT NULL
+              AND scope_task_id IS NOT NULL AND scope_host_id IS NOT NULL)
+          )
+        )`
+      ],
+      [
+        "task_sync_targets",
+        `CREATE TABLE task_sync_targets (
+          run_id TEXT NOT NULL REFERENCES task_sync_runs(id) ON DELETE CASCADE,
+          item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+          item_number INTEGER NOT NULL,
+          item_title TEXT NOT NULL,
+          task_id TEXT NOT NULL,
+          host_id TEXT NOT NULL,
+          checkpoint_version INTEGER NOT NULL CHECK (checkpoint_version >= 0),
+          checkpoint_cursor TEXT,
+          checkpoint_last_turn_id TEXT,
+          checkpoint_observed_at_ms INTEGER,
+          state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN (
+            'pending', 'staged', 'unavailable', 'applied', 'skipped'
+          )),
+          observation_json TEXT,
+          unavailable_reason TEXT,
+          PRIMARY KEY (run_id, task_id)
+        )`
+      ],
+      [
+        "task_sync_receipts",
+        `CREATE TABLE task_sync_receipts (
+          id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL REFERENCES task_sync_runs(id) ON DELETE CASCADE,
+          kind TEXT NOT NULL CHECK (kind IN ('batch', 'observation', 'completion')),
+          task_id TEXT,
+          request_hash TEXT NOT NULL,
+          result_json TEXT,
+          created_at TEXT NOT NULL
+        )`
+      ]
+    ]);
+    for (const [table, expected] of expectedTables) {
+      const actual = this.#schemaObjectSql("table", table);
+      if (!actual) {
+        throw new Error(
+          `The Dyna task-synchronization ledger ${table} is missing and cannot be reconstructed safely.`
+        );
+      }
+      if (this.#normalizedSchemaSql(actual) !== this.#normalizedSchemaSql(expected)) {
+        throw new Error(`The Dyna task-synchronization ledger ${table} is invalid.`);
+      }
+    }
+    const expectedIndexes = /* @__PURE__ */ new Map([
+      [
+        "idx_dyna_active_task_sync_run",
+        "CREATE UNIQUE INDEX idx_dyna_active_task_sync_run ON task_sync_runs(dashboard_id) WHERE state IN ('prepared', 'delivered', 'claimed', 'syncing')"
+      ],
+      [
+        "idx_dyna_task_sync_runs_dashboard_time",
+        "CREATE INDEX idx_dyna_task_sync_runs_dashboard_time ON task_sync_runs(dashboard_id, created_at DESC)"
+      ],
+      [
+        "idx_dyna_task_sync_targets_state",
+        "CREATE INDEX idx_dyna_task_sync_targets_state ON task_sync_targets(run_id, state, task_id)"
+      ],
+      [
+        "idx_dyna_task_sync_observation_receipt",
+        "CREATE UNIQUE INDEX idx_dyna_task_sync_observation_receipt ON task_sync_receipts(task_id, request_hash) WHERE kind = 'observation' AND task_id IS NOT NULL"
+      ]
+    ]);
+    for (const [name, expected] of expectedIndexes) {
+      const actual = this.#schemaObjectSql("index", name);
+      if (!actual || this.#normalizedSchemaSql(actual) !== this.#normalizedSchemaSql(expected)) {
+        throw new Error(`The Dyna task-synchronization ledger index ${name} is invalid.`);
+      }
+    }
+  }
+  #backfillItemNumbers() {
+    const insert = this.#database.prepare("INSERT INTO item_numbers (item_id) VALUES (?)");
+    const rows = this.#database.prepare(
+      `SELECT item.id FROM items item
+         LEFT JOIN item_numbers item_number ON item_number.item_id = item.id
+         WHERE item_number.item_id IS NULL
+         ORDER BY item.rowid, item.id`
+    ).all();
+    for (const row of rows) insert.run(requiredString(row, "id"));
+  }
+  #backfillFollowUpReferences() {
+    this.#database.prepare(
+      `INSERT INTO item_follow_ups (item_id, source_item_id, source_item_number)
+         SELECT item.id, item.follow_up_of_item_id, source_number.number
+         FROM items item
+         JOIN item_numbers source_number ON source_number.item_id = item.follow_up_of_item_id
+         WHERE item.follow_up_of_item_id IS NOT NULL
+         ON CONFLICT(item_id) DO NOTHING`
+    ).run();
+  }
+  #prepareTaskBindingsForTaskIdentity() {
+    const conflictingOwner = this.#one(
+      this.#database.prepare(
+        `SELECT task_id FROM task_bindings
+         GROUP BY task_id HAVING COUNT(DISTINCT item_id) > 1 LIMIT 1`
+      )
+    );
+    if (conflictingOwner) {
+      throw new Error(
+        "The Dyna database links one Codex task to multiple items; reconcile those task bindings before upgrading."
+      );
+    }
+    const duplicates = this.#database.prepare("SELECT task_id FROM task_bindings GROUP BY task_id HAVING COUNT(*) > 1").all();
+    const newestRouting = this.#database.prepare(
+      `SELECT * FROM task_bindings WHERE task_id = ?
+       ORDER BY observed_ms DESC, status_updated_ms DESC, rowid DESC LIMIT 1`
+    );
+    const newestLifecycle = this.#database.prepare(
+      `SELECT * FROM task_bindings WHERE task_id = ?
+       ORDER BY CASE WHEN state = 'succeeded' THEN 0 ELSE 1 END,
+         status_updated_ms DESC, observed_ms DESC, rowid DESC LIMIT 1`
+    );
+    const remove = this.#database.prepare("DELETE FROM task_bindings WHERE task_id = ?");
+    const insert = this.#database.prepare(
+      `INSERT INTO task_bindings (
+         item_id, task_id, host_id, project_id, title, state,
+         status_updated_at, status_updated_ms, observed_at, observed_ms, outcome
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const duplicate of duplicates) {
+      const taskId = requiredString(duplicate, "task_id");
+      const routing = this.#one(newestRouting, taskId);
+      const lifecycle = this.#one(newestLifecycle, taskId);
+      if (!routing || !lifecycle) throw new Error("Dyna could not merge duplicate task bindings.");
+      remove.run(taskId);
+      insert.run(
+        requiredString(lifecycle, "item_id"),
+        taskId,
+        requiredString(routing, "host_id"),
+        optionalString(routing, "project_id") ?? null,
+        requiredString(lifecycle, "title"),
+        requiredString(lifecycle, "state"),
+        requiredString(lifecycle, "status_updated_at"),
+        requiredNumber(lifecycle, "status_updated_ms"),
+        requiredString(routing, "observed_at"),
+        requiredNumber(routing, "observed_ms"),
+        optionalString(lifecycle, "outcome") ?? null
+      );
+    }
+  }
+  #createTaskBindingIdentityIndex() {
+    this.#database.exec(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_dyna_task_bindings_task ON task_bindings(task_id)"
+    );
+  }
+  #backfillTaskSyncCheckpoints() {
+    this.#database.prepare(
+      `INSERT OR IGNORE INTO task_sync_checkpoints (
+           task_id, host_id, version, cursor, last_turn_id,
+           status_updated_at, observed_at, observed_at_ms, updated_at
+         )
+         SELECT task_id, host_id, 0, NULL, NULL, status_updated_at,
+           observed_at, observed_ms, observed_at
+         FROM task_bindings`
+    ).run();
+  }
+  #assertItemNumberIntegrity(database = this.#database) {
+    const invalidNumber = this.#one(
+      database.prepare(
+        `SELECT number FROM item_numbers
+         WHERE number < 1 OR number > 9007199254740991 LIMIT 1`
+      )
+    );
+    const missingNumber = this.#one(
+      database.prepare(
+        `SELECT item.id FROM items item
+         LEFT JOIN item_numbers item_number ON item_number.item_id = item.id
+         WHERE item_number.item_id IS NULL LIMIT 1`
+      )
+    );
+    const sequence = this.#one(
+      database.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'item_numbers'")
+    );
+    const maximum = this.#one(database.prepare("SELECT MAX(number) AS maximum FROM item_numbers"));
+    const maximumNumber = maximum?.["maximum"];
+    if (invalidNumber || missingNumber) {
+      throw new Error("The Dyna item-number ledger is incomplete or invalid.");
+    }
+    if (typeof maximumNumber === "number" && (maximumNumber > MAX_SAFE_ITEM_NUMBER || !sequence || requiredItemNumber(sequence, "seq") < maximumNumber)) {
+      throw new Error("The Dyna item-number sequence is incomplete or invalid.");
+    }
+    if (database.prepare(
+      "SELECT 1 AS present FROM sqlite_schema WHERE type = 'table' AND name = 'item_follow_ups'"
+    ).get()) {
+      const invalidFollowUp = this.#one(
+        database.prepare(
+          `SELECT follow_up.item_id FROM item_follow_ups follow_up
+           LEFT JOIN item_numbers source_number
+             ON source_number.number = follow_up.source_item_number
+            AND source_number.item_id = follow_up.source_item_id
+           WHERE source_number.item_id IS NULL LIMIT 1`
+        )
+      );
+      const missingFollowUp = this.#one(
+        database.prepare(
+          `SELECT item.id FROM items item
+           LEFT JOIN item_follow_ups follow_up ON follow_up.item_id = item.id
+           WHERE item.follow_up_of_item_id IS NOT NULL
+             AND (follow_up.item_id IS NULL OR follow_up.source_item_id <> item.follow_up_of_item_id)
+           LIMIT 1`
+        )
+      );
+      if (invalidFollowUp || missingFollowUp) {
+        throw new Error("The Dyna follow-up reference ledger is incomplete or invalid.");
+      }
+    }
+  }
   #migrateSchema() {
     const versionRow = this.#one(this.#database.prepare("PRAGMA user_version"));
     if (!versionRow) throw new Error("Dyna could not read its database schema version.");
@@ -54590,9 +56016,33 @@ var DynaStore = class {
     }
     this.#database.exec("PRAGMA journal_mode = WAL;");
     if (startingVersion === DYNA_SCHEMA_VERSION) {
+      this.#assertItemNumberTableSchema();
+      this.#assertItemNumberIntegrity();
+      this.#assertTaskSyncSchemaCurrent();
       const actionSchemaCurrent = this.#actionRequestsUseV6Constraints();
-      const supplementalIndexesPresent = this.#schemaObjectExists("index", "idx_dyna_archive_item_history") && this.#schemaObjectExists("index", "idx_dyna_workflow_history") && this.#schemaObjectExists("index", "idx_dyna_work_updates_task_state") && this.#schemaObjectExists("index", "idx_dyna_action_idempotency") && this.#schemaObjectExists("index", "idx_dyna_actions_item_state");
-      if (actionSchemaCurrent && supplementalIndexesPresent) return;
+      const taskIdentityIndexCurrent = this.#namedIndexMatches(
+        "task_bindings",
+        "idx_dyna_task_bindings_task",
+        ["task_id"],
+        true
+      );
+      const itemNumberIdentityIndexCurrent = this.#namedIndexMatches(
+        "item_numbers",
+        "idx_dyna_item_numbers_identity",
+        ["number", "item_id"],
+        true
+      );
+      const itemNumberTriggersCurrent = this.#itemNumberTriggersCurrent();
+      const followUpReferenceSchemaCurrent = this.#followUpReferenceSchemaCurrent();
+      const reservationTablePresent = this.#schemaObjectExists(
+        "table",
+        "task_association_reservations"
+      );
+      const taskAssociationReservationSchemaCurrent = reservationTablePresent ? this.#taskAssociationReservationSchemaCurrent() : false;
+      const supplementalIndexesPresent = this.#schemaObjectExists("index", "idx_dyna_archive_item_history") && this.#schemaObjectExists("index", "idx_dyna_workflow_history") && this.#schemaObjectExists("index", "idx_dyna_work_updates_task_state") && this.#schemaObjectExists("index", "idx_dyna_action_idempotency") && this.#schemaObjectExists("index", "idx_dyna_actions_item_state") && taskIdentityIndexCurrent && itemNumberIdentityIndexCurrent;
+      if (actionSchemaCurrent && supplementalIndexesPresent && itemNumberTriggersCurrent && followUpReferenceSchemaCurrent && taskAssociationReservationSchemaCurrent) {
+        return;
+      }
       this.#transaction(() => {
         if (!actionSchemaCurrent) {
           this.#database.prepare(
@@ -54603,8 +56053,38 @@ var DynaStore = class {
           ).run();
           this.#rebuildActionRequestsV6();
         }
+        if (!taskIdentityIndexCurrent) this.#prepareTaskBindingsForTaskIdentity();
         this.#createSchema();
+        this.#backfillFollowUpReferences();
+        this.#createTaskBindingIdentityIndex();
+        this.#assertItemNumberTableSchema();
+        if (!this.#itemNumberTriggersCurrent()) {
+          throw new Error("Dyna could not restore its item-number triggers.");
+        }
+        if (!this.#namedIndexMatches(
+          "item_numbers",
+          "idx_dyna_item_numbers_identity",
+          ["number", "item_id"],
+          true
+        )) {
+          throw new Error("Dyna could not restore its item-number identity index.");
+        }
+        if (!this.#namedIndexMatches(
+          "task_bindings",
+          "idx_dyna_task_bindings_task",
+          ["task_id"],
+          true
+        )) {
+          throw new Error("Dyna could not restore its task identity index.");
+        }
+        if (!this.#followUpReferenceSchemaCurrent()) {
+          throw new Error("Dyna could not restore its follow-up reference schema.");
+        }
+        if (!this.#taskAssociationReservationSchemaCurrent()) {
+          throw new Error("Dyna could not restore its task-association reservation schema.");
+        }
         this.#assertDatabaseIntegrity();
+        this.#assertItemNumberIntegrity();
       });
       return;
     }
@@ -54677,7 +56157,7 @@ var DynaStore = class {
         this.#assertDatabaseIntegrity();
         this.#database.exec("PRAGMA user_version = 2;");
       });
-    } else if (startingVersion !== 2 && startingVersion !== 3 && startingVersion !== 4 && startingVersion !== 5 && startingVersion !== 6) {
+    } else if (startingVersion !== 2 && startingVersion !== 3 && startingVersion !== 4 && startingVersion !== 5 && startingVersion !== 6 && startingVersion !== 7 && startingVersion !== 8) {
       throw new Error("The Dyna database schema version is unsupported.");
     }
     const versionTwoRow = this.#one(this.#database.prepare("PRAGMA user_version"));
@@ -54765,7 +56245,7 @@ var DynaStore = class {
         this.#assertDatabaseIntegrity();
         this.#database.exec("PRAGMA user_version = 5;");
       });
-    } else if (versionFour !== 5 && versionFour !== 6) {
+    } else if (versionFour !== 5 && versionFour !== 6 && versionFour !== 7 && versionFour !== 8) {
       throw new Error("Dyna could not complete its database schema migration.");
     }
     const versionFiveRow = this.#one(this.#database.prepare("PRAGMA user_version"));
@@ -54786,17 +56266,70 @@ var DynaStore = class {
         this.#assertDatabaseIntegrity();
         this.#database.exec("PRAGMA user_version = 6;");
       });
-    } else if (versionFive !== 6) {
+    } else if (versionFive !== 6 && versionFive !== 7 && versionFive !== 8) {
       throw new Error("Dyna could not complete its database schema migration.");
     }
     const versionSixRow = this.#one(this.#database.prepare("PRAGMA user_version"));
-    if (!versionSixRow || requiredNumber(versionSixRow, "user_version") !== 6) {
+    if (!versionSixRow) {
+      throw new Error("Dyna could not complete its database schema migration.");
+    }
+    const versionSix = requiredNumber(versionSixRow, "user_version");
+    if (versionSix === 6) {
+      this.#transaction(() => {
+        this.#createSchema();
+        this.#assertDatabaseIntegrity();
+        this.#database.exec("PRAGMA user_version = 7;");
+      });
+    } else if (versionSix !== 7 && versionSix !== 8) {
+      throw new Error("Dyna could not complete its database schema migration.");
+    }
+    const versionSevenRow = this.#one(this.#database.prepare("PRAGMA user_version"));
+    if (!versionSevenRow) {
+      throw new Error("Dyna could not complete its database schema migration.");
+    }
+    if (requiredNumber(versionSevenRow, "user_version") === 7) {
+      this.#transaction(() => {
+        this.#prepareTaskBindingsForTaskIdentity();
+        this.#createSchema();
+        this.#backfillItemNumbers();
+        this.#backfillFollowUpReferences();
+        this.#createTaskBindingIdentityIndex();
+        this.#assertItemNumberTableSchema();
+        if (!this.#itemNumberTriggersCurrent()) {
+          throw new Error("Dyna could not create its item-number triggers.");
+        }
+        if (!this.#namedIndexMatches(
+          "item_numbers",
+          "idx_dyna_item_numbers_identity",
+          ["number", "item_id"],
+          true
+        )) {
+          throw new Error("Dyna could not create its item-number identity index.");
+        }
+        if (!this.#followUpReferenceSchemaCurrent()) {
+          throw new Error("Dyna could not create its follow-up reference schema.");
+        }
+        if (!this.#taskAssociationReservationSchemaCurrent()) {
+          throw new Error("Dyna could not create its task-association reservation schema.");
+        }
+        this.#assertDatabaseIntegrity();
+        this.#assertItemNumberIntegrity();
+        this.#database.exec("PRAGMA user_version = 8;");
+      });
+    } else if (requiredNumber(versionSevenRow, "user_version") !== 8) {
+      throw new Error("Dyna could not complete its database schema migration.");
+    }
+    const versionEightRow = this.#one(this.#database.prepare("PRAGMA user_version"));
+    if (!versionEightRow || requiredNumber(versionEightRow, "user_version") !== 8) {
       throw new Error("Dyna could not complete its database schema migration.");
     }
     this.#transaction(() => {
       this.#createSchema();
+      this.#backfillTaskSyncCheckpoints();
+      this.#assertTaskSyncSchemaCurrent();
       this.#assertDatabaseIntegrity();
-      this.#database.exec("PRAGMA user_version = 7;");
+      this.#assertItemNumberIntegrity();
+      this.#database.exec("PRAGMA user_version = 9;");
     });
     const migratedVersion = this.#one(this.#database.prepare("PRAGMA user_version"));
     if (!migratedVersion || requiredNumber(migratedVersion, "user_version") !== DYNA_SCHEMA_VERSION) {
@@ -55010,7 +56543,9 @@ var DynaStore = class {
     }
   }
   #transaction(operation) {
+    if (this.#transactionDepth > 0) return operation();
     this.#database.exec("BEGIN IMMEDIATE");
+    this.#transactionDepth += 1;
     try {
       const result = operation();
       this.#database.exec("COMMIT");
@@ -55018,10 +56553,14 @@ var DynaStore = class {
     } catch (error51) {
       this.#database.exec("ROLLBACK");
       throw error51;
+    } finally {
+      this.#transactionDepth -= 1;
     }
   }
   #readTransaction(operation) {
+    if (this.#transactionDepth > 0) return operation();
     this.#database.exec("BEGIN");
+    this.#transactionDepth += 1;
     try {
       const result = operation();
       this.#database.exec("COMMIT");
@@ -55029,6 +56568,8 @@ var DynaStore = class {
     } catch (error51) {
       this.#database.exec("ROLLBACK");
       throw error51;
+    } finally {
+      this.#transactionDepth -= 1;
     }
   }
   #one(statement, ...values) {
@@ -55149,22 +56690,30 @@ var DynaStore = class {
     });
     return this.#transaction(() => {
       this.#assertDashboardCapacity();
-      this.#database.prepare(
-        "INSERT INTO dashboards (id, name, description, archived, revision, done_retention_hours, created_at, updated_at) VALUES (?, ?, ?, 0, 0, ?, ?, ?)"
-      ).run(
-        dashboard.id,
-        dashboard.name,
-        dashboard.description,
-        dashboard.doneRetentionHours,
-        instant,
-        instant
-      );
+      this.#insertDashboard(dashboard);
       return dashboard;
     });
+  }
+  #insertDashboard(dashboard) {
+    this.#database.prepare(
+      "INSERT INTO dashboards (id, name, description, archived, revision, done_retention_hours, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?, ?)"
+    ).run(
+      dashboard.id,
+      dashboard.name,
+      dashboard.description,
+      dashboard.archived ? 1 : 0,
+      dashboard.doneRetentionHours,
+      dashboard.createdAt,
+      dashboard.updatedAt
+    );
   }
   updateDashboard(id, values) {
     const current = this.getDashboard(id);
     const updated = DynaDashboardSchema.parse({ ...current, ...values, updatedAt: this.#now() });
+    this.#updateDashboardRecord(updated);
+    return updated;
+  }
+  #updateDashboardRecord(updated) {
     this.#database.prepare(
       "UPDATE dashboards SET name = ?, description = ?, archived = ?, done_retention_hours = ?, revision = revision + 1, updated_at = ? WHERE id = ?"
     ).run(
@@ -55173,26 +56722,28 @@ var DynaStore = class {
       updated.archived ? 1 : 0,
       updated.doneRetentionHours,
       updated.updatedAt,
-      id
+      updated.id
     );
-    return updated;
   }
   purgeDashboard(id, confirmation) {
     if (confirmation !== id) throw new Error("Dashboard purge confirmation did not match.");
     this.#transaction(() => {
       this.getDashboard(id);
-      const manual = this.#one(
-        this.#database.prepare(
-          "SELECT publisher_id FROM dashboard_manual_publishers WHERE dashboard_id = ?"
-        ),
-        id
-      );
-      this.#database.prepare("DELETE FROM dashboards WHERE id = ?").run(id);
-      if (manual) {
-        this.#database.prepare("DELETE FROM publishers WHERE id = ?").run(requiredString(manual, "publisher_id"));
-      }
+      this.#deleteDashboardRecord(id);
       this.#audit("dashboard.purged", id);
     });
+  }
+  #deleteDashboardRecord(id) {
+    const manual = this.#one(
+      this.#database.prepare(
+        "SELECT publisher_id FROM dashboard_manual_publishers WHERE dashboard_id = ?"
+      ),
+      id
+    );
+    this.#database.prepare("DELETE FROM dashboards WHERE id = ?").run(id);
+    if (manual) {
+      this.#database.prepare("DELETE FROM publishers WHERE id = ?").run(requiredString(manual, "publisher_id"));
+    }
   }
   listDashboards() {
     return this.#database.prepare(
@@ -55930,6 +57481,22 @@ var DynaStore = class {
   }
   addTodo(viewToken, input, clientRequestId) {
     const dashboardId = this.authorizeView(viewToken);
+    return this.#createTodo(dashboardId, input, clientRequestId).itemId;
+  }
+  createTodoFromCli(dashboardId, input) {
+    const parsed = DynaTodoCreateInputSchema.parse(input);
+    const { requestId, ...todo } = parsed;
+    const created = this.#createTodo(dashboardId, todo, requestId);
+    return DynaTodoCreateResultSchema.parse({
+      schema: "dyna/todo-create-result-v2",
+      requestId,
+      itemId: created.itemId,
+      itemNumber: created.itemNumber,
+      fingerprint: created.fingerprint,
+      deduplicated: created.deduplicated
+    });
+  }
+  #createTodo(dashboardId, input, clientRequestId) {
     const parsed = DynaTodoInputSchema.parse(input);
     const requestHash = sha256(JSON.stringify(parsed));
     const instant = this.#now();
@@ -55943,9 +57510,26 @@ var DynaStore = class {
       );
       if (previous) {
         if (requiredString(previous, "request_hash") !== requestHash) {
-          throw new Error("Dyna rejected a to-do request ID reused with different content.");
+          throw new DynaCliStoreError(
+            "request_conflict",
+            "This Dyna to-do request ID was reused with different content."
+          );
         }
-        return requiredString(previous, "item_id");
+        const itemId2 = requiredString(previous, "item_id");
+        const item2 = this.#itemBaseRow(itemId2);
+        return {
+          itemId: itemId2,
+          itemNumber: requiredItemNumber(item2, "item_number"),
+          fingerprint: requiredString(item2, "fingerprint"),
+          deduplicated: true
+        };
+      }
+      const dashboard = this.#one(
+        this.#database.prepare("SELECT archived FROM dashboards WHERE id = ?"),
+        dashboardId
+      );
+      if (!dashboard || requiredNumber(dashboard, "archived") === 1) {
+        throw new DynaCliStoreError("not_found", "Dyna dashboard was not found.");
       }
       let mapping = this.#one(
         this.#database.prepare(
@@ -55991,6 +57575,7 @@ var DynaStore = class {
         nextSteps: []
       });
       const itemId = (0, import_node_crypto5.randomUUID)();
+      const fingerprint = sha256(JSON.stringify(item));
       this.#database.prepare(
         `INSERT INTO items (
             id, publisher_id, external_id, identity_key, source, source_ref, source_scope, title,
@@ -56018,9 +57603,12 @@ var DynaStore = class {
         JSON.stringify(item.plan),
         JSON.stringify(item.nextSteps),
         parsed.followUpOfItemId ?? null,
-        sha256(JSON.stringify(item)),
+        fingerprint,
         instant
       );
+      if (parsed.followUpOfItemId) {
+        this.#insertFollowUpReference(itemId, parsed.followUpOfItemId);
+      }
       this.#database.prepare(
         `INSERT INTO publisher_items (
             publisher_id, external_id, item_id, active, last_seen_run_id
@@ -56031,10 +57619,15 @@ var DynaStore = class {
       ).run(dashboardId, clientRequestId, requestHash, itemId);
       this.#touchDashboards([dashboardId], instant);
       this.#audit("todo.created", itemId, instant);
-      return itemId;
+      return {
+        itemId,
+        itemNumber: requiredItemNumber(this.#itemBaseRow(itemId), "item_number"),
+        fingerprint,
+        deduplicated: false
+      };
     });
   }
-  setItemStatus(input) {
+  setItemStatus(input, positioned) {
     const parsed = DynaSetItemStatusInputSchema.parse(input);
     const dashboardId = this.authorizeView(parsed.viewToken, parsed.itemId);
     return DynaItemStatusResultSchema.parse(
@@ -56067,12 +57660,7 @@ var DynaStore = class {
               "The Dyna item changed; refresh before changing its status."
             );
           }
-          const row = this.#one(
-            this.#database.prepare(`${DYNA_ELIGIBLE_CTE} SELECT * FROM positioned WHERE id = ?`),
-            dashboardId,
-            parsed.itemId
-          );
-          if (!row) {
+          if (!positioned) {
             const archived = this.#one(
               this.#database.prepare(
                 "SELECT 1 AS present FROM item_archive_events WHERE dashboard_id = ? AND item_id = ? AND restored_at IS NULL"
@@ -56115,7 +57703,7 @@ var DynaStore = class {
               );
             }
           }
-          const workflowState = requiredWorkflowState(row);
+          const workflowState = positioned.workflowState;
           const currentStage = workflowState === "completed" ? "done" : workflowState === "attention" || workflowState === "paused" ? "needs_you" : "todo";
           if (workflowState === "completed" && parsed.targetStage !== "done") {
             throw new DynaCliStoreError(
@@ -56124,7 +57712,7 @@ var DynaStore = class {
             );
           }
           if (currentStage === parsed.targetStage) {
-            if (parsed.targetStage === "done" && parsed.outcome !== optionalString(row, "user_workflow_outcome")) {
+            if (parsed.targetStage === "done" && parsed.outcome !== positioned.userWorkflowOutcome) {
               throw new DynaCliStoreError(
                 "completed_item",
                 "A completed Dyna item's outcome is immutable; create a follow-up for continued work."
@@ -56176,7 +57764,7 @@ var DynaStore = class {
       )
     );
   }
-  organizeItem(viewToken, itemId, action, expectedRevision, expectedFingerprint) {
+  organizeItem(viewToken, itemId, action, expectedRevision, expectedFingerprint, positioned) {
     const dashboardId = this.authorizeView(viewToken, itemId);
     const instant = this.#now();
     return this.#transaction(() => {
@@ -56188,23 +57776,14 @@ var DynaStore = class {
       if (!revisionRow || requiredNumber(revisionRow, "revision") !== expectedRevision || requiredString(itemRow, "fingerprint") !== expectedFingerprint) {
         throw new Error("The Dyna dashboard changed; refresh before reprioritizing this item.");
       }
-      const group = this.#database.prepare(
-        `${DYNA_ELIGIBLE_CTE}
-          SELECT id, effective_priority, priority_position FROM positioned
-          WHERE effective_priority = (
-            SELECT effective_priority FROM positioned WHERE id = ?
-          )
-          AND completed_group = (
-            SELECT completed_group FROM positioned WHERE id = ?
-          )
-          ORDER BY priority_position`
-      ).all(dashboardId, itemId, itemId);
-      const index = group.findIndex((candidate) => requiredString(candidate, "id") === itemId);
+      const selected = positioned.find((candidate) => candidate.id === itemId);
+      const group = selected ? positioned.filter(
+        (candidate) => candidate.effectivePriority === selected.effectivePriority && candidate.workflowState === "completed" === (selected.workflowState === "completed")
+      ) : [];
+      const index = group.findIndex((candidate) => candidate.id === itemId);
       const target = group[index];
       if (!target) throw new Error("The Dyna item is no longer active.");
-      const currentPriority = DynaPrioritySchema.parse(
-        requiredString(target, "effective_priority")
-      );
+      const currentPriority = target.effectivePriority;
       if (action === "bump" || action === "lower") {
         const priorities = ["critical", "high", "normal", "low"];
         const currentIndex = priorities.indexOf(currentPriority);
@@ -56242,7 +57821,7 @@ var DynaStore = class {
              updated_at = excluded.updated_at`
         );
         group.forEach((candidate, position) => {
-          const candidateId = requiredString(candidate, "id");
+          const candidateId = candidate.id;
           const sequence = position * 100;
           updateSequence.run(dashboardId, candidateId, sequence, instant);
           this.#database.prepare(
@@ -56265,7 +57844,7 @@ var DynaStore = class {
       return { changed: true };
     });
   }
-  groupItems(viewToken, items, targetPriority, expectedRevision) {
+  groupItems(viewToken, items, targetPriority, expectedRevision, positioned) {
     if (items.length === 0 || items.length > 200) {
       throw new Error("Select between 1 and 200 Dyna items to change their priority group.");
     }
@@ -56284,45 +57863,29 @@ var DynaStore = class {
       if (!revisionRow || requiredNumber(revisionRow, "revision") !== expectedRevision) {
         throw new Error("The Dyna dashboard changed; refresh before moving these items.");
       }
-      const selectedPlaceholders = items.map((_3, index) => `?${index + 2}`).join(", ");
-      const selectedRows = this.#database.prepare(
-        `${DYNA_ELIGIBLE_CTE}
-           SELECT id, fingerprint, effective_priority, priority_position
-           FROM positioned
-           WHERE completed_group = 0 AND id IN (${selectedPlaceholders})`
-      ).all(dashboardId, ...itemIds);
-      const selectedById = new Map(
-        selectedRows.map((row) => [requiredString(row, "id"), row])
+      const selectedRows = positioned.filter(
+        (candidate) => itemIds.includes(candidate.id) && candidate.workflowState !== "completed"
       );
+      const selectedById = new Map(selectedRows.map((row) => [row.id, row]));
       for (const item of items) {
         const row = selectedById.get(item.itemId);
         if (!row) {
           throw new Error("Only active, unfinished queue items can change priority group.");
         }
-        if (requiredString(row, "fingerprint") !== item.expectedFingerprint) {
+        if (row.fingerprint !== item.expectedFingerprint) {
           throw new Error("A selected Dyna item changed; refresh before moving these items.");
         }
       }
-      const targetGroup = this.#database.prepare(
-        `${DYNA_ELIGIBLE_CTE}
-           SELECT id, effective_priority, priority_position
-           FROM positioned
-           WHERE completed_group = 0 AND effective_priority = ?2
-           ORDER BY priority_position`
-      ).all(dashboardId, parsedTargetPriority);
+      const targetGroup = positioned.filter(
+        (candidate) => candidate.workflowState !== "completed" && candidate.effectivePriority === parsedTargetPriority
+      );
       const priorities = ["critical", "high", "normal", "low"];
-      const incoming = selectedRows.filter(
-        (row) => DynaPrioritySchema.parse(requiredString(row, "effective_priority")) !== parsedTargetPriority
-      ).sort((left, right) => {
-        const priorityDifference = priorities.indexOf(
-          DynaPrioritySchema.parse(requiredString(left, "effective_priority"))
-        ) - priorities.indexOf(
-          DynaPrioritySchema.parse(requiredString(right, "effective_priority"))
-        );
-        return priorityDifference || requiredNumber(left, "priority_position") - requiredNumber(right, "priority_position") || requiredString(left, "id").localeCompare(requiredString(right, "id"));
+      const incoming = selectedRows.filter((row) => row.effectivePriority !== parsedTargetPriority).sort((left, right) => {
+        const priorityDifference = priorities.indexOf(left.effectivePriority) - priorities.indexOf(right.effectivePriority);
+        return priorityDifference || left.priorityPosition - right.priorityPosition || left.id.localeCompare(right.id);
       });
       if (incoming.length === 0) return { changed: false, changedCount: 0 };
-      const incomingIds = new Set(incoming.map((row) => requiredString(row, "id")));
+      const incomingIds = new Set(incoming.map((row) => row.id));
       const nextTargetGroup = [...targetGroup, ...incoming];
       const setMovedPreference = this.#database.prepare(
         `INSERT INTO item_preferences (
@@ -56345,7 +57908,7 @@ var DynaStore = class {
          ) VALUES (?, ?, ?, ?, ?, ?, ?)`
       );
       for (const [position, row] of nextTargetGroup.entries()) {
-        const candidateId = requiredString(row, "id");
+        const candidateId = row.id;
         const sequence = position * 100;
         const isIncoming = incomingIds.has(candidateId);
         if (isIncoming) {
@@ -56353,7 +57916,7 @@ var DynaStore = class {
         } else {
           setSequence.run(dashboardId, candidateId, sequence, instant);
         }
-        const currentPriority = DynaPrioritySchema.parse(requiredString(row, "effective_priority"));
+        const currentPriority = row.effectivePriority;
         const action = isIncoming ? priorities.indexOf(parsedTargetPriority) < priorities.indexOf(currentPriority) ? "bump" : "lower" : "resequence";
         addEvent.run(
           (0, import_node_crypto5.randomUUID)(),
@@ -56367,12 +57930,12 @@ var DynaStore = class {
       }
       this.#touchDashboards([dashboardId], instant);
       for (const row of incoming) {
-        this.#audit("item.organized.group", requiredString(row, "id"), instant);
+        this.#audit("item.organized.group", row.id, instant);
       }
       return { changed: true, changedCount: incoming.length };
     });
   }
-  placeItem(viewToken, itemId, targetPriority, beforeItemId, expectedRevision, expectedFingerprint) {
+  placeItem(viewToken, itemId, targetPriority, beforeItemId, expectedRevision, expectedFingerprint, positioned) {
     const dashboardId = this.authorizeView(viewToken, itemId);
     const instant = this.#now();
     return this.#transaction(() => {
@@ -56384,33 +57947,25 @@ var DynaStore = class {
       if (!revisionRow || requiredNumber(revisionRow, "revision") !== expectedRevision || requiredString(itemRow, "fingerprint") !== expectedFingerprint) {
         throw new Error("The Dyna dashboard changed; refresh before moving this item.");
       }
-      const positioned = this.#database.prepare(
-        `${DYNA_ELIGIBLE_CTE}
-          SELECT id, effective_priority, completed_group, priority_position
-          FROM positioned
-          ORDER BY completed_group, priority_position`
-      ).all(dashboardId);
-      const source = positioned.find((candidate) => requiredString(candidate, "id") === itemId);
-      if (!source || requiredNumber(source, "completed_group") !== 0) {
+      const source = positioned.find((candidate) => candidate.id === itemId);
+      if (!source || source.workflowState === "completed") {
         throw new Error("Only active queue items can be moved.");
       }
-      const currentPriority = DynaPrioritySchema.parse(
-        requiredString(source, "effective_priority")
-      );
+      const currentPriority = source.effectivePriority;
       if (beforeItemId === itemId) return { changed: false };
       const currentGroup = positioned.filter(
-        (candidate) => requiredNumber(candidate, "completed_group") === 0 && requiredString(candidate, "effective_priority") === currentPriority
+        (candidate) => candidate.workflowState !== "completed" && candidate.effectivePriority === currentPriority
       );
       const targetGroup = positioned.filter(
-        (candidate) => requiredNumber(candidate, "completed_group") === 0 && requiredString(candidate, "effective_priority") === targetPriority && requiredString(candidate, "id") !== itemId
+        (candidate) => candidate.workflowState !== "completed" && candidate.effectivePriority === targetPriority && candidate.id !== itemId
       );
-      const insertAt = beforeItemId ? targetGroup.findIndex((candidate) => requiredString(candidate, "id") === beforeItemId) : targetGroup.length;
+      const insertAt = beforeItemId ? targetGroup.findIndex((candidate) => candidate.id === beforeItemId) : targetGroup.length;
       if (beforeItemId && insertAt < 0) {
         throw new Error("The queue drop target changed; refresh before moving this item.");
       }
       targetGroup.splice(insertAt, 0, source);
-      const currentIds = currentGroup.map((candidate) => requiredString(candidate, "id"));
-      const nextIds = targetGroup.map((candidate) => requiredString(candidate, "id"));
+      const currentIds = currentGroup.map((candidate) => candidate.id);
+      const nextIds = targetGroup.map((candidate) => candidate.id);
       if (currentPriority === targetPriority && currentIds.join("\n") === nextIds.join("\n")) {
         return { changed: false };
       }
@@ -56439,7 +57994,7 @@ var DynaStore = class {
       const nextPosition = nextIds.indexOf(itemId);
       const sourceAction = currentPriority !== targetPriority ? priorities.indexOf(targetPriority) < priorities.indexOf(currentPriority) ? "bump" : "lower" : nextPosition < originalPosition ? "earlier" : "later";
       targetGroup.forEach((candidate, position) => {
-        const candidateId = requiredString(candidate, "id");
+        const candidateId = candidate.id;
         const sequence = position * 100;
         if (candidateId === itemId) {
           setSourcePreference.run(dashboardId, candidateId, targetPriority, sequence, instant);
@@ -56461,7 +58016,7 @@ var DynaStore = class {
       return { changed: true };
     });
   }
-  archiveItem(viewToken, itemId, values) {
+  archiveItem(viewToken, itemId, values, positioned) {
     const dashboardId = this.authorizeView(viewToken, itemId);
     const reason = DynaArchiveReasonSchema.parse(values.reason);
     const reasonDetail = values.reasonDetail?.trim();
@@ -56505,21 +58060,16 @@ var DynaStore = class {
       if (!revision || requiredNumber(revision, "revision") !== values.expectedRevision) {
         throw new Error("The Dyna dashboard changed; refresh before archiving this item.");
       }
-      const row = this.#one(
-        this.#database.prepare(`${DYNA_ELIGIBLE_CTE} SELECT * FROM positioned WHERE id = ?`),
-        dashboardId,
-        itemId
-      );
-      if (!row || requiredString(row, "fingerprint") !== values.expectedFingerprint) {
+      if (positioned?.fingerprint !== values.expectedFingerprint) {
         throw new Error("The Dyna item changed or is no longer active; refresh before archiving.");
       }
-      const workflowState = requiredWorkflowState(row);
+      const workflowState = positioned.workflowState;
       if (reason === "completed" && workflowState !== "completed") {
         throw new Error("Only completed work can use the Completed archive disposition.");
       }
       const result = this.#insertArchiveEvent(
         dashboardId,
-        row,
+        positioned,
         reason,
         reasonDetail,
         "manual",
@@ -56594,6 +58144,7 @@ var DynaStore = class {
   }
   itemHistory(dashboardId, itemId, options = {}) {
     this.assertDashboardContainsItem(dashboardId, itemId);
+    const item = this.#itemBaseRow(itemId);
     const limit = pageSize(options.limit, MAX_HISTORY_PAGE_SIZE);
     const archiveCursor = parseHistoryCursor(options.archiveCursor, "archive");
     const orderCursor = parseHistoryCursor(options.orderCursor, "order");
@@ -56659,8 +58210,12 @@ var DynaStore = class {
     const lastArchive = archivePage.at(-1);
     const lastOrganization = organizationPage.at(-1);
     const lastStatus = statusPage.at(-1);
+    const followUpOfItemId = followUpReferenceItemId(item);
     return DynaItemHistorySchema.parse({
       itemId,
+      itemNumber: requiredItemNumber(item, "item_number"),
+      ...followUpOfItemId ? { followUpOfItemId } : {},
+      ...typeof item["follow_up_of_item_number"] === "number" ? { followUpOfItemNumber: requiredItemNumber(item, "follow_up_of_item_number") } : {},
       archives,
       organization,
       statusChanges: statusPage.map((row) => this.#userWorkflowEventFromRow(row)),
@@ -56691,6 +58246,7 @@ var DynaStore = class {
   }
   itemActivityPage(dashboardId, itemId, options = {}) {
     this.assertDashboardContainsItem(dashboardId, itemId);
+    const item = this.#itemBaseRow(itemId);
     const limit = pageSize(options.limit, MAX_ACTIVITY_PAGE_SIZE);
     const cursor = parseHistoryCursor(options.cursor, "work");
     const page = this.#workUpdatePage(itemId, limit, cursor);
@@ -56701,6 +58257,7 @@ var DynaStore = class {
     if (!count) throw new Error("Dyna could not count item activity.");
     return DynaWorkActivityPageSchema.parse({
       itemId,
+      itemNumber: requiredItemNumber(item, "item_number"),
       updates: page.updates,
       ...page.nextCursor ? { nextCursor: page.nextCursor } : {},
       total: requiredNumber(count, "total")
@@ -56772,25 +58329,11 @@ var DynaStore = class {
       this.#audit("item.enriched", itemId, instant);
     });
   }
-  #insertArchiveEvent(dashboardId, row, reason, reasonDetail, mode, clientRequestId, requestHash) {
-    const itemId = requiredString(row, "id");
-    const workflowState = requiredWorkflowState(row);
-    const completedRow = this.#one(
-      this.#database.prepare(
-        `SELECT MAX(status_updated_ms) AS completed_at_ms
-         FROM task_bindings WHERE item_id = ? AND state = 'succeeded'`
-      ),
-      itemId
-    );
-    const completedAtMs = workflowState === "completed" && typeof completedRow?.["completed_at_ms"] === "number" ? requiredNumber(completedRow, "completed_at_ms") : workflowState === "completed" && typeof row["user_workflow_created_ms"] === "number" ? requiredNumber(row, "user_workflow_created_ms") : void 0;
-    const outcomeRow = workflowState === "completed" ? this.#one(
-      this.#database.prepare(
-        `SELECT outcome FROM task_bindings
-               WHERE item_id = ? AND state = 'succeeded' AND outcome IS NOT NULL
-               ORDER BY status_updated_ms DESC, task_id, host_id LIMIT 1`
-      ),
-      itemId
-    ) : void 0;
+  #insertArchiveEvent(dashboardId, positioned, reason, reasonDetail, mode, clientRequestId, requestHash) {
+    const itemId = positioned.id;
+    const workflowState = positioned.workflowState;
+    const completion = this.#completionEvidence(itemId);
+    const completedAtMs = workflowState === "completed" ? completion.completedAtMs ?? positioned.userWorkflowCreatedMs : void 0;
     const archiveId = (0, import_node_crypto5.randomUUID)();
     const archivedAt = this.#now();
     this.#database.prepare(
@@ -56809,55 +58352,17 @@ var DynaStore = class {
       mode,
       archivedAt,
       this.#nowMs(),
-      requiredString(row, "fingerprint"),
+      positioned.fingerprint,
       workflowState,
       completedAtMs === void 0 ? null : new Date(completedAtMs).toISOString(),
       completedAtMs ?? null,
-      outcomeRow ? optionalString(outcomeRow, "outcome") ?? null : optionalString(row, "user_workflow_outcome") ?? null,
-      requiredString(row, "effective_priority"),
-      typeof row["preference_sequence"] === "number" ? requiredNumber(row, "preference_sequence") : null,
+      completion.outcome ?? positioned.userWorkflowOutcome ?? null,
+      positioned.effectivePriority,
+      positioned.preferenceSequence ?? null,
       clientRequestId ?? null,
       requestHash ?? null
     );
     return { archiveId, itemId, archivedAt, reason, mode };
-  }
-  #archiveExpiredCompleted(dashboardId) {
-    this.#transaction(() => {
-      const dashboard = this.#one(
-        this.#database.prepare("SELECT done_retention_hours FROM dashboards WHERE id = ?"),
-        dashboardId
-      );
-      if (!dashboard) throw new Error("Dyna dashboard was not found.");
-      const cutoff = this.#nowMs() - requiredNumber(dashboard, "done_retention_hours") * 60 * 60 * 1e3;
-      const rows = this.#database.prepare(
-        `${DYNA_ELIGIBLE_CTE}
-           SELECT * FROM positioned
-           WHERE workflow_state = 'completed'
-             AND MAX(
-               COALESCE((
-                 SELECT MAX(t.status_updated_ms) FROM task_bindings t
-                 WHERE t.item_id = positioned.id AND t.state = 'succeeded'
-               ), user_workflow_created_ms, source_updated_ms),
-               COALESCE((
-                 SELECT MAX(history.restored_at_ms) FROM item_archive_events history
-                 WHERE history.dashboard_id = ? AND history.item_id = positioned.id
-               ), 0)
-             ) <= ?`
-      ).all(dashboardId, dashboardId, cutoff);
-      if (rows.length === 0) return;
-      const instant = this.#now();
-      for (const row of rows) {
-        const result = this.#insertArchiveEvent(
-          dashboardId,
-          row,
-          "completed",
-          void 0,
-          "automatic"
-        );
-        this.#audit("item.archived.completed.automatic", result.itemId, instant);
-      }
-      this.#touchDashboards([dashboardId], instant);
-    });
   }
   #archiveResultFromRow(row) {
     return {
@@ -56938,123 +58443,262 @@ var DynaStore = class {
     this.#database.prepare("UPDATE view_sessions SET expires_at = ? WHERE token_hash = ?").run(new Date(this.#nowMs() + VIEW_TTL_MS).toISOString(), hash2);
     return dashboardId;
   }
-  snapshot(dashboardId, searchQuery = "", scope = "active") {
-    this.#archiveExpiredCompleted(dashboardId);
-    return this.#readTransaction(() => {
-      const query = searchQuery.trim().slice(0, 500);
-      const terms = [...new Set(query.toLocaleLowerCase().split(/\s+/u).filter(Boolean))].slice(
-        0,
-        12
-      );
-      const searchClause = terms.map(
-        () => `AND (
-            instr(lower(
-              COALESCE(title, '') || ' ' || COALESCE(summary, '') || ' ' ||
-              COALESCE(source_ref, '') || ' ' || COALESCE(source_scope, '') || ' ' ||
-              COALESCE(labels, '') || ' ' || COALESCE(people, '') || ' ' ||
-              COALESCE(attention, '') || ' ' || COALESCE(plan, '') || ' ' ||
-              COALESCE(next_steps, '') || ' ' || COALESCE(enrichment_summary, '') || ' ' ||
-              COALESCE(enrichment_priority_reason, '') || ' ' ||
-              COALESCE(enrichment_labels, '') || ' ' || COALESCE(enrichment_people, '') || ' ' ||
-              COALESCE(enrichment_attention, '') || ' ' || COALESCE(enrichment_plan, '') || ' ' ||
-              COALESCE(enrichment_next_steps, '') || ' ' || COALESCE(archive_reason, '') || ' ' ||
-              COALESCE(archive_reason_detail, '') || ' ' || COALESCE(archive_outcome, '') || ' ' ||
-              COALESCE(user_workflow_outcome, '')
-            ), ?) > 0
-            OR EXISTS (
-              SELECT 1 FROM annotations a
-              WHERE a.item_id = positioned.id AND instr(lower(a.body), ?) > 0
-            )
-            OR EXISTS (
-              SELECT 1 FROM task_bindings t
-              WHERE t.item_id = positioned.id AND instr(lower(
-                t.title || ' ' || t.state || ' ' || COALESCE(t.outcome, '')
-              ), ?) > 0
-            )
-            OR EXISTS (
-              SELECT 1 FROM work_updates wu
-              WHERE wu.item_id = positioned.id AND instr(${activitySearchSql("wu")}, ?) > 0
-            )
-          )`
-      ).join("\n");
-      const searchValues = terms.flatMap((term) => [term, term, term, term]);
-      const dashboard = this.getDashboard(dashboardId);
-      const revisionRow = this.#one(
-        this.#database.prepare("SELECT revision FROM dashboards WHERE id = ?"),
-        dashboardId
-      );
-      const countRow = this.#one(
-        this.#database.prepare(`${DYNA_ELIGIBLE_CTE}
-          SELECT COUNT(*) AS total,
-            COALESCE(SUM(CASE WHEN workflow_state <> 'completed' AND effective_priority = 'critical' THEN 1 ELSE 0 END), 0) AS critical,
-            COALESCE(SUM(CASE WHEN workflow_state <> 'completed' AND effective_priority = 'high' THEN 1 ELSE 0 END), 0) AS high,
-            COALESCE(SUM(CASE WHEN effective_leadership_score > 0 THEN 1 ELSE 0 END), 0) AS leadership,
-            COALESCE(SUM(CASE WHEN workflow_state <> 'completed' AND work_blocked = 1
-              THEN 1 ELSE 0 END), 0) AS blocked,
-            MAX(source_updated_at) AS newest
-          FROM positioned WHERE 1 = 1 ${searchClause}`),
-        dashboardId,
-        ...searchValues
-      );
-      if (!countRow) throw new Error("Dyna could not count dashboard items.");
-      const archiveCountRow = this.#one(
-        this.#database.prepare(`${dynaEligibleCte("archive")}
-          SELECT COUNT(*) AS total FROM positioned WHERE 1 = 1 ${searchClause}`),
-        dashboardId,
-        ...searchValues
-      );
-      if (!archiveCountRow) throw new Error("Dyna could not count archived dashboard items.");
-      const selectedCte = scope === "archive" ? dynaEligibleCte("archive") : DYNA_ELIGIBLE_CTE;
-      const rows = this.#database.prepare(
-        `${selectedCte}
-          SELECT * FROM positioned WHERE 1 = 1 ${searchClause}
-          ORDER BY
-            CASE effective_priority
-              WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END,
-            priority_position
-          LIMIT 200`
-      ).all(dashboardId, ...searchValues);
-      const cards = this.#cardsFromSnapshotRows(rows, terms);
-      const criticalCount = requiredNumber(countRow, "critical");
-      const highCount = requiredNumber(countRow, "high");
-      const leadershipCount = requiredNumber(countRow, "leadership");
-      const newest = optionalString(countRow, "newest");
-      const schedules = this.listPublishers(dashboardId);
-      const freshnessRelevantSchedules = schedules.filter(
-        (schedule) => schedule.scheduleState === "active" || schedule.lastRunStatus === "never" || Boolean(schedule.revokedAt)
-      );
-      const scheduleFreshness = freshnessRelevantSchedules.map((schedule) => {
-        if (schedule.revokedAt || schedule.lastRunStatus === "never" || schedule.lastRunStatus === "failed" || schedule.lastRunStatus === "partial" || !schedule.lastRunAt)
-          return "stale";
-        const age = Math.max(0, this.#nowMs() - Date.parse(schedule.lastRunAt));
-        const staleAfter = schedule.staleAfterMinutes * 6e4;
-        return age > staleAfter ? "stale" : age > staleAfter * 0.75 ? "aging" : "fresh";
+  #listProjectionItems(dashboardId, scope = "active") {
+    const cte = dynaProjectionMembershipCte(scope);
+    const rows = this.#database.prepare(`${cte} SELECT * FROM projection_items ORDER BY id`).all(dashboardId);
+    if (rows.length === 0) return [];
+    const taskRows = this.#database.prepare(
+      `${cte}
+         SELECT task.* FROM task_bindings task
+         JOIN projection_items item ON item.id = task.item_id
+         ORDER BY task.item_id, task.observed_ms DESC, task.task_id, task.host_id`
+    ).all(dashboardId);
+    const updateRows = this.#database.prepare(
+      `${cte}, latest_projection_updates AS (
+           SELECT update_row.*, update_row.rowid AS insertion_sequence,
+             ROW_NUMBER() OVER (
+               PARTITION BY update_row.item_id, update_row.task_id,
+                 update_row.host_id, update_row.kind
+               ORDER BY update_row.created_at_ms DESC, update_row.rowid DESC
+             ) AS update_rank
+           FROM work_updates update_row
+           JOIN projection_items item ON item.id = update_row.item_id
+           WHERE update_row.task_id IS NOT NULL AND update_row.host_id IS NOT NULL
+         )
+         SELECT * FROM latest_projection_updates WHERE update_rank = 1
+         ORDER BY item_id, created_at_ms DESC, insertion_sequence DESC`
+    ).all(dashboardId);
+    const tasks = /* @__PURE__ */ new Map();
+    for (const row of taskRows) {
+      const itemId = requiredString(row, "item_id");
+      const task = this.#taskFromRow(row);
+      const values = tasks.get(itemId) ?? [];
+      values.push({
+        taskId: task.taskId,
+        hostId: task.hostId,
+        state: task.state,
+        observedAtMs: requiredNumber(row, "observed_ms"),
+        statusUpdatedAtMs: requiredNumber(row, "status_updated_ms"),
+        statusUpdatedAt: task.statusUpdatedAt,
+        ...task.outcome ? { outcome: task.outcome } : {}
       });
-      const unscheduledAge = newest ? Math.max(0, this.#nowMs() - Date.parse(newest)) : Number.POSITIVE_INFINITY;
-      const freshness = scheduleFreshness.includes("stale") ? "stale" : scheduleFreshness.includes("aging") ? "aging" : scheduleFreshness.length > 0 ? "fresh" : unscheduledAge <= 15 * 6e4 ? "fresh" : unscheduledAge <= 60 * 6e4 ? "aging" : "stale";
-      return DynaDashboardSnapshotSchema.parse({
-        schema: "dyna/snapshot-v5",
-        dashboard,
-        generatedAt: this.#now(),
-        query,
-        scope,
-        revision: revisionRow ? requiredNumber(revisionRow, "revision") : 0,
-        freshness,
-        counts: {
-          critical: criticalCount,
-          high: highCount,
-          leadership: leadershipCount,
-          total: requiredNumber(countRow, "total"),
-          archived: requiredNumber(archiveCountRow, "total"),
-          blocked: requiredNumber(countRow, "blocked")
-        },
-        schedules,
-        cards
+      tasks.set(itemId, values);
+    }
+    const workUpdates = /* @__PURE__ */ new Map();
+    for (const row of updateRows) {
+      const itemId = requiredString(row, "item_id");
+      const update = this.#workUpdateFromRow(row);
+      if (!update.task) continue;
+      const values = workUpdates.get(itemId) ?? [];
+      values.push({
+        taskId: update.task.taskId,
+        hostId: update.task.hostId,
+        kind: update.kind,
+        body: update.body,
+        createdAtMs: requiredNumber(row, "created_at_ms"),
+        insertionSequence: requiredNumber(row, "insertion_sequence")
       });
+      workUpdates.set(itemId, values);
+    }
+    return rows.map((row) => {
+      const id = requiredString(row, "id");
+      const enrichmentBaseFingerprint = optionalString(row, "enrichment_base_fingerprint");
+      const enrichment = enrichmentBaseFingerprint ? {
+        ...optionalString(row, "enrichment_summary") ? { summary: optionalString(row, "enrichment_summary") } : {},
+        ...optionalString(row, "enrichment_priority") ? {
+          priority: DynaPrioritySchema.parse(optionalString(row, "enrichment_priority"))
+        } : {},
+        ...optionalString(row, "enrichment_priority_reason") ? { priorityReason: optionalString(row, "enrichment_priority_reason") } : {},
+        ...optionalString(row, "enrichment_due_at") ? { dueAt: optionalString(row, "enrichment_due_at") } : {},
+        dueAtSet: requiredNumber(row, "enrichment_due_at_set") === 1,
+        ...optionalString(row, "enrichment_labels") ? {
+          labels: DynaPublishedItemSchema.shape.labels.parse(
+            parseJson(requiredString(row, "enrichment_labels"))
+          )
+        } : {},
+        ...optionalString(row, "enrichment_people") ? {
+          people: DynaMaterializedItemSchema.shape.people.parse(
+            parseJson(requiredString(row, "enrichment_people"))
+          )
+        } : {},
+        leadershipScore: requiredNumber(row, "enrichment_leadership_score"),
+        ...optionalString(row, "enrichment_attention") ? { attention: optionalString(row, "enrichment_attention") } : {},
+        ...optionalString(row, "enrichment_plan") ? {
+          plan: DynaPublishedItemSchema.shape.plan.parse(
+            parseJson(requiredString(row, "enrichment_plan"))
+          )
+        } : {},
+        ...optionalString(row, "enrichment_next_steps") ? {
+          nextSteps: DynaPublishedItemSchema.shape.nextSteps.parse(
+            parseJson(requiredString(row, "enrichment_next_steps"))
+          )
+        } : {},
+        baseFingerprint: enrichmentBaseFingerprint,
+        baseSourceUpdatedAt: requiredString(row, "enrichment_base_source_updated_at"),
+        appliedAt: requiredString(row, "enrichment_applied_at"),
+        provenance: requiredString(row, "enrichment_provenance"),
+        version: requiredNumber(row, "enrichment_version")
+      } : void 0;
+      const userWorkflowStage = optionalString(row, "user_workflow_stage");
+      const preferencePriority = optionalString(row, "preference_priority");
+      const followUpOfItemId = followUpReferenceItemId(row);
+      return {
+        id,
+        itemNumber: requiredItemNumber(row, "item_number"),
+        identityKey: requiredString(row, "identity_key"),
+        fingerprint: requiredString(row, "fingerprint"),
+        base: this.#baseItem(row),
+        sourceLeadershipScore: requiredNumber(row, "leadership_score"),
+        sourceUpdatedAtMs: requiredNumber(row, "source_updated_ms"),
+        updatedAt: requiredString(row, "updated_at"),
+        ...followUpOfItemId ? { followUpOfItemId } : {},
+        ...typeof row["follow_up_of_item_number"] === "number" ? { followUpOfItemNumber: requiredItemNumber(row, "follow_up_of_item_number") } : {},
+        ...enrichment ? { enrichment } : {},
+        ...preferencePriority ? { preferencePriority: DynaPrioritySchema.parse(preferencePriority) } : {},
+        ...typeof row["preference_sequence"] === "number" ? { preferenceSequence: requiredNumber(row, "preference_sequence") } : {},
+        ...userWorkflowStage ? {
+          userWorkflow: {
+            stage: DynaUserWorkflowStageSchema.parse(userWorkflowStage),
+            ...optionalString(row, "user_workflow_outcome") ? { outcome: optionalString(row, "user_workflow_outcome") } : {},
+            createdAt: requiredString(row, "user_workflow_created_at"),
+            createdAtMs: requiredNumber(row, "user_workflow_created_ms")
+          }
+        } : {},
+        ...optionalString(row, "archive_id") ? { archive: this.#archiveStateFromRow(row, "archive_") } : {},
+        ...typeof row["last_restored_at_ms"] === "number" ? { lastRestoredAtMs: requiredNumber(row, "last_restored_at_ms") } : {},
+        tasks: tasks.get(id) ?? [],
+        workUpdates: workUpdates.get(id) ?? []
+      };
     });
   }
-  snapshotForView(viewToken, query = "", scope = "active") {
-    return this.snapshot(this.authorizeView(viewToken), query, scope);
+  #matchingProjectionItemIds(dashboardId, scope, terms) {
+    if (terms.length === 0) {
+      return new Set(this.#listProjectionItems(dashboardId, scope).map(({ id }) => id));
+    }
+    const fragments = terms.map(
+      () => `(
+        instr(lower(
+          ':' || CAST(item.item_number AS TEXT) || ': ' ||
+          COALESCE(item.title, '') || ' ' || COALESCE(item.summary, '') || ' ' ||
+          COALESCE(item.source_ref, '') || ' ' || COALESCE(item.source_scope, '') || ' ' ||
+          COALESCE(item.labels, '') || ' ' || COALESCE(item.people, '') || ' ' ||
+          COALESCE(item.attention, '') || ' ' || COALESCE(item.plan, '') || ' ' ||
+          COALESCE(item.next_steps, '') || ' ' || COALESCE(item.archive_reason, '') || ' ' ||
+          COALESCE(item.archive_reason_detail, '') || ' ' || COALESCE(item.archive_outcome, '') || ' ' ||
+          COALESCE(item.user_workflow_outcome, '') || ' ' ||
+          CASE WHEN item.enrichment_base_fingerprint = item.fingerprint THEN
+            COALESCE(item.enrichment_summary, '') || ' ' ||
+            COALESCE(item.enrichment_priority_reason, '') || ' ' ||
+            COALESCE(item.enrichment_labels, '') || ' ' || COALESCE(item.enrichment_people, '') || ' ' ||
+            COALESCE(item.enrichment_attention, '') || ' ' || COALESCE(item.enrichment_plan, '') || ' ' ||
+            COALESCE(item.enrichment_next_steps, '')
+          ELSE '' END
+        ), ?) > 0
+        OR EXISTS (SELECT 1 FROM annotations annotation
+          WHERE annotation.item_id = item.id AND instr(lower(annotation.body), ?) > 0)
+        OR EXISTS (SELECT 1 FROM task_bindings task
+          WHERE task.item_id = item.id AND instr(lower(
+            task.title || ' ' || task.state || ' ' || COALESCE(task.outcome, '')
+          ), ?) > 0)
+        OR EXISTS (SELECT 1 FROM work_updates update_row
+          WHERE update_row.item_id = item.id AND instr(${activitySearchSql("update_row")}, ?) > 0)
+      )`
+    );
+    const rows = this.#database.prepare(
+      `${dynaProjectionMembershipCte(scope)}
+         SELECT item.id FROM projection_items item WHERE ${fragments.join(" AND ")}`
+    ).all(dashboardId, ...terms.flatMap((term) => [term, term, term, term]));
+    return new Set(rows.map((row) => requiredString(row, "id")));
+  }
+  #loadCardEvidence(itemIds, searchTerms = []) {
+    if (itemIds.length === 0) return [];
+    if (itemIds.length > 200) throw new Error("Dyna card evidence is limited to 200 items.");
+    const placeholders = itemIds.map(() => "?").join(", ");
+    const annotationRows = this.#database.prepare(
+      `SELECT * FROM (
+           SELECT *, ROW_NUMBER() OVER (
+             PARTITION BY item_id ORDER BY created_at DESC, id
+           ) AS item_rank
+           FROM annotations WHERE item_id IN (${placeholders})
+         ) WHERE item_rank <= 20 ORDER BY item_id, created_at DESC`
+    ).all(...itemIds);
+    const taskRows = this.#database.prepare(
+      `SELECT * FROM (
+           SELECT *, ROW_NUMBER() OVER (
+             PARTITION BY item_id ORDER BY observed_ms DESC, task_id, host_id
+           ) AS item_rank
+           FROM task_bindings WHERE item_id IN (${placeholders})
+         ) WHERE item_rank <= 8 ORDER BY item_id, observed_ms DESC`
+    ).all(...itemIds);
+    const workUpdateRows = this.#database.prepare(
+      `SELECT * FROM (
+           SELECT update_row.*, update_row.rowid AS insertion_seq, ROW_NUMBER() OVER (
+             PARTITION BY item_id ORDER BY created_at_ms DESC, update_row.rowid DESC
+           ) AS item_rank
+           FROM work_updates update_row WHERE item_id IN (${placeholders})
+         ) WHERE item_rank <= ? ORDER BY item_id, created_at_ms DESC, insertion_seq DESC`
+    ).all(...itemIds, MAX_WORK_UPDATES_PER_CARD);
+    const countRows = this.#database.prepare(
+      `SELECT item_id, COUNT(*) AS total FROM work_updates
+         WHERE item_id IN (${placeholders}) GROUP BY item_id`
+    ).all(...itemIds);
+    const activityExpression = activitySearchSql("update_row");
+    const activityMatches = searchTerms.map(() => `instr(${activityExpression}, ?) > 0`);
+    const activityCoverage = activityMatches.map((match) => `CASE WHEN ${match} THEN 1 ELSE 0 END`).join(" + ");
+    const matchingActivityRows = searchTerms.length === 0 ? [] : this.#database.prepare(
+      `SELECT * FROM (
+                 SELECT update_row.*, ROW_NUMBER() OVER (
+                   PARTITION BY item_id ORDER BY (${activityCoverage}) DESC,
+                     created_at_ms DESC, rowid DESC
+                 ) AS item_rank
+                 FROM work_updates update_row
+                 WHERE item_id IN (${placeholders}) AND (${activityMatches.join(" OR ")})
+               ) WHERE item_rank = 1`
+    ).all(...searchTerms, ...itemIds, ...searchTerms);
+    const annotations = /* @__PURE__ */ new Map();
+    for (const row of annotationRows) {
+      const itemId = requiredString(row, "item_id");
+      const values = annotations.get(itemId) ?? [];
+      values.push(
+        DynaAnnotationSchema.parse({
+          id: requiredString(row, "id"),
+          itemId,
+          body: requiredString(row, "body"),
+          createdAt: requiredString(row, "created_at")
+        })
+      );
+      annotations.set(itemId, values);
+    }
+    const tasks = /* @__PURE__ */ new Map();
+    for (const row of taskRows) {
+      const itemId = requiredString(row, "item_id");
+      const values = tasks.get(itemId) ?? [];
+      values.push(this.#taskFromRow(row));
+      tasks.set(itemId, values);
+    }
+    const updates = /* @__PURE__ */ new Map();
+    for (const row of workUpdateRows) {
+      const itemId = requiredString(row, "item_id");
+      const values = updates.get(itemId) ?? [];
+      values.push(this.#workUpdateFromRow(row));
+      updates.set(itemId, values);
+    }
+    const counts = new Map(
+      countRows.map((row) => [requiredString(row, "item_id"), requiredNumber(row, "total")])
+    );
+    const matched = /* @__PURE__ */ new Map();
+    for (const row of matchingActivityRows) {
+      const summary = matchedActivitySummary(this.#workUpdateFromRow(row), searchTerms);
+      if (summary) matched.set(requiredString(row, "item_id"), summary);
+    }
+    return itemIds.map((itemId) => ({
+      itemId,
+      annotations: annotations.get(itemId) ?? [],
+      linkedTasks: tasks.get(itemId) ?? [],
+      workUpdates: updates.get(itemId) ?? [],
+      workUpdateCount: counts.get(itemId) ?? 0,
+      ...matched.get(itemId) ? { matchedActivity: matched.get(itemId) } : {}
+    }));
   }
   itemContext(itemId) {
     return DynaItemContextSchema.parse({
@@ -57064,675 +58708,6 @@ var DynaStore = class {
       workUpdateCount: this.#workUpdateCount(itemId),
       linkedTasks: this.#linkedTasks(itemId)
     });
-  }
-  showItem(dashboardId, itemId) {
-    const dashboardExists = this.#one(
-      this.#database.prepare("SELECT 1 AS present FROM dashboards WHERE id = ? AND archived = 0"),
-      dashboardId
-    );
-    if (!dashboardExists) {
-      throw new DynaCliStoreError("not_found", "Dyna dashboard was not found.");
-    }
-    this.#archiveExpiredCompleted(dashboardId);
-    return this.#readTransaction(() => {
-      const dashboard = this.getDashboard(dashboardId);
-      const revisionRow = this.#one(
-        this.#database.prepare("SELECT revision FROM dashboards WHERE id = ?"),
-        dashboardId
-      );
-      const itemExists = this.#one(
-        this.#database.prepare("SELECT 1 AS present FROM items WHERE id = ?"),
-        itemId
-      );
-      if (!itemExists) throw new DynaCliStoreError("not_found", "Dyna item was not found.");
-      if (!this.#dashboardContainsItem(dashboardId, itemId)) {
-        throw new DynaCliStoreError(
-          "outside_dashboard",
-          "The Dyna item is outside the requested dashboard."
-        );
-      }
-      let row = this.#one(
-        this.#database.prepare(`${DYNA_ELIGIBLE_CTE} SELECT * FROM positioned WHERE id = ?`),
-        dashboardId,
-        itemId
-      );
-      row ??= this.#one(
-        this.#database.prepare(
-          `${dynaEligibleCte("archive")} SELECT * FROM positioned WHERE id = ?`
-        ),
-        dashboardId,
-        itemId
-      );
-      if (!row) {
-        throw new DynaCliStoreError("not_found", "Dyna item was not found in this dashboard.");
-      }
-      const card = this.#cardsFromSnapshotRows([row])[0];
-      if (!card) throw new Error("Dyna could not materialize the requested item.");
-      return DynaItemShowResultSchema.parse({
-        schema: "dyna/item-show-result-v1",
-        dashboard,
-        revision: revisionRow ? requiredNumber(revisionRow, "revision") : 0,
-        enrichmentVersion: typeof row["enrichment_version"] === "number" ? requiredNumber(row, "enrichment_version") : 0,
-        item: card
-      });
-    });
-  }
-  recordWorkUpdate(dashboardId, itemId, expectedFingerprint, input) {
-    if (TASK_ATTRIBUTED_WORK_KINDS.has(input.kind) && !input.task) {
-      throw new DynaCliStoreError(
-        "invalid_input",
-        "This Dyna lifecycle update requires attribution to a linked Codex task."
-      );
-    }
-    const parsed = DynaWorkUpdateInputSchema.parse(input);
-    return this.#cliMutation(
-      dashboardId,
-      itemId,
-      parsed.requestId,
-      "item.update",
-      { expectedFingerprint, input: parsed },
-      () => {
-        const item = this.#itemBaseRow(itemId);
-        if (requiredString(item, "fingerprint") !== expectedFingerprint) {
-          throw new DynaCliStoreError(
-            "stale_item",
-            "The Dyna item changed; run item show before updating it."
-          );
-        }
-        const archive = this.#one(
-          this.#database.prepare(
-            "SELECT 1 AS present FROM item_archive_events WHERE dashboard_id = ? AND item_id = ? AND restored_at IS NULL"
-          ),
-          dashboardId,
-          itemId
-        );
-        const active = archive ? void 0 : this.#one(
-          this.#database.prepare(
-            `${DYNA_ELIGIBLE_CTE} SELECT workflow_state FROM positioned WHERE id = ?`
-          ),
-          dashboardId,
-          itemId
-        );
-        const completed = active && requiredWorkflowState(active) === "completed";
-        if ((archive || completed) && parsed.kind !== "note") {
-          throw new DynaCliStoreError(
-            archive ? "archived_item" : "completed_item",
-            archive ? "Archived Dyna items accept historical notes only; create a follow-up for continued work." : "Completed Dyna items accept historical notes only; create a follow-up for continued work."
-          );
-        }
-        let taskTitle;
-        if (parsed.task) {
-          const task = this.#one(
-            this.#database.prepare(
-              "SELECT title FROM task_bindings WHERE item_id = ? AND task_id = ? AND host_id = ?"
-            ),
-            itemId,
-            parsed.task.taskId,
-            parsed.task.hostId
-          );
-          if (!task) {
-            throw new DynaCliStoreError(
-              "task_not_linked",
-              "The attributed Codex task is not linked to this Dyna item."
-            );
-          }
-          taskTitle = requiredString(task, "title");
-        }
-        const priorAttempt = this.#one(
-          this.#database.prepare(
-            `SELECT task_id, host_id FROM work_updates
-             WHERE item_id = ? AND work_attempt_id = ? AND task_id IS NOT NULL
-             ORDER BY created_at_ms, rowid LIMIT 1`
-          ),
-          itemId,
-          parsed.workAttemptId
-        );
-        if (priorAttempt && (optionalString(priorAttempt, "task_id") !== parsed.task?.taskId || optionalString(priorAttempt, "host_id") !== parsed.task?.hostId)) {
-          throw new DynaCliStoreError(
-            "request_conflict",
-            "A Dyna work attempt cannot be reassigned to a different Codex task."
-          );
-        }
-        const instant = this.#now();
-        const update = DynaWorkUpdateSchema.parse({
-          schema: "dyna/work-update-v1",
-          id: (0, import_node_crypto5.randomUUID)(),
-          itemId,
-          originDashboardId: dashboardId,
-          workAttemptId: parsed.workAttemptId,
-          kind: parsed.kind,
-          body: parsed.body,
-          ...parsed.outcome ? { outcome: parsed.outcome } : {},
-          artifacts: parsed.artifacts,
-          ...parsed.task ? { task: { ...parsed.task, title: taskTitle } } : {},
-          createdAt: instant
-        });
-        this.#database.prepare(
-          `INSERT INTO work_updates (
-               id, item_id, origin_dashboard_id, work_attempt_id, kind, body, outcome,
-               artifacts, task_id, host_id, task_title, created_at, created_at_ms
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(
-          update.id,
-          itemId,
-          dashboardId,
-          update.workAttemptId,
-          update.kind,
-          update.body,
-          update.outcome ?? null,
-          JSON.stringify(update.artifacts),
-          update.task?.taskId ?? null,
-          update.task?.hostId ?? null,
-          update.task?.title ?? null,
-          instant,
-          Date.parse(instant)
-        );
-        this.#touchDashboardsForItem(itemId, instant);
-        this.#audit(`item.work_updated.${update.kind}`, itemId, instant);
-        return DynaItemUpdateResultSchema.parse({
-          schema: "dyna/item-update-result-v1",
-          requestId: parsed.requestId,
-          itemId,
-          workUpdateId: update.id,
-          deduplicated: false
-        });
-      }
-    );
-  }
-  enrichItemFromCli(dashboardId, itemId, expectedFingerprint, expectedEnrichmentVersion, input) {
-    return this.#cliMutation(
-      dashboardId,
-      itemId,
-      input.requestId,
-      "item.enrich",
-      { expectedFingerprint, expectedEnrichmentVersion, input },
-      () => {
-        const base = this.#itemBaseRow(itemId);
-        if (requiredString(base, "fingerprint") !== expectedFingerprint) {
-          throw new DynaCliStoreError(
-            "stale_item",
-            "The Dyna item changed; run item show before enriching it."
-          );
-        }
-        const active = this.#one(
-          this.#database.prepare(`${DYNA_ELIGIBLE_CTE} SELECT * FROM positioned WHERE id = ?`),
-          dashboardId,
-          itemId
-        );
-        if (!active) {
-          throw new DynaCliStoreError(
-            "archived_item",
-            "Archived Dyna items cannot be enriched; restore or create a follow-up."
-          );
-        }
-        if (requiredWorkflowState(active) === "completed") {
-          throw new DynaCliStoreError(
-            "completed_item",
-            "Completed Dyna items cannot be enriched; create a follow-up for continued work."
-          );
-        }
-        const priority = input.priority === void 0 ? void 0 : DynaPrioritySchema.parse(input.priority);
-        if (priority === "critical" && requiredString(base, "priority") !== "critical") {
-          throw new DynaCliStoreError(
-            "invalid_input",
-            "Dyna enrichment cannot set critical unless the source priority is already critical."
-          );
-        }
-        const existing = this.#one(
-          this.#database.prepare("SELECT version FROM item_enrichments WHERE item_id = ?"),
-          itemId
-        );
-        const currentVersion = existing ? requiredNumber(existing, "version") : 0;
-        if (currentVersion !== expectedEnrichmentVersion) {
-          throw new DynaCliStoreError(
-            "stale_enrichment",
-            "The Dyna enrichment changed; run item show before replacing it."
-          );
-        }
-        const dueAt = input.dueAt ? normalizeTimestamp(input.dueAt).iso : void 0;
-        const dueAtSet = input.dueAt !== void 0 ? 1 : 0;
-        const instant = this.#now();
-        this.#database.prepare(
-          `INSERT INTO item_enrichments (
-               item_id, summary, priority, priority_reason, due_at, due_at_set, labels, people,
-               leadership_score, attention, plan, next_steps, base_fingerprint,
-               base_source_updated_at, applied_at, provenance, version
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-             ON CONFLICT(item_id) DO UPDATE SET summary = excluded.summary,
-               priority = excluded.priority, priority_reason = excluded.priority_reason,
-               due_at = excluded.due_at, due_at_set = excluded.due_at_set,
-               labels = excluded.labels, people = excluded.people,
-               leadership_score = excluded.leadership_score,
-               attention = excluded.attention, plan = excluded.plan,
-               next_steps = excluded.next_steps,
-               base_fingerprint = excluded.base_fingerprint,
-               base_source_updated_at = excluded.base_source_updated_at,
-               applied_at = excluded.applied_at, provenance = excluded.provenance,
-               version = item_enrichments.version + 1`
-        ).run(
-          itemId,
-          input.summary ?? null,
-          priority ?? null,
-          input.priorityReason ?? null,
-          dueAt ?? null,
-          dueAtSet,
-          input.labels !== void 0 ? JSON.stringify(input.labels) : null,
-          input.people !== void 0 ? JSON.stringify(input.people) : null,
-          dynaLeadershipScore(input.people ?? []),
-          input.attention ?? null,
-          input.plan !== void 0 ? JSON.stringify(input.plan) : null,
-          input.nextSteps !== void 0 ? JSON.stringify(input.nextSteps) : null,
-          expectedFingerprint,
-          requiredString(base, "source_updated_at"),
-          instant,
-          input.provenance
-        );
-        this.#touchDashboardsForItem(itemId, instant);
-        this.#audit("item.enriched.cli", itemId, instant);
-        return DynaItemEnrichResultSchema.parse({
-          schema: "dyna/item-enrich-result-v1",
-          requestId: input.requestId,
-          itemId,
-          enrichmentVersion: currentVersion + 1,
-          deduplicated: false
-        });
-      }
-    );
-  }
-  placeItemFromCli(dashboardId, itemId, expectedRevision, expectedFingerprint, input) {
-    const targetPriority = DynaPrioritySchema.parse(input.targetPriority);
-    return this.#cliMutation(
-      dashboardId,
-      itemId,
-      input.requestId,
-      "item.place",
-      { expectedRevision, expectedFingerprint, input },
-      () => {
-        const revisionRow = this.#one(
-          this.#database.prepare("SELECT revision FROM dashboards WHERE id = ?"),
-          dashboardId
-        );
-        if (!revisionRow || requiredNumber(revisionRow, "revision") !== expectedRevision) {
-          throw new DynaCliStoreError(
-            "stale_dashboard",
-            "The Dyna dashboard changed; run item show before moving this item."
-          );
-        }
-        const item = this.#itemBaseRow(itemId);
-        if (requiredString(item, "fingerprint") !== expectedFingerprint) {
-          throw new DynaCliStoreError(
-            "stale_item",
-            "The Dyna item changed; run item show before moving it."
-          );
-        }
-        const positioned = this.#database.prepare(
-          `${DYNA_ELIGIBLE_CTE}
-             SELECT id, effective_priority, completed_group, priority_position
-             FROM positioned ORDER BY completed_group, priority_position`
-        ).all(dashboardId);
-        const source = positioned.find((candidate) => requiredString(candidate, "id") === itemId);
-        if (!source) {
-          throw new DynaCliStoreError(
-            "archived_item",
-            "Archived Dyna items cannot be placed; restore the item first."
-          );
-        }
-        if (requiredNumber(source, "completed_group") !== 0) {
-          throw new DynaCliStoreError(
-            "completed_item",
-            "Completed Dyna items cannot be placed; create a follow-up for continued work."
-          );
-        }
-        const currentPriority = DynaPrioritySchema.parse(
-          requiredString(source, "effective_priority")
-        );
-        const currentGroup = positioned.filter(
-          (candidate) => requiredNumber(candidate, "completed_group") === 0 && requiredString(candidate, "effective_priority") === currentPriority
-        );
-        const targetGroup = positioned.filter(
-          (candidate) => requiredNumber(candidate, "completed_group") === 0 && requiredString(candidate, "effective_priority") === targetPriority && requiredString(candidate, "id") !== itemId
-        );
-        if (input.beforeItemId === itemId) {
-          return DynaItemPlaceResultSchema.parse({
-            schema: "dyna/item-place-result-v1",
-            requestId: input.requestId,
-            itemId,
-            changed: false,
-            deduplicated: false
-          });
-        }
-        const insertAt = input.beforeItemId ? targetGroup.findIndex(
-          (candidate) => requiredString(candidate, "id") === input.beforeItemId
-        ) : targetGroup.length;
-        if (input.beforeItemId && insertAt < 0) {
-          throw new DynaCliStoreError(
-            "stale_dashboard",
-            "The queue target changed; run item show before moving this item."
-          );
-        }
-        targetGroup.splice(insertAt, 0, source);
-        const currentIds = currentGroup.map((candidate) => requiredString(candidate, "id"));
-        const nextIds = targetGroup.map((candidate) => requiredString(candidate, "id"));
-        const changed = currentPriority !== targetPriority || currentIds.join("\n") !== nextIds.join("\n");
-        if (changed) {
-          const instant = this.#now();
-          const setSourcePreference = this.#database.prepare(
-            `INSERT INTO item_preferences (
-               dashboard_id, item_id, priority_override, sequence, updated_at
-             ) VALUES (?, ?, ?, ?, ?)
-             ON CONFLICT(dashboard_id, item_id) DO UPDATE SET
-               priority_override = excluded.priority_override,
-               sequence = excluded.sequence, updated_at = excluded.updated_at`
-          );
-          const setSequence = this.#database.prepare(
-            `INSERT INTO item_preferences (dashboard_id, item_id, sequence, updated_at)
-             VALUES (?, ?, ?, ?)
-             ON CONFLICT(dashboard_id, item_id) DO UPDATE SET
-               sequence = excluded.sequence, updated_at = excluded.updated_at`
-          );
-          const addEvent = this.#database.prepare(
-            `INSERT INTO item_preference_events (
-               id, dashboard_id, item_id, action, priority, sequence, created_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?)`
-          );
-          const priorities = ["critical", "high", "normal", "low"];
-          const sourceAction = currentPriority !== targetPriority ? priorities.indexOf(targetPriority) < priorities.indexOf(currentPriority) ? "bump" : "lower" : nextIds.indexOf(itemId) < currentIds.indexOf(itemId) ? "earlier" : "later";
-          targetGroup.forEach((candidate, position) => {
-            const candidateId = requiredString(candidate, "id");
-            const sequence = position * 100;
-            if (candidateId === itemId) {
-              setSourcePreference.run(dashboardId, candidateId, targetPriority, sequence, instant);
-            } else {
-              setSequence.run(dashboardId, candidateId, sequence, instant);
-            }
-            addEvent.run(
-              (0, import_node_crypto5.randomUUID)(),
-              dashboardId,
-              candidateId,
-              candidateId === itemId ? sourceAction : "resequence",
-              targetPriority,
-              sequence,
-              instant
-            );
-          });
-          this.#touchDashboards([dashboardId], instant);
-          this.#audit(`item.organized.${sourceAction}.cli`, itemId, instant);
-        }
-        return DynaItemPlaceResultSchema.parse({
-          schema: "dyna/item-place-result-v1",
-          requestId: input.requestId,
-          itemId,
-          changed,
-          deduplicated: false
-        });
-      }
-    );
-  }
-  archiveItemFromCli(dashboardId, itemId, expectedRevision, expectedFingerprint, input) {
-    const reason = DynaArchiveReasonSchema.parse(input.reason);
-    const reasonDetail = input.reasonDetail?.trim();
-    if (reason === "other" && !reasonDetail) {
-      throw new DynaCliStoreError(
-        "invalid_input",
-        "Other archive reasons require a short explanation."
-      );
-    }
-    if (reason !== "other" && reasonDetail) {
-      throw new DynaCliStoreError(
-        "invalid_input",
-        "Archive reason details are only accepted for Other."
-      );
-    }
-    return this.#cliMutation(
-      dashboardId,
-      itemId,
-      input.requestId,
-      "item.archive",
-      { expectedRevision, expectedFingerprint, input: { ...input, reasonDetail } },
-      () => {
-        const revision = this.#one(
-          this.#database.prepare("SELECT revision FROM dashboards WHERE id = ?"),
-          dashboardId
-        );
-        if (!revision || requiredNumber(revision, "revision") !== expectedRevision) {
-          throw new DynaCliStoreError(
-            "stale_dashboard",
-            "The Dyna dashboard changed; run item show before archiving this item."
-          );
-        }
-        const row = this.#one(
-          this.#database.prepare(`${DYNA_ELIGIBLE_CTE} SELECT * FROM positioned WHERE id = ?`),
-          dashboardId,
-          itemId
-        );
-        if (!row) {
-          throw new DynaCliStoreError("archived_item", "The Dyna item is already archived.");
-        }
-        if (requiredString(row, "fingerprint") !== expectedFingerprint) {
-          throw new DynaCliStoreError(
-            "stale_item",
-            "The Dyna item changed; run item show before archiving it."
-          );
-        }
-        if (reason === "completed" && requiredWorkflowState(row) !== "completed") {
-          throw new DynaCliStoreError(
-            "invalid_input",
-            "Only controller-confirmed completed work can use the Completed disposition."
-          );
-        }
-        const archived = this.#insertArchiveEvent(dashboardId, row, reason, reasonDetail, "manual");
-        this.#touchDashboards([dashboardId], archived.archivedAt);
-        this.#audit(`item.archived.${reason}.manual.cli`, itemId, archived.archivedAt);
-        return DynaItemArchiveResultSchema.parse({
-          schema: "dyna/item-archive-result-v1",
-          requestId: input.requestId,
-          itemId,
-          archiveId: archived.archiveId,
-          archivedAt: archived.archivedAt,
-          reason,
-          deduplicated: false
-        });
-      }
-    );
-  }
-  restoreItemFromCli(dashboardId, itemId, expectedRevision, expectedFingerprint, requestId) {
-    return this.#cliMutation(
-      dashboardId,
-      itemId,
-      requestId,
-      "item.restore",
-      { expectedRevision, expectedFingerprint },
-      () => {
-        const revision = this.#one(
-          this.#database.prepare("SELECT revision FROM dashboards WHERE id = ?"),
-          dashboardId
-        );
-        const item = this.#itemBaseRow(itemId);
-        if (!revision || requiredNumber(revision, "revision") !== expectedRevision) {
-          throw new DynaCliStoreError(
-            "stale_dashboard",
-            "The Dyna dashboard changed; run item show before restoring this item."
-          );
-        }
-        if (requiredString(item, "fingerprint") !== expectedFingerprint) {
-          throw new DynaCliStoreError(
-            "stale_item",
-            "The Dyna item changed; run item show before restoring it."
-          );
-        }
-        const archive = this.#one(
-          this.#database.prepare(
-            "SELECT id FROM item_archive_events WHERE dashboard_id = ? AND item_id = ? AND restored_at IS NULL"
-          ),
-          dashboardId,
-          itemId
-        );
-        if (!archive) {
-          throw new DynaCliStoreError(
-            "invalid_input",
-            "The Dyna item is not currently archived in this dashboard."
-          );
-        }
-        const restoredAt = this.#now();
-        this.#database.prepare(
-          `UPDATE item_archive_events SET restored_at = ?, restored_at_ms = ?
-             WHERE id = ? AND restored_at IS NULL`
-        ).run(restoredAt, Date.parse(restoredAt), requiredString(archive, "id"));
-        this.#touchDashboards([dashboardId], restoredAt);
-        this.#audit("item.restored.cli", itemId, restoredAt);
-        return DynaItemRestoreResultSchema.parse({
-          schema: "dyna/item-restore-result-v1",
-          requestId,
-          itemId,
-          restoredAt,
-          deduplicated: false
-        });
-      }
-    );
-  }
-  createFollowUpFromCli(dashboardId, sourceItemId, expectedRevision, expectedFingerprint, input) {
-    const todo = DynaTodoInputSchema.parse({
-      title: input.title,
-      ...input.summary ? { summary: input.summary } : {},
-      priority: input.priority,
-      labels: input.labels,
-      ...input.attention ? { attention: input.attention } : {},
-      followUpOfItemId: sourceItemId
-    });
-    return this.#cliMutation(
-      dashboardId,
-      sourceItemId,
-      input.requestId,
-      "follow-up.create",
-      { expectedRevision, expectedFingerprint, input },
-      () => {
-        const revision = this.#one(
-          this.#database.prepare("SELECT revision FROM dashboards WHERE id = ?"),
-          dashboardId
-        );
-        const source = this.#itemBaseRow(sourceItemId);
-        if (!revision || requiredNumber(revision, "revision") !== expectedRevision) {
-          throw new DynaCliStoreError(
-            "stale_dashboard",
-            "The Dyna dashboard changed; run item show before creating a follow-up."
-          );
-        }
-        if (requiredString(source, "fingerprint") !== expectedFingerprint) {
-          throw new DynaCliStoreError(
-            "stale_item",
-            "The Dyna item changed; run item show before creating a follow-up."
-          );
-        }
-        const archived = Boolean(
-          this.#one(
-            this.#database.prepare(
-              "SELECT 1 AS present FROM item_archive_events WHERE dashboard_id = ? AND item_id = ? AND restored_at IS NULL"
-            ),
-            dashboardId,
-            sourceItemId
-          )
-        );
-        const active = archived ? void 0 : this.#one(
-          this.#database.prepare(
-            `${DYNA_ELIGIBLE_CTE} SELECT workflow_state FROM positioned WHERE id = ?`
-          ),
-          dashboardId,
-          sourceItemId
-        );
-        if (!archived && (!active || requiredWorkflowState(active) !== "completed")) {
-          throw new DynaCliStoreError(
-            "invalid_input",
-            "Follow-ups can only be created from completed or archived Dyna items."
-          );
-        }
-        const instant = this.#now();
-        let mapping = this.#one(
-          this.#database.prepare(
-            "SELECT publisher_id FROM dashboard_manual_publishers WHERE dashboard_id = ?"
-          ),
-          dashboardId
-        );
-        if (!mapping) {
-          this.#assertPublisherCapacity();
-          const publisherId2 = (0, import_node_crypto5.randomUUID)();
-          this.#database.prepare(
-            `INSERT INTO publishers (
-                 id, name, token_hash, schedule_state, stale_after_minutes, credential_mode,
-                 last_run_status, created_at
-               ) VALUES (?, ?, ?, 'unknown', 43200, 'disabled', 'never', ?)`
-          ).run(publisherId2, "Dyna to-dos", tokenHash(token()), instant);
-          this.#database.prepare("INSERT INTO dashboard_publishers (dashboard_id, publisher_id) VALUES (?, ?)").run(dashboardId, publisherId2);
-          this.#database.prepare(
-            "INSERT INTO dashboard_manual_publishers (dashboard_id, publisher_id) VALUES (?, ?)"
-          ).run(dashboardId, publisherId2);
-          mapping = { publisher_id: publisherId2 };
-        }
-        const publisherId = requiredString(mapping, "publisher_id");
-        const todoId = (0, import_node_crypto5.randomUUID)();
-        const published = normalizedPublishedItem({
-          externalId: todoId,
-          sourceRef: { source: "manual", todoId },
-          sourceScope: `manual:${dashboardId}`,
-          title: todo.title,
-          summary: todo.summary ?? "Follow-up work created from Dyna.",
-          priority: todo.priority,
-          priorityReason: "Follow-up created from completed or archived Dyna work.",
-          sourceUpdatedAt: instant,
-          labels: todo.labels,
-          people: [],
-          ...todo.attention ? { attention: todo.attention } : {},
-          plan: [],
-          nextSteps: []
-        });
-        const itemId = (0, import_node_crypto5.randomUUID)();
-        const fingerprint = sha256(JSON.stringify(published));
-        this.#database.prepare(
-          `INSERT INTO items (
-               id, publisher_id, external_id, identity_key, source, source_ref, source_scope,
-               title, summary, priority, priority_reason, source_updated_at, source_updated_ms,
-               due_at, labels, people, leadership_score, attention, plan, next_steps,
-               follow_up_of_item_id, fingerprint, updated_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, 0, ?, ?, ?, ?, ?, ?)`
-        ).run(
-          itemId,
-          publisherId,
-          published.externalId,
-          identityKey(publisherId, published.sourceRef),
-          published.sourceRef.source,
-          JSON.stringify(published.sourceRef),
-          published.sourceScope,
-          published.title,
-          published.summary,
-          published.priority,
-          published.priorityReason,
-          published.sourceUpdatedAt,
-          Date.parse(published.sourceUpdatedAt),
-          JSON.stringify(published.labels),
-          JSON.stringify(published.people),
-          published.attention ?? null,
-          JSON.stringify(published.plan),
-          JSON.stringify(published.nextSteps),
-          sourceItemId,
-          fingerprint,
-          instant
-        );
-        this.#database.prepare(
-          `INSERT INTO publisher_items (
-               publisher_id, external_id, item_id, active, last_seen_run_id
-             ) VALUES (?, ?, ?, 1, ?)`
-        ).run(publisherId, published.externalId, itemId, `manual:${todoId}`);
-        this.#touchDashboards([dashboardId], instant);
-        this.#audit("todo.follow_up.created.cli", itemId, instant);
-        return DynaFollowUpCreateResultSchema.parse({
-          schema: "dyna/follow-up-create-result-v1",
-          requestId: input.requestId,
-          itemId,
-          sourceItemId,
-          fingerprint,
-          deduplicated: false
-        });
-      }
-    );
   }
   #pruneCodexSessionCaches() {
     const now = this.#nowMs();
@@ -57818,7 +58793,7 @@ var DynaStore = class {
       );
     }
   }
-  prepareAction(viewToken, kind, values) {
+  prepareAction(viewToken, kind, values, attachmentBlocker) {
     DynaActionKindSchema.parse(kind);
     const dashboardId = this.authorizeView(viewToken, values.itemId);
     let attachAuthorization;
@@ -57894,7 +58869,6 @@ var DynaStore = class {
           throw new Error("The Codex task is not linked to this Dyna item.");
         }
         if (kind === "attach_codex_task" && !linked) {
-          const attachmentBlocker = this.#newTaskAttachmentBlocker(dashboardId, values.itemId);
           if (attachmentBlocker) throw new Error(attachmentBlocker.message);
           if (!this.#taskBindingCapacityAvailable(values.itemId)) {
             throw new Error("A Dyna item cannot link more than eight Codex tasks.");
@@ -57904,7 +58878,6 @@ var DynaStore = class {
         throw new Error("This Dyna action cannot target an existing Codex task.");
       }
       if (kind === "create_codex_task") {
-        const attachmentBlocker = this.#newTaskAttachmentBlocker(dashboardId, values.itemId);
         if (attachmentBlocker) throw new Error(attachmentBlocker.message);
         this.#database.prepare(
           `UPDATE action_requests SET state = 'needs_reconciliation', uncertain_effect = 1,
@@ -58007,7 +58980,7 @@ var DynaStore = class {
       );
       return request;
     });
-    if ("error" in result) throw new Error(result.error);
+    if ("error" in result) throw new DynaCommittedMutationError(result.error);
     if (kind === "attach_codex_task" && attachAuthorization) {
       this.#rememberCodexSessionAttachAuthorization(result.id, attachAuthorization);
     }
@@ -58114,7 +59087,7 @@ var DynaStore = class {
       ...cache ? { candidates: cache.candidates.map((candidate) => ({ ...candidate })) } : {}
     };
   }
-  claimAction(requestId) {
+  claimAction(requestId, attachmentBlocker) {
     const claimToken = token();
     const result = this.#transaction(() => {
       const instant = this.#now();
@@ -58143,7 +59116,7 @@ var DynaStore = class {
       const kind = requiredString(requestRow, "kind");
       const selectedTaskId = optionalString(requestRow, "task_id");
       const selectedTaskHostId = optionalString(requestRow, "host_id");
-      const attachingNewTask = kind === "attach_codex_task" && itemId && selectedTaskId && selectedTaskHostId ? !this.#taskBindingExists(itemId, selectedTaskId, selectedTaskHostId) : false;
+      const attachingNewTask = kind === "attach_codex_task" && itemId && selectedTaskId && selectedTaskHostId ? !this.#taskBindingExists(itemId, selectedTaskId) : false;
       let sessionAuthorizationError;
       if (kind === "attach_codex_task") {
         try {
@@ -58160,14 +59133,14 @@ var DynaStore = class {
         ).run(sessionAuthorizationError, instant, requestId);
         return { error: sessionAuthorizationError };
       }
-      const attachmentBlocker = dashboardId && itemId && (kind === "create_codex_task" || attachingNewTask) ? this.#newTaskAttachmentBlocker(dashboardId, itemId) : void 0;
-      if (attachmentBlocker && requiredString(requestRow, "state") === "delivered" && requiredString(requestRow, "expires_at") > instant) {
+      const applicableAttachmentBlocker = dashboardId && itemId && (kind === "create_codex_task" || attachingNewTask) ? attachmentBlocker : void 0;
+      if (applicableAttachmentBlocker && requiredString(requestRow, "state") === "delivered" && requiredString(requestRow, "expires_at") > instant) {
         this.#database.prepare(
           `UPDATE action_requests SET state = 'failed', failure_message = ?,
                uncertain_effect = 0, claim_token_hash = NULL, claim_expires_at = NULL,
                updated_at = ? WHERE id = ? AND state = 'delivered'`
-        ).run(attachmentBlocker.message, instant, requestId);
-        return { error: attachmentBlocker.message };
+        ).run(applicableAttachmentBlocker.message, instant, requestId);
+        return { error: applicableAttachmentBlocker.message };
       }
       if (!dashboard || !item || !membership || requiredNumber(dashboard, "revision") !== requiredNumber(requestRow, "dashboard_revision") || requiredString(item, "fingerprint") !== requiredString(requestRow, "item_fingerprint")) {
         this.#database.prepare(
@@ -58182,7 +59155,10 @@ var DynaStore = class {
         );
         return { error: "The Dyna action preconditions changed before it could be claimed." };
       }
-      if (itemId && (kind === "create_codex_task" || attachingNewTask) && requiredString(requestRow, "state") === "delivered" && requiredString(requestRow, "expires_at") > instant && !this.#taskBindingCapacityAvailable(itemId)) {
+      if (itemId && (kind === "create_codex_task" || attachingNewTask) && requiredString(requestRow, "state") === "delivered" && requiredString(requestRow, "expires_at") > instant && !this.#taskBindingCapacityAvailable(
+        itemId,
+        kind === "attach_codex_task" ? requestId : void 0
+      )) {
         this.#database.prepare(
           `UPDATE action_requests SET state = 'failed', failure_message = ?,
                uncertain_effect = 0, claim_token_hash = NULL, claim_expires_at = NULL,
@@ -58217,10 +59193,10 @@ var DynaStore = class {
         }
       };
     });
-    if ("error" in result) throw new Error(result.error);
+    if ("error" in result) throw new DynaCommittedMutationError(result.error);
     return result;
   }
-  completeAction(requestId, claimToken, result) {
+  completeAction(requestId, claimToken, result, attachmentBlocker) {
     const publicFailureMessage = result.outcome === "succeeded" ? void 0 : sanitizePublicFailureMessage(result.failureMessage);
     let candidateCache;
     const completed = this.#transaction(() => {
@@ -58262,14 +59238,12 @@ var DynaStore = class {
         } else if (result.candidates) {
           throw new Error("Only a Codex session list can return session candidates.");
         }
-        if ((kind === "refresh_codex_status" || kind === "attach_codex_task") && result.task && (result.task.taskId !== optionalString(row, "task_id") || result.task.hostId !== optionalString(row, "host_id"))) {
+        if ((kind === "refresh_codex_status" || kind === "attach_codex_task") && result.task && result.task.taskId !== optionalString(row, "task_id")) {
           throw new Error("The controller-observed Codex task does not match the claimed request.");
         }
         if (kind === "create_codex_task" && result.task) {
-          const dashboardId = requiredString(row, "dashboard_id");
           const itemId = optionalString(row, "item_id");
           if (!itemId) throw new Error("The Dyna action has no item to link.");
-          const attachmentBlocker = this.#newTaskAttachmentBlocker(dashboardId, itemId);
           if (attachmentBlocker) {
             this.#database.prepare(
               `UPDATE action_requests SET state = 'needs_reconciliation', failure_message = ?,
@@ -58284,12 +59258,7 @@ var DynaStore = class {
         if (kind === "attach_codex_task" && result.task) {
           const itemId = optionalString(row, "item_id");
           if (!itemId) throw new Error("The Dyna action has no item to link.");
-          const dashboardId = requiredString(row, "dashboard_id");
-          const alreadyLinked = this.#taskBindingExists(
-            itemId,
-            result.task.taskId,
-            result.task.hostId
-          );
+          const alreadyLinked = this.#taskBindingExists(itemId, result.task.taskId);
           try {
             this.#assertCodexSessionAttachAuthorization(row);
           } catch {
@@ -58304,8 +59273,7 @@ var DynaStore = class {
             return this.actionStatus(requestId);
           }
           if (!alreadyLinked) {
-            const attachmentBlocker = this.#newTaskAttachmentBlocker(dashboardId, itemId);
-            const capacityAvailable = this.#taskBindingCapacityAvailable(itemId);
+            const capacityAvailable = this.#taskBindingCapacityAvailable(itemId, requestId);
             if (attachmentBlocker || !capacityAvailable) {
               const message = attachmentBlocker?.message ?? "The Dyna item cannot link another Codex task.";
               this.#database.prepare(
@@ -58318,7 +59286,7 @@ var DynaStore = class {
               return this.actionStatus(requestId);
             }
           }
-          this.#upsertTaskStatus(itemId, result.task);
+          this.#upsertTaskStatus(itemId, result.task, requestId);
         } else if (result.task) {
           const itemId = optionalString(row, "item_id");
           if (!itemId) throw new Error("The Dyna action has no item to link.");
@@ -58359,25 +59327,29 @@ var DynaStore = class {
     }
     return completed;
   }
-  resolveActionReconciliation(requestId, resolution) {
+  resolveActionReconciliation(requestId, resolution, attachmentBlocker) {
     const publicExplanation = resolution.outcome === "no_task_created" ? sanitizePublicFailureMessage(resolution.explanation) : void 0;
     return this.#transaction(() => {
       const row = this.#one(
         this.#database.prepare(
-          `SELECT * FROM action_requests WHERE id = ? AND kind = 'create_codex_task'
+          `SELECT * FROM action_requests WHERE id = ?
+             AND kind IN ('create_codex_task', 'attach_codex_task')
              AND state = 'needs_reconciliation' AND uncertain_effect = 1`
         ),
         requestId
       );
-      if (!row) throw new Error("The Dyna task creation is not awaiting reconciliation.");
+      if (!row) throw new Error("The Dyna task association is not awaiting reconciliation.");
       const itemId = optionalString(row, "item_id");
       if (!itemId) throw new Error("The Dyna action has no item to reconcile.");
+      const kind = requiredString(row, "kind");
       const instant = this.#now();
       if (resolution.outcome === "task_linked") {
-        const dashboardId = requiredString(row, "dashboard_id");
-        const attachmentBlocker = this.#newTaskAttachmentBlocker(dashboardId, itemId);
         if (attachmentBlocker) throw new Error(attachmentBlocker.message);
-        this.#upsertTaskStatus(itemId, resolution.task, requestId);
+        this.#upsertTaskStatus(
+          itemId,
+          resolution.task,
+          kind === "create_codex_task" || kind === "attach_codex_task" ? requestId : void 0
+        );
       }
       this.#database.prepare(
         `UPDATE action_requests SET state = ?, result_task_id = ?, failure_message = ?,
@@ -58401,12 +59373,8 @@ var DynaStore = class {
     if (!row) throw new Error("Dyna action request was not found.");
     return this.#actionFromRow(row);
   }
-  #taskBindingCapacityAvailable(itemId, excludedClaimRequestId) {
-    const taskCount = this.#one(
-      this.#database.prepare("SELECT COUNT(*) AS total FROM task_bindings WHERE item_id = ?"),
-      itemId
-    );
-    const reservationCount = this.#one(
+  #taskBindingCapacityAvailable(itemId, excludedRequestId) {
+    const creationCount = this.#one(
       this.#database.prepare(
         `SELECT COUNT(*) AS total FROM action_requests
          WHERE item_id = ? AND kind = 'create_codex_task'
@@ -58415,23 +59383,22 @@ var DynaStore = class {
            AND (? IS NULL OR id <> ?)`
       ),
       itemId,
-      excludedClaimRequestId ?? null,
-      excludedClaimRequestId ?? null
+      excludedRequestId ?? null,
+      excludedRequestId ?? null
     );
-    if (!taskCount || !reservationCount) {
+    if (!creationCount) {
       throw new Error("Dyna could not determine linked Codex task capacity.");
     }
-    return requiredNumber(taskCount, "total") + requiredNumber(reservationCount, "total") < MAX_TASK_BINDINGS_PER_ITEM;
+    return this.#countTaskBindingsForItem(itemId) + requiredNumber(creationCount, "total") + this.#countActiveTaskAssociationReservationsForItem(itemId, excludedRequestId) < MAX_TASK_BINDINGS_PER_ITEM;
   }
-  #taskBindingExists(itemId, taskId, hostId) {
+  #taskBindingExists(itemId, taskId) {
     return Boolean(
       this.#one(
         this.#database.prepare(
-          "SELECT 1 AS present FROM task_bindings WHERE item_id = ? AND task_id = ? AND host_id = ?"
+          "SELECT 1 AS present FROM task_bindings WHERE item_id = ? AND task_id = ?"
         ),
         itemId,
-        taskId,
-        hostId
+        taskId
       )
     );
   }
@@ -58451,81 +59418,338 @@ var DynaStore = class {
       updatedAt: requiredString(row, "updated_at")
     });
   }
+  #listTaskSyncRuns(dashboardId, limit = 10) {
+    const boundedLimit = Math.max(1, Math.min(50, Math.trunc(limit)));
+    return this.#database.prepare(
+      `SELECT * FROM task_sync_runs
+           WHERE dashboard_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`
+    ).all(dashboardId, boundedLimit).map((row) => this.#taskSyncRunFromRow(row));
+  }
+  #findTaskSyncRun(runId) {
+    const row = this.#one(
+      this.#database.prepare("SELECT * FROM task_sync_runs WHERE id = ?"),
+      runId
+    );
+    return row ? this.#taskSyncRunFromRow(row) : void 0;
+  }
+  #taskSyncRunFromRow(row) {
+    const scopeKind = requiredString(row, "scope_kind");
+    const scope = DynaTaskSyncScopeSchema.parse(
+      scopeKind === "dashboard" ? { kind: "dashboard" } : {
+        kind: "task",
+        itemId: requiredString(row, "scope_item_id"),
+        taskId: requiredString(row, "scope_task_id"),
+        hostId: requiredString(row, "scope_host_id")
+      }
+    );
+    return {
+      id: requiredString(row, "id"),
+      dashboardId: requiredString(row, "dashboard_id"),
+      scope,
+      state: requiredString(row, "state"),
+      ...optionalString(row, "claim_token_hash") ? { claimTokenHash: optionalString(row, "claim_token_hash") } : {},
+      ...optionalString(row, "lease_expires_at") ? { leaseExpiresAt: optionalString(row, "lease_expires_at") } : {},
+      expiresAt: requiredString(row, "expires_at"),
+      totalTasks: requiredNumber(row, "total_tasks"),
+      excessTasks: requiredNumber(row, "excess_tasks"),
+      processedTasks: requiredNumber(row, "processed_tasks"),
+      updatedItems: requiredNumber(row, "updated_items"),
+      unavailableTasks: requiredNumber(row, "unavailable_tasks"),
+      incompleteMetadataTasks: requiredNumber(row, "incomplete_metadata_tasks"),
+      createdAt: requiredString(row, "created_at"),
+      updatedAt: requiredString(row, "updated_at"),
+      ...optionalString(row, "completed_at") ? { completedAt: optionalString(row, "completed_at") } : {}
+    };
+  }
+  #listTaskSyncCandidates(dashboardId, scope, limit) {
+    const parsedScope = DynaTaskSyncScopeSchema.parse(scope);
+    const boundedLimit = Math.max(1, Math.min(MAX_TASK_SYNC_TARGETS, Math.trunc(limit)));
+    const taskPredicate = parsedScope.kind === "task" ? "AND item.id = ?2 AND task.task_id = ?3 AND task.host_id = ?4" : "";
+    const membership = `
+      FROM task_bindings task
+      JOIN items item ON item.id = task.item_id
+      JOIN item_numbers item_number ON item_number.item_id = item.id
+      JOIN publisher_items publisher_item ON publisher_item.item_id = item.id
+        AND publisher_item.publisher_id = item.publisher_id
+      JOIN dashboard_publishers dashboard_publisher
+        ON dashboard_publisher.publisher_id = publisher_item.publisher_id
+       AND dashboard_publisher.dashboard_id = ?1
+      LEFT JOIN item_archive_events archive
+        ON archive.dashboard_id = dashboard_publisher.dashboard_id
+       AND archive.item_id = item.id AND archive.restored_at IS NULL
+      LEFT JOIN task_sync_checkpoints checkpoint ON checkpoint.task_id = task.task_id
+      WHERE archive.id IS NULL
+        AND (publisher_item.active = 1 OR EXISTS (
+          SELECT 1 FROM item_archive_events restored
+          WHERE restored.dashboard_id = dashboard_publisher.dashboard_id
+            AND restored.item_id = item.id AND restored.restored_at IS NOT NULL
+        )) ${taskPredicate}`;
+    const parameters = parsedScope.kind === "task" ? [dashboardId, parsedScope.itemId, parsedScope.taskId, parsedScope.hostId] : [dashboardId];
+    const totalRow = this.#one(
+      this.#database.prepare(`SELECT COUNT(DISTINCT task.task_id) AS total ${membership}`),
+      ...parameters
+    );
+    const rows = this.#database.prepare(
+      `SELECT DISTINCT item.id AS item_id, item_number.number AS item_number,
+           item.title AS item_title, task.task_id, task.host_id,
+           COALESCE(checkpoint.version, 0) AS checkpoint_version,
+           CASE WHEN checkpoint.host_id = task.host_id THEN checkpoint.cursor END AS cursor,
+           checkpoint.last_turn_id,
+           checkpoint.observed_at_ms AS checkpoint_observed_at_ms
+         ${membership}
+         ORDER BY COALESCE(checkpoint.updated_at, ''), task.observed_ms, task.task_id
+         LIMIT ?${parameters.length + 1}`
+    ).all(...parameters, boundedLimit);
+    return {
+      total: totalRow ? requiredNumber(totalRow, "total") : 0,
+      candidates: rows.map((row) => ({
+        itemId: requiredString(row, "item_id"),
+        itemNumber: requiredItemNumber(row, "item_number"),
+        itemTitle: requiredString(row, "item_title"),
+        taskId: requiredString(row, "task_id"),
+        hostId: requiredString(row, "host_id"),
+        checkpointVersion: requiredNumber(row, "checkpoint_version"),
+        ...optionalString(row, "cursor") ? { cursor: optionalString(row, "cursor") } : {},
+        ...optionalString(row, "last_turn_id") ? { lastTurnId: optionalString(row, "last_turn_id") } : {},
+        ...typeof row["checkpoint_observed_at_ms"] === "number" ? { checkpointObservedAtMs: row["checkpoint_observed_at_ms"] } : {}
+      }))
+    };
+  }
+  #listTaskSyncTargets(runId) {
+    return this.#database.prepare("SELECT * FROM task_sync_targets WHERE run_id = ? ORDER BY task_id").all(runId).map((row) => ({
+      runId: requiredString(row, "run_id"),
+      itemId: requiredString(row, "item_id"),
+      itemNumber: requiredItemNumber(row, "item_number"),
+      itemTitle: requiredString(row, "item_title"),
+      taskId: requiredString(row, "task_id"),
+      hostId: requiredString(row, "host_id"),
+      checkpointVersion: requiredNumber(row, "checkpoint_version"),
+      ...optionalString(row, "checkpoint_cursor") ? { cursor: optionalString(row, "checkpoint_cursor") } : {},
+      ...optionalString(row, "checkpoint_last_turn_id") ? { lastTurnId: optionalString(row, "checkpoint_last_turn_id") } : {},
+      ...typeof row["checkpoint_observed_at_ms"] === "number" ? { checkpointObservedAtMs: row["checkpoint_observed_at_ms"] } : {},
+      state: requiredString(row, "state"),
+      ...optionalString(row, "observation_json") ? {
+        observation: DynaTaskSyncObservationSchema.parse(
+          parseJson(requiredString(row, "observation_json"))
+        )
+      } : {},
+      ...optionalString(row, "unavailable_reason") ? { unavailableReason: optionalString(row, "unavailable_reason") } : {}
+    }));
+  }
+  #findTaskSyncCheckpoint(taskId) {
+    const row = this.#one(
+      this.#database.prepare("SELECT * FROM task_sync_checkpoints WHERE task_id = ?"),
+      taskId
+    );
+    if (!row) return void 0;
+    return {
+      taskId: requiredString(row, "task_id"),
+      hostId: requiredString(row, "host_id"),
+      version: requiredNumber(row, "version"),
+      ...optionalString(row, "cursor") ? { cursor: optionalString(row, "cursor") } : {},
+      ...optionalString(row, "last_turn_id") ? { lastTurnId: optionalString(row, "last_turn_id") } : {},
+      ...optionalString(row, "status_updated_at") ? { statusUpdatedAt: optionalString(row, "status_updated_at") } : {},
+      ...optionalString(row, "observed_at") ? { observedAt: optionalString(row, "observed_at") } : {},
+      updatedAt: requiredString(row, "updated_at")
+    };
+  }
+  #findTaskSyncReceipt(id) {
+    const row = this.#one(
+      this.#database.prepare("SELECT * FROM task_sync_receipts WHERE id = ?"),
+      id
+    );
+    if (!row) return void 0;
+    return {
+      id: requiredString(row, "id"),
+      runId: requiredString(row, "run_id"),
+      kind: requiredString(row, "kind"),
+      ...optionalString(row, "task_id") ? { taskId: optionalString(row, "task_id") } : {},
+      requestHash: requiredString(row, "request_hash"),
+      ...optionalString(row, "result_json") ? { result: parseJson(requiredString(row, "result_json")) } : {},
+      createdAt: requiredString(row, "created_at")
+    };
+  }
+  #insertTaskSyncRun(run) {
+    const scope = DynaTaskSyncScopeSchema.parse(run.scope);
+    this.#database.prepare(
+      `INSERT INTO task_sync_runs (
+           id, dashboard_id, scope_kind, scope_item_id, scope_task_id, scope_host_id,
+           state, claim_token_hash, lease_expires_at, expires_at, total_tasks,
+           excess_tasks, processed_tasks, updated_items, unavailable_tasks,
+           incomplete_metadata_tasks, created_at, updated_at, completed_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      run.id,
+      run.dashboardId,
+      scope.kind,
+      scope.kind === "task" ? scope.itemId : null,
+      scope.kind === "task" ? scope.taskId : null,
+      scope.kind === "task" ? scope.hostId : null,
+      run.state,
+      run.claimTokenHash ?? null,
+      run.leaseExpiresAt ?? null,
+      run.expiresAt,
+      run.totalTasks,
+      run.excessTasks,
+      run.processedTasks,
+      run.updatedItems,
+      run.unavailableTasks,
+      run.incompleteMetadataTasks,
+      run.createdAt,
+      run.updatedAt,
+      run.completedAt ?? null
+    );
+  }
+  #updateTaskSyncRun(run) {
+    const changed = this.#database.prepare(
+      `UPDATE task_sync_runs SET state = ?, claim_token_hash = ?, lease_expires_at = ?,
+           processed_tasks = ?, updated_items = ?, unavailable_tasks = ?,
+           incomplete_metadata_tasks = ?, updated_at = ?, completed_at = ? WHERE id = ?`
+    ).run(
+      run.state,
+      run.claimTokenHash ?? null,
+      run.leaseExpiresAt ?? null,
+      run.processedTasks,
+      run.updatedItems,
+      run.unavailableTasks,
+      run.incompleteMetadataTasks,
+      run.updatedAt,
+      run.completedAt ?? null,
+      run.id
+    ).changes;
+    if (changed !== 1) throw new Error("The Dyna task synchronization run was not found.");
+  }
+  #insertTaskSyncTargets(runId, targets) {
+    const insert = this.#database.prepare(
+      `INSERT INTO task_sync_targets (
+         run_id, item_id, item_number, item_title, task_id, host_id,
+         checkpoint_version, checkpoint_cursor, checkpoint_last_turn_id,
+         checkpoint_observed_at_ms, state
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`
+    );
+    for (const target of targets) {
+      insert.run(
+        runId,
+        target.itemId,
+        target.itemNumber,
+        target.itemTitle,
+        target.taskId,
+        target.hostId,
+        target.checkpointVersion,
+        target.cursor ?? null,
+        target.lastTurnId ?? null,
+        target.checkpointObservedAtMs ?? null
+      );
+    }
+  }
+  #stageTaskSyncObservation(runId, taskId, observation) {
+    return this.#database.prepare(
+      `UPDATE task_sync_targets SET state = 'staged', observation_json = ?,
+             unavailable_reason = NULL
+           WHERE run_id = ? AND task_id = ? AND state = 'pending'`
+    ).run(JSON.stringify(DynaTaskSyncObservationSchema.parse(observation)), runId, taskId).changes === 1;
+  }
+  #stageTaskSyncUnavailable(runId, taskId, reason) {
+    return this.#database.prepare(
+      `UPDATE task_sync_targets SET state = 'unavailable', observation_json = NULL,
+             unavailable_reason = ?
+           WHERE run_id = ? AND task_id = ? AND state = 'pending'`
+    ).run(reason, runId, taskId).changes === 1;
+  }
+  #markTaskSyncTarget(runId, taskId, state) {
+    const changed = this.#database.prepare(
+      `UPDATE task_sync_targets SET state = ? WHERE run_id = ? AND task_id = ?
+         AND state IN ('staged', 'unavailable')`
+    ).run(state, runId, taskId).changes;
+    if (changed !== 1) throw new Error("The Dyna task synchronization target is not staged.");
+  }
+  #insertTaskSyncReceipt(receipt) {
+    this.#database.prepare(
+      `INSERT INTO task_sync_receipts (
+           id, run_id, kind, task_id, request_hash, result_json, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      receipt.id,
+      receipt.runId,
+      receipt.kind,
+      receipt.taskId ?? null,
+      receipt.requestHash,
+      receipt.result === void 0 ? null : JSON.stringify(receipt.result),
+      receipt.createdAt
+    );
+  }
+  #upsertTaskSyncCheckpoint(checkpoint) {
+    const observed = checkpoint.observedAt ? normalizeTimestamp(checkpoint.observedAt, true) : void 0;
+    this.#database.prepare(
+      `INSERT INTO task_sync_checkpoints (
+           task_id, host_id, version, cursor, last_turn_id, status_updated_at,
+           observed_at, observed_at_ms, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(task_id) DO UPDATE SET
+           host_id = excluded.host_id, version = excluded.version, cursor = excluded.cursor,
+           last_turn_id = excluded.last_turn_id,
+           status_updated_at = excluded.status_updated_at,
+           observed_at = excluded.observed_at, observed_at_ms = excluded.observed_at_ms,
+           updated_at = excluded.updated_at`
+    ).run(
+      checkpoint.taskId,
+      checkpoint.hostId,
+      checkpoint.version,
+      checkpoint.cursor ?? null,
+      checkpoint.lastTurnId ?? null,
+      checkpoint.statusUpdatedAt ?? null,
+      observed?.iso ?? null,
+      observed?.epoch ?? null,
+      checkpoint.updatedAt ?? checkpoint.observedAt ?? this.#now()
+    );
+  }
   upsertTaskStatus(itemId, status) {
     this.#transaction(() => {
       this.#upsertTaskStatus(itemId, status);
     });
   }
-  upsertTaskStatusForDashboard(dashboardId, itemId, status) {
+  upsertTaskStatusForDashboard(dashboardId, itemId, status, attachmentBlocker, excludedReservationRequestId) {
     this.#transaction(() => {
       const parsed = DynaTaskStatusSchema.parse(status);
       this.assertDashboardContainsItem(dashboardId, itemId);
       const existing = this.#one(
-        this.#database.prepare(
-          "SELECT 1 AS present FROM task_bindings WHERE item_id = ? AND task_id = ? AND host_id = ?"
-        ),
-        itemId,
-        parsed.taskId,
-        parsed.hostId
+        this.#database.prepare("SELECT item_id FROM task_bindings WHERE task_id = ?"),
+        parsed.taskId
       );
+      if (existing && requiredString(existing, "item_id") !== itemId) {
+        throw new DynaCliStoreError(
+          "request_conflict",
+          "This Codex task is already linked to another Dyna item."
+        );
+      }
       if (!existing) {
-        const attachmentBlocker = this.#newTaskAttachmentBlocker(dashboardId, itemId);
         if (attachmentBlocker) {
           throw new DynaCliStoreError(attachmentBlocker.code, attachmentBlocker.message);
         }
       }
-      this.#upsertTaskStatus(itemId, parsed);
+      this.#upsertTaskStatus(itemId, parsed, excludedReservationRequestId);
     });
   }
-  #newTaskAttachmentBlocker(dashboardId, itemId) {
-    const archived = this.#one(
-      this.#database.prepare(
-        "SELECT 1 AS present FROM item_archive_events WHERE dashboard_id = ? AND item_id = ? AND restored_at IS NULL"
-      ),
-      dashboardId,
-      itemId
-    );
-    if (archived) {
-      return {
-        code: "archived_item",
-        message: "A new Codex task cannot be attached to an archived Dyna item; restore it or create a follow-up."
-      };
-    }
-    const active = this.#one(
-      this.#database.prepare(
-        `${DYNA_ELIGIBLE_CTE} SELECT workflow_state FROM positioned WHERE id = ?`
-      ),
-      dashboardId,
-      itemId
-    );
-    if (!active) {
-      return {
-        code: "outside_dashboard",
-        message: "A new Codex task cannot be attached because the Dyna item is no longer active."
-      };
-    }
-    if (requiredWorkflowState(active) === "completed") {
-      return {
-        code: "completed_item",
-        message: "A new Codex task cannot be attached to completed Dyna work; create a follow-up."
-      };
-    }
-    return void 0;
-  }
-  #upsertTaskStatus(itemId, status, reservedCreateRequestId) {
+  #upsertTaskStatus(itemId, status, excludedCapacityRequestId, touchDashboards = true) {
     const parsed = DynaTaskStatusSchema.parse(status);
     this.#itemBaseRow(itemId);
     const statusTime = normalizeTimestamp(parsed.statusUpdatedAt, true);
     const observedTime = normalizeTimestamp(parsed.observedAt, true);
     const existing = this.#one(
       this.#database.prepare(
-        "SELECT title, state, outcome, status_updated_ms, observed_ms FROM task_bindings WHERE item_id = ? AND task_id = ? AND host_id = ?"
+        `SELECT item_id, host_id, project_id, title, state, outcome,
+           status_updated_ms, observed_ms
+         FROM task_bindings WHERE task_id = ?`
       ),
-      itemId,
-      parsed.taskId,
-      parsed.hostId
+      parsed.taskId
     );
-    if (!existing && !this.#taskBindingCapacityAvailable(itemId, reservedCreateRequestId)) {
+    if (existing && requiredString(existing, "item_id") !== itemId) {
+      throw new DynaCliStoreError(
+        "request_conflict",
+        "This Codex task is already linked to another Dyna item."
+      );
+    }
+    if (!existing && !this.#taskBindingCapacityAvailable(itemId, excludedCapacityRequestId)) {
       throw new Error("A Dyna item cannot link more than eight Codex tasks.");
     }
     if (existing && requiredString(existing, "state") === "succeeded" && parsed.state !== "succeeded") {
@@ -58534,22 +59758,25 @@ var DynaStore = class {
         "A controller-confirmed Codex success is terminal; continued work requires a follow-up item."
       );
     }
-    if (existing && observedTime.epoch > requiredNumber(existing, "observed_ms") && statusTime.epoch === requiredNumber(existing, "status_updated_ms") && (parsed.state !== requiredString(existing, "state") || parsed.title !== requiredString(existing, "title") || parsed.outcome !== optionalString(existing, "outcome"))) {
+    if (existing && observedTime.epoch > requiredNumber(existing, "observed_ms") && statusTime.epoch === requiredNumber(existing, "status_updated_ms") && (parsed.state !== requiredString(existing, "state") || parsed.outcome !== optionalString(existing, "outcome"))) {
       throw new Error("Dyna rejected conflicting Codex task data at the same status timestamp.");
     }
+    const semanticallyChanged = !existing || requiredString(existing, "host_id") !== parsed.hostId || optionalString(existing, "project_id") !== parsed.projectId || requiredString(existing, "title") !== parsed.title || requiredString(existing, "state") !== parsed.state || requiredNumber(existing, "status_updated_ms") !== statusTime.epoch || optionalString(existing, "outcome") !== parsed.outcome;
     const changed = this.#database.prepare(
       `
         INSERT INTO task_bindings (
           item_id, task_id, host_id, project_id, title, state,
           status_updated_at, status_updated_ms, observed_at, observed_ms, outcome
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(item_id, task_id, host_id) DO UPDATE SET
-          project_id = excluded.project_id, title = excluded.title, state = excluded.state,
+        ON CONFLICT(task_id) DO UPDATE SET
+          host_id = excluded.host_id, project_id = excluded.project_id,
+          title = excluded.title, state = excluded.state,
           status_updated_at = excluded.status_updated_at,
           status_updated_ms = excluded.status_updated_ms,
           observed_at = excluded.observed_at, observed_ms = excluded.observed_ms,
           outcome = excluded.outcome
-        WHERE excluded.observed_ms > task_bindings.observed_ms
+        WHERE task_bindings.item_id = excluded.item_id
+          AND excluded.observed_ms > task_bindings.observed_ms
           AND excluded.status_updated_ms >= task_bindings.status_updated_ms
       `
     ).run(
@@ -58565,7 +59792,8 @@ var DynaStore = class {
       observedTime.epoch,
       parsed.outcome ?? null
     ).changes;
-    if (changed === 1) this.#touchDashboardsForItem(itemId);
+    if (changed === 1 && touchDashboards) this.#touchDashboardsForItem(itemId);
+    return changed === 1 && semanticallyChanged;
   }
   #task(itemId, taskId, hostId) {
     const row = this.#one(
@@ -58580,7 +59808,18 @@ var DynaStore = class {
     return this.#taskFromRow(row);
   }
   #itemBaseRow(itemId) {
-    const row = this.#one(this.#database.prepare("SELECT * FROM items WHERE id = ?"), itemId);
+    const row = this.#one(
+      this.#database.prepare(
+        `SELECT item.*, item_number.number AS item_number,
+           follow_up.source_item_id AS follow_up_reference_item_id,
+           follow_up.source_item_number AS follow_up_of_item_number
+         FROM items item
+         JOIN item_numbers item_number ON item_number.item_id = item.id
+         LEFT JOIN item_follow_ups follow_up ON follow_up.item_id = item.id
+         WHERE item.id = ?`
+      ),
+      itemId
+    );
     if (!row) throw new Error("Dyna item was not found.");
     return row;
   }
@@ -58612,9 +59851,19 @@ var DynaStore = class {
   }
   #mergeItem(row, enrichment) {
     const itemId = requiredString(row, "id");
+    const itemNumber = requiredItemNumber(row, "item_number");
+    const followUpOfItemId = followUpReferenceItemId(row);
+    const followUpOfItemNumber = typeof row["follow_up_of_item_number"] === "number" ? requiredItemNumber(row, "follow_up_of_item_number") : void 0;
     const base = this.#baseItem(row);
     if (!enrichment) {
-      return { ...base, id: itemId, fingerprint: requiredString(row, "fingerprint") };
+      return {
+        ...base,
+        id: itemId,
+        itemNumber,
+        fingerprint: requiredString(row, "fingerprint"),
+        ...followUpOfItemId ? { followUpOfItemId } : {},
+        ...followUpOfItemNumber ? { followUpOfItemNumber } : {}
+      };
     }
     const enrichmentActive = requiredString(enrichment, "base_fingerprint") === requiredString(row, "fingerprint");
     const dueAtSet = enrichmentActive && requiredNumber(enrichment, "due_at_set") === 1;
@@ -58633,7 +59882,10 @@ var DynaStore = class {
     return {
       ...merged,
       id: itemId,
+      itemNumber,
       fingerprint: requiredString(row, "fingerprint"),
+      ...followUpOfItemId ? { followUpOfItemId } : {},
+      ...followUpOfItemNumber ? { followUpOfItemNumber } : {},
       enrichment: {
         state: enrichmentActive ? "active" : "stale",
         appliedAt: requiredString(enrichment, "applied_at"),
@@ -58642,26 +59894,6 @@ var DynaStore = class {
         version: requiredNumber(enrichment, "version")
       }
     };
-  }
-  #itemFromSnapshotRow(row) {
-    const enrichment = optionalString(row, "enrichment_base_fingerprint") ? {
-      summary: row["enrichment_summary"],
-      priority: row["enrichment_priority"],
-      priority_reason: row["enrichment_priority_reason"],
-      due_at: row["enrichment_due_at"],
-      due_at_set: row["enrichment_due_at_set"],
-      labels: row["enrichment_labels"],
-      people: row["enrichment_people"],
-      attention: row["enrichment_attention"],
-      plan: row["enrichment_plan"],
-      next_steps: row["enrichment_next_steps"],
-      base_fingerprint: row["enrichment_base_fingerprint"],
-      base_source_updated_at: row["enrichment_base_source_updated_at"],
-      applied_at: row["enrichment_applied_at"],
-      provenance: row["enrichment_provenance"],
-      version: row["enrichment_version"]
-    } : void 0;
-    return this.#mergeItem(row, enrichment);
   }
   #annotations(itemId) {
     return this.#database.prepare("SELECT * FROM annotations WHERE item_id = ? ORDER BY created_at DESC LIMIT 20").all(itemId).map(
@@ -58721,161 +59953,12 @@ var DynaStore = class {
     const item = this.#item(itemId);
     return DynaActionItemContextSchema.parse({
       id: itemId,
+      itemNumber: item.itemNumber,
       title: item.title,
       sourceRef: item.sourceRef,
       sourceUpdatedAt: item.sourceUpdatedAt,
       annotations: this.#annotations(itemId),
       trustBoundary: "untrusted_reference_data"
-    });
-  }
-  #cardsFromSnapshotRows(rows, searchTerms = []) {
-    if (rows.length === 0) return [];
-    const ids = rows.map((row) => requiredString(row, "id"));
-    const placeholders = ids.map(() => "?").join(", ");
-    const annotationRows = this.#database.prepare(
-      `SELECT * FROM (
-           SELECT *, ROW_NUMBER() OVER (
-             PARTITION BY item_id ORDER BY created_at DESC, id
-           ) AS item_rank
-           FROM annotations WHERE item_id IN (${placeholders})
-         ) WHERE item_rank <= 20 ORDER BY item_id, created_at DESC`
-    ).all(...ids);
-    const taskRows = this.#database.prepare(
-      `SELECT * FROM (
-           SELECT *, ROW_NUMBER() OVER (
-             PARTITION BY item_id ORDER BY observed_ms DESC, task_id, host_id
-           ) AS item_rank
-           FROM task_bindings WHERE item_id IN (${placeholders})
-         ) WHERE item_rank <= 8 ORDER BY item_id, observed_ms DESC`
-    ).all(...ids);
-    const workUpdateRows = this.#database.prepare(
-      `SELECT * FROM (
-           SELECT work_update.*, work_update.rowid AS insertion_seq, ROW_NUMBER() OVER (
-             PARTITION BY item_id ORDER BY created_at_ms DESC, work_update.rowid DESC
-           ) AS item_rank
-           FROM work_updates work_update WHERE item_id IN (${placeholders})
-         ) WHERE item_rank <= ? ORDER BY item_id, created_at_ms DESC, insertion_seq DESC`
-    ).all(...ids, MAX_WORK_UPDATES_PER_CARD);
-    const workUpdateCountRows = this.#database.prepare(
-      `SELECT item_id, COUNT(*) AS total FROM work_updates
-         WHERE item_id IN (${placeholders}) GROUP BY item_id`
-    ).all(...ids);
-    const activitySearchExpression = activitySearchSql("work_update");
-    const activityTermMatches = searchTerms.map(() => `instr(${activitySearchExpression}, ?) > 0`);
-    const activityCoverage = activityTermMatches.map((match) => `CASE WHEN ${match} THEN 1 ELSE 0 END`).join(" + ");
-    const matchingActivityRows = searchTerms.length === 0 ? [] : this.#database.prepare(
-      `SELECT * FROM (
-                 SELECT work_update.*, ROW_NUMBER() OVER (
-                   PARTITION BY item_id ORDER BY (${activityCoverage}) DESC,
-                     created_at_ms DESC, rowid DESC
-                 ) AS item_rank
-                 FROM work_updates work_update
-                 WHERE item_id IN (${placeholders}) AND (
-                   ${activityTermMatches.join(" OR ")}
-                 )
-               ) WHERE item_rank = 1`
-    ).all(...searchTerms, ...ids, ...searchTerms);
-    const annotations = /* @__PURE__ */ new Map();
-    for (const annotation of annotationRows) {
-      const itemId = requiredString(annotation, "item_id");
-      const values = annotations.get(itemId) ?? [];
-      values.push(
-        DynaAnnotationSchema.parse({
-          id: requiredString(annotation, "id"),
-          itemId,
-          body: requiredString(annotation, "body"),
-          createdAt: requiredString(annotation, "created_at")
-        })
-      );
-      annotations.set(itemId, values);
-    }
-    const tasks = /* @__PURE__ */ new Map();
-    for (const task of taskRows) {
-      const itemId = requiredString(task, "item_id");
-      const values = tasks.get(itemId) ?? [];
-      values.push(this.#taskFromRow(task));
-      tasks.set(itemId, values);
-    }
-    const workUpdates = /* @__PURE__ */ new Map();
-    for (const update of workUpdateRows) {
-      const itemId = requiredString(update, "item_id");
-      const values = workUpdates.get(itemId) ?? [];
-      values.push(this.#workUpdateFromRow(update));
-      workUpdates.set(itemId, values);
-    }
-    const workUpdateCounts = /* @__PURE__ */ new Map();
-    for (const count of workUpdateCountRows) {
-      workUpdateCounts.set(requiredString(count, "item_id"), requiredNumber(count, "total"));
-    }
-    const matchedActivities = /* @__PURE__ */ new Map();
-    for (const activity of matchingActivityRows) {
-      const summary = matchedActivitySummary(this.#workUpdateFromRow(activity), searchTerms);
-      if (summary) matchedActivities.set(requiredString(activity, "item_id"), summary);
-    }
-    return rows.map((row) => {
-      const id = requiredString(row, "id");
-      const item = this.#itemFromSnapshotRow(row);
-      const sourcePriority = DynaPrioritySchema.parse(requiredString(row, "priority"));
-      const leadershipScore = dynaLeadershipScore(item.people);
-      const linkedTasks = tasks.get(id) ?? [];
-      const workflowState = requiredWorkflowState(row);
-      const completedTask = workflowState === "completed" ? linkedTasks.find((task) => task.state === "succeeded") : void 0;
-      const completedAt = workflowState === "completed" ? linkedTasks.reduce(
-        (latest, task) => task.state === "succeeded" && (!latest || task.statusUpdatedAt > latest) ? task.statusUpdatedAt : latest,
-        void 0
-      ) ?? optionalString(row, "user_workflow_created_at") : void 0;
-      const completionOutcome = workflowState === "completed" ? completedTask?.outcome ?? optionalString(row, "user_workflow_outcome") : void 0;
-      const leadershipPriority = effectiveDynaPriority(item.priority, item.people);
-      const storedPriority = optionalString(row, "preference_priority");
-      const manualPriority = storedPriority ? DynaPrioritySchema.parse(storedPriority) : void 0;
-      const sequenceValue = row["preference_sequence"];
-      const workConditionTaskId = optionalString(row, "work_condition_task_id");
-      const workConditionHostId = optionalString(row, "work_condition_host_id");
-      const matchedActivity = matchedActivities.get(id);
-      return {
-        id,
-        fingerprint: item.fingerprint,
-        source: item.sourceRef.source,
-        sourceRef: item.sourceRef,
-        sourceLabel: dynaSourceLabel(item.sourceRef),
-        title: item.title,
-        summary: item.summary,
-        sourcePriority,
-        priority: manualPriority ?? leadershipPriority,
-        priorityReason: item.priorityReason,
-        sourceUpdatedAt: item.sourceUpdatedAt,
-        ...item.dueAt ? { dueAt: item.dueAt } : {},
-        labels: item.labels,
-        people: item.people,
-        leadershipScore,
-        priorityMode: manualPriority ? "manual" : leadershipPriority !== item.priority ? "leadership" : item.priority !== sourcePriority ? "enrichment" : "source",
-        ...typeof sequenceValue === "number" ? { sequence: sequenceValue } : {},
-        canMoveEarlier: requiredNumber(row, "priority_position") > 1,
-        canMoveLater: requiredNumber(row, "priority_position") < requiredNumber(row, "priority_count"),
-        workflowState,
-        ...completedAt ? { completedAt } : {},
-        ...completionOutcome ? { outcome: completionOutcome } : {},
-        ...optionalString(row, "follow_up_of_item_id") ? { followUpOfItemId: optionalString(row, "follow_up_of_item_id") } : {},
-        ...item.attention ? { attention: item.attention } : {},
-        plan: item.plan,
-        nextSteps: item.nextSteps,
-        ...item.enrichment ? { enrichmentState: item.enrichment.state } : {},
-        annotations: annotations.get(id) ?? [],
-        workUpdates: workUpdates.get(id) ?? [],
-        workUpdateCount: workUpdateCounts.get(id) ?? 0,
-        ...workflowState !== "completed" && optionalString(row, "work_state") ? { workState: optionalString(row, "work_state") } : {},
-        ...workflowState !== "completed" && optionalString(row, "work_condition_summary") ? { workConditionSummary: optionalString(row, "work_condition_summary") } : {},
-        ...workflowState !== "completed" && workConditionTaskId && workConditionHostId ? {
-          workConditionTask: {
-            taskId: workConditionTaskId,
-            hostId: workConditionHostId
-          }
-        } : {},
-        ...matchedActivity ? { matchedActivity: matchedActivity.slice(0, 500) } : {},
-        blocked: workflowState !== "completed" && requiredNumber(row, "work_blocked") === 1,
-        linkedTasks,
-        ...optionalString(row, "archive_id") ? { archive: this.#archiveStateFromRow(row, "archive_") } : {}
-      };
     });
   }
   #workUpdateFromRow(row) {
@@ -58949,114 +60032,2843 @@ var DynaStore = class {
   }
 };
 
+// packages/dyna-node/src/projector.ts
+var EXECUTION_KINDS = /* @__PURE__ */ new Set([
+  "progress",
+  "needs_input",
+  "blocked",
+  "completion_reported",
+  "handoff"
+]);
+function latestEligibleUpdate(task, updates) {
+  if (task.state === "succeeded") return void 0;
+  return updates.filter(
+    (update) => update.taskId === task.taskId && update.hostId === task.hostId && EXECUTION_KINDS.has(update.kind) && task.observedAtMs <= update.createdAtMs
+  ).sort(
+    (left, right) => right.createdAtMs - left.createdAtMs || right.insertionSequence - left.insertionSequence
+  )[0];
+}
+function effectiveTask(task, updates) {
+  const update = latestEligibleUpdate(task, updates);
+  const nativeAttentionState = task.state === "waiting" || task.state === "failed" || task.state === "unknown";
+  const effectiveState = task.state === "succeeded" ? "succeeded" : nativeAttentionState ? task.state : update?.kind === "needs_input" ? "waiting" : update ? "running" : task.state;
+  return {
+    ...task,
+    effectiveState,
+    blocked: update?.kind === "blocked" || task.state === "failed" || task.state === "unknown",
+    ...update ? { update } : {}
+  };
+}
+function projectedPriority(input) {
+  const enrichment = input.enrichment;
+  let basePriority = input.sourcePriority;
+  let leadershipScore = input.sourceLeadershipScore;
+  if (enrichment?.baseFingerprint === input.fingerprint) {
+    basePriority = enrichment.priority ?? input.sourcePriority;
+    leadershipScore = enrichment.leadershipScore;
+  }
+  if (input.preferencePriority) {
+    return { priority: input.preferencePriority, leadershipScore };
+  }
+  if (leadershipScore >= 75 && basePriority === "normal") {
+    return { priority: "high", leadershipScore };
+  }
+  if (leadershipScore >= 55 && basePriority === "low") {
+    return { priority: "normal", leadershipScore };
+  }
+  return { priority: basePriority, leadershipScore };
+}
+function projectedWorkflow(tasks, userWorkflowStage) {
+  if (tasks.some((task) => task.effectiveState === "failed" || task.effectiveState === "unknown")) {
+    return "attention";
+  }
+  if (tasks.some((task) => task.effectiveState === "waiting")) return "paused";
+  if (tasks.some((task) => task.effectiveState === "queued" || task.effectiveState === "running")) {
+    return "executing";
+  }
+  if (tasks.length > 0 && tasks.every((task) => task.effectiveState === "succeeded")) {
+    return "completed";
+  }
+  if (tasks.length > 0) return "attention";
+  if (userWorkflowStage === "needs_you") return "attention";
+  if (userWorkflowStage === "done") return "completed";
+  return "todo";
+}
+function conditionRank(kind) {
+  if (kind === "needs_input") return 0;
+  if (kind === "blocked") return 1;
+  return 2;
+}
+function projectDynaItemState(input) {
+  const tasks = input.tasks.map((task) => effectiveTask(task, input.workUpdates));
+  const condition = tasks.flatMap((task) => task.update ? [task.update] : []).sort(
+    (left, right) => conditionRank(left.kind) - conditionRank(right.kind) || right.createdAtMs - left.createdAtMs || right.insertionSequence - left.insertionSequence
+  )[0];
+  const priority = projectedPriority(input);
+  const hasCondition = condition?.kind === "needs_input" || condition?.kind === "blocked";
+  const workflowState = projectedWorkflow(
+    tasks,
+    input.userWorkflow?.stage ?? input.userWorkflowStage
+  );
+  const latestSucceeded = [...input.tasks].filter((task) => task.state === "succeeded").sort(
+    (left, right) => (right.statusUpdatedAtMs ?? Number.NEGATIVE_INFINITY) - (left.statusUpdatedAtMs ?? Number.NEGATIVE_INFINITY) || left.taskId.localeCompare(right.taskId) || left.hostId.localeCompare(right.hostId)
+  )[0];
+  const completedAtMs = workflowState === "completed" ? latestSucceeded?.statusUpdatedAtMs ?? input.userWorkflow?.createdAtMs : void 0;
+  const completedAt = workflowState === "completed" ? latestSucceeded?.statusUpdatedAt ?? input.userWorkflow?.createdAt : void 0;
+  const outcome = workflowState === "completed" ? latestSucceeded?.outcome ?? input.userWorkflow?.outcome : void 0;
+  return {
+    effectivePriority: priority.priority,
+    effectiveLeadershipScore: priority.leadershipScore,
+    workflowState,
+    blocked: tasks.some((task) => task.blocked),
+    ...condition ? { workState: condition.kind } : {},
+    ...hasCondition ? {
+      workConditionSummary: condition.body.slice(0, 200),
+      workConditionTask: { taskId: condition.taskId, hostId: condition.hostId }
+    } : {},
+    ...completedAt ? { completedAt } : {},
+    ...completedAtMs !== void 0 ? { completedAtMs } : {},
+    ...outcome ? { outcome } : {}
+  };
+}
+
 // packages/dyna-node/src/service.ts
-var DynaService = class {
-  store;
+var DYNA_APPLICATION_CAPABILITIES = [
+  "dashboard:read",
+  "dashboard:manage",
+  "item:read",
+  "item:write",
+  "publisher:publish",
+  "publisher:manage",
+  "view:interact",
+  "action:execute",
+  "task:observe",
+  "maintenance:backup"
+];
+var DynaApplicationCapabilityError = class extends Error {
+  code = "capability_denied";
+  actorKind;
+  capability;
+  constructor(actorKind, capability) {
+    super(`The ${actorKind} Dyna actor lacks the ${capability} capability.`);
+    this.name = "DynaApplicationCapabilityError";
+    this.actorKind = actorKind;
+    this.capability = capability;
+  }
+};
+var DynaCliError = class extends DynaCliStoreError {
+  constructor(code, message) {
+    super(code, message);
+    this.name = "DynaCliError";
+  }
+};
+var TASK_ATTRIBUTED_WORK_KINDS = /* @__PURE__ */ new Set([
+  "progress",
+  "needs_input",
+  "blocked",
+  "completion_reported",
+  "handoff"
+]);
+var PRIORITIES = ["critical", "high", "normal", "low"];
+var MAX_DASHBOARDS2 = 100;
+var MAX_PUBLISHERS2 = 100;
+var MAX_SNAPSHOT_CARDS = 200;
+var MAX_CODEX_TASK_TITLE_CODE_POINTS = 200;
+var TASK_ASSOCIATION_RESERVATION_MS = 5 * 60 * 1e3;
+var MAX_TASK_BINDINGS_PER_ITEM2 = 8;
+var MAX_TASK_SYNC_TARGETS2 = 200;
+var TASK_SYNC_CLAIM_LEASE_MS = 5 * 60 * 1e3;
+var TASK_SYNC_RUN_TTL_MS = 15 * 60 * 1e3;
+var TASK_SYNC_DELIVERY_RESERVATION_MS = 15 * 1e3;
+var BIDI_CONTROL_PATTERN = /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/gu;
+var LEADING_DYNA_ITEM_NUMBER_TOKENS_PATTERN = /^(?::\d+:\s*)+/u;
+var HOUR_MS = 60 * 60 * 1e3;
+var LegacyDynaFollowUpCreateResultSchema = external_exports.object({
+  schema: external_exports.literal("dyna/follow-up-create-result-v1"),
+  requestId: external_exports.uuid(),
+  itemId: external_exports.uuid(),
+  sourceItemId: external_exports.uuid(),
+  fingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
+  deduplicated: external_exports.boolean()
+}).strict();
+function canonicalDynaTaskTitle(itemNumber, title) {
+  const prefix = formatDynaItemNumber(DynaItemNumberSchema.parse(itemNumber));
+  const unprefixed = title.replace(BIDI_CONTROL_PATTERN, "").replace(/\s+/gu, " ").trim().replace(LEADING_DYNA_ITEM_NUMBER_TOKENS_PATTERN, "").trim();
+  const body = unprefixed || "Codex task";
+  const titlePrefix = `${prefix} `;
+  const remaining = MAX_CODEX_TASK_TITLE_CODE_POINTS - Array.from(titlePrefix).length;
+  const boundedBody = Array.from(body).slice(0, remaining).join("").trimEnd();
+  return `${titlePrefix}${boundedBody || "Codex task"}`;
+}
+function isCanonicalDynaTaskTitle(itemNumber, title) {
+  return title === canonicalDynaTaskTitle(itemNumber, title);
+}
+function exactItemNumberQuery(query) {
+  const match = /^:?([1-9]\d*):?$/u.exec(query.trim());
+  if (!match?.[1]) return void 0;
+  const parsed = DynaItemNumberSchema.safeParse(Number(match[1]));
+  return parsed.success ? parsed.data : void 0;
+}
+function taskTitleSyncNeeded(itemNumber, tasks) {
+  return tasks.some((task) => !isCanonicalDynaTaskTitle(itemNumber, task.title));
+}
+function snapshotSearchTerms(query) {
+  return [...new Set(query.toLocaleLowerCase().split(/\s+/u).filter(Boolean))].slice(0, 12);
+}
+function materializeProjectionItem(fact) {
+  const enrichment = fact.enrichment?.baseFingerprint === fact.fingerprint ? fact.enrichment : void 0;
+  const { dueAt: sourceDueAt, ...base } = fact.base;
+  const dueAt = enrichment?.dueAtSet ? enrichment.dueAt : sourceDueAt;
+  return DynaMaterializedItemSchema.parse({
+    ...base,
+    ...dueAt ? { dueAt } : {},
+    ...enrichment?.summary ? { summary: enrichment.summary } : {},
+    ...enrichment?.priority ? { priority: enrichment.priority } : {},
+    ...enrichment?.priorityReason ? { priorityReason: enrichment.priorityReason } : {},
+    ...enrichment?.labels ? { labels: enrichment.labels } : {},
+    ...enrichment?.people ? { people: enrichment.people } : {},
+    ...enrichment?.attention ? { attention: enrichment.attention } : {},
+    ...enrichment?.plan ? { plan: enrichment.plan } : {},
+    ...enrichment?.nextSteps ? { nextSteps: enrichment.nextSteps } : {}
+  });
+}
+function projectRepositoryItems(facts) {
+  const projected = facts.map((fact) => {
+    const item = materializeProjectionItem(fact);
+    const projection = projectDynaItemState({
+      fingerprint: fact.fingerprint,
+      sourcePriority: fact.base.priority,
+      sourceLeadershipScore: fact.sourceLeadershipScore,
+      ...fact.enrichment ? {
+        enrichment: {
+          baseFingerprint: fact.enrichment.baseFingerprint,
+          ...fact.enrichment.priority ? { priority: fact.enrichment.priority } : {},
+          leadershipScore: fact.enrichment.leadershipScore
+        }
+      } : {},
+      ...fact.preferencePriority ? { preferencePriority: fact.preferencePriority } : {},
+      ...fact.userWorkflow ? { userWorkflow: fact.userWorkflow } : {},
+      tasks: fact.tasks,
+      workUpdates: fact.workUpdates
+    });
+    return { fact, item, projection };
+  });
+  const positions = /* @__PURE__ */ new Map();
+  for (const priority of PRIORITIES) {
+    for (const completed of [false, true]) {
+      const group = projected.filter(
+        ({ projection }) => projection.effectivePriority === priority && projection.workflowState === "completed" === completed
+      ).sort(
+        (left, right) => (left.fact.preferenceSequence ?? Number.MAX_SAFE_INTEGER) - (right.fact.preferenceSequence ?? Number.MAX_SAFE_INTEGER) || right.projection.effectiveLeadershipScore - left.projection.effectiveLeadershipScore || (left.item.dueAt ?? "9999").localeCompare(right.item.dueAt ?? "9999") || right.fact.sourceUpdatedAtMs - left.fact.sourceUpdatedAtMs || left.fact.id.localeCompare(right.fact.id)
+      );
+      group.forEach(({ fact }, index) => {
+        positions.set(fact.id, { position: index + 1, count: group.length });
+      });
+    }
+  }
+  return projected.map((value) => {
+    const position = positions.get(value.fact.id);
+    if (!position) throw new Error("Dyna could not position a projected item.");
+    return {
+      ...value,
+      priorityPosition: position.position,
+      priorityCount: position.count
+    };
+  });
+}
+function sortProjectedItems(items) {
+  return [...items].sort(
+    (left, right) => PRIORITIES.indexOf(left.projection.effectivePriority) - PRIORITIES.indexOf(right.projection.effectivePriority) || left.priorityPosition - right.priorityPosition || Number(left.projection.workflowState === "completed") - Number(right.projection.workflowState === "completed") || left.fact.id.localeCompare(right.fact.id)
+  );
+}
+function sha2562(value) {
+  return (0, import_node_crypto6.createHash)("sha256").update(value, "utf8").digest("hex");
+}
+function secureDigestMatches(left, right) {
+  if (left?.length !== right.length) return false;
+  return (0, import_node_crypto6.timingSafeEqual)(Buffer.from(left, "hex"), Buffer.from(right, "hex"));
+}
+function canonicalJson2(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((entry) => canonicalJson2(entry)).join(",")}]`;
+  const record2 = value;
+  return `{${Object.keys(record2).filter((key) => record2[key] !== void 0).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson2(record2[key])}`).join(",")}}`;
+}
+function taskSyncObservationReceiptIdentity(observation) {
+  const eventAnchor = observation.nextCursor ? { kind: "cursor", value: observation.nextCursor } : observation.lastTurnId ? {
+    kind: "turn-status",
+    turnId: observation.lastTurnId,
+    state: observation.task.state,
+    statusUpdatedAt: observation.task.statusUpdatedAt
+  } : {
+    kind: "status",
+    state: observation.task.state,
+    statusUpdatedAt: observation.task.statusUpdatedAt
+  };
+  return sha2562(canonicalJson2({ taskId: observation.taskId, eventAnchor }));
+}
+function taskSyncObservationPayloadHash(observation) {
+  return sha2562(canonicalJson2(observation));
+}
+function scopedUuid2(scope) {
+  const digest = sha2562(JSON.stringify(["dyna/scoped-uuid-v1", ...scope]));
+  const variant = (Number.parseInt(digest[16] ?? "0", 16) & 3 | 8).toString(16);
+  return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(13, 16)}-${variant}${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
+}
+function unwrapPersistenceOutcome(outcome) {
+  if (!outcome.ok) throw outcome.error;
+  return outcome.value;
+}
+var DEFAULT_APPLICATION_ACTOR = Object.freeze({
+  kind: "trusted_local",
+  capabilities: Object.freeze([...DYNA_APPLICATION_CAPABILITIES])
+});
+var APPLICATION_CAPABILITY_SET = new Set(DYNA_APPLICATION_CAPABILITIES);
+var APPLICATION_ACTOR_KIND_SET = /* @__PURE__ */ new Set([
+  "trusted_local",
+  "mcp_host",
+  "codex_task",
+  "publisher",
+  "controller"
+]);
+var APPLICATION_ACTOR_CAPABILITIES = {
+  trusted_local: new Set(DYNA_APPLICATION_CAPABILITIES),
+  mcp_host: new Set(
+    DYNA_APPLICATION_CAPABILITIES.filter((capability) => capability !== "maintenance:backup")
+  ),
+  codex_task: /* @__PURE__ */ new Set(["dashboard:read", "item:read", "item:write"]),
+  publisher: /* @__PURE__ */ new Set(["publisher:publish"]),
+  controller: /* @__PURE__ */ new Set(["task:observe"])
+};
+var DynaApplicationService = class {
+  #repository;
+  #actorKind;
+  #capabilities;
+  #clock;
   constructor(options = {}) {
-    this.store = new DynaStore(options);
+    const actor = options.actor ?? DEFAULT_APPLICATION_ACTOR;
+    if (!APPLICATION_ACTOR_KIND_SET.has(actor.kind)) {
+      throw new TypeError("Dyna application actor kind is not supported.");
+    }
+    if (actor.capabilities.length > DYNA_APPLICATION_CAPABILITIES.length || new Set(actor.capabilities).size !== actor.capabilities.length || actor.capabilities.some((capability) => !APPLICATION_CAPABILITY_SET.has(capability)) || actor.capabilities.some(
+      (capability) => !APPLICATION_ACTOR_CAPABILITIES[actor.kind].has(capability)
+    )) {
+      throw new TypeError("Dyna application actor capabilities are invalid.");
+    }
+    this.#actorKind = actor.kind;
+    this.#capabilities = new Set(actor.capabilities);
+    this.#clock = options.clock ?? (() => /* @__PURE__ */ new Date());
+    this.#repository = new SqliteDynaRepository({
+      ...options.databasePath !== void 0 ? { databasePath: options.databasePath } : {},
+      clock: this.#clock
+    });
+  }
+  #requireCapability(capability) {
+    if (!this.#capabilities.has(capability)) {
+      throw new DynaApplicationCapabilityError(this.#actorKind, capability);
+    }
+  }
+  #now() {
+    return this.#clock().toISOString();
+  }
+  #taskSyncSummary(run) {
+    const active = /* @__PURE__ */ new Set(["prepared", "delivered", "claimed", "syncing"]);
+    const state = active.has(run.state) ? "syncing" : run.state === "completed" ? run.updatedItems > 0 ? "updated" : "current" : run.state;
+    return DynaTaskSyncSummarySchema.parse({
+      runId: run.id,
+      dashboardId: run.dashboardId,
+      state,
+      processedTasks: run.processedTasks,
+      totalTasks: run.totalTasks,
+      updatedItems: run.updatedItems,
+      unavailableTasks: run.unavailableTasks,
+      incompleteMetadataTasks: run.incompleteMetadataTasks,
+      remainingTasks: Math.max(0, run.totalTasks - run.processedTasks) + run.excessTasks,
+      startedAt: run.createdAt,
+      ...run.completedAt ? { completedAt: run.completedAt } : {},
+      updatedAt: run.updatedAt
+    });
+  }
+  #expireTaskSyncRuns(unitOfWork, dashboardId) {
+    const instant = this.#now();
+    const runs = unitOfWork.listTaskSyncRuns(dashboardId, 50);
+    for (const run of runs) {
+      if (["prepared", "delivered", "claimed", "syncing"].includes(run.state) && run.expiresAt <= instant) {
+        unitOfWork.updateTaskSyncRun({
+          ...run,
+          state: "expired",
+          claimTokenHash: void 0,
+          leaseExpiresAt: void 0,
+          updatedAt: instant,
+          completedAt: instant
+        });
+      }
+    }
+    return unitOfWork.listTaskSyncRuns(dashboardId, 50);
+  }
+  #taskSyncRun(unitOfWork, runId) {
+    const run = unitOfWork.findTaskSyncRun(runId);
+    if (!run)
+      throw new DynaCliError("not_found", "The Dyna task synchronization run was not found.");
+    return run;
+  }
+  #assertTaskSyncClaim(run, claimToken) {
+    const digest = sha2562(claimToken);
+    if (!secureDigestMatches(run.claimTokenHash, digest)) {
+      throw new DynaCliError("request_conflict", "The Dyna task synchronization claim is invalid.");
+    }
+    const instant = this.#now();
+    if (!run.leaseExpiresAt || run.leaseExpiresAt <= instant || run.expiresAt <= instant) {
+      throw new DynaCliError("request_conflict", "The Dyna task synchronization claim expired.");
+    }
+  }
+  #dashboard(unitOfWork, dashboardId) {
+    if (!unitOfWork.findDashboardState(dashboardId)) {
+      throw new DynaCliError("not_found", "Dyna dashboard was not found.");
+    }
+    return unitOfWork.getDashboard(dashboardId);
+  }
+  #assertItemMembership(unitOfWork, dashboardId, itemId) {
+    this.#dashboard(unitOfWork, dashboardId);
+    if (!unitOfWork.findItemBase(itemId)) {
+      throw new DynaCliError("not_found", "Dyna item was not found.");
+    }
+    if (!unitOfWork.dashboardContainsItem(dashboardId, itemId)) {
+      throw new DynaCliError(
+        "outside_dashboard",
+        "The Dyna item is outside the requested dashboard."
+      );
+    }
+  }
+  #assertExpectedRevision(unitOfWork, dashboardId, expectedRevision, message) {
+    const dashboard = unitOfWork.findDashboardState(dashboardId);
+    if (dashboard?.revision !== expectedRevision) {
+      throw new DynaCliError("stale_dashboard", message);
+    }
+  }
+  #assertExpectedFingerprint(unitOfWork, itemId, expectedFingerprint, message) {
+    const item = unitOfWork.findItemBase(itemId);
+    if (!item) throw new DynaCliError("not_found", "Dyna item was not found.");
+    if (item.fingerprint !== expectedFingerprint) {
+      throw new DynaCliError("stale_item", message);
+    }
+  }
+  #assertPublisher(unitOfWork, publisherId) {
+    if (!unitOfWork.listPublishers().some((publisher) => publisher.id === publisherId)) {
+      throw new DynaCliError("not_found", "Dyna publisher was not found.");
+    }
+  }
+  #assertCanonicalTaskObservation(unitOfWork, itemId, status) {
+    const item = unitOfWork.findItemBase(itemId);
+    if (!item) throw new DynaCliError("not_found", "Dyna item was not found.");
+    const owner = unitOfWork.findTaskOwner(status.taskId);
+    if (owner && owner.itemId !== itemId) {
+      throw new DynaCliError(
+        "request_conflict",
+        "This Codex task is already associated with another Dyna item."
+      );
+    }
+    if (!isCanonicalDynaTaskTitle(item.itemNumber, status.title)) {
+      throw new DynaCliError(
+        "invalid_input",
+        `The controller-observed Codex task title must begin with ${formatDynaItemNumber(item.itemNumber)} exactly once.`
+      );
+    }
+  }
+  #reserveTaskAssociation(unitOfWork, dashboardId, itemId, taskId, requestId, actionRequestId) {
+    const owner = unitOfWork.findTaskOwner(taskId);
+    if (owner?.itemId === itemId) {
+      return { association: "same_item", hostId: owner.hostId };
+    }
+    if (owner || this.#taskAttachmentBlocker(unitOfWork, dashboardId, itemId)) {
+      return { association: "not_attachable" };
+    }
+    const instant = this.#now();
+    unitOfWork.expireTaskAssociationReservations(instant);
+    const existingRequest = unitOfWork.findTaskAssociationReservation(requestId);
+    if (existingRequest) {
+      if (existingRequest.itemId !== itemId || existingRequest.taskId !== taskId || existingRequest.actionRequestId !== actionRequestId) {
+        throw new DynaCliError(
+          "request_conflict",
+          "This task-association reservation ID was reused for different work."
+        );
+      }
+      if (existingRequest.state === "reserved" && (!existingRequest.expiresAt || existingRequest.expiresAt > instant)) {
+        return {
+          association: "reserved",
+          reservationId: requestId,
+          ...existingRequest.expiresAt ? { expiresAt: existingRequest.expiresAt } : {}
+        };
+      }
+      throw new DynaCliError(
+        "request_conflict",
+        "This task-association reservation is no longer usable; inspect the task again and reserve it with a new request ID."
+      );
+    }
+    const active = unitOfWork.findActiveTaskAssociationReservation(taskId);
+    if (active) return { association: "not_attachable" };
+    if (unitOfWork.countTaskBindingsForItem(itemId) + unitOfWork.countActiveTaskAssociationReservationsForItem(itemId) >= MAX_TASK_BINDINGS_PER_ITEM2) {
+      return { association: "not_attachable" };
+    }
+    const expiresAt = actionRequestId ? void 0 : new Date(Date.parse(instant) + TASK_ASSOCIATION_RESERVATION_MS).toISOString();
+    unitOfWork.insertTaskAssociationReservation({
+      requestId,
+      taskId,
+      itemId,
+      ...actionRequestId ? { actionRequestId } : {},
+      state: "reserved",
+      ...expiresAt ? { expiresAt } : {},
+      createdAt: instant,
+      updatedAt: instant
+    });
+    return {
+      association: "reserved",
+      reservationId: requestId,
+      ...expiresAt ? { expiresAt } : {}
+    };
+  }
+  #taskAssociationReservationForAttachment(unitOfWork, itemId, taskId, reservationId, allowUncertain = false) {
+    const owner = unitOfWork.findTaskOwner(taskId);
+    if (owner?.itemId === itemId) return void 0;
+    if (owner) {
+      throw new DynaCliError(
+        "request_conflict",
+        "This Codex task cannot be associated with the requested Dyna item."
+      );
+    }
+    const reservation = reservationId ? unitOfWork.findTaskAssociationReservation(reservationId) : void 0;
+    if (!reservation && (this.#actorKind === "trusted_local" || this.#actorKind === "controller")) {
+      if (!unitOfWork.findActiveTaskAssociationReservation(taskId)) return void 0;
+    }
+    const instant = this.#now();
+    const allowedState = reservation?.state === "reserved" || allowUncertain && reservation?.state === "uncertain";
+    if (reservation?.itemId !== itemId || reservation.taskId !== taskId || !allowedState || reservation.expiresAt !== void 0 && reservation.expiresAt <= instant) {
+      throw new DynaCliError(
+        "request_conflict",
+        "The task-association reservation is missing, expired, or belongs to another item."
+      );
+    }
+    return reservation.requestId;
+  }
+  #canonicalMutation(dashboardId, itemId, requestId, operation, request, parseResult, mutate) {
+    const requestHash = sha2562(canonicalJson2([operation, dashboardId, itemId, request]));
+    return this.#repository.write((unitOfWork) => {
+      const existing = unitOfWork.findCliReceipt(requestId);
+      if (existing) {
+        if (existing.dashboardId !== dashboardId || existing.operation !== operation || existing.itemId !== itemId || existing.requestHash !== requestHash) {
+          throw new DynaCliError(
+            "request_conflict",
+            "This Dyna request ID was already used for different input."
+          );
+        }
+        return parseResult(
+          { ...parseResult(existing.result, unitOfWork), deduplicated: true },
+          unitOfWork
+        );
+      }
+      const dashboard = unitOfWork.findDashboardState(dashboardId);
+      if (!dashboard) throw new DynaCliError("not_found", "Dyna dashboard was not found.");
+      if (dashboard.archived) {
+        throw new DynaCliError("not_found", "Dyna dashboard is archived.");
+      }
+      const item = unitOfWork.findItemBase(itemId);
+      if (!item) throw new DynaCliError("not_found", "Dyna item was not found.");
+      if (!unitOfWork.dashboardContainsItem(dashboardId, itemId)) {
+        throw new DynaCliError(
+          "outside_dashboard",
+          "The Dyna item is outside the requested dashboard."
+        );
+      }
+      const result = parseResult(mutate(unitOfWork), unitOfWork);
+      unitOfWork.insertCliReceipt(
+        requestId,
+        { dashboardId, operation, itemId, requestHash, result },
+        this.#now()
+      );
+      return result;
+    });
+  }
+  #positionedItem(unitOfWork, dashboardId, itemId) {
+    return this.#positionedItems(unitOfWork, dashboardId).find((item) => item.id === itemId);
+  }
+  #positionedItems(unitOfWork, dashboardId) {
+    return sortProjectedItems(
+      projectRepositoryItems(unitOfWork.listProjectionItems(dashboardId))
+    ).map(({ fact, projection, priorityPosition }) => ({
+      id: fact.id,
+      fingerprint: fact.fingerprint,
+      effectivePriority: projection.effectivePriority,
+      priorityPosition,
+      workflowState: projection.workflowState,
+      ...fact.preferenceSequence !== void 0 ? { preferenceSequence: fact.preferenceSequence } : {},
+      ...fact.userWorkflow?.outcome ? { userWorkflowOutcome: fact.userWorkflow.outcome } : {},
+      ...fact.userWorkflow ? { userWorkflowCreatedMs: fact.userWorkflow.createdAtMs } : {}
+    }));
+  }
+  #placeProjectedItem(unitOfWork, dashboardId, positioned, itemId, targetPriority, beforeItemId, auditSuffix) {
+    const source = positioned.find((candidate) => candidate.id === itemId);
+    if (!source) throw new DynaCliError("not_found", "The Dyna item is no longer active.");
+    if (beforeItemId === itemId) return { changed: false };
+    const currentGroup = positioned.filter(
+      (candidate) => candidate.workflowState !== "completed" && candidate.effectivePriority === source.effectivePriority
+    );
+    const targetGroup = positioned.filter(
+      (candidate) => candidate.workflowState !== "completed" && candidate.effectivePriority === targetPriority && candidate.id !== itemId
+    );
+    const insertAt = beforeItemId ? targetGroup.findIndex((candidate) => candidate.id === beforeItemId) : targetGroup.length;
+    if (beforeItemId && insertAt < 0) {
+      throw new DynaCliError(
+        "stale_dashboard",
+        "The queue target changed; refresh before moving this item."
+      );
+    }
+    targetGroup.splice(insertAt, 0, source);
+    const currentIds = currentGroup.map(({ id }) => id);
+    const nextIds = targetGroup.map(({ id }) => id);
+    const changed = source.effectivePriority !== targetPriority || currentIds.join("\n") !== nextIds.join("\n");
+    if (!changed) return { changed: false };
+    const action = source.effectivePriority !== targetPriority ? PRIORITIES.indexOf(targetPriority) < PRIORITIES.indexOf(source.effectivePriority) ? "bump" : "lower" : nextIds.indexOf(itemId) < currentIds.indexOf(itemId) ? "earlier" : "later";
+    const instant = this.#now();
+    unitOfWork.writePlacements(
+      dashboardId,
+      targetGroup.map((candidate, position) => ({
+        itemId: candidate.id,
+        priority: targetPriority,
+        ...candidate.id === itemId ? { priorityOverride: targetPriority } : {},
+        sequence: position * 100,
+        action: candidate.id === itemId ? action : "resequence"
+      })),
+      instant
+    );
+    unitOfWork.touchDashboards([dashboardId], instant);
+    unitOfWork.appendAudit(`item.organized.${action}.${auditSuffix}`, itemId, instant);
+    return { changed: true, action };
+  }
+  #placeProjectedItemsAsBlock(unitOfWork, dashboardId, positioned, items, targetPriority, auditSuffix, includeTargetSelection = true) {
+    if (items.length === 0 || items.length > 200) {
+      throw new DynaCliError(
+        "invalid_input",
+        "Select between 1 and 200 Dyna items to change their priority group."
+      );
+    }
+    const uniqueIds = new Set(items.map(({ itemId }) => itemId));
+    if (uniqueIds.size !== items.length) {
+      throw new DynaCliError(
+        "invalid_input",
+        "Each Dyna item can appear only once in a bulk priority change."
+      );
+    }
+    const activeById = new Map(
+      positioned.filter((candidate) => candidate.workflowState !== "completed").map((candidate) => [candidate.id, candidate])
+    );
+    for (const selected of items) {
+      const candidate = activeById.get(selected.itemId);
+      if (!candidate) {
+        throw new DynaCliError(
+          "invalid_input",
+          "Only active, unfinished queue items can change priority group."
+        );
+      }
+      if (candidate.fingerprint !== selected.expectedFingerprint) {
+        throw new DynaCliError(
+          "stale_item",
+          "A selected Dyna item changed; refresh before moving these items."
+        );
+      }
+    }
+    const orderedSelection = items.map(({ itemId }) => activeById.get(itemId)).filter((candidate) => candidate !== void 0).filter(
+      (candidate) => includeTargetSelection || candidate.effectivePriority !== targetPriority
+    ).sort(
+      (left, right) => PRIORITIES.indexOf(left.effectivePriority) - PRIORITIES.indexOf(right.effectivePriority) || left.priorityPosition - right.priorityPosition || left.id.localeCompare(right.id)
+    );
+    const selectedIds = new Set(orderedSelection.map(({ id }) => id));
+    const targetGroup = positioned.filter(
+      (candidate) => candidate.workflowState !== "completed" && candidate.effectivePriority === targetPriority
+    );
+    const currentTargetIds = targetGroup.map(({ id }) => id);
+    const nextTargetGroup = [
+      ...targetGroup.filter((candidate) => !selectedIds.has(candidate.id)),
+      ...orderedSelection
+    ];
+    const nextTargetIds = nextTargetGroup.map(({ id }) => id);
+    const changedSelectionIds = new Set(
+      orderedSelection.filter(
+        (candidate) => candidate.effectivePriority !== targetPriority || currentTargetIds.indexOf(candidate.id) !== nextTargetIds.indexOf(candidate.id)
+      ).map(({ id }) => id)
+    );
+    if (changedSelectionIds.size === 0) return { changed: false, changedCount: 0 };
+    const writes = nextTargetGroup.map((candidate, position) => {
+      const isSelected = selectedIds.has(candidate.id);
+      const action = isSelected ? candidate.effectivePriority !== targetPriority ? PRIORITIES.indexOf(targetPriority) < PRIORITIES.indexOf(candidate.effectivePriority) ? "bump" : "lower" : changedSelectionIds.has(candidate.id) ? nextTargetIds.indexOf(candidate.id) < currentTargetIds.indexOf(candidate.id) ? "earlier" : "later" : "resequence" : "resequence";
+      return {
+        itemId: candidate.id,
+        priority: targetPriority,
+        ...isSelected ? { priorityOverride: targetPriority } : {},
+        sequence: position * 100,
+        action
+      };
+    });
+    const instant = this.#now();
+    unitOfWork.writePlacements(dashboardId, writes, instant);
+    unitOfWork.touchDashboards([dashboardId], instant);
+    for (const itemId of changedSelectionIds) {
+      unitOfWork.appendAudit(`item.organized.group.${auditSuffix}`, itemId, instant);
+    }
+    return { changed: true, changedCount: changedSelectionIds.size };
+  }
+  #taskAttachmentBlocker(unitOfWork, dashboardId, itemId) {
+    if (unitOfWork.findOpenArchive(dashboardId, itemId)) {
+      return {
+        code: "archived_item",
+        message: "A new Codex task cannot be attached to an archived Dyna item; restore it or create a follow-up."
+      };
+    }
+    const active = this.#positionedItem(unitOfWork, dashboardId, itemId);
+    if (!active) {
+      return {
+        code: "outside_dashboard",
+        message: "A new Codex task cannot be attached because the Dyna item is no longer active."
+      };
+    }
+    if (active.workflowState === "completed") {
+      return {
+        code: "completed_item",
+        message: "A new Codex task cannot be attached to completed Dyna work; create a follow-up."
+      };
+    }
+    return void 0;
+  }
+  #taskAttachmentBlockerForAction(unitOfWork, requestId) {
+    const action = unitOfWork.loadAction(requestId);
+    const itemId = action.itemId;
+    if (!itemId || action.kind !== "create_codex_task" && action.kind !== "attach_codex_task") {
+      return void 0;
+    }
+    return this.#taskAttachmentBlocker(unitOfWork, action.dashboardId, itemId);
+  }
+  #archiveExpiredCompleted(unitOfWork, dashboardId, items, now) {
+    const dashboard = unitOfWork.getDashboard(dashboardId);
+    const cutoff = now.getTime() - dashboard.doneRetentionHours * HOUR_MS;
+    const expired = items.filter(({ fact, projection }) => {
+      if (projection.workflowState !== "completed") return false;
+      const completionAt = projection.completedAtMs ?? fact.userWorkflow?.createdAtMs ?? fact.sourceUpdatedAtMs;
+      return Math.max(completionAt, fact.lastRestoredAtMs ?? 0) <= cutoff;
+    });
+    if (expired.length === 0) return items;
+    const instant = now.toISOString();
+    for (const { fact, projection } of expired) {
+      unitOfWork.insertArchive({
+        id: (0, import_node_crypto6.randomUUID)(),
+        dashboardId,
+        itemId: fact.id,
+        reason: "completed",
+        mode: "automatic",
+        archivedAt: instant,
+        fingerprint: fact.fingerprint,
+        workflowState: "completed",
+        ...projection.completedAtMs !== void 0 ? { completedAtMs: projection.completedAtMs } : {},
+        ...projection.outcome ? { outcome: projection.outcome } : {},
+        priority: projection.effectivePriority,
+        ...fact.preferenceSequence !== void 0 ? { sequence: fact.preferenceSequence } : {}
+      });
+      unitOfWork.appendAudit("item.archived.completed.automatic", fact.id, instant);
+    }
+    unitOfWork.touchDashboards([dashboardId], instant);
+    return projectRepositoryItems(unitOfWork.listProjectionItems(dashboardId));
+  }
+  #cardFromProjection(value, evidence) {
+    const { fact, item, projection, priorityPosition, priorityCount } = value;
+    const displayedLeadershipScore = dynaLeadershipScore(item.people);
+    const priorityMode = fact.preferencePriority ? "manual" : projection.effectivePriority !== item.priority ? "leadership" : item.priority !== fact.base.priority ? "enrichment" : "source";
+    return {
+      id: fact.id,
+      itemNumber: fact.itemNumber,
+      fingerprint: fact.fingerprint,
+      source: item.sourceRef.source,
+      sourceRef: item.sourceRef,
+      sourceLabel: dynaSourceLabel(item.sourceRef),
+      title: item.title,
+      summary: item.summary,
+      sourcePriority: fact.base.priority,
+      priority: projection.effectivePriority,
+      priorityReason: item.priorityReason,
+      sourceUpdatedAt: item.sourceUpdatedAt,
+      ...item.dueAt ? { dueAt: item.dueAt } : {},
+      labels: item.labels,
+      people: item.people,
+      leadershipScore: displayedLeadershipScore,
+      priorityMode,
+      ...fact.preferenceSequence !== void 0 ? { sequence: fact.preferenceSequence } : {},
+      canMoveEarlier: priorityPosition > 1,
+      canMoveLater: priorityPosition < priorityCount,
+      workflowState: projection.workflowState,
+      ...projection.completedAt ? { completedAt: projection.completedAt } : {},
+      ...projection.outcome ? { outcome: projection.outcome } : {},
+      ...fact.followUpOfItemId ? { followUpOfItemId: fact.followUpOfItemId } : {},
+      ...fact.followUpOfItemNumber ? { followUpOfItemNumber: fact.followUpOfItemNumber } : {},
+      ...item.attention ? { attention: item.attention } : {},
+      plan: item.plan,
+      nextSteps: item.nextSteps,
+      ...fact.enrichment ? {
+        enrichmentState: fact.enrichment.baseFingerprint === fact.fingerprint ? "active" : "stale"
+      } : {},
+      annotations: [...evidence.annotations],
+      workUpdates: [...evidence.workUpdates],
+      workUpdateCount: evidence.workUpdateCount,
+      ...projection.workflowState !== "completed" && projection.workState ? { workState: projection.workState } : {},
+      ...projection.workflowState !== "completed" && projection.workConditionSummary ? { workConditionSummary: projection.workConditionSummary } : {},
+      ...projection.workflowState !== "completed" && projection.workConditionTask ? { workConditionTask: projection.workConditionTask } : {},
+      ...evidence.matchedActivity ? { matchedActivity: evidence.matchedActivity.slice(0, 500) } : {},
+      blocked: projection.workflowState !== "completed" && projection.blocked,
+      titleSyncNeeded: taskTitleSyncNeeded(fact.itemNumber, evidence.linkedTasks),
+      linkedTasks: [...evidence.linkedTasks],
+      ...fact.archive ? { archive: fact.archive } : {}
+    };
+  }
+  #touchItemDashboards(unitOfWork, itemId, instant) {
+    unitOfWork.touchDashboards(unitOfWork.listDashboardIdsForItem(itemId), instant);
+  }
+  #ensureManualPublisher(unitOfWork, dashboardId, instant) {
+    const existing = unitOfWork.findManualPublisher(dashboardId);
+    if (existing) return existing;
+    if (unitOfWork.countPublishers() >= MAX_PUBLISHERS2) {
+      throw new DynaCliError("invalid_input", "Dyna cannot create more than 100 publishers.");
+    }
+    const publisherId = (0, import_node_crypto6.randomUUID)();
+    unitOfWork.insertManualPublisher(dashboardId, publisherId, instant);
+    return publisherId;
+  }
+  #createManualItem(unitOfWork, dashboardId, todo, reason, fallbackSummary, followUpOfItemId) {
+    const instant = this.#now();
+    const publisherId = this.#ensureManualPublisher(unitOfWork, dashboardId, instant);
+    const todoId = (0, import_node_crypto6.randomUUID)();
+    const published = DynaPublishedItemSchema.parse({
+      externalId: todoId,
+      sourceRef: { source: "manual", todoId },
+      sourceScope: `manual:${dashboardId}`,
+      title: todo.title,
+      summary: todo.summary ?? fallbackSummary,
+      priority: todo.priority,
+      priorityReason: reason,
+      sourceUpdatedAt: instant,
+      labels: todo.labels,
+      people: [],
+      ...todo.attention ? { attention: todo.attention } : {},
+      plan: [],
+      nextSteps: []
+    });
+    const itemId = (0, import_node_crypto6.randomUUID)();
+    const fingerprint = sha2562(JSON.stringify(published));
+    const record2 = {
+      itemId,
+      publisherId,
+      published,
+      fingerprint,
+      instant,
+      ...followUpOfItemId ? { followUpOfItemId } : {}
+    };
+    unitOfWork.insertManualItem(record2);
+    const itemNumber = unitOfWork.findItemBase(itemId)?.itemNumber;
+    if (!itemNumber) throw new Error("Dyna could not allocate an item number.");
+    return { itemId, itemNumber, fingerprint, instant };
+  }
+  #createTodoWithReceipt(unitOfWork, dashboardId, todo, requestId) {
+    const requestHash = sha2562(JSON.stringify(todo));
+    const existing = unitOfWork.findTodoReceipt(dashboardId, requestId);
+    if (existing) {
+      if (existing.requestHash !== requestHash) {
+        throw new DynaCliError(
+          "request_conflict",
+          "This Dyna to-do request ID was reused with different content."
+        );
+      }
+      const item = unitOfWork.findItemBase(existing.itemId);
+      if (!item) throw new Error("Dyna to-do receipt refers to a missing item.");
+      return DynaTodoCreateResultSchema.parse({
+        schema: "dyna/todo-create-result-v2",
+        requestId,
+        itemId: existing.itemId,
+        itemNumber: item.itemNumber,
+        fingerprint: item.fingerprint,
+        deduplicated: true
+      });
+    }
+    const dashboard = unitOfWork.findDashboardState(dashboardId);
+    if (!dashboard || dashboard.archived) {
+      throw new DynaCliError("not_found", "Dyna dashboard was not found.");
+    }
+    if (todo.followUpOfItemId && !unitOfWork.dashboardContainsItem(dashboardId, todo.followUpOfItemId)) {
+      throw new DynaCliError(
+        "outside_dashboard",
+        "The follow-up source is outside this dashboard view."
+      );
+    }
+    const created = this.#createManualItem(
+      unitOfWork,
+      dashboardId,
+      todo,
+      "Manually added to your priority queue.",
+      "Added from Dyna and ready to prioritize.",
+      todo.followUpOfItemId
+    );
+    unitOfWork.insertTodoReceipt(dashboardId, requestId, requestHash, created.itemId);
+    unitOfWork.touchDashboards([dashboardId], created.instant);
+    unitOfWork.appendAudit("todo.created", created.itemId, created.instant);
+    return DynaTodoCreateResultSchema.parse({
+      schema: "dyna/todo-create-result-v2",
+      requestId,
+      itemId: created.itemId,
+      itemNumber: created.itemNumber,
+      fingerprint: created.fingerprint,
+      deduplicated: false
+    });
+  }
+  #materializeSnapshot(dashboardId, query = "", scope = "active") {
+    return this.#repository.write((unitOfWork) => {
+      const normalizedQuery = query.trim().slice(0, 500);
+      const terms = snapshotSearchTerms(normalizedQuery);
+      const now = this.#clock();
+      const dashboardState = unitOfWork.findDashboardState(dashboardId);
+      if (!dashboardState) throw new DynaCliError("not_found", "Dyna dashboard was not found.");
+      const dashboard = unitOfWork.getDashboard(dashboardId);
+      const taskSyncRun = this.#expireTaskSyncRuns(unitOfWork, dashboardId)[0];
+      let active = projectRepositoryItems(unitOfWork.listProjectionItems(dashboardId, "active"));
+      active = this.#archiveExpiredCompleted(unitOfWork, dashboardId, active, now);
+      const archived = projectRepositoryItems(
+        unitOfWork.listProjectionItems(dashboardId, "archive")
+      );
+      const activeMatches = terms.length === 0 ? new Set(active.map(({ fact }) => fact.id)) : unitOfWork.matchingProjectionItemIds(dashboardId, "active", terms);
+      const archiveMatches = terms.length === 0 ? new Set(archived.map(({ fact }) => fact.id)) : unitOfWork.matchingProjectionItemIds(dashboardId, "archive", terms);
+      const matchingActive = active.filter(({ fact }) => activeMatches.has(fact.id));
+      const matchingArchived = archived.filter(({ fact }) => archiveMatches.has(fact.id));
+      const sorted = sortProjectedItems(scope === "archive" ? matchingArchived : matchingActive);
+      const exactItemNumber = exactItemNumberQuery(normalizedQuery);
+      const selected = (exactItemNumber === void 0 ? sorted : [
+        ...sorted.filter(({ fact }) => fact.itemNumber === exactItemNumber),
+        ...sorted.filter(({ fact }) => fact.itemNumber !== exactItemNumber)
+      ]).slice(0, MAX_SNAPSHOT_CARDS);
+      const evidenceById = new Map(
+        unitOfWork.loadCardEvidence(
+          selected.map(({ fact }) => fact.id),
+          terms
+        ).map((evidence) => [evidence.itemId, evidence])
+      );
+      const cards = selected.map((value) => {
+        const evidence = evidenceById.get(value.fact.id);
+        if (!evidence) throw new Error("Dyna could not load projected card evidence.");
+        return this.#cardFromProjection(value, evidence);
+      });
+      const schedules = unitOfWork.listPublishers(dashboardId);
+      const relevantSchedules = schedules.filter(
+        (schedule) => schedule.scheduleState === "active" || schedule.lastRunStatus === "never" || Boolean(schedule.revokedAt)
+      );
+      const scheduleFreshness = relevantSchedules.map((schedule) => {
+        if (schedule.revokedAt || schedule.lastRunStatus === "never" || schedule.lastRunStatus === "failed" || schedule.lastRunStatus === "partial" || !schedule.lastRunAt) {
+          return "stale";
+        }
+        const age = Math.max(0, now.getTime() - Date.parse(schedule.lastRunAt));
+        const staleAfter = schedule.staleAfterMinutes * 6e4;
+        return age > staleAfter ? "stale" : age > staleAfter * 0.75 ? "aging" : "fresh";
+      });
+      const newest = matchingActive.reduce(
+        (latest, { fact }) => Math.max(latest, fact.sourceUpdatedAtMs),
+        Number.NEGATIVE_INFINITY
+      );
+      const unscheduledAge = Number.isFinite(newest) ? Math.max(0, now.getTime() - newest) : Number.POSITIVE_INFINITY;
+      const freshness = scheduleFreshness.includes("stale") ? "stale" : scheduleFreshness.includes("aging") ? "aging" : scheduleFreshness.length > 0 ? "fresh" : unscheduledAge <= 15 * 6e4 ? "fresh" : unscheduledAge <= 60 * 6e4 ? "aging" : "stale";
+      return DynaDashboardSnapshotSchema.parse({
+        schema: "dyna/snapshot-v7",
+        dashboard,
+        generatedAt: now.toISOString(),
+        query: normalizedQuery,
+        scope,
+        revision: dashboardState.revision,
+        freshness,
+        counts: {
+          critical: matchingActive.filter(
+            ({ projection }) => projection.workflowState !== "completed" && projection.effectivePriority === "critical"
+          ).length,
+          high: matchingActive.filter(
+            ({ projection }) => projection.workflowState !== "completed" && projection.effectivePriority === "high"
+          ).length,
+          leadership: matchingActive.filter(
+            ({ projection }) => projection.effectiveLeadershipScore > 0
+          ).length,
+          total: matchingActive.length,
+          archived: matchingArchived.length,
+          blocked: matchingActive.filter(
+            ({ projection }) => projection.workflowState !== "completed" && projection.blocked
+          ).length
+        },
+        schedules,
+        cards,
+        ...taskSyncRun ? { taskSync: this.#taskSyncSummary(taskSyncRun) } : {}
+      });
+    });
+  }
+  projectItemState(input) {
+    return projectDynaItemState(input);
   }
   close() {
-    this.store.close();
+    this.#repository.close();
+  }
+  backup(destinationPath) {
+    this.#requireCapability("maintenance:backup");
+    return this.#repository.backup(destinationPath);
   }
   render(dashboardId) {
-    const snapshot = this.store.snapshot(dashboardId);
-    const payload = {
-      schema: "dyna/ui-v7",
-      viewToken: this.store.createView(dashboardId),
-      snapshot
-    };
-    return DynaUiPayloadSchema.parse(payload);
-  }
-  refresh(viewToken, query = "", scope = "active") {
-    const snapshot = this.store.snapshotForView(viewToken, query, scope);
+    this.#requireCapability("view:interact");
+    const snapshot = this.#materializeSnapshot(dashboardId);
+    const viewToken = this.#repository.write(
+      (unitOfWork) => unitOfWork.persistCreateView(dashboardId)
+    );
     return DynaUiPayloadSchema.parse({
-      schema: "dyna/ui-v7",
+      schema: "dyna/ui-v9",
       viewToken,
       snapshot
     });
   }
+  refresh(viewToken, query = "", scope = "active") {
+    this.#requireCapability("view:interact");
+    const dashboardId = this.#repository.write(
+      (unitOfWork) => unitOfWork.authorizeViewToken(viewToken)
+    );
+    const snapshot = this.#materializeSnapshot(dashboardId, query, scope);
+    return DynaUiPayloadSchema.parse({ schema: "dyna/ui-v9", viewToken, snapshot });
+  }
+  snapshot(dashboardId, query = "", scope = "active") {
+    this.#requireCapability("dashboard:read");
+    return DynaDashboardSnapshotSchema.parse(this.#materializeSnapshot(dashboardId, query, scope));
+  }
+  beginTaskSyncForView(viewToken, scope = { kind: "dashboard" }) {
+    this.#requireCapability("view:interact");
+    const parsedScope = DynaTaskSyncScopeSchema.parse(scope);
+    return this.#repository.write((unitOfWork) => {
+      const dashboardId = unitOfWork.authorizeViewToken(
+        viewToken,
+        parsedScope.kind === "task" ? parsedScope.itemId : void 0
+      );
+      const dashboard = unitOfWork.findDashboardState(dashboardId);
+      if (!dashboard || dashboard.archived) {
+        throw new DynaCliError("not_found", "Dyna dashboard was not found.");
+      }
+      const runs = this.#expireTaskSyncRuns(unitOfWork, dashboardId);
+      const active = runs.find(
+        (run2) => ["prepared", "delivered", "claimed", "syncing"].includes(run2.state)
+      );
+      if (active) {
+        const instant2 = this.#now();
+        const leaseExpired = !active.leaseExpiresAt || active.leaseExpiresAt <= instant2;
+        const deliveryRequired = leaseExpired;
+        let joined = active;
+        if (deliveryRequired) {
+          const leaseExpiresAt = new Date(
+            Math.min(
+              Date.parse(active.expiresAt),
+              Date.parse(instant2) + TASK_SYNC_DELIVERY_RESERVATION_MS
+            )
+          ).toISOString();
+          if (active.state === "claimed" || active.state === "syncing") {
+            const unclaimed = { ...active };
+            delete unclaimed.claimTokenHash;
+            joined = {
+              ...unclaimed,
+              state: "prepared",
+              leaseExpiresAt,
+              updatedAt: instant2
+            };
+          } else {
+            joined = { ...active, leaseExpiresAt, updatedAt: instant2 };
+          }
+        }
+        if (joined !== active) unitOfWork.updateTaskSyncRun(joined);
+        return DynaTaskSyncBeginResultSchema.parse({
+          schema: "dyna/task-sync-begin-result-v1",
+          joined: true,
+          deliveryRequired,
+          summary: this.#taskSyncSummary(joined)
+        });
+      }
+      if (parsedScope.kind === "task") {
+        this.#assertItemMembership(unitOfWork, dashboardId, parsedScope.itemId);
+        const owner = unitOfWork.findTaskOwner(parsedScope.taskId);
+        if (owner?.itemId !== parsedScope.itemId || owner.hostId !== parsedScope.hostId) {
+          throw new DynaCliError(
+            "task_not_linked",
+            "The requested Codex task is not linked to this Dyna item and host."
+          );
+        }
+      }
+      const selected = unitOfWork.listTaskSyncCandidates(
+        dashboardId,
+        parsedScope,
+        MAX_TASK_SYNC_TARGETS2
+      );
+      if (parsedScope.kind === "task" && selected.total !== 1) {
+        throw new DynaCliError(
+          "task_not_linked",
+          "The requested Codex task is not active in this Dyna dashboard."
+        );
+      }
+      const instant = this.#now();
+      const terminal = selected.candidates.length === 0;
+      const run = {
+        id: (0, import_node_crypto6.randomUUID)(),
+        dashboardId,
+        scope: parsedScope,
+        state: terminal ? "completed" : "prepared",
+        expiresAt: new Date(Date.parse(instant) + TASK_SYNC_RUN_TTL_MS).toISOString(),
+        totalTasks: selected.candidates.length,
+        excessTasks: Math.max(0, selected.total - selected.candidates.length),
+        processedTasks: 0,
+        updatedItems: 0,
+        unavailableTasks: 0,
+        incompleteMetadataTasks: 0,
+        createdAt: instant,
+        updatedAt: instant,
+        ...!terminal ? {
+          leaseExpiresAt: new Date(
+            Date.parse(instant) + TASK_SYNC_DELIVERY_RESERVATION_MS
+          ).toISOString()
+        } : {},
+        ...terminal ? { completedAt: instant } : {}
+      };
+      unitOfWork.insertTaskSyncRun(run);
+      unitOfWork.insertTaskSyncTargets(run.id, selected.candidates);
+      unitOfWork.appendAudit("task-sync.started", run.id, instant);
+      return DynaTaskSyncBeginResultSchema.parse({
+        schema: "dyna/task-sync-begin-result-v1",
+        joined: false,
+        deliveryRequired: !terminal,
+        summary: this.#taskSyncSummary(run)
+      });
+    });
+  }
+  markTaskSyncDeliveredForView(viewToken, runId) {
+    this.#requireCapability("view:interact");
+    const parsedRunId = external_exports.uuid().parse(runId);
+    return this.#repository.write((unitOfWork) => {
+      const run = this.#taskSyncRun(unitOfWork, parsedRunId);
+      const dashboardId = unitOfWork.authorizeViewToken(viewToken);
+      if (run.dashboardId !== dashboardId) {
+        throw new DynaCliError("outside_dashboard", "The task sync belongs to another dashboard.");
+      }
+      const [current] = this.#expireTaskSyncRuns(unitOfWork, dashboardId).filter(
+        (candidate) => candidate.id === parsedRunId
+      );
+      if (!current) throw new DynaCliError("not_found", "The task sync was not found.");
+      const instant = this.#now();
+      const delivered = current.state === "prepared" || current.state === "delivered" ? {
+        ...current,
+        state: "delivered",
+        leaseExpiresAt: new Date(
+          Math.min(
+            Date.parse(current.expiresAt),
+            Date.parse(instant) + TASK_SYNC_DELIVERY_RESERVATION_MS
+          )
+        ).toISOString(),
+        updatedAt: instant
+      } : current;
+      if (delivered !== current) unitOfWork.updateTaskSyncRun(delivered);
+      return DynaTaskSyncStatusResultSchema.parse({
+        schema: "dyna/task-sync-status-result-v1",
+        summary: this.#taskSyncSummary(delivered)
+      });
+    });
+  }
+  taskSyncStatusForView(viewToken, runId) {
+    this.#requireCapability("view:interact");
+    const parsedRunId = external_exports.uuid().parse(runId);
+    return this.#repository.write((unitOfWork) => {
+      const dashboardId = unitOfWork.authorizeViewToken(viewToken);
+      const run = this.#expireTaskSyncRuns(unitOfWork, dashboardId).find(
+        (candidate) => candidate.id === parsedRunId
+      );
+      if (!run) throw new DynaCliError("not_found", "The task sync was not found.");
+      return DynaTaskSyncStatusResultSchema.parse({
+        schema: "dyna/task-sync-status-result-v1",
+        summary: this.#taskSyncSummary(run)
+      });
+    });
+  }
+  claimTaskSync(runId) {
+    this.#requireCapability("action:execute");
+    this.#requireCapability("task:observe");
+    const parsedRunId = external_exports.uuid().parse(runId);
+    return this.#repository.write((unitOfWork) => {
+      let run = this.#taskSyncRun(unitOfWork, parsedRunId);
+      const instant = this.#now();
+      if (run.expiresAt <= instant) {
+        if (["prepared", "delivered", "claimed", "syncing"].includes(run.state)) {
+          run = { ...run, state: "expired", updatedAt: instant, completedAt: instant };
+          unitOfWork.updateTaskSyncRun(run);
+        }
+        throw new DynaCliError("request_conflict", "The Dyna task synchronization run expired.");
+      }
+      const reclaimable = (run.state === "claimed" || run.state === "syncing") && Boolean(run.leaseExpiresAt && run.leaseExpiresAt <= instant);
+      if (run.state !== "delivered" && !reclaimable) {
+        throw new DynaCliError("request_conflict", "The Dyna task sync cannot be claimed.");
+      }
+      const claimToken = (0, import_node_crypto6.randomBytes)(32).toString("hex");
+      const leaseExpiresAt = new Date(
+        Math.min(Date.parse(run.expiresAt), Date.parse(instant) + TASK_SYNC_CLAIM_LEASE_MS)
+      ).toISOString();
+      run = {
+        ...run,
+        state: "claimed",
+        claimTokenHash: sha2562(claimToken),
+        leaseExpiresAt,
+        updatedAt: instant
+      };
+      unitOfWork.updateTaskSyncRun(run);
+      const targets = unitOfWork.listTaskSyncTargets(run.id).filter((target) => target.state === "pending").map((target) => ({
+        itemId: target.itemId,
+        itemNumber: target.itemNumber,
+        taskId: target.taskId,
+        hostId: target.hostId,
+        checkpointVersion: target.checkpointVersion,
+        ...target.cursor ? { afterCursor: target.cursor } : {},
+        ...target.lastTurnId ? { lastTurnId: target.lastTurnId } : {},
+        expectedTitle: canonicalDynaTaskTitle(target.itemNumber, target.itemTitle)
+      }));
+      return DynaTaskSyncClaimSchema.parse({
+        schema: "dyna/task-sync-claim-v1",
+        runId: run.id,
+        dashboardId: run.dashboardId,
+        claimToken,
+        leaseExpiresAt,
+        totalTasks: run.totalTasks,
+        remainingTasks: targets.length + run.excessTasks,
+        targets
+      });
+    });
+  }
+  submitTaskSyncBatch(runId, claimToken, input) {
+    this.#requireCapability("action:execute");
+    this.#requireCapability("task:observe");
+    const parsedRunId = external_exports.uuid().parse(runId);
+    const parsed = DynaTaskSyncBatchInputSchema.parse(input);
+    const requestHash = sha2562(canonicalJson2([parsedRunId, parsed]));
+    const receiptId = `task-sync-batch:${parsed.requestId}`;
+    return this.#repository.write((unitOfWork) => {
+      const replay = unitOfWork.findTaskSyncReceipt(receiptId);
+      if (replay) {
+        if (replay.runId !== parsedRunId || replay.requestHash !== requestHash) {
+          throw new DynaCliError(
+            "request_conflict",
+            "This task sync batch request ID was reused for different input."
+          );
+        }
+        return DynaTaskSyncBatchResultSchema.parse({
+          ...replay.result,
+          deduplicated: true
+        });
+      }
+      let run = this.#taskSyncRun(unitOfWork, parsedRunId);
+      this.#assertTaskSyncClaim(run, claimToken);
+      if (run.state !== "claimed" && run.state !== "syncing") {
+        throw new DynaCliError("request_conflict", "The task sync no longer accepts batches.");
+      }
+      const targets = new Map(
+        unitOfWork.listTaskSyncTargets(run.id).map((target) => [target.taskId, target])
+      );
+      for (const observation of parsed.observations) {
+        const target = targets.get(observation.taskId);
+        if (target?.state !== "pending") {
+          throw new DynaCliError("request_conflict", "A task sync target was already submitted.");
+        }
+        if (target.checkpointVersion !== observation.checkpointVersion) {
+          throw new DynaCliError("request_conflict", "A task sync checkpoint is stale.");
+        }
+        if (!unitOfWork.stageTaskSyncObservation(run.id, target.taskId, observation)) {
+          throw new DynaCliError("request_conflict", "A task sync target was already submitted.");
+        }
+      }
+      for (const unavailable of parsed.unavailable) {
+        const target = targets.get(unavailable.taskId);
+        if (target?.state !== "pending" || target.hostId !== unavailable.hostId || target.checkpointVersion !== unavailable.checkpointVersion) {
+          throw new DynaCliError("request_conflict", "An unavailable task target is stale.");
+        }
+        if (!unitOfWork.stageTaskSyncUnavailable(run.id, target.taskId, unavailable.reason)) {
+          throw new DynaCliError("request_conflict", "A task sync target was already submitted.");
+        }
+      }
+      const acceptedTasks = parsed.observations.length + parsed.unavailable.length;
+      const coverageFailures = parsed.observations.filter(
+        (observation) => observation.summaryCoverage === "unavailable"
+      ).length;
+      const instant = this.#now();
+      const leaseExpiresAt = new Date(
+        Math.min(Date.parse(run.expiresAt), Date.parse(instant) + TASK_SYNC_CLAIM_LEASE_MS)
+      ).toISOString();
+      run = {
+        ...run,
+        state: "syncing",
+        processedTasks: run.processedTasks + acceptedTasks,
+        unavailableTasks: run.unavailableTasks + parsed.unavailable.length + coverageFailures,
+        leaseExpiresAt,
+        updatedAt: instant
+      };
+      unitOfWork.updateTaskSyncRun(run);
+      const result = DynaTaskSyncBatchResultSchema.parse({
+        schema: "dyna/task-sync-batch-result-v1",
+        acceptedTasks,
+        deduplicated: false,
+        leaseExpiresAt,
+        summary: this.#taskSyncSummary(run)
+      });
+      unitOfWork.insertTaskSyncReceipt({
+        id: receiptId,
+        runId: run.id,
+        kind: "batch",
+        requestHash,
+        result,
+        createdAt: instant
+      });
+      return result;
+    });
+  }
+  completeTaskSync(runId, claimToken, input) {
+    this.#requireCapability("action:execute");
+    this.#requireCapability("task:observe");
+    const parsedRunId = external_exports.uuid().parse(runId);
+    const parsed = DynaTaskSyncCompleteInputSchema.parse(input);
+    const requestHash = sha2562(canonicalJson2([parsedRunId, parsed]));
+    const receiptId = `task-sync-complete:${parsed.requestId}`;
+    return this.#repository.write((unitOfWork) => {
+      const replay = unitOfWork.findTaskSyncReceipt(receiptId);
+      if (replay) {
+        if (replay.runId !== parsedRunId || replay.requestHash !== requestHash) {
+          throw new DynaCliError(
+            "request_conflict",
+            "This task sync completion request ID was reused for different input."
+          );
+        }
+        return DynaTaskSyncStatusResultSchema.parse(replay.result);
+      }
+      let run = this.#taskSyncRun(unitOfWork, parsedRunId);
+      this.#assertTaskSyncClaim(run, claimToken);
+      if (run.state !== "claimed" && run.state !== "syncing") {
+        throw new DynaCliError("request_conflict", "The task sync cannot be completed.");
+      }
+      const targets = unitOfWork.listTaskSyncTargets(run.id);
+      if (targets.some((target) => target.state === "pending")) {
+        throw new DynaCliError(
+          "invalid_input",
+          "Every task sync target must be submitted before completion."
+        );
+      }
+      const unavailableTaskIds = new Set(
+        targets.filter(
+          (target) => target.state === "unavailable" || target.observation?.summaryCoverage === "unavailable"
+        ).map((target) => target.taskId)
+      );
+      const incompleteMetadataTaskIds = /* @__PURE__ */ new Set();
+      const updatedItems = /* @__PURE__ */ new Set();
+      const dashboardsToTouch = /* @__PURE__ */ new Set();
+      const finalizingAt = this.#now();
+      for (const target of targets) {
+        if (target.state === "unavailable") {
+          const checkpoint2 = unitOfWork.findTaskSyncCheckpoint(target.taskId);
+          unitOfWork.upsertTaskSyncCheckpoint({
+            taskId: target.taskId,
+            hostId: checkpoint2?.hostId ?? target.hostId,
+            version: checkpoint2?.version ?? target.checkpointVersion,
+            ...checkpoint2?.cursor && target.unavailableReason !== "cursor_invalid" ? { cursor: checkpoint2.cursor } : {},
+            ...checkpoint2?.lastTurnId ? { lastTurnId: checkpoint2.lastTurnId } : {},
+            ...checkpoint2?.statusUpdatedAt ? { statusUpdatedAt: checkpoint2.statusUpdatedAt } : {},
+            ...checkpoint2?.observedAt ? { observedAt: checkpoint2.observedAt } : {},
+            updatedAt: finalizingAt
+          });
+          unitOfWork.markTaskSyncTarget(run.id, target.taskId, "skipped");
+          continue;
+        }
+        if (target.state !== "staged" || !target.observation) continue;
+        const observation = target.observation;
+        const observationIdentity = taskSyncObservationReceiptIdentity(observation);
+        const observationPayloadHash = taskSyncObservationPayloadHash(observation);
+        const observationReceiptId = `task-sync-observation:${observationIdentity}`;
+        const existingReceipt = unitOfWork.findTaskSyncReceipt(observationReceiptId);
+        const checkpoint = unitOfWork.findTaskSyncCheckpoint(target.taskId);
+        if (existingReceipt) {
+          if (existingReceipt.requestHash !== observationPayloadHash) {
+            unavailableTaskIds.add(target.taskId);
+            unitOfWork.markTaskSyncTarget(run.id, target.taskId, "skipped");
+            continue;
+          }
+          if (observation.task.state === "succeeded" && !observation.task.outcome) {
+            incompleteMetadataTaskIds.add(target.taskId);
+          }
+          unitOfWork.markTaskSyncTarget(run.id, target.taskId, "applied");
+          continue;
+        }
+        const owner = unitOfWork.findTaskOwner(target.taskId);
+        const membershipValid = owner?.itemId === target.itemId && unitOfWork.dashboardContainsItem(run.dashboardId, target.itemId) && !unitOfWork.findOpenArchive(run.dashboardId, target.itemId);
+        if (!membershipValid || (checkpoint?.version ?? 0) !== target.checkpointVersion || !isCanonicalDynaTaskTitle(target.itemNumber, observation.task.title)) {
+          unavailableTaskIds.add(target.taskId);
+          unitOfWork.markTaskSyncTarget(run.id, target.taskId, "skipped");
+          continue;
+        }
+        let statusChanged = false;
+        try {
+          statusChanged = unitOfWork.persistTaskStatusForSync(target.itemId, observation.task);
+        } catch (error51) {
+          if (!(error51 instanceof DynaCliStoreError)) throw error51;
+          unavailableTaskIds.add(target.taskId);
+          unitOfWork.markTaskSyncTarget(run.id, target.taskId, "skipped");
+          continue;
+        }
+        if (observation.task.state === "succeeded" && !observation.task.outcome) {
+          incompleteMetadataTaskIds.add(target.taskId);
+        }
+        let activityChanged = false;
+        if (observation.delta) {
+          unitOfWork.insertWorkUpdate(
+            DynaWorkUpdateSchema.parse({
+              schema: "dyna/work-update-v1",
+              id: scopedUuid2(["task-sync-update", observationIdentity]),
+              itemId: target.itemId,
+              originDashboardId: run.dashboardId,
+              workAttemptId: scopedUuid2(["task-sync-attempt", target.taskId]),
+              kind: observation.delta.kind,
+              body: observation.delta.body,
+              ...observation.delta.outcome ? { outcome: observation.delta.outcome } : {},
+              artifacts: observation.delta.artifacts,
+              task: {
+                taskId: target.taskId,
+                hostId: observation.task.hostId,
+                title: observation.task.title
+              },
+              createdAt: observation.task.observedAt
+            })
+          );
+          activityChanged = true;
+        }
+        const hostChanged = Boolean(checkpoint && checkpoint.hostId !== observation.task.hostId);
+        unitOfWork.upsertTaskSyncCheckpoint({
+          taskId: target.taskId,
+          hostId: observation.task.hostId,
+          version: (checkpoint?.version ?? 0) + 1,
+          ...!hostChanged && observation.nextCursor ? { cursor: observation.nextCursor } : !hostChanged && checkpoint?.cursor ? { cursor: checkpoint.cursor } : {},
+          ...observation.lastTurnId ?? checkpoint?.lastTurnId ? { lastTurnId: observation.lastTurnId ?? checkpoint?.lastTurnId } : {},
+          statusUpdatedAt: observation.task.statusUpdatedAt,
+          observedAt: observation.task.observedAt
+        });
+        unitOfWork.insertTaskSyncReceipt({
+          id: observationReceiptId,
+          runId: run.id,
+          kind: "observation",
+          taskId: target.taskId,
+          requestHash: observationPayloadHash,
+          createdAt: this.#now()
+        });
+        unitOfWork.markTaskSyncTarget(run.id, target.taskId, "applied");
+        if (statusChanged || activityChanged) {
+          updatedItems.add(target.itemId);
+          for (const dashboardId of unitOfWork.listDashboardIdsForItem(target.itemId)) {
+            dashboardsToTouch.add(dashboardId);
+          }
+        }
+      }
+      const instant = finalizingAt;
+      if (updatedItems.size > 0) unitOfWork.touchDashboards(dashboardsToTouch, instant);
+      const partial2 = unavailableTaskIds.size > 0 || incompleteMetadataTaskIds.size > 0 || run.excessTasks > 0;
+      run = {
+        ...run,
+        state: partial2 ? "partial" : "completed",
+        claimTokenHash: void 0,
+        leaseExpiresAt: void 0,
+        processedTasks: run.totalTasks,
+        updatedItems: updatedItems.size,
+        unavailableTasks: unavailableTaskIds.size,
+        incompleteMetadataTasks: incompleteMetadataTaskIds.size,
+        updatedAt: instant,
+        completedAt: instant
+      };
+      unitOfWork.updateTaskSyncRun(run);
+      unitOfWork.appendAudit("task-sync.completed", run.id, instant);
+      const result = DynaTaskSyncStatusResultSchema.parse({
+        schema: "dyna/task-sync-status-result-v1",
+        summary: this.#taskSyncSummary(run)
+      });
+      unitOfWork.insertTaskSyncReceipt({
+        id: receiptId,
+        runId: run.id,
+        kind: "completion",
+        requestHash,
+        result,
+        createdAt: instant
+      });
+      return result;
+    });
+  }
+  authorizeView(viewToken, itemId) {
+    this.#requireCapability("view:interact");
+    return this.#repository.write((unitOfWork) => unitOfWork.authorizeViewToken(viewToken, itemId));
+  }
+  createDashboard(name, description, doneRetentionHours = 24) {
+    this.#requireCapability("dashboard:manage");
+    return this.#repository.write((unitOfWork) => {
+      if (unitOfWork.listDashboards().length >= MAX_DASHBOARDS2) {
+        throw new DynaCliError("invalid_input", "Dyna cannot create more than 100 dashboards.");
+      }
+      const instant = this.#now();
+      const dashboard = DynaDashboardSchema.parse({
+        id: (0, import_node_crypto6.randomUUID)(),
+        name,
+        description,
+        archived: false,
+        doneRetentionHours,
+        createdAt: instant,
+        updatedAt: instant
+      });
+      unitOfWork.insertDashboard(dashboard);
+      return dashboard;
+    });
+  }
+  updateDashboard(id, changes) {
+    this.#requireCapability("dashboard:manage");
+    return this.#repository.write((unitOfWork) => {
+      const current = this.#dashboard(unitOfWork, id);
+      const updated = DynaDashboardSchema.parse({
+        ...current,
+        ...changes,
+        updatedAt: this.#now()
+      });
+      unitOfWork.updateDashboardRecord(updated);
+      return updated;
+    });
+  }
+  purgeDashboard(id, confirmation) {
+    this.#requireCapability("dashboard:manage");
+    if (confirmation !== id) throw new Error("Dashboard purge confirmation did not match.");
+    this.#repository.write((unitOfWork) => {
+      this.#dashboard(unitOfWork, id);
+      unitOfWork.deleteDashboardRecord(id);
+      unitOfWork.appendAudit("dashboard.purged", id, this.#now());
+    });
+  }
+  getDashboard(id) {
+    this.#requireCapability("dashboard:read");
+    return this.#repository.read((unitOfWork) => this.#dashboard(unitOfWork, id));
+  }
+  listDashboards() {
+    this.#requireCapability("dashboard:read");
+    const dashboards = this.#repository.read((unitOfWork) => unitOfWork.listDashboards());
+    return DynaDashboardListResultSchema.parse({
+      schema: "dyna/dashboard-list-result-v1",
+      dashboards,
+      total: dashboards.length
+    });
+  }
+  showDashboard(dashboardId) {
+    this.#requireCapability("dashboard:read");
+    const snapshot = this.#materializeSnapshot(dashboardId);
+    return DynaDashboardShowResultSchema.parse({
+      schema: "dyna/dashboard-show-result-v1",
+      dashboardId: snapshot.dashboard.id,
+      name: snapshot.dashboard.name,
+      revision: snapshot.revision,
+      freshness: snapshot.freshness,
+      counts: { active: snapshot.counts.total, archived: snapshot.counts.archived },
+      scheduledSources: snapshot.schedules.map((schedule) => ({
+        name: schedule.name,
+        ...schedule.scheduleTitle ? { scheduleTitle: schedule.scheduleTitle } : {},
+        scheduleState: schedule.scheduleState,
+        lastRunStatus: schedule.lastRunStatus,
+        ...schedule.lastRunAt ? { lastRunAt: schedule.lastRunAt } : {},
+        ...schedule.lastSourceSlices ? {
+          sourceSlices: schedule.lastSourceSlices.map((slice) => ({
+            source: slice.source,
+            status: slice.status,
+            freshness: slice.freshness
+          }))
+        } : {}
+      }))
+    });
+  }
+  searchItems(dashboardId, query, scope) {
+    this.#requireCapability("item:read");
+    const snapshot = this.#materializeSnapshot(dashboardId, query, scope);
+    return DynaItemSearchResultSchema.parse({
+      schema: "dyna/item-search-result-v3",
+      dashboardId,
+      dashboardName: snapshot.dashboard.name,
+      query,
+      scope,
+      revision: snapshot.revision,
+      freshness: snapshot.freshness,
+      total: scope === "archive" ? snapshot.counts.archived : snapshot.counts.total,
+      items: snapshot.cards.slice(0, 20).map((card) => ({
+        itemId: card.id,
+        itemNumber: card.itemNumber,
+        fingerprint: card.fingerprint,
+        title: card.title,
+        summary: card.summary,
+        sourceRef: card.sourceRef,
+        priority: card.priority,
+        priorityReason: card.priorityReason,
+        sourceUpdatedAt: card.sourceUpdatedAt,
+        ...card.dueAt ? { dueAt: card.dueAt } : {},
+        workflowState: card.workflowState,
+        ...card.followUpOfItemId ? { followUpOfItemId: card.followUpOfItemId } : {},
+        ...card.followUpOfItemNumber ? { followUpOfItemNumber: card.followUpOfItemNumber } : {},
+        ...card.attention ? { attention: card.attention } : {},
+        plan: card.plan,
+        nextSteps: card.nextSteps,
+        ...card.outcome ? { outcome: card.outcome } : {},
+        ...card.workState ? { workState: card.workState } : {},
+        workUpdates: card.workUpdates,
+        workUpdateCount: card.workUpdateCount,
+        ...card.workConditionSummary ? { workConditionSummary: card.workConditionSummary } : {},
+        ...card.workConditionTask ? { workConditionTask: card.workConditionTask } : {},
+        ...card.matchedActivity ? { matchedActivity: card.matchedActivity } : {},
+        titleSyncNeeded: card.titleSyncNeeded,
+        linkedTasks: card.linkedTasks,
+        ...card.archive ? { archive: card.archive } : {}
+      }))
+    });
+  }
+  createPublisher(name, schedule, requiredSourceSlices, credentialMode = "disabled") {
+    this.#requireCapability("publisher:manage");
+    return this.#repository.write((unitOfWork) => {
+      if (unitOfWork.listPublishers().length >= MAX_PUBLISHERS2) {
+        throw new DynaCliError("invalid_input", "Dyna cannot create more than 100 publishers.");
+      }
+      return unitOfWork.persistCreatePublisher(
+        name,
+        schedule,
+        requiredSourceSlices,
+        credentialMode
+      );
+    });
+  }
+  rotatePublisherSecret(publisherId) {
+    this.#requireCapability("publisher:manage");
+    return this.#repository.write((unitOfWork) => {
+      this.#assertPublisher(unitOfWork, publisherId);
+      return unitOfWork.persistRotatePublisherSecret(publisherId);
+    });
+  }
+  enableLocalCliPublisher(publisherId) {
+    this.#requireCapability("publisher:manage");
+    this.#repository.write((unitOfWork) => {
+      this.#assertPublisher(unitOfWork, publisherId);
+      unitOfWork.persistEnableLocalCliPublisher(publisherId);
+    });
+  }
+  revokePublisher(publisherId, purgePublishedData) {
+    this.#requireCapability("publisher:manage");
+    this.#repository.write((unitOfWork) => {
+      this.#assertPublisher(unitOfWork, publisherId);
+      unitOfWork.persistRevokePublisher(publisherId, purgePublishedData);
+    });
+  }
+  bindSchedule(dashboardId, publisherId, schedule) {
+    this.#requireCapability("publisher:manage");
+    this.#repository.write((unitOfWork) => {
+      this.#dashboard(unitOfWork, dashboardId);
+      if (!unitOfWork.listPublishers().some((publisher) => publisher.id === publisherId)) {
+        throw new DynaCliError("not_found", "Dyna publisher was not found.");
+      }
+      unitOfWork.persistBindSchedule(dashboardId, publisherId, schedule);
+    });
+  }
+  unbindSchedule(dashboardId, publisherId) {
+    this.#requireCapability("publisher:manage");
+    this.#repository.write((unitOfWork) => {
+      this.#dashboard(unitOfWork, dashboardId);
+      unitOfWork.persistUnbindSchedule(dashboardId, publisherId);
+    });
+  }
+  updateScheduleStatus(publisherId, schedule) {
+    this.#requireCapability("publisher:manage");
+    this.#repository.write((unitOfWork) => {
+      this.#assertPublisher(unitOfWork, publisherId);
+      unitOfWork.persistUpdateScheduleStatus(publisherId, schedule);
+    });
+  }
+  listPublishers(dashboardId) {
+    this.#requireCapability("publisher:manage");
+    return this.#repository.read((unitOfWork) => unitOfWork.listPublishers(dashboardId));
+  }
   publish(publisherId, secret, items, options) {
-    return this.store.publish(publisherId, secret, items, options);
+    this.#requireCapability("publisher:publish");
+    return this.#repository.write((unitOfWork) => {
+      this.#assertPublisher(unitOfWork, publisherId);
+      return unitOfWork.persistPublish(publisherId, secret, items, options, false);
+    });
   }
   publishLocal(publisherId, items, options) {
-    return this.store.publishLocal(publisherId, items, options);
+    this.#requireCapability("publisher:publish");
+    return this.#repository.write((unitOfWork) => {
+      this.#assertPublisher(unitOfWork, publisherId);
+      return unitOfWork.persistPublish(publisherId, void 0, items, options, true);
+    });
   }
-  snapshot(dashboardId) {
-    return DynaDashboardSnapshotSchema.parse(this.store.snapshot(dashboardId));
+  getItemContext(dashboardId, itemId) {
+    this.#requireCapability("item:read");
+    return this.#repository.read((unitOfWork) => {
+      this.#assertItemMembership(unitOfWork, dashboardId, itemId);
+      return unitOfWork.loadItemContext(itemId);
+    });
   }
-  updateTask(dashboardId, itemId, status) {
-    this.store.upsertTaskStatusForDashboard(dashboardId, itemId, status);
+  /** Test/migration compatibility; production callers must provide dashboard membership. */
+  compatibilityItemContext(itemId) {
+    this.#requireCapability("item:read");
+    return this.#repository.read((unitOfWork) => unitOfWork.loadItemContext(itemId));
+  }
+  /** Test/migration compatibility for the former store-level view snapshot. */
+  compatibilitySnapshotForView(viewToken, query = "", scope = "active") {
+    this.#requireCapability("item:read");
+    const dashboardId = this.#repository.write(
+      (unitOfWork) => unitOfWork.authorizeViewToken(viewToken)
+    );
+    return this.#materializeSnapshot(dashboardId, query, scope);
+  }
+  /** Test/migration compatibility for creating a view capability directly. */
+  compatibilityCreateView(dashboardId) {
+    this.#requireCapability("view:interact");
+    return this.#repository.write((unitOfWork) => unitOfWork.persistCreateView(dashboardId));
+  }
+  /** Test/migration compatibility for the former array-returning store API. */
+  compatibilityListDashboards() {
+    this.#requireCapability("dashboard:read");
+    return this.#repository.read((unitOfWork) => unitOfWork.listDashboards());
+  }
+  /** Controller fixture compatibility for task updates without a dashboard assertion. */
+  compatibilityUpsertTaskStatus(itemId, status) {
+    this.#requireCapability("task:observe");
+    this.#repository.write((unitOfWork) => {
+      unitOfWork.persistTaskStatus(itemId, status);
+    });
   }
   showItem(dashboardId, itemId) {
-    return this.store.showItem(dashboardId, itemId);
+    this.#requireCapability("item:read");
+    return this.#repository.write((unitOfWork) => {
+      const dashboardState = unitOfWork.findDashboardState(dashboardId);
+      if (!dashboardState) throw new DynaCliError("not_found", "Dyna dashboard was not found.");
+      const dashboard = unitOfWork.getDashboard(dashboardId);
+      if (!unitOfWork.findItemBase(itemId)) {
+        throw new DynaCliError("not_found", "Dyna item was not found.");
+      }
+      if (!unitOfWork.dashboardContainsItem(dashboardId, itemId)) {
+        throw new DynaCliError(
+          "outside_dashboard",
+          "The Dyna item is outside the requested dashboard."
+        );
+      }
+      let active = projectRepositoryItems(unitOfWork.listProjectionItems(dashboardId, "active"));
+      active = this.#archiveExpiredCompleted(unitOfWork, dashboardId, active, this.#clock());
+      const value = active.find(({ fact }) => fact.id === itemId) ?? projectRepositoryItems(unitOfWork.listProjectionItems(dashboardId, "archive")).find(
+        ({ fact }) => fact.id === itemId
+      );
+      if (!value) {
+        throw new DynaCliError("not_found", "Dyna item was not found in this dashboard.");
+      }
+      const evidence = unitOfWork.loadCardEvidence([itemId])[0];
+      if (!evidence) throw new Error("Dyna could not materialize the requested item.");
+      return DynaItemShowResultSchema.parse({
+        schema: "dyna/item-show-result-v3",
+        dashboard,
+        revision: unitOfWork.findDashboardState(dashboardId)?.revision ?? dashboardState.revision,
+        enrichmentVersion: value.fact.enrichment?.version ?? 0,
+        item: this.#cardFromProjection(value, evidence)
+      });
+    });
   }
   itemHistory(dashboardId, itemId, options) {
-    return this.store.itemHistory(dashboardId, itemId, options);
+    this.#requireCapability("item:read");
+    return this.#repository.read((unitOfWork) => {
+      this.#assertItemMembership(unitOfWork, dashboardId, itemId);
+      return unitOfWork.loadItemHistory(dashboardId, itemId, options);
+    });
   }
   itemActivityPage(dashboardId, itemId, options) {
-    return this.store.itemActivityPage(dashboardId, itemId, options);
+    this.#requireCapability("item:read");
+    return this.#repository.read((unitOfWork) => {
+      this.#assertItemMembership(unitOfWork, dashboardId, itemId);
+      return unitOfWork.loadItemActivityPage(dashboardId, itemId, options);
+    });
+  }
+  checkTaskAssociation(dashboardId, itemId, taskId, reservationRequestId) {
+    this.#requireCapability("item:read");
+    this.#requireCapability("task:observe");
+    const requestId = external_exports.uuid().parse(reservationRequestId);
+    return this.#repository.write((unitOfWork) => {
+      this.#assertItemMembership(unitOfWork, dashboardId, itemId);
+      const reserved = this.#reserveTaskAssociation(
+        unitOfWork,
+        dashboardId,
+        itemId,
+        taskId,
+        requestId
+      );
+      if (reserved.association !== "reserved") return reserved;
+      if (!reserved.expiresAt) throw new Error("A direct task reservation requires an expiry.");
+      return {
+        association: "attachable",
+        reservationId: reserved.reservationId,
+        expiresAt: reserved.expiresAt
+      };
+    });
+  }
+  applyEnrichment(itemId, update) {
+    this.#requireCapability("item:write");
+    this.#repository.write((unitOfWork) => {
+      const item = unitOfWork.findItemBase(itemId);
+      if (!item) throw new DynaCliError("not_found", "Dyna item was not found.");
+      if (item.fingerprint !== update.expectedFingerprint) {
+        throw new DynaCliError(
+          "stale_item",
+          "The Dyna item changed; retrieve its latest context before enrichment."
+        );
+      }
+      const priority = update.priority === void 0 ? void 0 : DynaPrioritySchema.parse(update.priority);
+      if (priority === "critical" && item.sourcePriority !== "critical") {
+        throw new DynaCliError(
+          "invalid_input",
+          "Dyna enrichment cannot set critical unless the source priority is already critical."
+        );
+      }
+      if (unitOfWork.currentEnrichmentVersion(itemId) !== update.expectedEnrichmentVersion) {
+        throw new DynaCliError(
+          "stale_enrichment",
+          "The Dyna enrichment changed; retrieve its latest context before replacing it."
+        );
+      }
+      const instant = this.#now();
+      unitOfWork.replaceEnrichment({
+        itemId,
+        ...update.summary !== void 0 ? { summary: update.summary } : {},
+        ...priority !== void 0 ? { priority } : {},
+        ...update.priorityReason !== void 0 ? { priorityReason: update.priorityReason } : {},
+        ...update.dueAt ? { dueAt: new Date(update.dueAt).toISOString() } : {},
+        dueAtSet: update.dueAt !== void 0,
+        ...update.labels !== void 0 ? { labels: update.labels } : {},
+        ...update.people !== void 0 ? { people: update.people } : {},
+        leadershipScore: dynaLeadershipScore(update.people ?? []),
+        ...update.attention !== void 0 ? { attention: update.attention } : {},
+        ...update.plan !== void 0 ? { plan: update.plan } : {},
+        ...update.nextSteps !== void 0 ? { nextSteps: update.nextSteps } : {},
+        baseFingerprint: item.fingerprint,
+        baseSourceUpdatedAt: item.sourceUpdatedAt,
+        appliedAt: instant,
+        provenance: update.provenance
+      });
+      this.#touchItemDashboards(unitOfWork, itemId, instant);
+      unitOfWork.appendAudit("item.enriched", itemId, instant);
+    });
+  }
+  updateTask(dashboardId, itemId, status, associationReservationId) {
+    this.#requireCapability("task:observe");
+    this.#repository.write((unitOfWork) => {
+      this.#assertItemMembership(unitOfWork, dashboardId, itemId);
+      const reservationId = this.#taskAssociationReservationForAttachment(
+        unitOfWork,
+        itemId,
+        status.taskId,
+        associationReservationId
+      );
+      this.#assertCanonicalTaskObservation(unitOfWork, itemId, status);
+      const attachmentBlocker = this.#taskAttachmentBlocker(unitOfWork, dashboardId, itemId);
+      unitOfWork.persistTaskStatusForDashboard(
+        dashboardId,
+        itemId,
+        status,
+        attachmentBlocker,
+        reservationId
+      );
+      if (reservationId) {
+        unitOfWork.transitionTaskAssociationReservation(reservationId, "consumed", this.#now());
+      }
+    });
+  }
+  addAnnotation(viewToken, itemId, clientRequestId, body) {
+    this.#requireCapability("view:interact");
+    return this.#repository.write((unitOfWork) => {
+      const dashboardId = unitOfWork.authorizeViewToken(viewToken, itemId);
+      this.#assertItemMembership(unitOfWork, dashboardId, itemId);
+      const input = DynaAnnotationSchema.parse({
+        id: clientRequestId,
+        itemId,
+        body,
+        createdAt: this.#now()
+      });
+      const annotationId = scopedUuid2([
+        "annotation-request",
+        dashboardId,
+        itemId,
+        input.id.toLowerCase()
+      ]);
+      const existing = unitOfWork.findAnnotation(annotationId);
+      if (existing) {
+        if (existing.itemId !== itemId || existing.body !== input.body) {
+          throw new DynaCliError(
+            "request_conflict",
+            "Dyna rejected an annotation request ID reused with different content."
+          );
+        }
+        return existing;
+      }
+      const annotation = DynaAnnotationSchema.parse({ ...input, id: annotationId });
+      unitOfWork.insertAnnotation(annotation);
+      this.#touchItemDashboards(unitOfWork, itemId, annotation.createdAt);
+      unitOfWork.appendAudit("annotation.created", itemId, annotation.createdAt);
+      return annotation;
+    });
+  }
+  addTodo(viewToken, input, clientRequestId) {
+    this.#requireCapability("view:interact");
+    return this.#repository.write((unitOfWork) => {
+      const dashboardId = unitOfWork.authorizeViewToken(viewToken);
+      return this.#createTodoWithReceipt(
+        unitOfWork,
+        dashboardId,
+        DynaTodoInputSchema.parse(input),
+        clientRequestId
+      ).itemId;
+    });
   }
   setItemStatus(input) {
-    return this.store.setItemStatus(input);
+    this.#requireCapability("view:interact");
+    return this.#repository.write((unitOfWork) => {
+      const dashboardId = unitOfWork.authorizeViewToken(input.viewToken, input.itemId);
+      if (!unitOfWork.findCliReceipt(input.clientRequestId)) {
+        this.#assertItemMembership(unitOfWork, dashboardId, input.itemId);
+        this.#assertExpectedRevision(
+          unitOfWork,
+          dashboardId,
+          input.expectedRevision,
+          "The Dyna dashboard changed; refresh before changing this item status."
+        );
+        this.#assertExpectedFingerprint(
+          unitOfWork,
+          input.itemId,
+          input.expectedFingerprint,
+          "The Dyna item changed; refresh before changing its status."
+        );
+      }
+      const positioned = this.#positionedItem(unitOfWork, dashboardId, input.itemId);
+      return unitOfWork.persistItemStatus(input, positioned);
+    });
+  }
+  organizeItem(viewToken, itemId, action, expectedRevision, expectedFingerprint) {
+    this.#requireCapability("view:interact");
+    return this.#repository.write((unitOfWork) => {
+      const dashboardId = unitOfWork.authorizeViewToken(viewToken, itemId);
+      this.#assertItemMembership(unitOfWork, dashboardId, itemId);
+      this.#assertExpectedRevision(
+        unitOfWork,
+        dashboardId,
+        expectedRevision,
+        "The Dyna dashboard changed; refresh before reprioritizing this item."
+      );
+      this.#assertExpectedFingerprint(
+        unitOfWork,
+        itemId,
+        expectedFingerprint,
+        "The Dyna dashboard changed; refresh before reprioritizing this item."
+      );
+      const positioned = this.#positionedItems(unitOfWork, dashboardId);
+      const selected = positioned.find((candidate) => candidate.id === itemId);
+      if (!selected) throw new DynaCliError("not_found", "The Dyna item is no longer active.");
+      if (selected.workflowState === "completed") {
+        throw new DynaCliError(
+          "completed_item",
+          "Completed Dyna items cannot be reprioritized; create a follow-up instead."
+        );
+      }
+      if (action === "bump" || action === "lower") {
+        const currentIndex = PRIORITIES.indexOf(selected.effectivePriority);
+        const targetIndex = Math.max(
+          0,
+          Math.min(PRIORITIES.length - 1, currentIndex + (action === "bump" ? -1 : 1))
+        );
+        const targetPriority = PRIORITIES[targetIndex] ?? selected.effectivePriority;
+        if (targetPriority === selected.effectivePriority) return { changed: false };
+        const placement2 = this.#placeProjectedItem(
+          unitOfWork,
+          dashboardId,
+          positioned,
+          itemId,
+          targetPriority,
+          void 0,
+          "view"
+        );
+        return { changed: placement2.changed };
+      }
+      const group = positioned.filter(
+        (candidate) => candidate.workflowState !== "completed" && candidate.effectivePriority === selected.effectivePriority
+      );
+      const index = group.findIndex((candidate) => candidate.id === itemId);
+      if (index < 0 || action === "earlier" && index === 0 || action === "later" && index === group.length - 1) {
+        return { changed: false };
+      }
+      const beforeItemId = action === "earlier" ? group[index - 1]?.id : group[index + 2]?.id;
+      const placement = this.#placeProjectedItem(
+        unitOfWork,
+        dashboardId,
+        positioned,
+        itemId,
+        selected.effectivePriority,
+        beforeItemId,
+        "view"
+      );
+      return { changed: placement.changed };
+    });
+  }
+  groupItems(viewToken, items, targetPriority, expectedRevision) {
+    this.#requireCapability("view:interact");
+    return this.#repository.write((unitOfWork) => {
+      const dashboardId = unitOfWork.authorizeViewToken(viewToken);
+      this.#assertExpectedRevision(
+        unitOfWork,
+        dashboardId,
+        expectedRevision,
+        "The Dyna dashboard changed; refresh before moving these items."
+      );
+      const positioned = this.#positionedItems(unitOfWork, dashboardId);
+      return this.#placeProjectedItemsAsBlock(
+        unitOfWork,
+        dashboardId,
+        positioned,
+        items,
+        DynaPrioritySchema.parse(targetPriority),
+        "view",
+        false
+      );
+    });
+  }
+  placeItemForView(viewToken, itemId, targetPriority, beforeItemId, expectedRevision, expectedFingerprint) {
+    this.#requireCapability("view:interact");
+    return this.#repository.write((unitOfWork) => {
+      const dashboardId = unitOfWork.authorizeViewToken(viewToken, itemId);
+      this.#assertItemMembership(unitOfWork, dashboardId, itemId);
+      this.#assertExpectedRevision(
+        unitOfWork,
+        dashboardId,
+        expectedRevision,
+        "The Dyna dashboard changed; refresh before placing this item."
+      );
+      this.#assertExpectedFingerprint(
+        unitOfWork,
+        itemId,
+        expectedFingerprint,
+        "The Dyna item changed; refresh before placing it."
+      );
+      const positioned = this.#positionedItems(unitOfWork, dashboardId);
+      const selected = positioned.find((candidate) => candidate.id === itemId);
+      if (!selected) throw new DynaCliError("not_found", "The Dyna item is no longer active.");
+      if (selected.workflowState === "completed") {
+        throw new DynaCliError(
+          "completed_item",
+          "Completed Dyna items cannot be placed; create a follow-up for continued work."
+        );
+      }
+      const placement = this.#placeProjectedItem(
+        unitOfWork,
+        dashboardId,
+        positioned,
+        itemId,
+        DynaPrioritySchema.parse(targetPriority),
+        beforeItemId,
+        "view"
+      );
+      return { changed: placement.changed };
+    });
+  }
+  archiveItemForView(viewToken, itemId, input) {
+    this.#requireCapability("view:interact");
+    return this.#repository.write((unitOfWork) => {
+      const dashboardId = unitOfWork.authorizeViewToken(viewToken, itemId);
+      const reason = DynaArchiveReasonSchema.parse(input.reason);
+      const reasonDetail = input.reasonDetail?.trim();
+      if (reason === "other" && !reasonDetail) {
+        throw new DynaCliError(
+          "invalid_input",
+          "Other archive reasons require a short explanation."
+        );
+      }
+      if (reason !== "other" && reasonDetail) {
+        throw new DynaCliError(
+          "invalid_input",
+          "Archive reason details are only accepted for Other."
+        );
+      }
+      if (reasonDetail && reasonDetail.length > 500) {
+        throw new DynaCliError(
+          "invalid_input",
+          "Archive reason details cannot exceed 500 characters."
+        );
+      }
+      const requestHash = sha2562(
+        JSON.stringify([
+          "dyna/archive-v1",
+          itemId,
+          reason,
+          reasonDetail ?? null,
+          input.expectedRevision,
+          input.expectedFingerprint
+        ])
+      );
+      const retry = unitOfWork.findArchiveReceipt(dashboardId, input.clientRequestId);
+      if (retry) {
+        if (retry.requestHash !== requestHash) {
+          throw new DynaCliError(
+            "request_conflict",
+            "The archive request ID was already used for different input."
+          );
+        }
+        return retry.result;
+      }
+      this.#assertItemMembership(unitOfWork, dashboardId, itemId);
+      this.#assertExpectedRevision(
+        unitOfWork,
+        dashboardId,
+        input.expectedRevision,
+        "The Dyna dashboard changed; refresh before archiving this item."
+      );
+      const positioned = this.#positionedItem(unitOfWork, dashboardId, itemId);
+      if (positioned?.fingerprint !== input.expectedFingerprint) {
+        throw new DynaCliError(
+          "stale_item",
+          "The Dyna item changed or is no longer active; refresh before archiving."
+        );
+      }
+      if (reason === "completed" && positioned.workflowState !== "completed") {
+        throw new DynaCliError(
+          "invalid_input",
+          "Only completed work can use the Completed archive disposition."
+        );
+      }
+      const taskEvidence = unitOfWork.completionEvidence(itemId);
+      const completedAtMs = positioned.workflowState === "completed" ? taskEvidence.completedAtMs ?? positioned.userWorkflowCreatedMs : void 0;
+      const outcome = positioned.workflowState === "completed" ? taskEvidence.outcome ?? positioned.userWorkflowOutcome : void 0;
+      const archiveId = (0, import_node_crypto6.randomUUID)();
+      const archivedAt = this.#now();
+      unitOfWork.insertArchive({
+        id: archiveId,
+        dashboardId,
+        itemId,
+        reason,
+        ...reasonDetail ? { reasonDetail } : {},
+        mode: "manual",
+        archivedAt,
+        fingerprint: positioned.fingerprint,
+        workflowState: positioned.workflowState,
+        ...completedAtMs !== void 0 ? { completedAtMs } : {},
+        ...outcome ? { outcome } : {},
+        priority: positioned.effectivePriority,
+        ...positioned.preferenceSequence !== void 0 ? { sequence: positioned.preferenceSequence } : {},
+        requestId: input.clientRequestId,
+        requestHash
+      });
+      unitOfWork.touchDashboards([dashboardId], archivedAt);
+      unitOfWork.appendAudit(`item.archived.${reason}.manual`, itemId, archivedAt);
+      return { archiveId, itemId, archivedAt, reason, mode: "manual" };
+    });
+  }
+  restoreItemForView(viewToken, itemId, input) {
+    this.#requireCapability("view:interact");
+    return this.#repository.write((unitOfWork) => {
+      const dashboardId = unitOfWork.authorizeViewToken(viewToken, itemId);
+      const requestHash = sha2562(
+        JSON.stringify([
+          "dyna/restore-v1",
+          itemId,
+          input.expectedRevision,
+          input.expectedFingerprint
+        ])
+      );
+      const retry = unitOfWork.findRestoreReceipt(dashboardId, input.clientRequestId);
+      if (retry) {
+        if (retry.requestHash !== requestHash || retry.itemId !== itemId) {
+          throw new DynaCliError(
+            "request_conflict",
+            "The restore request ID was already used for different input."
+          );
+        }
+        return { itemId, restoredAt: retry.restoredAt };
+      }
+      this.#assertItemMembership(unitOfWork, dashboardId, itemId);
+      this.#assertExpectedRevision(
+        unitOfWork,
+        dashboardId,
+        input.expectedRevision,
+        "The Dyna dashboard changed; refresh before restoring this item."
+      );
+      this.#assertExpectedFingerprint(
+        unitOfWork,
+        itemId,
+        input.expectedFingerprint,
+        "The Dyna dashboard changed; refresh before restoring this item."
+      );
+      const archive = unitOfWork.findOpenArchive(dashboardId, itemId);
+      if (!archive) {
+        throw new DynaCliError("invalid_input", "The Dyna item is not currently archived.");
+      }
+      const restoredAt = this.#now();
+      if (!unitOfWork.restoreArchive(archive.id, restoredAt, {
+        id: input.clientRequestId,
+        hash: requestHash
+      })) {
+        throw new DynaCliError("invalid_input", "The Dyna item is not currently archived.");
+      }
+      unitOfWork.touchDashboards([dashboardId], restoredAt);
+      unitOfWork.appendAudit("item.restored", itemId, restoredAt);
+      return { itemId, restoredAt };
+    });
+  }
+  prepareAction(viewToken, kind, input) {
+    this.#requireCapability("view:interact");
+    return unwrapPersistenceOutcome(
+      this.#repository.write((unitOfWork) => {
+        const dashboardId = unitOfWork.authorizeViewToken(viewToken, input.itemId);
+        if (kind === "attach_codex_task" && input.taskId) {
+          const owner = unitOfWork.findTaskOwner(input.taskId);
+          if (owner && owner.itemId !== input.itemId) {
+            throw new DynaCliError(
+              "request_conflict",
+              "This Codex task is already associated with another Dyna item."
+            );
+          }
+        }
+        const attachmentBlocker = kind === "create_codex_task" || kind === "attach_codex_task" ? this.#taskAttachmentBlocker(unitOfWork, dashboardId, input.itemId) : void 0;
+        return unitOfWork.persistPrepareAction(viewToken, kind, input, attachmentBlocker);
+      })
+    );
+  }
+  markDelivered(viewToken, requestId) {
+    this.#requireCapability("view:interact");
+    return this.#repository.write(
+      (unitOfWork) => unitOfWork.persistMarkDelivered(viewToken, requestId)
+    );
+  }
+  actionStatusForView(viewToken, requestId) {
+    this.#requireCapability("view:interact");
+    return this.#repository.write(
+      (unitOfWork) => unitOfWork.loadActionForView(viewToken, requestId)
+    );
+  }
+  claimAction(requestId) {
+    this.#requireCapability("action:execute");
+    return unwrapPersistenceOutcome(
+      this.#repository.write((unitOfWork) => {
+        const action = unitOfWork.loadAction(requestId);
+        const attachmentBlocker = this.#taskAttachmentBlockerForAction(unitOfWork, requestId);
+        let reservedForClaim = false;
+        if (action.state === "delivered" && action.kind === "attach_codex_task" && action.itemId && action.taskId && !attachmentBlocker) {
+          const reservation = this.#reserveTaskAssociation(
+            unitOfWork,
+            action.dashboardId,
+            action.itemId,
+            action.taskId,
+            requestId,
+            requestId
+          );
+          if (reservation.association === "not_attachable") {
+            throw new DynaCliError(
+              "request_conflict",
+              "The selected Codex task is already owned or reserved for other Dyna work."
+            );
+          }
+          reservedForClaim = reservation.association === "reserved";
+        }
+        const persisted = unitOfWork.persistClaimAction(requestId, attachmentBlocker);
+        if (!persisted.ok && reservedForClaim) {
+          unitOfWork.transitionTaskAssociationReservation(requestId, "released", this.#now());
+        }
+        return persisted;
+      })
+    );
+  }
+  completeAction(requestId, claimToken, result) {
+    this.#requireCapability("action:execute");
+    return this.#repository.write((unitOfWork) => {
+      const action = unitOfWork.loadAction(requestId);
+      if (result.outcome === "succeeded" && result.task && action.itemId) {
+        if ((action.kind === "attach_codex_task" || action.kind === "refresh_codex_status") && result.task.taskId !== action.taskId) {
+          throw new DynaCliError(
+            "invalid_input",
+            "The controller-observed Codex task does not match the claimed request."
+          );
+        }
+        if (action.kind === "attach_codex_task") {
+          this.#taskAssociationReservationForAttachment(
+            unitOfWork,
+            action.itemId,
+            result.task.taskId,
+            requestId
+          );
+        }
+        this.#assertCanonicalTaskObservation(unitOfWork, action.itemId, result.task);
+      }
+      const completed = unitOfWork.persistCompleteAction(
+        requestId,
+        claimToken,
+        result,
+        this.#taskAttachmentBlockerForAction(unitOfWork, requestId)
+      );
+      const reservation = action.kind === "attach_codex_task" ? unitOfWork.findTaskAssociationReservation(requestId) : void 0;
+      if (reservation?.state === "reserved") {
+        const state = completed.state === "succeeded" ? "consumed" : completed.state === "needs_reconciliation" ? "uncertain" : "released";
+        unitOfWork.transitionTaskAssociationReservation(requestId, state, this.#now());
+      }
+      return completed;
+    });
+  }
+  resolveActionReconciliation(requestId, resolution) {
+    this.#requireCapability("action:execute");
+    return this.#repository.write((unitOfWork) => {
+      const action = unitOfWork.loadAction(requestId);
+      if (resolution.outcome === "task_linked" && action.itemId) {
+        if (action.kind === "attach_codex_task" && resolution.task.taskId !== action.taskId) {
+          throw new DynaCliError(
+            "invalid_input",
+            "The reconciled Codex task does not match the selected attachment."
+          );
+        }
+        if (action.kind === "attach_codex_task") {
+          this.#taskAssociationReservationForAttachment(
+            unitOfWork,
+            action.itemId,
+            resolution.task.taskId,
+            requestId,
+            true
+          );
+        }
+        this.#assertCanonicalTaskObservation(unitOfWork, action.itemId, resolution.task);
+      }
+      const completed = unitOfWork.persistResolveActionReconciliation(
+        requestId,
+        resolution,
+        this.#taskAttachmentBlockerForAction(unitOfWork, requestId)
+      );
+      const reservation = action.kind === "attach_codex_task" ? unitOfWork.findTaskAssociationReservation(requestId) : void 0;
+      if (reservation && (reservation.state === "reserved" || reservation.state === "uncertain")) {
+        unitOfWork.transitionTaskAssociationReservation(
+          requestId,
+          resolution.outcome === "task_linked" ? "consumed" : "released",
+          this.#now()
+        );
+      }
+      return completed;
+    });
+  }
+  actionStatus(requestId) {
+    this.#requireCapability("action:execute");
+    return this.#repository.read((unitOfWork) => unitOfWork.loadAction(requestId));
   }
   recordWorkUpdate(dashboardId, itemId, expectedFingerprint, input) {
-    return this.store.recordWorkUpdate(dashboardId, itemId, expectedFingerprint, input);
-  }
-  enrichItem(dashboardId, itemId, expectedFingerprint, expectedEnrichmentVersion, input) {
-    return this.store.enrichItemFromCli(
+    this.#requireCapability("item:write");
+    if (TASK_ATTRIBUTED_WORK_KINDS.has(input.kind) && !input.task) {
+      throw new DynaCliError(
+        "invalid_input",
+        "This Dyna lifecycle update requires attribution to a linked Codex task."
+      );
+    }
+    const parsed = DynaWorkUpdateInputSchema.parse(input);
+    return this.#canonicalMutation(
       dashboardId,
       itemId,
-      expectedFingerprint,
-      expectedEnrichmentVersion,
-      input
+      parsed.requestId,
+      "item.update",
+      { expectedFingerprint, input: parsed },
+      (value) => DynaItemUpdateResultSchema.parse(value),
+      (unitOfWork) => {
+        const item = unitOfWork.findItemBase(itemId);
+        if (item?.fingerprint !== expectedFingerprint) {
+          throw new DynaCliError(
+            "stale_item",
+            "The Dyna item changed; run item show before updating it."
+          );
+        }
+        const archived = unitOfWork.findOpenArchive(dashboardId, itemId) !== void 0;
+        const positioned = archived ? void 0 : this.#positionedItem(unitOfWork, dashboardId, itemId);
+        const completed = positioned?.workflowState === "completed";
+        if ((archived || completed) && parsed.kind !== "note") {
+          throw new DynaCliError(
+            archived ? "archived_item" : "completed_item",
+            archived ? "Archived Dyna items accept historical notes only; create a follow-up for continued work." : "Completed Dyna items accept historical notes only; create a follow-up for continued work."
+          );
+        }
+        let taskTitle;
+        if (parsed.task) {
+          taskTitle = unitOfWork.findLinkedTaskTitle(
+            itemId,
+            parsed.task.taskId,
+            parsed.task.hostId
+          );
+          if (!taskTitle) {
+            throw new DynaCliError(
+              "task_not_linked",
+              "The attributed Codex task is not linked to this Dyna item."
+            );
+          }
+        }
+        const priorAttempt = unitOfWork.findWorkAttemptAttribution(itemId, parsed.workAttemptId);
+        if (priorAttempt && priorAttempt.taskId !== parsed.task?.taskId) {
+          throw new DynaCliError(
+            "request_conflict",
+            "A Dyna work attempt cannot be reassigned to a different Codex task; host routing may change after handoff."
+          );
+        }
+        const instant = this.#now();
+        const update = DynaWorkUpdateSchema.parse({
+          schema: "dyna/work-update-v1",
+          id: (0, import_node_crypto6.randomUUID)(),
+          itemId,
+          originDashboardId: dashboardId,
+          workAttemptId: parsed.workAttemptId,
+          kind: parsed.kind,
+          body: parsed.body,
+          ...parsed.outcome ? { outcome: parsed.outcome } : {},
+          artifacts: parsed.artifacts,
+          ...parsed.task ? { task: { ...parsed.task, title: taskTitle } } : {},
+          createdAt: instant
+        });
+        unitOfWork.insertWorkUpdate(update);
+        this.#touchItemDashboards(unitOfWork, itemId, instant);
+        unitOfWork.appendAudit(`item.work_updated.${update.kind}`, itemId, instant);
+        return DynaItemUpdateResultSchema.parse({
+          schema: "dyna/item-update-result-v1",
+          requestId: parsed.requestId,
+          itemId,
+          workUpdateId: update.id,
+          deduplicated: false
+        });
+      }
+    );
+  }
+  enrichItem(dashboardId, itemId, expectedFingerprint, expectedEnrichmentVersion, input) {
+    this.#requireCapability("item:write");
+    const parsed = DynaWorkEnrichInputSchema.parse(input);
+    const enrichedInput = { ...parsed, provenance: "codex-task" };
+    return this.#canonicalMutation(
+      dashboardId,
+      itemId,
+      parsed.requestId,
+      "item.enrich",
+      { expectedFingerprint, expectedEnrichmentVersion, input: enrichedInput },
+      (value) => DynaItemEnrichResultSchema.parse(value),
+      (unitOfWork) => {
+        const item = unitOfWork.findItemBase(itemId);
+        if (item?.fingerprint !== expectedFingerprint) {
+          throw new DynaCliError(
+            "stale_item",
+            "The Dyna item changed; run item show before enriching it."
+          );
+        }
+        const positioned = this.#positionedItem(unitOfWork, dashboardId, itemId);
+        if (!positioned) {
+          throw new DynaCliError(
+            "archived_item",
+            "Archived Dyna items cannot be enriched; restore or create a follow-up."
+          );
+        }
+        if (positioned.workflowState === "completed") {
+          throw new DynaCliError(
+            "completed_item",
+            "Completed Dyna items cannot be enriched; create a follow-up for continued work."
+          );
+        }
+        const priority = parsed.priority === void 0 ? void 0 : DynaPrioritySchema.parse(parsed.priority);
+        if (priority === "critical" && item.sourcePriority !== "critical") {
+          throw new DynaCliError(
+            "invalid_input",
+            "Dyna enrichment cannot set critical unless the source priority is already critical."
+          );
+        }
+        const currentVersion = unitOfWork.currentEnrichmentVersion(itemId);
+        if (currentVersion !== expectedEnrichmentVersion) {
+          throw new DynaCliError(
+            "stale_enrichment",
+            "The Dyna enrichment changed; run item show before replacing it."
+          );
+        }
+        const instant = this.#now();
+        const enrichmentVersion = unitOfWork.replaceEnrichment({
+          itemId,
+          ...parsed.summary !== void 0 ? { summary: parsed.summary } : {},
+          ...priority !== void 0 ? { priority } : {},
+          ...parsed.priorityReason !== void 0 ? { priorityReason: parsed.priorityReason } : {},
+          ...parsed.dueAt ? { dueAt: new Date(parsed.dueAt).toISOString() } : {},
+          dueAtSet: parsed.dueAt !== void 0,
+          ...parsed.labels !== void 0 ? { labels: parsed.labels } : {},
+          ...parsed.people !== void 0 ? { people: parsed.people } : {},
+          leadershipScore: dynaLeadershipScore(parsed.people ?? []),
+          ...parsed.attention !== void 0 ? { attention: parsed.attention } : {},
+          ...parsed.plan !== void 0 ? { plan: parsed.plan } : {},
+          ...parsed.nextSteps !== void 0 ? { nextSteps: parsed.nextSteps } : {},
+          baseFingerprint: expectedFingerprint,
+          baseSourceUpdatedAt: item.sourceUpdatedAt,
+          appliedAt: instant,
+          provenance: enrichedInput.provenance
+        });
+        this.#touchItemDashboards(unitOfWork, itemId, instant);
+        unitOfWork.appendAudit("item.enriched.cli", itemId, instant);
+        return DynaItemEnrichResultSchema.parse({
+          schema: "dyna/item-enrich-result-v1",
+          requestId: parsed.requestId,
+          itemId,
+          enrichmentVersion,
+          deduplicated: false
+        });
+      }
     );
   }
   placeItem(dashboardId, itemId, expectedRevision, expectedFingerprint, input) {
-    return this.store.placeItemFromCli(
+    this.#requireCapability("item:write");
+    const parsed = DynaOrganizePlaceInputSchema.parse(input);
+    return this.#canonicalMutation(
       dashboardId,
       itemId,
-      expectedRevision,
-      expectedFingerprint,
-      input
+      parsed.requestId,
+      "item.place",
+      { expectedRevision, expectedFingerprint, input: parsed },
+      (value) => DynaItemPlaceResultSchema.parse(value),
+      (unitOfWork) => {
+        const dashboard = unitOfWork.findDashboardState(dashboardId);
+        if (dashboard?.revision !== expectedRevision) {
+          throw new DynaCliError(
+            "stale_dashboard",
+            "The Dyna dashboard changed; run item show before moving this item."
+          );
+        }
+        const item = unitOfWork.findItemBase(itemId);
+        if (item?.fingerprint !== expectedFingerprint) {
+          throw new DynaCliError(
+            "stale_item",
+            "The Dyna item changed; run item show before moving it."
+          );
+        }
+        const positioned = this.#positionedItems(unitOfWork, dashboardId);
+        const source = positioned.find((candidate) => candidate.id === itemId);
+        if (!source) {
+          throw new DynaCliError(
+            "archived_item",
+            "Archived Dyna items cannot be placed; restore the item first."
+          );
+        }
+        if (source.workflowState === "completed") {
+          throw new DynaCliError(
+            "completed_item",
+            "Completed Dyna items cannot be placed; create a follow-up for continued work."
+          );
+        }
+        const placement = this.#placeProjectedItem(
+          unitOfWork,
+          dashboardId,
+          positioned,
+          itemId,
+          parsed.targetPriority,
+          parsed.beforeItemId,
+          "cli"
+        );
+        return DynaItemPlaceResultSchema.parse({
+          schema: "dyna/item-place-result-v1",
+          requestId: parsed.requestId,
+          itemId,
+          changed: placement.changed,
+          deduplicated: false
+        });
+      }
+    );
+  }
+  placeMany(dashboardId, expectedRevision, input) {
+    this.#requireCapability("item:write");
+    const parsed = DynaOrganizePlaceManyInputSchema.parse(input);
+    const items = [...parsed.items].sort((left, right) => left.itemId.localeCompare(right.itemId));
+    const anchor = items[0];
+    if (!anchor) {
+      throw new DynaCliError(
+        "invalid_input",
+        "Select between 1 and 200 Dyna items to change their priority group."
+      );
+    }
+    return this.#canonicalMutation(
+      dashboardId,
+      anchor.itemId,
+      parsed.requestId,
+      "organize.place-many",
+      { expectedRevision, items, targetPriority: parsed.targetPriority },
+      (value) => DynaPlaceManyResultSchema.parse(value),
+      (unitOfWork) => {
+        const dashboard = unitOfWork.findDashboardState(dashboardId);
+        if (dashboard?.revision !== expectedRevision) {
+          throw new DynaCliError(
+            "stale_dashboard",
+            "The Dyna dashboard changed; refresh before moving these items."
+          );
+        }
+        const placement = this.#placeProjectedItemsAsBlock(
+          unitOfWork,
+          dashboardId,
+          this.#positionedItems(unitOfWork, dashboardId),
+          items,
+          parsed.targetPriority,
+          "cli"
+        );
+        return DynaPlaceManyResultSchema.parse({
+          schema: "dyna/place-many-result-v1",
+          requestId: parsed.requestId,
+          dashboardId,
+          changed: placement.changed,
+          changedCount: placement.changedCount,
+          deduplicated: false
+        });
+      }
     );
   }
   archiveItem(dashboardId, itemId, expectedRevision, expectedFingerprint, input) {
-    return this.store.archiveItemFromCli(
+    this.#requireCapability("item:write");
+    const parsed = DynaLifecycleArchiveInputSchema.parse(input);
+    return this.#canonicalMutation(
       dashboardId,
       itemId,
-      expectedRevision,
-      expectedFingerprint,
-      input
+      parsed.requestId,
+      "item.archive",
+      { expectedRevision, expectedFingerprint, input: parsed },
+      (value) => DynaItemArchiveResultSchema.parse(value),
+      (unitOfWork) => {
+        const dashboard = unitOfWork.findDashboardState(dashboardId);
+        if (dashboard?.revision !== expectedRevision) {
+          throw new DynaCliError(
+            "stale_dashboard",
+            "The Dyna dashboard changed; run item show before archiving this item."
+          );
+        }
+        const positioned = this.#positionedItem(unitOfWork, dashboardId, itemId);
+        if (!positioned) {
+          throw new DynaCliError("archived_item", "The Dyna item is already archived.");
+        }
+        if (positioned.fingerprint !== expectedFingerprint) {
+          throw new DynaCliError(
+            "stale_item",
+            "The Dyna item changed; run item show before archiving it."
+          );
+        }
+        if (parsed.reason === "completed" && positioned.workflowState !== "completed") {
+          throw new DynaCliError(
+            "invalid_input",
+            "Only controller-confirmed completed work can use the Completed disposition."
+          );
+        }
+        const taskEvidence = unitOfWork.completionEvidence(itemId);
+        const completedAtMs = positioned.workflowState === "completed" ? taskEvidence.completedAtMs ?? positioned.userWorkflowCreatedMs : void 0;
+        const outcome = positioned.workflowState === "completed" ? taskEvidence.outcome ?? positioned.userWorkflowOutcome : void 0;
+        const archiveId = (0, import_node_crypto6.randomUUID)();
+        const archivedAt = this.#now();
+        unitOfWork.insertArchive({
+          id: archiveId,
+          dashboardId,
+          itemId,
+          reason: parsed.reason,
+          ...parsed.reasonDetail ? { reasonDetail: parsed.reasonDetail } : {},
+          mode: "manual",
+          archivedAt,
+          fingerprint: positioned.fingerprint,
+          workflowState: positioned.workflowState,
+          ...completedAtMs !== void 0 ? { completedAtMs } : {},
+          ...outcome ? { outcome } : {},
+          priority: positioned.effectivePriority,
+          ...positioned.preferenceSequence !== void 0 ? { sequence: positioned.preferenceSequence } : {}
+        });
+        unitOfWork.touchDashboards([dashboardId], archivedAt);
+        unitOfWork.appendAudit(`item.archived.${parsed.reason}.manual.cli`, itemId, archivedAt);
+        return DynaItemArchiveResultSchema.parse({
+          schema: "dyna/item-archive-result-v1",
+          requestId: parsed.requestId,
+          itemId,
+          archiveId,
+          archivedAt,
+          reason: parsed.reason,
+          deduplicated: false
+        });
+      }
     );
   }
-  restoreItem(dashboardId, itemId, expectedRevision, expectedFingerprint, requestId) {
-    return this.store.restoreItemFromCli(
+  restoreItem(dashboardId, itemId, expectedRevision, expectedFingerprint, input) {
+    this.#requireCapability("item:write");
+    const parsed = DynaLifecycleRestoreInputSchema.parse(input);
+    return this.#canonicalMutation(
       dashboardId,
       itemId,
-      expectedRevision,
-      expectedFingerprint,
-      requestId
+      parsed.requestId,
+      "item.restore",
+      { expectedRevision, expectedFingerprint },
+      (value) => DynaItemRestoreResultSchema.parse(value),
+      (unitOfWork) => {
+        const dashboard = unitOfWork.findDashboardState(dashboardId);
+        if (dashboard?.revision !== expectedRevision) {
+          throw new DynaCliError(
+            "stale_dashboard",
+            "The Dyna dashboard changed; run item show before restoring this item."
+          );
+        }
+        const item = unitOfWork.findItemBase(itemId);
+        if (item?.fingerprint !== expectedFingerprint) {
+          throw new DynaCliError(
+            "stale_item",
+            "The Dyna item changed; run item show before restoring it."
+          );
+        }
+        const archive = unitOfWork.findOpenArchive(dashboardId, itemId);
+        if (!archive) {
+          throw new DynaCliError(
+            "invalid_input",
+            "The Dyna item is not currently archived in this dashboard."
+          );
+        }
+        const restoredAt = this.#now();
+        if (!unitOfWork.restoreArchive(archive.id, restoredAt)) {
+          throw new DynaCliError(
+            "invalid_input",
+            "The Dyna item is not currently archived in this dashboard."
+          );
+        }
+        unitOfWork.touchDashboards([dashboardId], restoredAt);
+        unitOfWork.appendAudit("item.restored.cli", itemId, restoredAt);
+        return DynaItemRestoreResultSchema.parse({
+          schema: "dyna/item-restore-result-v1",
+          requestId: parsed.requestId,
+          itemId,
+          restoredAt,
+          deduplicated: false
+        });
+      }
+    );
+  }
+  createTodo(dashboardId, input) {
+    this.#requireCapability("item:write");
+    const parsed = DynaTodoCreateInputSchema.parse(input);
+    const { requestId, ...todoInput } = parsed;
+    const todo = DynaTodoInputSchema.parse(todoInput);
+    return this.#repository.write(
+      (unitOfWork) => this.#createTodoWithReceipt(unitOfWork, dashboardId, todo, requestId)
     );
   }
   createFollowUp(dashboardId, sourceItemId, expectedRevision, expectedFingerprint, input) {
-    return this.store.createFollowUpFromCli(
+    this.#requireCapability("item:write");
+    const parsed = DynaFollowUpCreateInputSchema.parse(input);
+    const { requestId, ...todoInput } = parsed;
+    const todo = DynaTodoInputSchema.parse({ ...todoInput, followUpOfItemId: sourceItemId });
+    return this.#canonicalMutation(
       dashboardId,
       sourceItemId,
-      expectedRevision,
-      expectedFingerprint,
-      input
+      requestId,
+      "follow-up.create",
+      { expectedRevision, expectedFingerprint, input: parsed },
+      (value, unitOfWork) => {
+        const current = DynaFollowUpCreateResultSchema.safeParse(value);
+        if (current.success) return current.data;
+        const legacy = LegacyDynaFollowUpCreateResultSchema.parse(value);
+        if (legacy.requestId !== requestId || legacy.sourceItemId !== sourceItemId) {
+          throw new DynaCliError(
+            "request_conflict",
+            "The stored Dyna follow-up receipt does not match this request."
+          );
+        }
+        const created = unitOfWork.findItemBase(legacy.itemId);
+        const source = unitOfWork.findItemBase(legacy.sourceItemId);
+        const createdContext = unitOfWork.loadItemContext(legacy.itemId);
+        if (!created || !source || created.fingerprint !== legacy.fingerprint || createdContext.followUpOfItemId !== legacy.sourceItemId) {
+          throw new Error("The stored Dyna follow-up receipt is inconsistent.");
+        }
+        return DynaFollowUpCreateResultSchema.parse({
+          ...legacy,
+          schema: "dyna/follow-up-create-result-v2",
+          itemNumber: created.itemNumber,
+          sourceItemNumber: source.itemNumber
+        });
+      },
+      (unitOfWork) => {
+        const dashboard = unitOfWork.findDashboardState(dashboardId);
+        if (dashboard?.revision !== expectedRevision) {
+          throw new DynaCliError(
+            "stale_dashboard",
+            "The Dyna dashboard changed; run item show before creating a follow-up."
+          );
+        }
+        const source = unitOfWork.findItemBase(sourceItemId);
+        if (source?.fingerprint !== expectedFingerprint) {
+          throw new DynaCliError(
+            "stale_item",
+            "The Dyna item changed; run item show before creating a follow-up."
+          );
+        }
+        const archived = unitOfWork.findOpenArchive(dashboardId, sourceItemId) !== void 0;
+        const positioned = archived ? void 0 : this.#positionedItem(unitOfWork, dashboardId, sourceItemId);
+        if (!archived && positioned?.workflowState !== "completed") {
+          throw new DynaCliError(
+            "invalid_input",
+            "Follow-ups can only be created from completed or archived Dyna items."
+          );
+        }
+        const created = this.#createManualItem(
+          unitOfWork,
+          dashboardId,
+          todo,
+          "Follow-up created from completed or archived Dyna work.",
+          "Follow-up work created from Dyna.",
+          sourceItemId
+        );
+        unitOfWork.touchDashboards([dashboardId], created.instant);
+        unitOfWork.appendAudit("todo.follow_up.created.cli", created.itemId, created.instant);
+        return DynaFollowUpCreateResultSchema.parse({
+          schema: "dyna/follow-up-create-result-v2",
+          requestId,
+          itemId: created.itemId,
+          itemNumber: created.itemNumber,
+          sourceItemId,
+          sourceItemNumber: source.itemNumber,
+          fingerprint: created.fingerprint,
+          deduplicated: false
+        });
+      }
     );
   }
 };
 
 // packages/mcp-server/src/plugins/dyna.ts
 var DYNA_PLUGIN_ID = "dyna";
-var DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v15.html";
+var DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v17.html";
 var LEGACY_DYNA_TEMPLATE_URIS = [
-  "ui://flowzone/dyna/v14.html",
-  "ui://flowzone/dyna/v13.html"
+  "ui://flowzone/dyna/v16.html",
+  "ui://flowzone/dyna/v15.html",
+  "ui://flowzone/dyna/v14.html"
 ];
+var DYNA_MCP_ACTOR = {
+  kind: "mcp_host",
+  capabilities: [
+    "dashboard:read",
+    "dashboard:manage",
+    "item:read",
+    "item:write",
+    "publisher:publish",
+    "publisher:manage",
+    "view:interact",
+    "action:execute",
+    "task:observe"
+  ]
+};
 var DashboardIdSchema = external_exports.object({ dashboardId: external_exports.uuid() }).strict();
+var ApplyEnrichmentInputSchema = external_exports.object({
+  itemId: external_exports.uuid(),
+  expectedFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
+  expectedEnrichmentVersion: external_exports.number().int().nonnegative(),
+  summary: external_exports.string().trim().min(1).max(1e3).optional(),
+  priority: DynaPrioritySchema.optional(),
+  priorityReason: external_exports.string().trim().min(1).max(500).optional(),
+  dueAt: external_exports.iso.datetime({ offset: true }).nullable().optional(),
+  labels: external_exports.array(external_exports.string().trim().min(1).max(64)).max(20).optional(),
+  people: external_exports.array(DynaPersonSignalSchema).max(8).optional(),
+  attention: external_exports.string().trim().min(1).max(500).optional(),
+  plan: external_exports.array(external_exports.string().trim().min(1).max(200)).max(4).optional(),
+  nextSteps: external_exports.array(DynaNextStepSchema).max(4).optional(),
+  provenance: external_exports.string().trim().min(1).max(128).default("codex-main-chat")
+}).strict();
 var ViewTokenSchema = external_exports.object({
   viewToken: external_exports.string().min(32).max(128),
   currentRevision: external_exports.number().int().nonnegative().optional(),
@@ -59113,12 +62925,27 @@ var OrganizeItemInputSchema = external_exports.discriminatedUnion("action", [
 ]);
 var EmptyResultSchema2 = external_exports.object({ ok: external_exports.literal(true) }).strict();
 var DashboardListSchema = external_exports.object({ dashboards: external_exports.array(DynaDashboardSchema).max(100) }).strict();
-var IdentifierSchema3 = external_exports.string().trim().min(1).max(256);
+var IdentifierSchema4 = external_exports.string().trim().min(1).max(256);
+var TaskAssociationCheckInputSchema = external_exports.object({
+  dashboardId: external_exports.uuid(),
+  itemId: external_exports.uuid(),
+  taskId: IdentifierSchema4,
+  reservationRequestId: external_exports.uuid()
+}).strict();
+var TaskAssociationCheckResultSchema = external_exports.discriminatedUnion("association", [
+  external_exports.object({
+    association: external_exports.literal("attachable"),
+    reservationId: external_exports.uuid(),
+    expiresAt: external_exports.iso.datetime({ offset: true })
+  }).strict(),
+  external_exports.object({ association: external_exports.literal("same_item"), hostId: IdentifierSchema4 }).strict(),
+  external_exports.object({ association: external_exports.literal("not_attachable") }).strict()
+]);
 var PrepareActionInputSchema = external_exports.object({
   viewToken: external_exports.string().min(32).max(128),
   itemId: external_exports.uuid(),
-  taskId: IdentifierSchema3.optional(),
-  taskHostId: IdentifierSchema3.optional(),
+  taskId: IdentifierSchema4.optional(),
+  taskHostId: IdentifierSchema4.optional(),
   sessionListRequestId: external_exports.uuid().optional(),
   kind: DynaActionKindSchema,
   expectedRevision: external_exports.number().int().nonnegative(),
@@ -59174,34 +63001,10 @@ var PrepareActionInputSchema = external_exports.object({
   }
 });
 var ScheduleSchema = external_exports.object({
-  scheduleId: IdentifierSchema3,
+  scheduleId: IdentifierSchema4,
   scheduleTitle: external_exports.string().trim().min(1).max(200),
   scheduleState: external_exports.enum(["active", "paused", "unknown"]),
   staleAfterMinutes: external_exports.number().int().min(5).max(43200).default(1440)
-}).strict();
-var SearchItemSchema = external_exports.object({
-  itemId: external_exports.uuid(),
-  fingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
-  title: external_exports.string().trim().min(1).max(200),
-  summary: external_exports.string().trim().min(1).max(1e3),
-  sourceRef: DynaSourceRefSchema,
-  priority: DynaPrioritySchema,
-  priorityReason: external_exports.string().trim().min(1).max(500),
-  sourceUpdatedAt: external_exports.iso.datetime({ offset: true }),
-  dueAt: external_exports.iso.datetime({ offset: true }).optional(),
-  workflowState: external_exports.enum(["todo", "executing", "paused", "attention", "completed"]),
-  attention: external_exports.string().trim().min(1).max(500).optional(),
-  plan: external_exports.array(external_exports.string().trim().min(1).max(200)).max(4),
-  nextSteps: external_exports.array(DynaNextStepSchema).max(4),
-  outcome: external_exports.string().trim().min(1).max(200).optional(),
-  workState: DynaWorkStateSchema.optional(),
-  workUpdates: external_exports.array(DynaWorkUpdateSchema).max(1),
-  workUpdateCount: external_exports.number().int().nonnegative(),
-  workConditionSummary: external_exports.string().trim().min(1).max(200).optional(),
-  workConditionTask: DynaWorkTaskAttributionSchema.optional(),
-  matchedActivity: external_exports.string().trim().min(1).max(500).optional(),
-  linkedTasks: external_exports.array(DynaTaskStatusSchema).max(8),
-  archive: DynaArchiveStateSchema.optional()
 }).strict();
 var PublisherCreationResultSchema = external_exports.discriminatedUnion("credentialHandling", [
   external_exports.object({
@@ -59245,8 +63048,34 @@ var ReconciliationInputSchema = external_exports.discriminatedUnion("outcome", [
     explanation: external_exports.string().trim().min(1).max(500)
   }).strict()
 ]);
+var TaskSyncViewInputSchema = external_exports.object({
+  viewToken: external_exports.string().min(32).max(128),
+  runId: external_exports.uuid()
+}).strict();
+var BeginTaskSyncInputSchema = external_exports.object({
+  viewToken: external_exports.string().min(32).max(128),
+  scope: DynaTaskSyncScopeSchema
+}).strict();
+var ClaimTaskSyncInputSchema = external_exports.object({ runId: external_exports.uuid() }).strict();
+var SubmitTaskSyncBatchInputSchema = DynaTaskSyncBatchInputSchema.safeExtend({
+  runId: external_exports.uuid(),
+  claimToken: external_exports.string().min(32).max(128)
+}).strict();
+var CompleteTaskSyncInputSchema = DynaTaskSyncCompleteInputSchema.extend({
+  runId: external_exports.uuid(),
+  claimToken: external_exports.string().min(32).max(128)
+}).strict();
+function cancellationAware(tool) {
+  return {
+    ...tool,
+    handler(input, context) {
+      if (context.signal.aborted) throw context.signal.reason;
+      return tool.handler(input, context);
+    }
+  };
+}
 function appTools(service) {
-  return [
+  const tools = [
     {
       name: "dyna_get_snapshot",
       title: "Refresh Dyna dashboard",
@@ -59267,6 +63096,72 @@ function appTools(service) {
           structuredContent: { revision: payload.snapshot.revision, changed },
           content: [],
           _meta: { dynaDashboard: payload }
+        };
+      }
+    },
+    {
+      name: "dyna_begin_task_sync",
+      title: "Synchronize linked Codex tasks",
+      description: "Create or join one bounded linked-task synchronization run for the capability-bound Dyna view.",
+      inputSchema: BeginTaskSyncInputSchema,
+      outputSchema: DynaTaskSyncBeginResultSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+        idempotentHint: true
+      },
+      handler(input) {
+        const { viewToken, scope } = BeginTaskSyncInputSchema.parse(input);
+        return {
+          structuredContent: DynaTaskSyncBeginResultSchema.parse(
+            service.beginTaskSyncForView(viewToken, scope)
+          ),
+          content: []
+        };
+      }
+    },
+    {
+      name: "dyna_mark_task_sync_delivered",
+      title: "Confirm Dyna task synchronization delivery",
+      description: "Mark one capability-bound task synchronization run ready for its hosting Codex task.",
+      inputSchema: TaskSyncViewInputSchema,
+      outputSchema: DynaTaskSyncStatusResultSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+        idempotentHint: true
+      },
+      handler(input) {
+        const { viewToken, runId } = TaskSyncViewInputSchema.parse(input);
+        return {
+          structuredContent: DynaTaskSyncStatusResultSchema.parse(
+            service.markTaskSyncDeliveredForView(viewToken, runId)
+          ),
+          content: []
+        };
+      }
+    },
+    {
+      name: "dyna_task_sync_status",
+      title: "Read Dyna task synchronization status",
+      description: "Return public progress for one capability-bound synchronization run without controller capabilities or task content.",
+      inputSchema: TaskSyncViewInputSchema,
+      outputSchema: DynaTaskSyncStatusResultSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+        idempotentHint: true
+      },
+      handler(input) {
+        const { viewToken, runId } = TaskSyncViewInputSchema.parse(input);
+        return {
+          structuredContent: DynaTaskSyncStatusResultSchema.parse(
+            service.taskSyncStatusForView(viewToken, runId)
+          ),
+          content: []
         };
       }
     },
@@ -59299,7 +63194,7 @@ function appTools(service) {
           cursor: external_exports.string().trim().min(1).max(512).optional(),
           limit: external_exports.number().int().min(1).max(25).default(25)
         }).strict().parse(input);
-        const dashboardId = service.store.authorizeView(viewToken, itemId);
+        const dashboardId = service.authorizeView(viewToken, itemId);
         const page = DynaWorkActivityPageSchema.parse(
           service.itemActivityPage(dashboardId, itemId, {
             limit,
@@ -59374,7 +63269,7 @@ function appTools(service) {
           expectedFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
           clientRequestId: external_exports.uuid()
         }).strict().parse(input);
-        const result = service.store.archiveItem(parsed.viewToken, parsed.itemId, {
+        const result = service.archiveItemForView(parsed.viewToken, parsed.itemId, {
           reason: parsed.reason,
           ...parsed.reasonDetail ? { reasonDetail: parsed.reasonDetail } : {},
           expectedRevision: parsed.expectedRevision,
@@ -59414,7 +63309,7 @@ function appTools(service) {
           clientRequestId: external_exports.uuid()
         }).strict().parse(input);
         return {
-          structuredContent: service.store.restoreItem(parsed.viewToken, parsed.itemId, parsed),
+          structuredContent: service.restoreItemForView(parsed.viewToken, parsed.itemId, parsed),
           content: []
         };
       }
@@ -59433,7 +63328,7 @@ function appTools(service) {
       },
       handler(input) {
         const parsed = AddAnnotationInputSchema.parse(input);
-        const annotation = service.store.addAnnotation(
+        const annotation = service.addAnnotation(
           parsed.viewToken,
           parsed.itemId,
           parsed.clientRequestId,
@@ -59462,7 +63357,7 @@ function appTools(service) {
           viewToken: external_exports.string().min(32).max(128),
           clientRequestId: external_exports.uuid()
         }).extend(DynaTodoInputSchema.shape).strict().parse(input);
-        const itemId = service.store.addTodo(
+        const itemId = service.addTodo(
           parsed.viewToken,
           {
             title: parsed.title,
@@ -59492,7 +63387,7 @@ function appTools(service) {
       handler(input) {
         const parsed = OrganizeItemInputSchema.parse(input);
         if (parsed.action === "group") {
-          const result2 = service.store.groupItems(
+          const result2 = service.groupItems(
             parsed.viewToken,
             parsed.items,
             parsed.targetPriority,
@@ -59500,14 +63395,14 @@ function appTools(service) {
           );
           return { structuredContent: result2, content: [] };
         }
-        const result = parsed.action === "place" ? service.store.placeItem(
+        const result = parsed.action === "place" ? service.placeItemForView(
           parsed.viewToken,
           parsed.itemId,
           parsed.targetPriority,
           parsed.beforeItemId,
           parsed.expectedRevision,
           parsed.expectedFingerprint
-        ) : service.store.organizeItem(
+        ) : service.organizeItem(
           parsed.viewToken,
           parsed.itemId,
           parsed.action,
@@ -59534,7 +63429,7 @@ function appTools(service) {
       },
       handler(input) {
         const parsed = PrepareActionInputSchema.parse(input);
-        const request = service.store.prepareAction(parsed.viewToken, parsed.kind, {
+        const request = service.prepareAction(parsed.viewToken, parsed.kind, {
           itemId: parsed.itemId,
           ...parsed.taskId ? { taskId: parsed.taskId } : {},
           ...parsed.taskHostId ? { taskHostId: parsed.taskHostId } : {},
@@ -59563,7 +63458,7 @@ function appTools(service) {
       },
       handler(input) {
         const parsed = external_exports.object({ viewToken: external_exports.string().min(32).max(128), requestId: external_exports.uuid() }).strict().parse(input);
-        const request = service.store.markDelivered(parsed.viewToken, parsed.requestId);
+        const request = service.markDelivered(parsed.viewToken, parsed.requestId);
         return { structuredContent: { state: request.state }, content: [] };
       }
     },
@@ -59581,7 +63476,7 @@ function appTools(service) {
       },
       handler(input) {
         const { viewToken, requestId } = external_exports.object({ viewToken: external_exports.string().min(32).max(128), requestId: external_exports.uuid() }).strict().parse(input);
-        const status = service.store.actionStatusForView(viewToken, requestId);
+        const status = service.actionStatusForView(viewToken, requestId);
         const { candidates, ...request } = status;
         return {
           structuredContent: request,
@@ -59591,9 +63486,10 @@ function appTools(service) {
       }
     }
   ];
+  return tools.map(cancellationAware);
 }
 function createDynaPlugin(options = {}) {
-  const service = options.service ?? new DynaService();
+  const service = options.service ?? new DynaApplicationService({ actor: DYNA_MCP_ACTOR });
   return {
     id: DYNA_PLUGIN_ID,
     displayName: "Dyna",
@@ -59609,7 +63505,7 @@ function createDynaPlugin(options = {}) {
           doneRetentionHours: external_exports.number().int().min(1).max(8760).default(24)
         }).strict(),
         outputSchema: DynaDashboardSchema,
-        risk: { readOnly: false, destructive: false, openWorld: false, idempotent: false },
+        risk: { readOnly: false, destructive: false, openWorld: false, idempotent: true },
         executor: {
           kind: "module",
           execute(input) {
@@ -59618,7 +63514,7 @@ function createDynaPlugin(options = {}) {
               description: external_exports.string().trim().max(500).default(""),
               doneRetentionHours: external_exports.number().int().min(1).max(8760).default(24)
             }).strict().parse(input);
-            const dashboard = service.store.createDashboard(
+            const dashboard = service.createDashboard(
               parsed.name,
               parsed.description,
               parsed.doneRetentionHours
@@ -59650,7 +63546,7 @@ function createDynaPlugin(options = {}) {
               archived: external_exports.boolean().optional(),
               doneRetentionHours: external_exports.number().int().min(1).max(8760).optional()
             }).strict().parse(input);
-            const dashboard = service.store.updateDashboard(parsed.dashboardId, {
+            const dashboard = service.updateDashboard(parsed.dashboardId, {
               ...parsed.name !== void 0 ? { name: parsed.name } : {},
               ...parsed.description !== void 0 ? { description: parsed.description } : {},
               ...parsed.archived !== void 0 ? { archived: parsed.archived } : {},
@@ -59671,7 +63567,7 @@ function createDynaPlugin(options = {}) {
           kind: "module",
           execute(input) {
             const parsed = external_exports.object({ dashboardId: external_exports.uuid(), confirmDashboardId: external_exports.uuid() }).strict().parse(input);
-            service.store.purgeDashboard(parsed.dashboardId, parsed.confirmDashboardId);
+            service.purgeDashboard(parsed.dashboardId, parsed.confirmDashboardId);
             return { result: { ok: true } };
           }
         }
@@ -59686,7 +63582,7 @@ function createDynaPlugin(options = {}) {
         executor: {
           kind: "module",
           execute() {
-            return { result: { dashboards: service.store.listDashboards() } };
+            return { result: { dashboards: service.listDashboards().dashboards } };
           }
         }
       },
@@ -59699,14 +63595,8 @@ function createDynaPlugin(options = {}) {
           query: external_exports.string().trim().max(500).default(""),
           scope: external_exports.enum(["active", "archive"]).default("active")
         }).strict(),
-        outputSchema: external_exports.object({
-          dashboard: DynaDashboardSchema,
-          revision: external_exports.number().int().nonnegative(),
-          freshness: external_exports.enum(["fresh", "aging", "stale"]),
-          total: external_exports.number().int().nonnegative(),
-          items: external_exports.array(SearchItemSchema).max(20)
-        }).strict(),
-        risk: { readOnly: false, destructive: false, openWorld: false, idempotent: true },
+        outputSchema: DynaItemSearchResultSchema,
+        risk: { readOnly: true, destructive: false, openWorld: false, idempotent: true },
         executor: {
           kind: "module",
           execute(input) {
@@ -59715,39 +63605,7 @@ function createDynaPlugin(options = {}) {
               query: external_exports.string().trim().max(500).default(""),
               scope: external_exports.enum(["active", "archive"]).default("active")
             }).strict().parse(input);
-            const snapshot = service.store.snapshot(dashboardId, query, scope);
-            return {
-              result: {
-                dashboard: snapshot.dashboard,
-                revision: snapshot.revision,
-                freshness: snapshot.freshness,
-                total: scope === "archive" ? snapshot.counts.archived : snapshot.counts.total,
-                items: snapshot.cards.slice(0, 20).map((card) => ({
-                  itemId: card.id,
-                  fingerprint: card.fingerprint,
-                  title: card.title,
-                  summary: card.summary,
-                  sourceRef: card.sourceRef,
-                  priority: card.priority,
-                  priorityReason: card.priorityReason,
-                  sourceUpdatedAt: card.sourceUpdatedAt,
-                  ...card.dueAt ? { dueAt: card.dueAt } : {},
-                  workflowState: card.workflowState,
-                  ...card.attention ? { attention: card.attention } : {},
-                  plan: card.plan,
-                  nextSteps: card.nextSteps,
-                  ...card.outcome ? { outcome: card.outcome } : {},
-                  ...card.workState ? { workState: card.workState } : {},
-                  workUpdates: card.workUpdates,
-                  workUpdateCount: card.workUpdateCount,
-                  ...card.workConditionSummary ? { workConditionSummary: card.workConditionSummary } : {},
-                  ...card.workConditionTask ? { workConditionTask: card.workConditionTask } : {},
-                  ...card.matchedActivity ? { matchedActivity: card.matchedActivity } : {},
-                  linkedTasks: card.linkedTasks,
-                  ...card.archive ? { archive: card.archive } : {}
-                }))
-              }
-            };
+            return { result: service.searchItems(dashboardId, query, scope) };
           }
         }
       },
@@ -59772,7 +63630,7 @@ function createDynaPlugin(options = {}) {
               requiredSourceSlices: DynaRequiredSourceSlicesSchema,
               credentialMode: DynaCredentialModeSchema.default("disabled")
             }).strict().parse(input);
-            const created = service.store.createPublisher(
+            const created = service.createPublisher(
               name,
               schedule ? {
                 id: schedule.scheduleId,
@@ -59837,7 +63695,7 @@ function createDynaPlugin(options = {}) {
             return {
               result: {
                 publisherId,
-                secret: service.store.rotatePublisherSecret(publisherId),
+                secret: service.rotatePublisherSecret(publisherId),
                 credentialHandling: "model-visible-trusted-local-preview-only"
               }
             };
@@ -59855,7 +63713,7 @@ function createDynaPlugin(options = {}) {
           kind: "module",
           execute(input) {
             const { publisherId } = external_exports.object({ publisherId: external_exports.uuid() }).strict().parse(input);
-            service.store.enableLocalCliPublisher(publisherId);
+            service.enableLocalCliPublisher(publisherId);
             return { result: { ok: true } };
           }
         }
@@ -59871,7 +63729,7 @@ function createDynaPlugin(options = {}) {
           kind: "module",
           execute(input) {
             const { publisherId, purgePublishedData } = external_exports.object({ publisherId: external_exports.uuid(), purgePublishedData: external_exports.boolean().default(false) }).strict().parse(input);
-            service.store.revokePublisher(publisherId, purgePublishedData);
+            service.revokePublisher(publisherId, purgePublishedData);
             return { result: { ok: true } };
           }
         }
@@ -59895,7 +63753,7 @@ function createDynaPlugin(options = {}) {
               publisherId: external_exports.uuid(),
               requiredSourceSlices: DynaRequiredSourceSlicesSchema.optional()
             }).extend(ScheduleSchema.shape).strict().parse(input);
-            service.store.bindSchedule(parsed.dashboardId, parsed.publisherId, {
+            service.bindSchedule(parsed.dashboardId, parsed.publisherId, {
               id: parsed.scheduleId,
               title: parsed.scheduleTitle,
               state: parsed.scheduleState,
@@ -59917,7 +63775,7 @@ function createDynaPlugin(options = {}) {
           kind: "module",
           execute(input) {
             const { dashboardId, publisherId } = external_exports.object({ dashboardId: external_exports.uuid(), publisherId: external_exports.uuid() }).strict().parse(input);
-            service.store.unbindSchedule(dashboardId, publisherId);
+            service.unbindSchedule(dashboardId, publisherId);
             return { result: { ok: true } };
           }
         }
@@ -59933,7 +63791,7 @@ function createDynaPlugin(options = {}) {
           kind: "module",
           execute(input) {
             const { dashboardId } = external_exports.object({ dashboardId: external_exports.uuid().optional() }).strict().parse(input);
-            return { result: { publishers: service.store.listPublishers(dashboardId) } };
+            return { result: { publishers: service.listPublishers(dashboardId) } };
           }
         }
       },
@@ -59960,7 +63818,7 @@ function createDynaPlugin(options = {}) {
               staleAfterMinutes: external_exports.number().int().min(5).max(43200).optional(),
               requiredSourceSlices: DynaRequiredSourceSlicesSchema.optional()
             }).strict().parse(input);
-            service.store.updateScheduleStatus(parsed.publisherId, {
+            service.updateScheduleStatus(parsed.publisherId, {
               ...parsed.scheduleTitle ? { title: parsed.scheduleTitle } : {},
               state: parsed.scheduleState,
               ...parsed.staleAfterMinutes ? { staleAfterMinutes: parsed.staleAfterMinutes } : {},
@@ -59977,7 +63835,7 @@ function createDynaPlugin(options = {}) {
         inputSchema: external_exports.object({
           publisherId: external_exports.uuid(),
           secret: external_exports.string().min(32).max(128),
-          runId: IdentifierSchema3,
+          runId: IdentifierSchema4,
           sourceCompletedAt: external_exports.iso.datetime({ offset: true }),
           mode: external_exports.enum(["replace", "upsert"]).default("replace"),
           status: external_exports.enum(["succeeded", "partial", "failed"]).default("succeeded"),
@@ -59998,7 +63856,7 @@ function createDynaPlugin(options = {}) {
             const parsed = external_exports.object({
               publisherId: external_exports.uuid(),
               secret: external_exports.string().min(32).max(128),
-              runId: IdentifierSchema3,
+              runId: IdentifierSchema4,
               sourceCompletedAt: external_exports.iso.datetime({ offset: true }),
               mode: external_exports.enum(["replace", "upsert"]).default("replace"),
               status: external_exports.enum(["succeeded", "partial", "failed"]).default("succeeded"),
@@ -60024,42 +63882,14 @@ function createDynaPlugin(options = {}) {
         id: "apply-enrichment",
         title: "Enrich Dyna item",
         description: "Replace the bounded enrichment overlay for the current item fingerprint and increment every bound dashboard revision.",
-        inputSchema: external_exports.object({
-          itemId: external_exports.uuid(),
-          expectedFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
-          expectedEnrichmentVersion: external_exports.number().int().nonnegative(),
-          summary: external_exports.string().trim().min(1).max(1e3).optional(),
-          priority: DynaPrioritySchema.optional(),
-          priorityReason: external_exports.string().trim().min(1).max(500).optional(),
-          dueAt: external_exports.iso.datetime({ offset: true }).nullable().optional(),
-          labels: external_exports.array(external_exports.string().trim().min(1).max(64)).max(20).optional(),
-          people: external_exports.array(DynaPersonSignalSchema).max(8).optional(),
-          attention: external_exports.string().trim().min(1).max(500).optional(),
-          plan: external_exports.array(external_exports.string().trim().min(1).max(200)).max(4).optional(),
-          nextSteps: external_exports.array(DynaNextStepSchema).max(4).optional(),
-          provenance: external_exports.string().trim().min(1).max(128).default("codex-main-chat")
-        }).strict(),
+        inputSchema: ApplyEnrichmentInputSchema,
         outputSchema: EmptyResultSchema2,
         risk: { readOnly: false, destructive: false, openWorld: false, idempotent: false },
         executor: {
           kind: "module",
           execute(input) {
-            const parsed = external_exports.object({
-              itemId: external_exports.uuid(),
-              expectedFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
-              expectedEnrichmentVersion: external_exports.number().int().nonnegative(),
-              summary: external_exports.string().trim().min(1).max(1e3).optional(),
-              priority: DynaPrioritySchema.optional(),
-              priorityReason: external_exports.string().trim().min(1).max(500).optional(),
-              dueAt: external_exports.iso.datetime({ offset: true }).nullable().optional(),
-              labels: external_exports.array(external_exports.string().trim().min(1).max(64)).max(20).optional(),
-              people: external_exports.array(DynaPersonSignalSchema).max(8).optional(),
-              attention: external_exports.string().trim().min(1).max(500).optional(),
-              plan: external_exports.array(external_exports.string().trim().min(1).max(200)).max(4).optional(),
-              nextSteps: external_exports.array(DynaNextStepSchema).max(4).optional(),
-              provenance: external_exports.string().trim().min(1).max(128).default("codex-main-chat")
-            }).strict().parse(input);
-            service.store.applyEnrichment(parsed.itemId, {
+            const parsed = ApplyEnrichmentInputSchema.parse(input);
+            service.applyEnrichment(parsed.itemId, {
               expectedFingerprint: parsed.expectedFingerprint,
               expectedEnrichmentVersion: parsed.expectedEnrichmentVersion,
               ...parsed.summary !== void 0 ? { summary: parsed.summary } : {},
@@ -60088,8 +63918,7 @@ function createDynaPlugin(options = {}) {
           kind: "module",
           execute(input) {
             const { dashboardId, itemId } = external_exports.object({ dashboardId: external_exports.uuid(), itemId: external_exports.uuid() }).strict().parse(input);
-            service.store.assertDashboardContainsItem(dashboardId, itemId);
-            return { result: service.store.itemContext(itemId) };
+            return { result: service.getItemContext(dashboardId, itemId) };
           }
         }
       },
@@ -60141,17 +63970,49 @@ function createDynaPlugin(options = {}) {
         }
       },
       {
+        id: "check-codex-task-association",
+        title: "Check Codex task association",
+        description: "Reserve one exact Codex task for a Dyna item before changing the native task title.",
+        inputSchema: TaskAssociationCheckInputSchema,
+        outputSchema: TaskAssociationCheckResultSchema,
+        risk: { readOnly: false, destructive: false, openWorld: false, idempotent: false },
+        executor: {
+          kind: "module",
+          execute(input) {
+            const { dashboardId, itemId, taskId, reservationRequestId } = TaskAssociationCheckInputSchema.parse(input);
+            return {
+              result: service.checkTaskAssociation(
+                dashboardId,
+                itemId,
+                taskId,
+                reservationRequestId
+              )
+            };
+          }
+        }
+      },
+      {
         id: "attach-codex-task",
         title: "Attach Codex task to Dyna item",
         description: "Attach controller-observed metadata for an existing Codex task so its status can be shown and refreshed from the dashboard.",
-        inputSchema: external_exports.object({ dashboardId: external_exports.uuid(), itemId: external_exports.uuid(), task: DynaTaskStatusSchema }).strict(),
+        inputSchema: external_exports.object({
+          dashboardId: external_exports.uuid(),
+          itemId: external_exports.uuid(),
+          task: DynaTaskStatusSchema,
+          associationReservationId: external_exports.uuid().optional()
+        }).strict(),
         outputSchema: EmptyResultSchema2,
         risk: { readOnly: false, destructive: false, openWorld: false, idempotent: true },
         executor: {
           kind: "module",
           execute(input) {
-            const { dashboardId, itemId, task } = external_exports.object({ dashboardId: external_exports.uuid(), itemId: external_exports.uuid(), task: DynaTaskStatusSchema }).strict().parse(input);
-            service.updateTask(dashboardId, itemId, task);
+            const { dashboardId, itemId, task, associationReservationId } = external_exports.object({
+              dashboardId: external_exports.uuid(),
+              itemId: external_exports.uuid(),
+              task: DynaTaskStatusSchema,
+              associationReservationId: external_exports.uuid().optional()
+            }).strict().parse(input);
+            service.updateTask(dashboardId, itemId, task, associationReservationId);
             return { result: { ok: true } };
           }
         }
@@ -60174,7 +64035,7 @@ function createDynaPlugin(options = {}) {
           kind: "module",
           execute(input) {
             const { requestId } = external_exports.object({ requestId: external_exports.uuid() }).strict().parse(input);
-            return { result: service.store.claimAction(requestId) };
+            return { result: service.claimAction(requestId) };
           }
         }
       },
@@ -60190,7 +64051,7 @@ function createDynaPlugin(options = {}) {
           execute(input) {
             const parsed = CompletionInputSchema.parse(input);
             return {
-              result: service.store.completeAction(
+              result: service.completeAction(
                 parsed.requestId,
                 parsed.claimToken,
                 parsed.outcome === "succeeded" ? {
@@ -60205,8 +64066,8 @@ function createDynaPlugin(options = {}) {
       },
       {
         id: "resolve-action-reconciliation",
-        title: "Resolve uncertain Dyna task creation",
-        description: "Resolve a task-creation request that may have taken effect by linking the verified native task or confirming that no task was created.",
+        title: "Resolve uncertain Dyna task association",
+        description: "Resolve a task creation or attachment that may have taken effect by linking the verified native task or confirming no association took effect.",
         inputSchema: ReconciliationInputSchema,
         outputSchema: DynaActionRequestSchema,
         risk: { readOnly: false, destructive: false, openWorld: false, idempotent: false },
@@ -60215,12 +64076,83 @@ function createDynaPlugin(options = {}) {
           execute(input) {
             const parsed = ReconciliationInputSchema.parse(input);
             return {
-              result: service.store.resolveActionReconciliation(
+              result: service.resolveActionReconciliation(
                 parsed.requestId,
                 parsed.outcome === "task_linked" ? { outcome: parsed.outcome, task: parsed.task } : { outcome: parsed.outcome, explanation: parsed.explanation }
               )
             };
           }
+        }
+      },
+      {
+        id: "claim-task-sync",
+        title: "Claim Dyna task synchronization",
+        description: "Claim one delivered linked-task synchronization run and return only its bounded native task targets and one-time completion capability.",
+        inputSchema: ClaimTaskSyncInputSchema,
+        outputSchema: DynaTaskSyncClaimSchema,
+        risk: { readOnly: false, destructive: false, openWorld: false, idempotent: false },
+        executor: {
+          kind: "module",
+          execute(input) {
+            const { runId } = ClaimTaskSyncInputSchema.parse(input);
+            return { result: DynaTaskSyncClaimSchema.parse(service.claimTaskSync(runId)) };
+          }
+        },
+        summarize(result) {
+          const claim = DynaTaskSyncClaimSchema.parse(result);
+          return `Claimed ${String(claim.targets.length)} linked Codex task${claim.targets.length === 1 ? "" : "s"} for bounded Dyna synchronization.`;
+        }
+      },
+      {
+        id: "submit-task-sync-batch",
+        title: "Submit Dyna task synchronization batch",
+        description: "Retry-safely submit one normalized batch of at most eight controller observations or bounded unavailable results.",
+        inputSchema: SubmitTaskSyncBatchInputSchema,
+        outputSchema: DynaTaskSyncBatchResultSchema,
+        risk: { readOnly: false, destructive: false, openWorld: false, idempotent: true },
+        executor: {
+          kind: "module",
+          execute(input) {
+            const parsed = SubmitTaskSyncBatchInputSchema.parse(input);
+            return {
+              result: DynaTaskSyncBatchResultSchema.parse(
+                service.submitTaskSyncBatch(parsed.runId, parsed.claimToken, {
+                  requestId: parsed.requestId,
+                  observations: parsed.observations,
+                  unavailable: parsed.unavailable
+                })
+              )
+            };
+          }
+        },
+        summarize(result) {
+          const batch = DynaTaskSyncBatchResultSchema.parse(result);
+          return `Accepted ${String(batch.acceptedTasks)} linked-task observation${batch.acceptedTasks === 1 ? "" : "s"}.`;
+        }
+      },
+      {
+        id: "complete-task-sync",
+        title: "Complete Dyna task synchronization",
+        description: "Retry-safely finalize a claimed synchronization run and derive its sanitized public status from accepted batches.",
+        inputSchema: CompleteTaskSyncInputSchema,
+        outputSchema: DynaTaskSyncStatusResultSchema,
+        risk: { readOnly: false, destructive: false, openWorld: false, idempotent: true },
+        executor: {
+          kind: "module",
+          execute(input) {
+            const parsed = CompleteTaskSyncInputSchema.parse(input);
+            return {
+              result: DynaTaskSyncStatusResultSchema.parse(
+                service.completeTaskSync(parsed.runId, parsed.claimToken, {
+                  requestId: parsed.requestId
+                })
+              )
+            };
+          }
+        },
+        summarize(result) {
+          const { summary } = DynaTaskSyncStatusResultSchema.parse(result);
+          return summary.state === "partial" ? `Dyna task synchronization is partial with ${String(summary.unavailableTasks)} unavailable task${summary.unavailableTasks === 1 ? "" : "s"}.` : summary.state === "updated" ? `Dyna task synchronization updated ${String(summary.updatedItems)} item${summary.updatedItems === 1 ? "" : "s"}.` : `Dyna task synchronization is ${summary.state}.`;
         }
       },
       {

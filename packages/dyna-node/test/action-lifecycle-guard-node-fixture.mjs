@@ -9,12 +9,12 @@ const advance = () => {
   return timestamp();
 };
 
-function task(taskId, state) {
+function task(itemNumber, taskId, state) {
   const at = timestamp();
   return {
     taskId,
     hostId: "local",
-    title: `Codex ${taskId}`,
+    title: `:${String(itemNumber)}: Codex ${taskId}`,
     state,
     statusUpdatedAt: at,
     observedAt: at,
@@ -111,7 +111,10 @@ try {
 
   let current = activeCard("Completed before prepare");
   advance();
-  store.upsertTaskStatus(current.card.id, task("completed-before-prepare", "succeeded"));
+  store.upsertTaskStatus(
+    current.card.id,
+    task(current.card.itemNumber, "completed-before-prepare", "succeeded"),
+  );
   current = activeCard("Completed before prepare");
   assert.equal(current.card.workflowState, "completed");
   assert.throws(
@@ -146,11 +149,17 @@ try {
 
   current = activeCard("Completed before claim");
   advance();
-  store.upsertTaskStatus(current.card.id, task("completed-before-claim-existing", "running"));
+  store.upsertTaskStatus(
+    current.card.id,
+    task(current.card.itemNumber, "completed-before-claim-existing", "running"),
+  );
   prepared = prepare("Completed before claim", "completed-before-claim");
   store.markDelivered(viewToken, prepared.request.id);
   advance();
-  store.upsertTaskStatus(prepared.card.id, task("completed-before-claim-existing", "succeeded"));
+  store.upsertTaskStatus(
+    prepared.card.id,
+    task(prepared.card.itemNumber, "completed-before-claim-existing", "succeeded"),
+  );
   assert.throws(() => store.claimAction(prepared.request.id), /completed Dyna work/);
   assert.equal(store.actionStatus(prepared.request.id).state, "failed");
 
@@ -161,7 +170,7 @@ try {
   advance();
   const archivedCompletion = store.completeAction(prepared.request.id, archivedClaim.claimToken, {
     outcome: "succeeded",
-    task: task("archived-after-claim-new", "running"),
+    task: task(prepared.card.itemNumber, "archived-after-claim-new", "running"),
   });
   assert.equal(archivedCompletion.state, "needs_reconciliation");
   assert.equal(
@@ -174,24 +183,30 @@ try {
     () =>
       store.resolveActionReconciliation(prepared.request.id, {
         outcome: "task_linked",
-        task: task("archived-after-claim-new", "running"),
+        task: task(prepared.card.itemNumber, "archived-after-claim-new", "running"),
       }),
     /archived Dyna item/,
   );
 
   current = activeCard("Completed after claim");
   advance();
-  store.upsertTaskStatus(current.card.id, task("completed-after-claim-existing", "running"));
+  store.upsertTaskStatus(
+    current.card.id,
+    task(current.card.itemNumber, "completed-after-claim-existing", "running"),
+  );
   prepared = prepare("Completed after claim", "completed-after-claim");
   store.markDelivered(viewToken, prepared.request.id);
   const completedClaim = store.claimAction(prepared.request.id);
   advance();
-  store.upsertTaskStatus(prepared.card.id, task("completed-after-claim-existing", "succeeded"));
+  store.upsertTaskStatus(
+    prepared.card.id,
+    task(prepared.card.itemNumber, "completed-after-claim-existing", "succeeded"),
+  );
   assert.equal(store.showItem(dashboard.id, prepared.card.id).item.workflowState, "completed");
   advance();
   const completedCompletion = store.completeAction(prepared.request.id, completedClaim.claimToken, {
     outcome: "succeeded",
-    task: task("completed-after-claim-new", "running"),
+    task: task(prepared.card.itemNumber, "completed-after-claim-new", "running"),
   });
   assert.equal(completedCompletion.state, "needs_reconciliation");
   assert.equal(
@@ -204,7 +219,7 @@ try {
     () =>
       store.resolveActionReconciliation(prepared.request.id, {
         outcome: "task_linked",
-        task: task("completed-after-claim-new", "running"),
+        task: task(prepared.card.itemNumber, "completed-after-claim-new", "running"),
       }),
     /completed Dyna work/,
   );

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
-import { DynaService } from "@flowzone/dyna-node";
+import { DynaApplicationService } from "@flowzone/dyna-node";
 
 import { createDynaPlugin } from "../src/plugins/dyna.ts";
 
@@ -21,13 +21,16 @@ async function call(target, input) {
 }
 
 const now = "2026-09-11T18:00:00.000Z";
-const service = new DynaService({ databasePath: ":memory:", clock: () => new Date(now) });
+const service = new DynaApplicationService({
+  databasePath: ":memory:",
+  clock: () => new Date(now),
+});
 const plugin = createDynaPlugin({ service });
 
 try {
-  const dashboard = service.store.createDashboard("Workflow", "App-private status changes");
+  const dashboard = service.createDashboard("Workflow", "App-private status changes");
   const emptyView = service.render(dashboard.id);
-  const itemId = service.store.addTodo(
+  const itemId = service.addTodo(
     emptyView.viewToken,
     { title: "Decide release", priority: "high", labels: [] },
     randomUUID(),
@@ -89,7 +92,7 @@ try {
   assert.equal(service.snapshot(dashboard.id).cards[0]?.workflowState, "attention");
   await assert.rejects(call(setStatus, { ...input, targetStage: "todo" }), /different input/);
 
-  const otherDashboard = service.store.createDashboard("Other", "Capability isolation");
+  const otherDashboard = service.createDashboard("Other", "Capability isolation");
   const otherView = service.render(otherDashboard.id);
   await assert.rejects(
     call(setStatus, {

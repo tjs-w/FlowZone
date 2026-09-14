@@ -270,7 +270,8 @@ body {
   justify-self: end;
 }
 
-.dyna-command-actions > button {
+.dyna-command-actions > button,
+.dyna-command-actions > .dyna-refresh-control button {
   min-height: 32px;
 }
 
@@ -289,6 +290,31 @@ body {
   height: 32px;
   min-height: 32px;
   padding: 0;
+}
+
+.dyna-refresh-control {
+  display: inline-flex;
+  min-width: 0;
+  gap: 5px;
+  align-items: center;
+}
+
+.dyna-task-sync-status {
+  overflow: hidden;
+  max-width: 180px;
+  color: var(--d-muted);
+  font-family: var(--d-font-sans);
+  font-size: 11px;
+  font-weight: 520;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dyna-refresh-control[data-task-sync-state="partial"] .dyna-task-sync-status,
+.dyna-refresh-control[data-task-sync-state="expired"] .dyna-task-sync-status,
+.dyna-refresh-control[data-task-sync-state="unavailable"] .dyna-task-sync-status {
+  color: var(--d-high);
 }
 
 .dyna-refresh-action[aria-busy="true"] .dyna-icon {
@@ -1232,6 +1258,17 @@ body {
   color: var(--d-deadline);
 }
 
+.dyna-item-number {
+  flex: 0 0 auto;
+  color: var(--d-muted);
+  font-family: var(--d-font-mono);
+  font-size: 0.82em;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  white-space: nowrap;
+}
+
 .dyna-row-title {
   flex: 1 1 auto;
   min-width: 0;
@@ -1280,6 +1317,12 @@ body {
   height: 13px;
   flex: 0 0 auto;
   color: var(--d-muted);
+  font: 12px/13px var(--d-font-mono);
+  text-align: center;
+}
+
+.dyna-source-link-icon::before {
+  content: "↗";
 }
 
 .dyna-row-attention {
@@ -1603,6 +1646,12 @@ body {
   overflow-wrap: anywhere;
 }
 
+.dyna-inspector h2 .dyna-item-number {
+  color: var(--d-text);
+  font-size: 0.78em;
+  vertical-align: 0.08em;
+}
+
 .dyna-inspector-actions {
   display: flex;
   min-width: 0;
@@ -1831,6 +1880,16 @@ body {
   margin: 0;
   color: var(--d-muted);
   font-size: 12px;
+  line-height: 1.4;
+}
+
+.dyna-task-title-sync {
+  margin: 0;
+  padding: 6px 8px;
+  border-left: 2px solid var(--d-high);
+  background: color-mix(in srgb, var(--d-high) 8%, transparent);
+  color: var(--d-text);
+  font-size: 11px;
   line-height: 1.4;
 }
 
@@ -2728,6 +2787,10 @@ body {
   .dyna-command-actions {
     grid-area: actions;
     justify-self: end;
+  }
+
+  .dyna-task-sync-status {
+    max-width: 118px;
   }
 
   .dyna-filter-panel {

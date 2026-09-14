@@ -1,8 +1,8 @@
-import { DynaStore } from "../../packages/dyna-node/src/store.ts";
+import { DynaApplicationService } from "../../packages/dyna-node/src/service.ts";
 
 const [mode, databasePath, dashboardId, itemId] = globalThis.process.argv.slice(2);
 if (!databasePath) throw new Error("Expected a database path.");
-const store = new DynaStore({ databasePath });
+const store = new DynaApplicationService({ databasePath });
 try {
   if (mode === "setup") {
     const dashboard = store.createDashboard("PTY", "Dyna update PTY test");

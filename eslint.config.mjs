@@ -33,7 +33,12 @@ export default tseslint.config(
     },
   },
   {
-    files: ["**/*.mjs", "eslint.config.mjs"],
+    files: [
+      "**/*.mjs",
+      "eslint.config.mjs",
+      "packages/dyna-node/src/projector.js",
+      "packages/dyna-node/src/repository.js",
+    ],
     ...tseslint.configs.disableTypeChecked,
   },
   {

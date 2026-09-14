@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
-import { DynaService } from "@flowzone/dyna-node";
+import { DynaApplicationService } from "@flowzone/dyna-node";
 
 import { createDynaPlugin } from "../src/plugins/dyna.ts";
 
 const now = "2026-09-11T22:00:00.000Z";
-const service = new DynaService({ databasePath: ":memory:", clock: () => new Date(now) });
+const service = new DynaApplicationService({
+  databasePath: ":memory:",
+  clock: () => new Date(now),
+});
 const plugin = createDynaPlugin({ service });
 const organize = (plugin.appTools ?? []).find(
   (candidate) => candidate.name === "dyna_organize_item",
@@ -25,14 +28,14 @@ const sampleItems = (length) =>
   }));
 
 try {
-  const dashboard = service.store.createDashboard("Bulk MCP", "Bounded group changes");
-  const viewToken = service.store.createView(dashboard.id);
-  const highId = service.store.addTodo(
+  const dashboard = service.createDashboard("Bulk MCP", "Bounded group changes");
+  const viewToken = service.render(dashboard.id).viewToken;
+  const highId = service.addTodo(
     viewToken,
     { title: "Move from high", priority: "high", labels: [] },
     randomUUID(),
   );
-  const normalId = service.store.addTodo(
+  const normalId = service.addTodo(
     viewToken,
     { title: "Already normal", priority: "normal", labels: [] },
     randomUUID(),
@@ -71,6 +74,17 @@ try {
   );
   assert.equal(organize.inputSchema.safeParse({ ...input, itemId: high.id }).success, false);
   assert.equal(organize.inputSchema.safeParse({ ...input, items: undefined }).success, false);
+  const cancelled = new globalThis.AbortController();
+  cancelled.abort(new Error("cancelled before mutation"));
+  assert.throws(
+    () =>
+      organize.handler(input, {
+        signal: cancelled.signal,
+        requestId: "cancelled-bulk-organize-test",
+      }),
+    /cancelled before mutation/,
+  );
+  assert.equal(service.snapshot(dashboard.id).revision, snapshot.revision);
   const result = await call(input);
   assert.deepEqual(result, {
     structuredContent: { changed: true, changedCount: 1 },

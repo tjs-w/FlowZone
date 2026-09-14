@@ -13,11 +13,16 @@ import {
   type McpUiHostContext,
 } from "@modelcontextprotocol/ext-apps";
 import {
+  DynaTaskSyncBeginResultSchema,
+  DynaTaskSyncStatusResultSchema,
   DynaWorkActivityPageSchema,
   DynaUiPayloadSchema,
   dynaSourceUrl,
+  formatDynaItemNumber,
   type DynaCodexSessionCandidate,
   type DynaSourceRef,
+  type DynaTaskSyncScope,
+  type DynaTaskSyncSummary,
   type DynaWorkActivityPage,
   type DynaUiPayload,
 } from "@flowzone/dyna-contracts";
@@ -149,6 +154,7 @@ interface DynaUiController {
   ): Promise<void>;
   copyContext(card: CardViewProps): Promise<void>;
   refreshLatest(trigger: HTMLElement): Promise<void>;
+  syncTask(itemId: string, taskId: string, hostId: string, trigger?: HTMLElement): Promise<void>;
   readonly loadActivity: (itemId: string, cursor?: string) => Promise<DynaActivityPage>;
   loadCodexSessions(
     itemId: string,
@@ -180,6 +186,8 @@ interface DynaUiController {
   ): Promise<void>;
   readonly busy: boolean;
   readonly refreshing: boolean;
+  readonly taskSync: DynaTaskSyncSummary | undefined;
+  readonly taskSyncUnavailable: boolean;
   readonly blocked: boolean;
   readonly codexActionsBlocked: boolean;
   readonly readOnly: boolean;
@@ -290,6 +298,24 @@ function humanize(value: string): string {
     .split("_")
     .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
     .join(" ");
+}
+
+function ItemNumber({
+  value,
+  className = "",
+}: {
+  readonly value: number;
+  readonly className?: string;
+}) {
+  return (
+    <span
+      className={`dyna-item-number${className ? ` ${className}` : ""}`}
+      data-dyna-item-number={value}
+      aria-label={`Dyna item ${String(value)}`}
+    >
+      {formatDynaItemNumber(value)}
+    </span>
+  );
 }
 
 function sourceReferenceLabel(sourceRef: unknown): string {
@@ -517,6 +543,81 @@ function parseDynaActionStatus(result: unknown): DynaActionStatus | undefined {
   if (!("dynaCodexSessionCandidates" in metadataRecord)) return { state };
   const candidates = parseCodexSessionCandidates(metadataRecord["dynaCodexSessionCandidates"]);
   return candidates ? { state, candidates } : undefined;
+}
+
+function parseTaskSyncBeginResult(result: unknown) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return undefined;
+  const structured = (result as Readonly<Record<string, unknown>>)["structuredContent"];
+  const parsed = DynaTaskSyncBeginResultSchema.safeParse(structured);
+  return parsed.success ? parsed.data : undefined;
+}
+
+function parseTaskSyncStatusResult(result: unknown) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return undefined;
+  const structured = (result as Readonly<Record<string, unknown>>)["structuredContent"];
+  const parsed = DynaTaskSyncStatusResultSchema.safeParse(structured);
+  return parsed.success ? parsed.data : undefined;
+}
+
+function taskSyncFinished(summary: DynaTaskSyncSummary | undefined): boolean {
+  return Boolean(summary && summary.state !== "syncing");
+}
+
+function taskSyncLabel(
+  summary: DynaTaskSyncSummary | undefined,
+  unavailable: boolean,
+  locale: string,
+): { readonly text: string; readonly description: string } | undefined {
+  if (unavailable) {
+    return {
+      text: "Sync unavailable",
+      description: "Linked Codex task synchronization is unavailable on this host.",
+    };
+  }
+  if (!summary) return undefined;
+  const when = relativeTime(summary.completedAt ?? summary.updatedAt, locale);
+  if (summary.state === "syncing") {
+    return {
+      text: `Syncing ${String(summary.processedTasks)}/${String(summary.totalTasks)}`,
+      description: `Synchronizing linked Codex tasks. ${String(summary.processedTasks)} of ${String(summary.totalTasks)} processed.`,
+    };
+  }
+  if (summary.state === "updated") {
+    return {
+      text: `Updated ${String(summary.updatedItems)} · ${when}`,
+      description: `Linked Codex task synchronization updated ${String(summary.updatedItems)} ${summary.updatedItems === 1 ? "item" : "items"} ${when}.`,
+    };
+  }
+  if (summary.state === "partial") {
+    const unavailable = summary.unavailableTasks
+      ? `${String(summary.unavailableTasks)} unavailable`
+      : "";
+    const incompleteMetadata = summary.incompleteMetadataTasks
+      ? `${String(summary.incompleteMetadataTasks)} missing ${summary.incompleteMetadataTasks === 1 ? "outcome" : "outcomes"}`
+      : "";
+    const remaining = summary.remainingTasks ? `${String(summary.remainingTasks)} remaining` : "";
+    const counts = [unavailable, incompleteMetadata, remaining].filter(Boolean).join(" · ");
+    return {
+      text: counts ? `Partial · ${counts}` : "Partial",
+      description: `Linked Codex task synchronization completed partially.${summary.unavailableTasks ? ` ${String(summary.unavailableTasks)} ${summary.unavailableTasks === 1 ? "task was" : "tasks were"} unavailable.` : ""}${summary.incompleteMetadataTasks ? ` ${String(summary.incompleteMetadataTasks)} completed ${summary.incompleteMetadataTasks === 1 ? "task is" : "tasks are"} missing an outcome.` : ""}${summary.remainingTasks ? ` ${String(summary.remainingTasks)} ${summary.remainingTasks === 1 ? "task remains" : "tasks remain"}.` : ""}`,
+    };
+  }
+  if (summary.state === "expired") {
+    return {
+      text: "Sync expired",
+      description: "Linked Codex task synchronization expired. Refresh to continue.",
+    };
+  }
+  if (summary.state === "unavailable") {
+    return {
+      text: "Sync unavailable",
+      description: "Linked Codex task synchronization is unavailable.",
+    };
+  }
+  return {
+    text: `Current · ${when}`,
+    description: `Linked Codex tasks are current ${when}.`,
+  };
 }
 
 type DynaSnapshot = DynaUiPayload["snapshot"];
@@ -1059,17 +1160,23 @@ function StatusSelect({ card }: { readonly card: CardViewProps }) {
 
 function RefreshButton() {
   const controller = useController();
-  const label = controller.refreshing ? "Refreshing dashboard" : "Refresh dashboard";
+  const syncing = controller.taskSync?.state === "syncing";
+  const label = controller.refreshing
+    ? "Refreshing dashboard"
+    : syncing
+      ? "Linked tasks are syncing. Refresh dashboard"
+      : "Refresh dashboard";
   return (
     <Button
       className="dyna-refresh-action"
       data-dyna-refresh="true"
+      data-task-syncing={syncing}
       color="secondary"
       size="xs"
       variant="ghost"
       uniform
       aria-label={label}
-      aria-busy={controller.refreshing}
+      aria-busy={controller.refreshing || syncing}
       title="Refresh dashboard"
       disabled={controller.busy || controller.refreshing || controller.readOnly}
       onClick={(event) => {
@@ -1079,6 +1186,36 @@ function RefreshButton() {
     >
       <RefreshCw className="dyna-icon" aria-hidden="true" />
     </Button>
+  );
+}
+
+function RefreshControl() {
+  const controller = useController();
+  const status = taskSyncLabel(
+    controller.taskSync,
+    controller.taskSyncUnavailable,
+    controller.locale,
+  );
+  return (
+    <div
+      className="dyna-refresh-control"
+      data-task-sync-state={
+        controller.taskSyncUnavailable ? "unavailable" : controller.taskSync?.state
+      }
+    >
+      {status ? (
+        <span
+          className="dyna-task-sync-status"
+          role="status"
+          aria-live="polite"
+          aria-label={status.description}
+          title={status.description}
+        >
+          {status.text}
+        </span>
+      ) : null}
+      <RefreshButton />
+    </div>
   );
 }
 
@@ -1714,6 +1851,11 @@ function CodexWork({
           </Button>
         ) : null}
       </div>
+      {card.titleSyncNeeded ? (
+        <p className="dyna-task-title-sync" role="status">
+          A linked task title needs sync. Refresh its status to apply and verify this item’s ID.
+        </p>
+      ) : null}
       {card.linkedTasks.length > 0 ? (
         <div className="dyna-task-list">{children}</div>
       ) : (
@@ -1830,10 +1972,12 @@ function mergeWorkUpdates(
 
 function WorkActivity({
   itemId,
+  itemNumber,
   initialUpdates,
   workUpdateCount,
 }: {
   readonly itemId: string;
+  readonly itemNumber: number;
   readonly initialUpdates: readonly DynaWorkUpdate[];
   readonly workUpdateCount: number;
 }) {
@@ -1947,7 +2091,9 @@ function WorkActivity({
       aria-busy={loading}
       data-work-update-count={total}
     >
-      <h3>Work Activity</h3>
+      <h3>
+        Work Activity <ItemNumber value={itemNumber} />
+      </h3>
       <ol className="dyna-note-list dyna-work-list" aria-label="Work Activity">
         {updates.map((update) => {
           const taskLabel = workUpdateTaskLabel(update);
@@ -2073,7 +2219,7 @@ const dynaComponents: DynaComponentCatalog = {
           {props.description ? <p className="dyna-description">{props.description}</p> : null}
           {controller.condenseInline ? (
             <div className="dyna-inline-controls">
-              <RefreshButton />
+              <RefreshControl />
               <Button
                 color="secondary"
                 variant="ghost"
@@ -2196,7 +2342,7 @@ const dynaComponents: DynaComponentCatalog = {
                 size="md"
                 value={controller.query}
                 maxLength={500}
-                placeholder="Find people, requests, MRs…"
+                placeholder="Find :184:, people, requests, MRs…"
                 onChange={(event) => {
                   controller.setQuery(event.currentTarget.value);
                 }}
@@ -2323,7 +2469,7 @@ const dynaComponents: DynaComponentCatalog = {
                   </span>
                 </Button>
               ) : null}
-              <RefreshButton />
+              <RefreshControl />
               <Button
                 color="primary"
                 size="sm"
@@ -2444,7 +2590,7 @@ const dynaComponents: DynaComponentCatalog = {
             const action = point.action;
             const actionLabel =
               action?.kind === "item"
-                ? `Open details for ${point.headline}`
+                ? `Open details for ${point.headline}${point.itemNumber ? `, Dyna item ${String(point.itemNumber)}` : ""}`
                 : action?.kind === "query"
                   ? `Search dashboard for the ${point.headline} theme`
                   : action?.kind === "workflow"
@@ -2463,10 +2609,16 @@ const dynaComponents: DynaComponentCatalog = {
                         activate(action, event.currentTarget);
                       }}
                     >
+                      {point.itemNumber ? <ItemNumber value={point.itemNumber} /> : null}
+                      {point.itemNumber ? " " : null}
                       {point.headline}
                     </button>
                   ) : (
-                    <strong>{point.headline}</strong>
+                    <strong>
+                      {point.itemNumber ? <ItemNumber value={point.itemNumber} /> : null}
+                      {point.itemNumber ? " " : null}
+                      {point.headline}
+                    </strong>
                   )}
                   {point.detail ? <span>{point.detail}</span> : null}
                 </div>
@@ -2774,6 +2926,7 @@ const dynaComponents: DynaComponentCatalog = {
         tabIndex={-1}
         data-priority={props.priority}
         data-item-id={props.itemId}
+        data-item-number={props.itemNumber}
         data-presentation={presentation}
         data-workflow-state={props.workflowState}
         data-workflow-stage={props.workflowStage}
@@ -2923,6 +3076,7 @@ const dynaComponents: DynaComponentCatalog = {
                 </button>
               ) : null}
               <SourceFavicon kind={sourceMark} label={sourceMarkLabel} />
+              <ItemNumber value={props.itemNumber} />
               {props.sourceUrl ? (
                 <a
                   className="dyna-row-title dyna-source-link"
@@ -2936,7 +3090,7 @@ const dynaComponents: DynaComponentCatalog = {
                   }}
                 >
                   <span>{props.title}</span>
-                  <ExternalLink className="dyna-source-link-icon" aria-hidden="true" />
+                  <i className="dyna-source-link-icon" aria-hidden="true" />
                 </a>
               ) : (
                 <span className="dyna-row-title">{props.title}</span>
@@ -3053,7 +3207,9 @@ const dynaComponents: DynaComponentCatalog = {
                     <span>Due {relativeTime(props.dueAt, controller.locale)}</span>
                   ) : null}
                 </div>
-                <h2 id={inspectorTitleId}>{props.title}</h2>
+                <h2 id={inspectorTitleId}>
+                  <ItemNumber value={props.itemNumber} /> <span>{props.title}</span>
+                </h2>
               </div>
               <InspectorActions card={props} />
             </div>
@@ -3148,6 +3304,7 @@ const dynaComponents: DynaComponentCatalog = {
                 <WorkActivity
                   key={props.itemId}
                   itemId={props.itemId}
+                  itemNumber={props.itemNumber}
                   initialUpdates={props.workUpdates}
                   workUpdateCount={props.workUpdateCount}
                 />
@@ -3180,8 +3337,10 @@ const dynaComponents: DynaComponentCatalog = {
                       Enrichment needs review
                     </Badge>
                   ) : null}
-                  {props.followUpOfItemId ? (
-                    <span className="dyna-meta">Follow-up to completed work</span>
+                  {props.followUpOfItemId && props.followUpOfItemNumber ? (
+                    <span className="dyna-meta">
+                      Follow-up to <ItemNumber value={props.followUpOfItemNumber} />
+                    </span>
                   ) : null}
                   {props.labels.length > 0 ? (
                     <div className="dyna-labels">
@@ -3545,17 +3704,18 @@ function workflowStageLabel(stage: WorkflowStage): string {
 
 function workPrompt(card: CardViewProps, locale: string): string {
   const reference = {
-    schema: "dyna/work-item-v1",
+    schema: "dyna/work-item-v2",
     dashboardId: card.dashboardId,
-    dashboardName: card.dashboardName,
     itemId: card.itemId,
+    itemNumber: card.itemNumber,
     expectedFingerprint: card.fingerprint,
     sourceUpdatedAt: card.sourceUpdatedAt,
     copiedAt: new Date().toISOString(),
     workAttemptId: crypto.randomUUID(),
-    linkedTasks: card.linkedTasks,
   };
   const contextLines = [
+    `Dashboard: ${card.dashboardName}`,
+    `Dyna item: ${formatDynaItemNumber(card.itemNumber)}`,
     `Title: ${card.title}`,
     `Priority: ${humanize(card.priority)}`,
     `Status: ${card.archive ? "Archived" : workflowStageLabel(card.workflowStage)}${card.workflowCondition ? ` (${card.workflowCondition})` : ""}`,
@@ -3565,6 +3725,9 @@ function workPrompt(card: CardViewProps, locale: string): string {
     `What needs attention: ${card.attention ?? card.priorityReason}`,
     `Context: ${card.summary}`,
   ];
+  if (card.followUpOfItemNumber) {
+    contextLines.push(`Follow-up to: ${formatDynaItemNumber(card.followUpOfItemNumber)}`);
+  }
   if (card.nextSteps.length > 0) {
     contextLines.push(
       "",
@@ -3579,6 +3742,16 @@ function workPrompt(card: CardViewProps, locale: string): string {
     contextLines.push("", "Plan:", ...card.plan.map((step) => `- ${step}`));
   }
   if (card.outcome) contextLines.push("", `Recorded outcome: ${card.outcome}`);
+  if (card.linkedTasks.length > 0) {
+    contextLines.push(
+      "",
+      "Linked Codex tasks:",
+      ...card.linkedTasks.map(
+        (task) =>
+          `- ${task.taskId} on ${task.hostId} · ${task.title} · ${humanize(task.state)} · observed ${exactDateTime(task.observedAt, locale)}${task.outcome ? ` · outcome: ${task.outcome}` : ""}`,
+      ),
+    );
+  }
   if (card.annotationPreview.length > 0) {
     contextLines.push(
       "",
@@ -3637,6 +3810,22 @@ function compareCards(left: DynaCard, right: DynaCard): number {
   return byUpdated !== 0 ? byUpdated : left.id.localeCompare(right.id);
 }
 
+function queriedItemNumber(query: string): number | undefined {
+  const match = /^:?([1-9]\d*):?$/u.exec(query.trim());
+  const itemNumber = match?.[1] ? Number(match[1]) : Number.NaN;
+  return Number.isSafeInteger(itemNumber) ? itemNumber : undefined;
+}
+
+function compareCardsForQuery(left: DynaCard, right: DynaCard, query: string): number {
+  const exactItemNumber = queriedItemNumber(query);
+  if (exactItemNumber !== undefined) {
+    const leftExact = left.itemNumber === exactItemNumber;
+    const rightExact = right.itemNumber === exactItemNumber;
+    if (leftExact !== rightExact) return leftExact ? -1 : 1;
+  }
+  return compareCards(left, right);
+}
+
 type ExecutiveSummaryAction =
   | { readonly kind: "item"; readonly itemId: string }
   | { readonly kind: "query"; readonly query: string }
@@ -3662,6 +3851,7 @@ interface ExecutiveSummaryPoint {
   readonly kind: "act" | "theme" | "motion" | "done" | "empty";
   readonly label: string;
   readonly headline: string;
+  readonly itemNumber?: number;
   readonly detail?: string;
   readonly action?: ExecutiveSummaryAction;
   readonly sources: readonly ExecutiveSummarySource[];
@@ -3859,7 +4049,7 @@ function buildExecutiveSummary(
   filtersApplied: boolean,
   locale: string,
 ): ExecutiveSummaryModel {
-  const sorted = [...cards].sort(compareCards);
+  const sorted = [...cards].sort((left, right) => compareCardsForQuery(left, right, query));
   const unfinished = sorted.filter((card) => card.workflowState !== "completed");
   const completed = sorted
     .filter((card) => card.workflowState === "completed")
@@ -3888,6 +4078,7 @@ function buildExecutiveSummary(
       kind: "act",
       label: "Act Now",
       headline: next.title,
+      itemNumber: next.itemNumber,
       ...(detail.length > 0 ? { detail: compactLine(detail.join(" · "), 220) } : {}),
       action: { kind: "item", itemId: next.id },
       sources: [executiveSummarySource(next)],
@@ -3992,7 +4183,10 @@ function buildExecutiveSummary(
         kind: "done",
         label: "Recently Done",
         headline: `${String(completed.length)} completed recently`,
-        detail: compactLine(`Latest: ${latest.outcome ?? latest.title}`, 220),
+        detail: compactLine(
+          `Latest ${formatDynaItemNumber(latest.itemNumber)} · ${latest.outcome ?? latest.title}`,
+          220,
+        ),
         action: { kind: "workflow", workflow: "completed" },
         sources: [executiveSummarySource(latest)],
       });
@@ -4069,6 +4263,11 @@ function cardActions(
 function cardSearchText(card: DynaCard): string {
   const ux = card as DynaCard & DynaCardUxFields;
   return [
+    String(card.itemNumber),
+    formatDynaItemNumber(card.itemNumber),
+    ...(card.followUpOfItemNumber
+      ? [String(card.followUpOfItemNumber), formatDynaItemNumber(card.followUpOfItemNumber)]
+      : []),
     card.title,
     card.summary,
     card.sourceLabel,
@@ -4211,7 +4410,7 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
         controller.leadershipOnly,
       ),
     )
-    .sort(compareCards);
+    .sort((left, right) => compareCardsForQuery(left, right, controller.query));
   const cards = stageCards.filter((card) =>
     cardPassesFilters(card, "all", "all", controller.workflowFilter, false),
   );
@@ -4230,7 +4429,7 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
         controller.leadershipOnly,
       ),
     )
-    .sort(compareCards);
+    .sort((left, right) => compareCardsForQuery(left, right, controller.query));
   const summaryFiltersApplied =
     controller.priorityFilter !== "all" ||
     controller.sourceFilter !== "all" ||
@@ -4476,6 +4675,8 @@ function DynaApp({ app }: { readonly app: App }) {
   const [selectedItemId, setSelectedItemId] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [taskSync, setTaskSync] = useState<DynaTaskSyncSummary>();
+  const [taskSyncUnavailable, setTaskSyncUnavailable] = useState(false);
   const [contextMenu, setContextMenu] = useState<DynaContextMenuState>();
   const [actionFocusEpoch, setActionFocusEpoch] = useState(0);
   const [toast, setToast] = useState<string>();
@@ -4516,6 +4717,12 @@ function DynaApp({ app }: { readonly app: App }) {
   const refreshInFlight = useRef(false);
   const manualRefreshInFlight = useRef(false);
   const refreshFocusTrigger = useRef<HTMLElement | null>(null);
+  const taskSyncPollInFlight = useRef(false);
+  const taskSyncPollingRun = useRef<string | undefined>(undefined);
+  const syncingTaskSyncRuns = useRef(new Set<string>());
+  const finalizedTaskSyncRuns = useRef(new Set<string>());
+  const recoverableTaskSyncRun = useRef<string | undefined>(undefined);
+  const recoveredTaskSyncRuns = useRef(new Set<string>());
   const pendingSecondarySelection = useRef<
     | {
         readonly target: Element;
@@ -4588,7 +4795,7 @@ function DynaApp({ app }: { readonly app: App }) {
     };
   }, []);
 
-  const acceptPayload = useCallback((candidate: unknown) => {
+  const acceptPayload = useCallback((candidate: unknown, allowTaskSyncRecovery = false) => {
     const parsed = DynaUiPayloadSchema.safeParse(candidate);
     if (!parsed.success) return false;
     const active = current.current;
@@ -4612,6 +4819,19 @@ function DynaApp({ app }: { readonly app: App }) {
     );
     setBulkSelectedIds((itemIds) => itemIds.filter((itemId) => activeQueueIds.has(itemId)));
     setPayload(parsed.data);
+    if (parsed.data.snapshot.taskSync) {
+      const incoming = parsed.data.snapshot.taskSync;
+      if (allowTaskSyncRecovery && incoming.state === "syncing") {
+        recoverableTaskSyncRun.current = incoming.runId;
+      }
+      setTaskSync((existing) => {
+        if (existing && Date.parse(existing.updatedAt) > Date.parse(incoming.updatedAt)) {
+          return existing;
+        }
+        return incoming;
+      });
+      setTaskSyncUnavailable(false);
+    }
     setContextMenu((menu) =>
       menu?.itemId && !parsed.data.snapshot.cards.some((card) => card.id === menu.itemId)
         ? undefined
@@ -4888,6 +5108,120 @@ function DynaApp({ app }: { readonly app: App }) {
     [acceptPayload, app],
   );
 
+  const adoptTaskSync = useCallback((summary: DynaTaskSyncSummary): boolean => {
+    const active = current.current;
+    if (summary.dashboardId !== active?.snapshot.dashboard.id) return false;
+    setTaskSync((existing) => {
+      if (existing && Date.parse(existing.updatedAt) > Date.parse(summary.updatedAt)) {
+        return existing;
+      }
+      return summary;
+    });
+    setTaskSyncUnavailable(false);
+    return true;
+  }, []);
+
+  const readTaskSyncStatus = useCallback(
+    async (runId: string): Promise<DynaTaskSyncSummary> => {
+      const active = current.current;
+      if (!active || !hostCapabilitiesRef.current.serverTools) {
+        throw new Error("Dyna task synchronization is unavailable on this host.");
+      }
+      const result = await app.callServerTool({
+        name: "dyna_task_sync_status",
+        arguments: { viewToken: active.viewToken, runId },
+      });
+      if (toolResultFailed(result)) throw new Error("Task synchronization status failed.");
+      const parsed = parseTaskSyncStatusResult(result);
+      if (parsed?.summary.dashboardId !== active.snapshot.dashboard.id) {
+        throw new Error("Dyna returned invalid task synchronization metadata.");
+      }
+      return parsed.summary;
+    },
+    [app],
+  );
+
+  const startTaskSync = useCallback(
+    async (scope: DynaTaskSyncScope): Promise<DynaTaskSyncSummary | undefined> => {
+      const active = current.current;
+      if (!active || !hostCapabilitiesRef.current.serverTools) return undefined;
+      if (!hostCapabilitiesRef.current.message?.text) {
+        setTaskSyncUnavailable(true);
+        return undefined;
+      }
+      setTaskSyncUnavailable(false);
+      const result = await app.callServerTool({
+        name: "dyna_begin_task_sync",
+        arguments: { viewToken: active.viewToken, scope },
+      });
+      if (toolResultFailed(result)) throw new Error("Task synchronization could not start.");
+      const begun = parseTaskSyncBeginResult(result);
+      if (!begun) {
+        throw new Error("Dyna returned invalid task synchronization metadata.");
+      }
+      if (!adoptTaskSync(begun.summary)) {
+        throw new Error("Dyna returned invalid task synchronization metadata.");
+      }
+      syncingTaskSyncRuns.current.add(begun.summary.runId);
+      recoveredTaskSyncRuns.current.add(begun.summary.runId);
+      if (!begun.deliveryRequired || taskSyncFinished(begun.summary)) return begun.summary;
+
+      const delivery = await app.callServerTool({
+        name: "dyna_mark_task_sync_delivered",
+        arguments: { viewToken: active.viewToken, runId: begun.summary.runId },
+      });
+      if (toolResultFailed(delivery)) throw new Error("Task synchronization delivery failed.");
+      const delivered = parseTaskSyncStatusResult(delivery);
+      if (!delivered || !adoptTaskSync(delivered.summary)) {
+        throw new Error("Dyna returned invalid task synchronization delivery metadata.");
+      }
+      if (taskSyncFinished(delivered.summary)) return delivered.summary;
+
+      const send = () =>
+        app.sendMessage({
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `Handle Dyna task sync ${begun.summary.runId} with $flowzone:dyna.`,
+            },
+          ],
+        });
+      const sent = await send();
+      if (sent.isError) {
+        const reconciled = await readTaskSyncStatus(begun.summary.runId);
+        adoptTaskSync(reconciled);
+        if (!taskSyncFinished(reconciled)) {
+          const retried = await send();
+          if (retried.isError) {
+            throw new Error("Task synchronization delivery remains uncertain.");
+          }
+        }
+      }
+      setConnectionError(undefined);
+      return delivered.summary;
+    },
+    [adoptTaskSync, app, readTaskSyncStatus],
+  );
+
+  useEffect(() => {
+    const summary = taskSync;
+    if (
+      summary?.state !== "syncing" ||
+      recoverableTaskSyncRun.current !== summary.runId ||
+      recoveredTaskSyncRuns.current.has(summary.runId) ||
+      !hostCapabilities?.serverTools ||
+      !hostCapabilities.message?.text
+    ) {
+      return;
+    }
+    recoverableTaskSyncRun.current = undefined;
+    recoveredTaskSyncRuns.current.add(summary.runId);
+    void startTaskSync({ kind: "dashboard" }).catch(() => {
+      recoveredTaskSyncRuns.current.delete(summary.runId);
+    });
+  }, [hostCapabilities, startTaskSync, taskSync]);
+
   const refreshLatest = useCallback(
     async (trigger: HTMLElement) => {
       if (manualRefreshInFlight.current || busy) return;
@@ -4901,15 +5235,101 @@ function DynaApp({ app }: { readonly app: App }) {
         const changed = await refresh(true);
         if (changed !== undefined) {
           setOperationError(undefined);
-          setToast(changed ? "Dashboard updated." : "Dashboard is up to date.");
+          if (!hostCapabilitiesRef.current.message?.text) {
+            setTaskSyncUnavailable(true);
+            setToast(
+              changed
+                ? "Dashboard updated. Linked task sync is unavailable."
+                : "Dashboard is current. Linked task sync is unavailable.",
+            );
+            return;
+          }
+          try {
+            const summary = await startTaskSync({ kind: "dashboard" });
+            setToast(
+              summary?.state === "syncing"
+                ? changed
+                  ? "Dashboard updated. Linked tasks are syncing."
+                  : "Dashboard is current. Linked tasks are syncing."
+                : changed
+                  ? "Dashboard updated."
+                  : "Dashboard is up to date.",
+            );
+          } catch {
+            setOperationError(
+              "Dashboard refreshed, but linked task synchronization could not start. Try Refresh again.",
+            );
+          }
         }
       } finally {
         manualRefreshInFlight.current = false;
         setRefreshing(false);
       }
     },
-    [busy, refresh],
+    [busy, refresh, startTaskSync],
   );
+
+  useEffect(() => {
+    const summary = taskSync;
+    if (summary?.state !== "syncing") return;
+    syncingTaskSyncRuns.current.add(summary.runId);
+    taskSyncPollingRun.current = summary.runId;
+    let timeout: number | undefined;
+
+    const schedule = () => {
+      if (taskSyncPollingRun.current !== summary.runId) return;
+      if (timeout !== undefined) window.clearTimeout(timeout);
+      timeout = window.setTimeout(
+        () => {
+          void poll();
+        },
+        document.hidden ? 5_000 : 1_000,
+      );
+    };
+    const poll = async () => {
+      if (taskSyncPollingRun.current !== summary.runId || taskSyncPollInFlight.current) {
+        schedule();
+        return;
+      }
+      taskSyncPollInFlight.current = true;
+      try {
+        const next = await readTaskSyncStatus(summary.runId);
+        if (taskSyncPollingRun.current === summary.runId) adoptTaskSync(next);
+        if (taskSyncPollingRun.current === summary.runId && next.state === "syncing") schedule();
+      } catch {
+        if (taskSyncPollingRun.current === summary.runId) schedule();
+      } finally {
+        taskSyncPollInFlight.current = false;
+      }
+    };
+    const onVisibilityChange = () => {
+      schedule();
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    schedule();
+    return () => {
+      if (taskSyncPollingRun.current === summary.runId) {
+        taskSyncPollingRun.current = undefined;
+      }
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      if (timeout !== undefined) window.clearTimeout(timeout);
+    };
+  }, [adoptTaskSync, readTaskSyncStatus, taskSync]);
+
+  useEffect(() => {
+    const summary = taskSync;
+    if (
+      !taskSyncFinished(summary) ||
+      !summary ||
+      !syncingTaskSyncRuns.current.has(summary.runId) ||
+      finalizedTaskSyncRuns.current.has(summary.runId)
+    ) {
+      return;
+    }
+    finalizedTaskSyncRuns.current.add(summary.runId);
+    void refresh(true);
+  }, [refresh, taskSync]);
 
   useLayoutEffect(() => {
     if (refreshing || !refreshFocusTrigger.current) return;
@@ -4996,7 +5416,7 @@ function DynaApp({ app }: { readonly app: App }) {
   useEffect(() => {
     const onToolResult = (result: AppEventMap["toolresult"]) => {
       const next = metadataPayload(result);
-      if (next) acceptPayload(next);
+      if (next) acceptPayload(next, true);
     };
     app.addEventListener("toolresult", onToolResult);
     return () => {
@@ -5710,10 +6130,37 @@ function DynaApp({ app }: { readonly app: App }) {
     [app, busy, connectionError, readActionStatus],
   );
 
+  const syncTask = useCallback(
+    async (itemId: string, taskId: string, hostId: string, trigger?: HTMLElement) => {
+      if (busy || connectionError || !hostCapabilitiesRef.current.serverTools) return;
+      if (!hostCapabilitiesRef.current.message?.text) {
+        setTaskSyncUnavailable(true);
+        setOperationError("This host cannot synchronize linked Codex tasks.");
+        return;
+      }
+      setOperationError(undefined);
+      try {
+        const summary = await startTaskSync({ kind: "task", itemId, taskId, hostId });
+        setToast(
+          summary?.state === "syncing"
+            ? "Task status is syncing."
+            : "Task status is already current.",
+        );
+      } catch {
+        setOperationError("Could not synchronize the linked Codex task. Try Refresh again.");
+      } finally {
+        trigger?.focus({ preventScroll: true });
+      }
+    },
+    [busy, connectionError, startTaskSync],
+  );
+
   const controller = useMemo<DynaUiController>(
     () => ({
       busy,
       refreshing,
+      taskSync,
+      taskSyncUnavailable,
       blocked: Boolean(connectionError) || !hostCapabilities?.serverTools,
       codexActionsBlocked:
         Boolean(connectionError) ||
@@ -6004,14 +6451,7 @@ function DynaApp({ app }: { readonly app: App }) {
             setToast("All linked tasks are complete. Status refreshed.");
             return;
           }
-          await dispatchAction(
-            itemId,
-            fingerprint,
-            "refresh_codex_status",
-            unfinishedTask.taskId,
-            unfinishedTask.hostId,
-            trigger,
-          );
+          await syncTask(itemId, unfinishedTask.taskId, unfinishedTask.hostId, trigger);
           return;
         }
 
@@ -6052,8 +6492,13 @@ function DynaApp({ app }: { readonly app: App }) {
         }
       },
       async request(itemId, fingerprint, kind, taskId, taskHostId, trigger) {
+        if (kind === "refresh_codex_status" && taskId && taskHostId) {
+          await syncTask(itemId, taskId, taskHostId, trigger);
+          return;
+        }
         await dispatchAction(itemId, fingerprint, kind, taskId, taskHostId, trigger);
       },
+      syncTask,
       async loadCodexSessions(itemId, fingerprint, trigger) {
         const dispatched = await dispatchAction(
           itemId,
@@ -6116,6 +6561,8 @@ function DynaApp({ app }: { readonly app: App }) {
       refresh,
       refreshLatest,
       refreshing,
+      taskSync,
+      taskSyncUnavailable,
       restoreTarget,
       selectedItemId,
       setBulkItemsSelected,
@@ -6131,6 +6578,7 @@ function DynaApp({ app }: { readonly app: App }) {
       executeRestore,
       executeStatusChange,
       dispatchAction,
+      syncTask,
       openDetails,
       openExternal,
       loadActivity,

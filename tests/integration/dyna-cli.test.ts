@@ -1,7 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import process from "node:process";
@@ -27,72 +35,139 @@ function terminalState(output: string): {
   };
 }
 
+function buildTestOwnedDynaPackage(
+  packageRoot: string,
+  databasePath: string,
+  readyMarker?: string,
+): string {
+  const builder = resolve(import.meta.dir, "build-dyna-test-package.mjs");
+  const built = spawnSync(
+    "node",
+    [builder, packageRoot, databasePath, ...(readyMarker ? [readyMarker] : [])],
+    { encoding: "utf8" },
+  );
+  if (built.status !== 0) {
+    throw new Error(`Could not build the test-owned Dyna package: ${built.stderr}`);
+  }
+  return join(packageRoot, "bin", "dyna");
+}
+
 describe("bundled dyna CLI", () => {
   test("supports the bounded item lifecycle without leaking rejected input", () => {
     const fixture = resolve(import.meta.dir, "dyna-cli-node-fixture.mjs");
     const result = spawnSync("node", [fixture], { encoding: "utf8" });
     expect(result.status, result.stderr).toBe(0);
     expect(JSON.parse(result.stdout)).toEqual({
-      show: true,
-      update: true,
+      dashboardList: true,
+      dashboardShow: true,
+      itemSearch: true,
+      itemShow: true,
+      itemHistory: true,
+      itemActivity: true,
+      workUpdate: true,
       retry: true,
-      enrich: true,
-      place: true,
-      archive: true,
-      followUp: true,
-      restore: true,
+      workEnrich: true,
+      organizePlace: true,
+      organizePlaceMany: true,
+      lifecycleArchive: true,
+      lifecycleRestore: true,
+      todoCreate: true,
+      followUpCreate: true,
       redactedErrors: true,
       strictInput: true,
       boundedInput: true,
       commandAllowlist: true,
+      legacyAliasesRejected: true,
+      strictReadSurface: true,
+      canonicalArgumentMatrix: true,
+      optionalBounds: true,
       portableLaunch: true,
       help: true,
       version: true,
       setup: true,
       notFound: true,
     });
-  });
+  }, 15_000);
 
-  test("returns redacted JSON for launcher runtime preflight failures", () => {
-    const directory = mkdtempSync(join(tmpdir(), "flowzone-dyna-runtime ü-"));
+  test("ignores environment-selected executables and Node preload hooks", () => {
+    const directory = mkdtempSync(join(tmpdir(), "flowzone-dyna-runtime-"));
     const launcher = resolve(import.meta.dir, "../../bin/dyna");
-    const unsupportedNode = join(directory, "old node");
+    const poisonedNode = join(directory, "node");
+    const executableMarker = join(directory, "executable-selected");
+    const preloadMarker = join(directory, "node-preload-selected");
+    const preloadModule = join(directory, "node-preload.cjs");
     try {
-      writeFileSync(unsupportedNode, "#!/bin/sh\nexit 1\n");
-      chmodSync(unsupportedNode, 0o755);
-      const unsupported = spawnSync(launcher, ["--version"], {
+      writeFileSync(
+        poisonedNode,
+        '#!/bin/sh\nprintf selected > "$DYNA_TEST_EXECUTABLE_MARKER"\nexit 0\n',
+      );
+      chmodSync(poisonedNode, 0o755);
+      const poisonedExecutable = spawnSync(launcher, ["--version"], {
         encoding: "utf8",
         cwd: directory,
         env: {
           ...process.env,
-          FLOWZONE_NODE_PATH: unsupportedNode,
-          PATH: "/usr/bin:/bin",
+          DYNA_TEST_EXECUTABLE_MARKER: executableMarker,
+          FLOWZONE_NODE_PATH: poisonedNode,
+          PATH: directory,
         },
       });
-      expect(unsupported.status).toBe(126);
-      expect(JSON.parse(unsupported.stderr)).toEqual({
-        schema: "dyna/error-v1",
-        code: "unsupported_runtime",
-        message: "Dyna requires Node.js 22.13.0 or newer.",
-      });
-      expect(unsupported.stderr).not.toContain(directory);
+      expect(poisonedExecutable.status, poisonedExecutable.stderr).toBe(0);
+      expect(JSON.parse(poisonedExecutable.stdout)).toMatchObject({ schema: "dyna/version-v1" });
+      expect(poisonedExecutable.stderr).toBe("");
+      expect(existsSync(executableMarker)).toBe(false);
 
-      const unavailablePath = join(directory, "missing node");
-      const unavailable = spawnSync(launcher, ["--version"], {
+      writeFileSync(
+        preloadModule,
+        'require("node:fs").writeFileSync(process.env.DYNA_TEST_PRELOAD_MARKER, "selected");\n',
+      );
+      const poisonedPreload = spawnSync(launcher, ["--version"], {
         encoding: "utf8",
         cwd: directory,
         env: {
           ...process.env,
-          FLOWZONE_NODE_PATH: unavailablePath,
+          DYNA_TEST_PRELOAD_MARKER: preloadMarker,
+          NODE_OPTIONS: `--require=${preloadModule}`,
           PATH: "/usr/bin:/bin",
         },
       });
-      expect(unavailable.status).toBe(127);
-      expect(JSON.parse(unavailable.stderr)).toMatchObject({
-        schema: "dyna/error-v1",
-        code: "unavailable",
+      expect(poisonedPreload.status, poisonedPreload.stderr).toBe(0);
+      expect(JSON.parse(poisonedPreload.stdout)).toMatchObject({ schema: "dyna/version-v1" });
+      expect(poisonedPreload.stderr).toBe("");
+      expect(existsSync(preloadMarker)).toBe(false);
+
+      const fixedStoreRoot = join(directory, "fixed store plugin ü");
+      const fixedStoreBin = join(fixedStoreRoot, "bin");
+      const fixedStoreDist = join(fixedStoreRoot, "server", "dist");
+      mkdirSync(fixedStoreBin, { recursive: true });
+      mkdirSync(fixedStoreDist, { recursive: true });
+      const fixedStoreLauncher = join(fixedStoreBin, "dyna");
+      copyFileSync(launcher, fixedStoreLauncher);
+      chmodSync(fixedStoreLauncher, 0o755);
+      writeFileSync(
+        join(fixedStoreDist, "dyna.cjs"),
+        `const names = ["FLOWZONE_DATA_DIR", "HOME", "XDG_DATA_HOME", "LOCALAPPDATA"];
+process.stdout.write(JSON.stringify({ schema: "dyna/test-launch-environment-v1", inherited: names.filter((name) => process.env[name] !== undefined) }) + "\\n");
+`,
+      );
+      const fixedStore = spawnSync(fixedStoreLauncher, ["--version"], {
+        encoding: "utf8",
+        cwd: directory,
+        env: {
+          ...process.env,
+          FLOWZONE_DATA_DIR: join(directory, "caller-selected-flowzone-data"),
+          HOME: join(directory, "caller-selected-home"),
+          XDG_DATA_HOME: join(directory, "caller-selected-xdg-data"),
+          LOCALAPPDATA: join(directory, "caller-selected-local-app-data"),
+          PATH: "/usr/bin:/bin",
+        },
       });
-      expect(unavailable.stderr).not.toContain(unavailablePath);
+      expect(fixedStore.status, fixedStore.stderr).toBe(0);
+      expect(JSON.parse(fixedStore.stdout)).toEqual({
+        schema: "dyna/test-launch-environment-v1",
+        inherited: [],
+      });
+      expect(fixedStore.stderr).toBe("");
 
       const isolatedBin = join(directory, "isolated plugin", "bin");
       mkdirSync(isolatedBin, { recursive: true });
@@ -102,7 +177,7 @@ describe("bundled dyna CLI", () => {
       const missingBundle = spawnSync(missingBundleLauncher, ["--help"], {
         encoding: "utf8",
         cwd: directory,
-        env: { ...process.env, FLOWZONE_NODE_PATH: process.execPath, PATH: "/usr/bin:/bin" },
+        env: { ...process.env, PATH: "/usr/bin:/bin" },
       });
       expect(missingBundle.status).toBe(127);
       expect(JSON.parse(missingBundle.stderr)).toEqual({
@@ -119,7 +194,13 @@ describe("bundled dyna CLI", () => {
   test("does not echo private work context when Codex updates through a PTY", async () => {
     const directory = mkdtempSync(join(tmpdir(), "flowzone-dyna-update-pty-"));
     const databasePath = join(directory, "dyna.sqlite3");
-    const launcher = resolve(import.meta.dir, "../../bin/dyna");
+    const readyMarker = "__DYNA_TEST_BUNDLE_READY__";
+    const launcher = buildTestOwnedDynaPackage(
+      join(directory, "Test-owned plugin ü with spaces"),
+      databasePath,
+      readyMarker,
+    );
+    const callerSelectedDataDirectory = join(directory, "must-not-be-used");
     const fixture = resolve(import.meta.dir, "dyna-cli-pty-node-fixture.mjs");
     const terminalWrapper = resolve(import.meta.dir, "dyna-cli-tty-wrapper.sh");
     const signalFixture = resolve(import.meta.dir, "dyna-cli-signal-node-fixture.mjs");
@@ -137,12 +218,16 @@ describe("bundled dyna CLI", () => {
       }).stdout.trim();
 
       const output: Uint8Array[] = [];
+      let ready: (() => void) | undefined;
+      const bundleReady = new Promise<void>((resolveReady) => {
+        ready = resolveReady;
+      });
       const processHandle = Bun.spawn(
         [
           "/bin/sh",
           terminalWrapper,
           launcher,
-          "item",
+          "work",
           "update",
           "--dashboard-id",
           dashboardId,
@@ -154,19 +239,24 @@ describe("bundled dyna CLI", () => {
         {
           env: {
             ...process.env,
-            FLOWZONE_DATA_DIR: directory,
-            FLOWZONE_NODE_PATH: nodePath,
+            FLOWZONE_DATA_DIR: callerSelectedDataDirectory,
           },
           terminal: {
             cols: 120,
             rows: 24,
             data(_terminal, data) {
               output.push(typeof data === "string" ? Buffer.from(data) : Buffer.from(data));
+              if (Buffer.concat(output).toString("utf8").includes(readyMarker)) ready?.();
             },
           },
         },
       );
-      await Bun.sleep(50);
+      await Promise.race([
+        bundleReady,
+        Bun.sleep(5_000).then(() => {
+          throw new Error("Timed out waiting for the test-owned Dyna CLI bundle.");
+        }),
+      ]);
       processHandle.terminal?.write(
         `${JSON.stringify({
           requestId: randomUUID(),
@@ -197,8 +287,7 @@ describe("bundled dyna CLI", () => {
       const invalidHandle = Bun.spawn(["/bin/sh", terminalWrapper, launcher, "item", "sql"], {
         env: {
           ...process.env,
-          FLOWZONE_DATA_DIR: directory,
-          FLOWZONE_NODE_PATH: nodePath,
+          FLOWZONE_DATA_DIR: callerSelectedDataDirectory,
         },
         terminal: {
           cols: 120,
@@ -232,7 +321,7 @@ describe("bundled dyna CLI", () => {
             nodePath,
             signalFixture,
             launcher,
-            "item",
+            "work",
             "update",
             "--dashboard-id",
             dashboardId,
@@ -244,8 +333,7 @@ describe("bundled dyna CLI", () => {
           {
             env: {
               ...process.env,
-              FLOWZONE_DATA_DIR: directory,
-              FLOWZONE_NODE_PATH: nodePath,
+              FLOWZONE_DATA_DIR: callerSelectedDataDirectory,
             },
             terminal: {
               cols: 120,
@@ -290,6 +378,7 @@ describe("bundled dyna CLI", () => {
 
       await testSignal("SIGINT", 130);
       await testSignal("SIGTSTP", 148);
+      expect(existsSync(join(callerSelectedDataDirectory, "dyna.sqlite3"))).toBe(false);
     } finally {
       rmSync(directory, { force: true, recursive: true });
     }
@@ -298,7 +387,11 @@ describe("bundled dyna CLI", () => {
   test("maps a real held SQLite writer to a retry-safe busy result", async () => {
     const directory = mkdtempSync(join(tmpdir(), "flowzone-dyna-busy-"));
     const databasePath = join(directory, "dyna.sqlite3");
-    const launcher = resolve(import.meta.dir, "../../bin/dyna");
+    const launcher = buildTestOwnedDynaPackage(
+      join(directory, "Busy test plugin ü with spaces"),
+      databasePath,
+    );
+    const callerSelectedDataDirectory = join(directory, "must-not-be-used");
     const setupFixture = resolve(import.meta.dir, "dyna-cli-pty-node-fixture.mjs");
     const busyFixture = resolve(import.meta.dir, "dyna-cli-busy-node-fixture.mjs");
     const nodePath = spawnSync("node", ["-p", "process.execPath"], {
@@ -335,7 +428,7 @@ describe("bundled dyna CLI", () => {
       const result = spawnSync(
         launcher,
         [
-          "item",
+          "work",
           "update",
           "--dashboard-id",
           dashboardId,
@@ -348,8 +441,7 @@ describe("bundled dyna CLI", () => {
           encoding: "utf8",
           env: {
             ...process.env,
-            FLOWZONE_DATA_DIR: directory,
-            FLOWZONE_NODE_PATH: nodePath,
+            FLOWZONE_DATA_DIR: callerSelectedDataDirectory,
           },
           input: `${JSON.stringify({
             requestId: randomUUID(),
@@ -371,6 +463,7 @@ describe("bundled dyna CLI", () => {
       expect(result.stdout).toBe("");
       expect(result.stderr).not.toContain(marker);
       expect(result.stderr).not.toContain(databasePath);
+      expect(existsSync(join(callerSelectedDataDirectory, "dyna.sqlite3"))).toBe(false);
     } finally {
       if (writer.exitCode === null) {
         writer.kill();

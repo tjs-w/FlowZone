@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 
-import { DynaService } from "@flowzone/dyna-node";
+import { DynaApplicationService } from "@flowzone/dyna-node";
 
 import { createDynaPlugin } from "../src/plugins/dyna.ts";
 
@@ -29,7 +30,7 @@ async function execute(target, input, executionContext = context) {
   return (await target.executor.execute(input, executionContext)).result;
 }
 
-const service = new DynaService({ databasePath: ":memory:" });
+const service = new DynaApplicationService({ databasePath: ":memory:" });
 const plugin = createDynaPlugin({ service });
 const actions = plugin.actions;
 const appTools = plugin.appTools ?? [];
@@ -46,7 +47,7 @@ try {
     idempotentHint: true,
   });
   assert.deepEqual(action(actions, "search-items").risk, {
-    readOnly: false,
+    readOnly: true,
     destructive: false,
     openWorld: false,
     idempotent: true,
@@ -57,7 +58,47 @@ try {
     openWorld: false,
     idempotent: false,
   });
-  const dashboard = service.store.createDashboard("Manifest", "Action schema coverage");
+  const dashboard = service.createDashboard("Manifest", "Action schema coverage");
+  const enrichmentItem = service.createTodo(dashboard.id, {
+    requestId: randomUUID(),
+    title: "Membership-bound enrichment",
+    priority: "normal",
+    labels: [],
+  });
+  const enrichmentAction = action(actions, "apply-enrichment");
+  const enrichmentInput = {
+    itemId: enrichmentItem.itemId,
+    expectedFingerprint: enrichmentItem.fingerprint,
+    expectedEnrichmentVersion: 0,
+    summary: "A durable MCP enrichment",
+  };
+  assert.equal(enrichmentAction.inputSchema.safeParse(enrichmentInput).success, true);
+  assert.equal(
+    enrichmentAction.inputSchema.safeParse({ ...enrichmentInput, dashboardId: dashboard.id })
+      .success,
+    false,
+  );
+  assert.equal(
+    enrichmentAction.inputSchema.safeParse({ ...enrichmentInput, requestId: randomUUID() }).success,
+    false,
+  );
+  assert.equal(
+    enrichmentAction.inputSchema.safeParse({ ...enrichmentInput, provenance: "caller-authored" })
+      .success,
+    true,
+  );
+  assert.deepEqual(enrichmentAction.risk, {
+    readOnly: false,
+    destructive: false,
+    openWorld: false,
+    idempotent: false,
+  });
+  const enriched = await execute(enrichmentAction, enrichmentInput);
+  assert.deepEqual(enriched, { ok: true });
+  assert.equal(
+    service.getItemContext(dashboard.id, enrichmentItem.itemId).enrichment?.provenance,
+    "codex-main-chat",
+  );
   const created = await execute(action(actions, "create-publisher"), {
     name: "Executive rollup",
     requiredSourceSlices,
@@ -273,6 +314,8 @@ try {
       inventory: true,
       immutable: true,
       mutationAnnotations: true,
+      enrichmentContractPreserved: true,
+      enrichmentDelegatedToApplication: true,
     }),
   );
 } finally {

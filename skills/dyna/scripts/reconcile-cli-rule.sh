@@ -68,11 +68,61 @@ dyna_render_rule() {
     'prefix_rule(' \
     '    pattern = [' \
     "        \"$DYNA_RULE_LAUNCHER_LITERAL\"," \
-    '        "item",' \
-    '        ["show", "update", "enrich", "place", "archive", "restore"],' \
+    '        "dashboard",' \
+    '        ["list", "show"],' \
     '    ],' \
     '    decision = "allow",' \
-    '    justification = "Allow the installed bounded Dyna item CLI to access the same-user local dashboard store.",' \
+    '    justification = "Allow the installed bounded Dyna CLI to discover and inspect local dashboards.",' \
+    ')' \
+    '' \
+    'prefix_rule(' \
+    '    pattern = [' \
+    "        \"$DYNA_RULE_LAUNCHER_LITERAL\"," \
+    '        "item",' \
+    '        ["search", "show", "history", "activity"],' \
+    '    ],' \
+    '    decision = "allow",' \
+    '    justification = "Allow the installed bounded Dyna CLI to inspect item context and history.",' \
+    ')' \
+    '' \
+    'prefix_rule(' \
+    '    pattern = [' \
+    "        \"$DYNA_RULE_LAUNCHER_LITERAL\"," \
+    '        "work",' \
+    '        ["update", "enrich"],' \
+    '    ],' \
+    '    decision = "allow",' \
+    '    justification = "Allow the installed bounded Dyna CLI to record durable item work.",' \
+    ')' \
+    '' \
+    'prefix_rule(' \
+    '    pattern = [' \
+    "        \"$DYNA_RULE_LAUNCHER_LITERAL\"," \
+    '        "organize",' \
+    '        ["place", "place-many"],' \
+    '    ],' \
+    '    decision = "allow",' \
+    '    justification = "Allow the installed bounded Dyna CLI to apply explicitly requested queue placement.",' \
+    ')' \
+    '' \
+    'prefix_rule(' \
+    '    pattern = [' \
+    "        \"$DYNA_RULE_LAUNCHER_LITERAL\"," \
+    '        "lifecycle",' \
+    '        ["archive", "restore"],' \
+    '    ],' \
+    '    decision = "allow",' \
+    '    justification = "Allow the installed bounded Dyna CLI to apply explicitly requested archive lifecycle changes.",' \
+    ')' \
+    '' \
+    'prefix_rule(' \
+    '    pattern = [' \
+    "        \"$DYNA_RULE_LAUNCHER_LITERAL\"," \
+    '        "todo",' \
+    '        "create",' \
+    '    ],' \
+    '    decision = "allow",' \
+    '    justification = "Allow the installed bounded Dyna CLI to create an explicitly requested active to-do.",' \
     ')' \
     '' \
     'prefix_rule(' \

@@ -7,7 +7,7 @@ DYNA_CHILD_PID=
 
 dyna_restore_tty() {
   if [ -n "$DYNA_TTY_STATE" ] && [ -t 0 ]; then
-    stty "$DYNA_TTY_STATE" 2>/dev/null || :
+    /bin/stty "$DYNA_TTY_STATE" 2>/dev/null || :
   fi
 }
 
@@ -71,7 +71,7 @@ dyna_run_node() {
 # Disable terminal echo before inspecting arguments so even malformed mutation
 # commands cannot copy private JSON into terminal or tool output.
 if [ -t 0 ]; then
-  if ! DYNA_TTY_STATE=$(stty -g 2>/dev/null) || [ -z "$DYNA_TTY_STATE" ]; then
+  if ! DYNA_TTY_STATE=$(/bin/stty -g 2>/dev/null) || [ -z "$DYNA_TTY_STATE" ]; then
     dyna_fail "unavailable" "Dyna could not capture terminal input settings." 126
   fi
   trap 'dyna_restore_tty' 0
@@ -79,27 +79,29 @@ if [ -t 0 ]; then
   trap 'dyna_handle_signal INT 130' INT
   trap 'dyna_handle_signal TERM 143' TERM
   trap 'dyna_handle_stop' TSTP
-  if ! stty -echo -echonl 2>/dev/null; then
+  if ! /bin/stty -echo -echonl 2>/dev/null; then
     dyna_fail "unavailable" "Dyna could not secure terminal input." 126
   fi
 fi
 
-DYNA_LAUNCHER_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
+case "$0" in
+  */*) DYNA_LAUNCHER_PARENT=${0%/*} ;;
+  *) dyna_fail "unavailable" "Dyna's installed launcher path is invalid." 127 ;;
+esac
+DYNA_LAUNCHER_DIR=$(CDPATH= cd -- "$DYNA_LAUNCHER_PARENT" && pwd -P)
 DYNA_BUNDLE_PATH="$DYNA_LAUNCHER_DIR/../server/dist/dyna.cjs"
 
 if [ ! -f "$DYNA_BUNDLE_PATH" ]; then
   dyna_fail "unavailable" "Dyna's bundled CLI is unavailable." 127
 fi
 
-if [ -n "${FLOWZONE_NODE_PATH:-}" ]; then
-  if [ ! -x "$FLOWZONE_NODE_PATH" ]; then
-    dyna_fail "unavailable" "The configured Node.js runtime is unavailable." 127
-  fi
-  if ! dyna_node_is_supported "$FLOWZONE_NODE_PATH"; then
-    dyna_fail "unsupported_runtime" "Dyna requires Node.js 22.13.0 or newer." 126
-  fi
-  dyna_run_node "$FLOWZONE_NODE_PATH" "$@"
-fi
+# The worker launcher is granted as a narrow Codex executable boundary. Never
+# let inherited environment select executable code, preload JavaScript, or
+# redirect the shared per-user Dyna store behind that approval. With HOME and
+# the platform data-root variables absent, Node resolves the operating-system
+# account's home directory rather than trusting a caller-selected path.
+unset FLOWZONE_NODE_PATH NODE_OPTIONS NODE_PATH
+unset FLOWZONE_DATA_DIR HOME XDG_DATA_HOME LOCALAPPDATA
 
 DYNA_UNSUPPORTED_NODE_FOUND=0
 
@@ -116,13 +118,6 @@ do
     DYNA_UNSUPPORTED_NODE_FOUND=1
   fi
 done
-
-if command -v node >/dev/null 2>&1; then
-  if dyna_node_is_supported node; then
-    dyna_run_node node "$@"
-  fi
-  DYNA_UNSUPPORTED_NODE_FOUND=1
-fi
 
 if [ "$DYNA_UNSUPPORTED_NODE_FOUND" -eq 1 ]; then
   dyna_fail "unsupported_runtime" "Dyna requires Node.js 22.13.0 or newer." 126

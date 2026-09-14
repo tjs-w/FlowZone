@@ -14,7 +14,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { platform, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -107,10 +107,29 @@ async function validateInstalledSkillReferences(pluginRoot: string): Promise<voi
     "reconcile-cli-rule.sh --check",
     "Do not set `FLOWZONE_DATA_DIR`",
     "## Strict mutation inputs",
+    "dyna dashboard list",
+    "dyna dashboard show",
+    "dyna item search",
+    "dyna item show",
+    "dyna item history",
+    "dyna item activity",
+    "dyna work update",
+    "dyna work enrich",
+    "dyna organize place",
+    "dyna organize place-many",
+    "dyna lifecycle archive",
+    "dyna lifecycle restore",
+    "dyna todo create",
+    "dyna follow-up create",
+    "returns at most 100 dashboards",
+    "returns at most 20 operational briefs",
+    "accepts at most 50 records",
+    "accepts at most 25 updates",
     '"targetPriority"',
     '"reasonDetail"',
-    "`item restore` accepts exactly",
+    "`lifecycle restore` accepts exactly",
     "`follow-up create` accepts",
+    "old `item update`",
     "omitted overlay fields are cleared",
   ]) {
     expect(taskUpdates.toLocaleLowerCase()).toContain(contractMarker.toLocaleLowerCase());
@@ -222,10 +241,16 @@ describe("isolated shipping package", () => {
     const rulePath = join(codexHome, "rules", "flowzone-dyna-worker.rules");
     const rule = await readFile(rulePath, "utf8");
     expect(rule).toContain(`"${join(canonicalPluginRoot, "bin", "dyna")}"`);
-    expect(rule).toContain('["show", "update", "enrich", "place", "archive", "restore"]');
+    expect(rule).toContain('["list", "show"]');
+    expect(rule).toContain('["search", "show", "history", "activity"]');
+    expect(rule).toContain('["update", "enrich"]');
+    expect(rule).toContain('["place", "place-many"]');
+    expect(rule).toContain('["archive", "restore"]');
+    expect(rule).toContain('"todo"');
     expect(rule).toContain('"follow-up"');
     expect(rule).toContain('"create"');
     expect(rule).toContain('"setup"');
+    expect(rule).not.toContain('["show", "update", "enrich", "place", "archive", "restore"]');
     expect(rule).not.toContain(sourceRoot);
     expect(rule).not.toContain("FLOWZONE_DATA_DIR");
     expect(rule).not.toContain('pattern = ["sh"');
@@ -244,33 +269,19 @@ describe("isolated shipping package", () => {
       restartRequired: false,
     });
 
-    const nodePath = spawnSync("node", ["-p", "process.execPath"], {
-      encoding: "utf8",
-    }).stdout.trim();
-    const setup = spawnSync(join(pluginRoot, "bin", "dyna"), ["setup"], {
+    const version = spawnSync(join(pluginRoot, "bin", "dyna"), ["--version"], {
       cwd: userHome,
       encoding: "utf8",
       env: {
         CODEX_HOME: codexHome,
-        FLOWZONE_NODE_PATH: nodePath,
         HOME: userHome,
+        FLOWZONE_DATA_DIR: join(temporaryRoot, "caller-selected-data"),
         PATH: "/usr/bin:/bin",
       },
     });
-    expect(setup.status).toBe(0);
-    expect(JSON.parse(setup.stdout)).toEqual({
-      schema: "dyna/setup-v1",
-      ready: true,
-      store: "available",
-      credentialBoundary: "local-user",
-    });
-    const defaultDatabase =
-      platform() === "darwin"
-        ? join(userHome, "Library", "Application Support", "Codex", "FlowZone", "dyna.sqlite3")
-        : platform() === "win32"
-          ? join(userHome, "Codex", "FlowZone", "dyna.sqlite3")
-          : join(userHome, ".local", "share", "codex", "flowzone", "dyna.sqlite3");
-    await access(defaultDatabase);
+    expect(version.status).toBe(0);
+    expect(JSON.parse(version.stdout)).toMatchObject({ schema: "dyna/version-v1" });
+    expect(version.stderr).toBe("");
 
     const codex = spawnSync("codex", ["--version"], { encoding: "utf8" });
     if (codex.status === 0) {
@@ -341,6 +352,53 @@ describe("isolated shipping package", () => {
       encoding: "utf8",
     }).stdout.trim();
 
+    const dynaHelp = spawnSync(join(pluginRoot, "bin", "dyna"), ["--help"], {
+      cwd: temporaryRoot,
+      encoding: "utf8",
+      env: {
+        FLOWZONE_DATA_DIR: join(temporaryRoot, "caller-selected-data"),
+        PATH: "/usr/bin:/bin",
+      },
+    });
+    expect(dynaHelp.status).toBe(0);
+    const dynaHelpResult = JSON.parse(dynaHelp.stdout) as {
+      readonly schema: string;
+      readonly commands: readonly { readonly command: string }[];
+    };
+    expect(dynaHelpResult.schema).toBe("dyna/help-v1");
+    expect(
+      dynaHelpResult.commands.map((entry) => entry.command.split(" ").slice(1, 3).join(" ")),
+    ).toEqual([
+      "dashboard list",
+      "dashboard show",
+      "item search",
+      "item show",
+      "item history",
+      "item activity",
+      "work update",
+      "work enrich",
+      "organize place",
+      "organize place-many",
+      "lifecycle archive",
+      "lifecycle restore",
+      "todo create",
+      "follow-up create",
+      "setup",
+      "--help",
+      "--version",
+    ]);
+    for (const legacyCommand of [
+      "dyna item update",
+      "dyna item enrich",
+      "dyna item place",
+      "dyna item archive",
+      "dyna item restore",
+    ]) {
+      expect(dynaHelpResult.commands.some((entry) => entry.command.startsWith(legacyCommand))).toBe(
+        false,
+      );
+    }
+
     const publish = spawnSync(
       join(pluginRoot, "bin", "flowzone-publish"),
       ["--publisher", randomUUID()],
@@ -357,23 +415,18 @@ describe("isolated shipping package", () => {
     expect(publish.status).toBe(1);
     expect(publish.stderr).toContain("schema-valid JSON run");
 
-    const dyna = spawnSync(
-      join(pluginRoot, "bin", "dyna"),
-      ["item", "show", "--dashboard-id", randomUUID(), "--item-id", randomUUID()],
-      {
-        cwd: temporaryRoot,
-        encoding: "utf8",
-        env: {
-          FLOWZONE_DATA_DIR: temporaryRoot,
-          FLOWZONE_NODE_PATH: nodePath,
-          PATH: "/usr/bin:/bin",
-        },
+    const dyna = spawnSync(join(pluginRoot, "bin", "dyna"), ["item", "sql"], {
+      cwd: temporaryRoot,
+      encoding: "utf8",
+      env: {
+        FLOWZONE_DATA_DIR: join(temporaryRoot, "caller-selected-data"),
+        PATH: "/usr/bin:/bin",
       },
-    );
+    });
     expect(dyna.status).toBe(1);
     expect(JSON.parse(dyna.stderr)).toMatchObject({
       schema: "dyna/error-v1",
-      code: "not_found",
+      code: "invalid_input",
     });
     expect(dyna.stderr).not.toContain(temporaryRoot);
 
@@ -382,7 +435,7 @@ describe("isolated shipping package", () => {
     await client.connect(transport);
     try {
       expect(client.getServerVersion()?.name).toBe("flowzone");
-      expect((await client.listTools()).tools).toHaveLength(18);
+      expect((await client.listTools()).tools).toHaveLength(21);
       const resource = await client.readResource({ uri: "ui://flowzone/v5.html" });
       const content = resource.contents[0];
       expect(content && "text" in content ? content.text : "").toContain(">Submit<");

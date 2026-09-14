@@ -18,12 +18,12 @@ const attemptA = randomUUID();
 const attemptB = randomUUID();
 const store = new DynaStore({ databasePath: ":memory:", clock: () => new Date(now) });
 
-function status(taskId, state, outcome) {
+function status(taskId, state, outcome, itemNumber) {
   const at = timestamp();
   return {
     taskId,
     hostId: "local",
-    title: `Codex ${taskId}`,
+    title: itemNumber ? `:${String(itemNumber)}: Codex ${taskId}` : `Codex ${taskId}`,
     state,
     statusUpdatedAt: at,
     observedAt: at,
@@ -130,7 +130,7 @@ try {
     requestId: request(),
     workAttemptId: randomUUID(),
     kind: "progress",
-    body: "A task report cannot clear controller-observed input requirements.",
+    body: "Newer progress cannot clear a controller-observed input requirement.",
     artifacts: [],
     task: { taskId: "waiting-task-b", hostId: "local" },
   });
@@ -144,7 +144,7 @@ try {
     requestId: request(),
     workAttemptId: randomUUID(),
     kind: "handoff",
-    body: "A task report cannot clear an unknown controller state.",
+    body: "A newer handoff cannot clear an unknown controller state.",
     artifacts: [],
     task: { taskId: "waiting-task-b", hostId: "local" },
   });
@@ -205,6 +205,7 @@ try {
 
   let shown = store.showItem(dashboardA.id, store.snapshot(dashboardA.id).cards[0].id);
   const itemId = shown.item.id;
+  const itemNumber = shown.item.itemNumber;
   const fingerprint = shown.item.fingerprint;
   assert.equal(shown.enrichmentVersion, 0);
 
@@ -363,14 +364,14 @@ try {
   store.upsertTaskStatusForDashboard(
     dashboardA.id,
     itemId,
-    status("task-a", "succeeded", "Task A finished."),
+    status("task-a", "succeeded", "Task A finished.", itemNumber),
   );
   assert.throws(
     () =>
       store.upsertTaskStatusForDashboard(
         dashboardA.id,
         itemId,
-        status("new-completed-task", "running"),
+        status("new-completed-task", "running", undefined, itemNumber),
       ),
     (error) => error instanceof DynaCliStoreError && error.code === "completed_item",
   );
@@ -424,7 +425,7 @@ try {
   store.upsertTaskStatusForDashboard(
     dashboardA.id,
     itemId,
-    status("task-a", "succeeded", "Task A finished."),
+    status("task-a", "succeeded", "Task A finished.", itemNumber),
   );
   assert.equal(
     store.snapshot(dashboardA.id).cards.some((card) => card.id === itemId),
@@ -435,7 +436,7 @@ try {
       store.upsertTaskStatusForDashboard(
         dashboardA.id,
         itemId,
-        status("new-archived-task", "running"),
+        status("new-archived-task", "running", undefined, itemNumber),
       ),
     (error) => error instanceof DynaCliStoreError && error.code === "archived_item",
   );
@@ -677,6 +678,7 @@ try {
   seed.close();
   const versionFive = new DatabaseSync(databasePath);
   versionFive.exec(`
+    DROP TABLE task_association_reservations;
     ALTER TABLE action_requests RENAME TO action_requests_v6_seed;
     CREATE TABLE action_requests (
       id TEXT PRIMARY KEY, view_token_hash BLOB NOT NULL, dashboard_id TEXT,
@@ -708,7 +710,7 @@ try {
   const migrated = new DynaStore({ databasePath });
   migrated.close();
   const verified = new DatabaseSync(databasePath, { readOnly: true });
-  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 7);
+  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 9);
   assert.equal(
     verified
       .prepare(

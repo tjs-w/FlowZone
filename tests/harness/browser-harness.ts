@@ -67,6 +67,7 @@ interface DynaHarnessBackend {
 }
 
 const dynaBackendPromises = new Map<string, Promise<DynaHarnessBackend>>();
+const dynaFixtureDashboardIds = new Map<string, string>();
 
 function dynaPartition(request: IncomingMessage): string {
   const header = request.headers["x-flowzone-e2e-project"];
@@ -142,6 +143,34 @@ function resultRecord(value: unknown): Readonly<Record<string, unknown>> {
   return value as Readonly<Record<string, unknown>>;
 }
 
+function dynaFixtureDashboardId(value: unknown): string {
+  const metadata = resultRecord(resultRecord(value)["_meta"]);
+  const payload = resultRecord(metadata["dynaDashboard"]);
+  const snapshot = resultRecord(payload["snapshot"]);
+  const dashboard = resultRecord(snapshot["dashboard"]);
+  const dashboardId = dashboard["id"];
+  if (typeof dashboardId !== "string") throw new Error("The Dyna fixture has no dashboard ID.");
+  return dashboardId;
+}
+
+function canonicalDynaFixtureTaskTitle(itemNumber: unknown, title: string): string {
+  if (typeof itemNumber !== "number" || !Number.isSafeInteger(itemNumber) || itemNumber <= 0) {
+    throw new Error("The Dyna fixture item has no safe human-readable number.");
+  }
+  const body = title
+    .replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/gu, "")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .replace(/^(?::\d+:\s*)+/u, "")
+    .trim();
+  const prefix = `:${String(itemNumber)}: `;
+  const boundedBody = Array.from(body || "Codex task")
+    .slice(0, 200 - Array.from(prefix).length)
+    .join("")
+    .trimEnd();
+  return `${prefix}${boundedBody || "Codex task"}`;
+}
+
 const dynaSessionPickerCandidates = [
   {
     taskId: "picker-running-task",
@@ -210,6 +239,8 @@ async function handleDynaControllerAction(
       (entry) => entry.taskId === taskId && entry.hostId === hostId,
     );
     if (!candidate) throw new Error("The selected Dyna session fixture does not exist.");
+    const context = resultRecord(claimed["context"]);
+    const item = resultRecord(context["item"]);
     const observedAt = new Date().toISOString();
     completionInput = {
       requestId,
@@ -219,7 +250,7 @@ async function handleDynaControllerAction(
         taskId,
         hostId,
         ...("projectId" in candidate ? { projectId: candidate.projectId } : {}),
-        title: candidate.title,
+        title: canonicalDynaFixtureTaskTitle(item["itemNumber"], candidate.title),
         state: taskId === "picker-waiting-task" ? "waiting" : "running",
         statusUpdatedAt: candidate.updatedAt,
         observedAt,
@@ -242,6 +273,125 @@ async function handleDynaControllerAction(
   return { handled: true, kind, state: completed["state"] };
 }
 
+async function handleDynaTaskSync(
+  request: IncomingMessage,
+  runId: string,
+  mode: "updated" | "partial" | "succeeded" | "missing-outcome",
+): Promise<Readonly<Record<string, unknown>>> {
+  const backend = await dynaBackend(request);
+  const claimedCall = await backend.client.callTool({
+    name: "flowzone",
+    arguments: {
+      plugin: "dyna",
+      action: "claim-task-sync",
+      input: { runId },
+    },
+  });
+  if (claimedCall.isError) throw new Error("Could not claim the Dyna task synchronization.");
+  const claimed = flowzoneResult(claimedCall);
+  const claimToken = claimed["claimToken"];
+  const targets = claimed["targets"];
+  if (typeof claimToken !== "string" || !Array.isArray(targets)) {
+    throw new Error("The claimed Dyna task synchronization is incomplete.");
+  }
+
+  for (let offset = 0; offset < targets.length; offset += 8) {
+    const observations: Readonly<Record<string, unknown>>[] = [];
+    const unavailable: Readonly<Record<string, unknown>>[] = [];
+    const observedAt = new Date().toISOString();
+    for (const [index, rawTarget] of targets.slice(offset, offset + 8).entries()) {
+      const target = resultRecord(rawTarget);
+      const taskId = target["taskId"];
+      const hostId = target["hostId"];
+      const itemId = target["itemId"];
+      const checkpointVersion = target["checkpointVersion"];
+      const expectedTitle = target["expectedTitle"];
+      if (
+        typeof taskId !== "string" ||
+        typeof hostId !== "string" ||
+        typeof itemId !== "string" ||
+        typeof checkpointVersion !== "number" ||
+        typeof expectedTitle !== "string"
+      ) {
+        throw new Error("The Dyna task synchronization target is invalid.");
+      }
+      if (mode === "partial" && offset === 0 && index === 0) {
+        unavailable.push({
+          taskId,
+          hostId,
+          checkpointVersion,
+          reason: "host_unavailable",
+        });
+        continue;
+      }
+      const missingOutcome =
+        (mode === "missing-outcome" && offset === 0 && index === 0) ||
+        (mode === "partial" && offset === 0 && index === 1);
+      const succeeded = mode === "succeeded" || missingOutcome || taskId === "pipeline-task-3";
+      observations.push({
+        taskId,
+        checkpointVersion,
+        task: {
+          taskId,
+          hostId,
+          title: expectedTitle,
+          state: succeeded ? "succeeded" : "running",
+          statusUpdatedAt: observedAt,
+          observedAt,
+          ...(succeeded && !missingOutcome
+            ? { outcome: "Completed the linked Codex task and verified its result." }
+            : {}),
+        },
+        summaryCoverage: "available",
+        nextCursor: `fixture:${runId}:${String(offset + index + 1)}`,
+        lastTurnId: `fixture-turn-${String(offset + index + 1)}`,
+        ...(mode === "updated" && offset === 0 && index === 0
+          ? {
+              delta: {
+                kind: "progress",
+                body: "Verified the implementation path and recorded the next bounded step.",
+                artifacts: [
+                  {
+                    kind: "merge_request",
+                    label: "MR !184",
+                    url: "https://gitlab.com/example/flowzone/-/merge_requests/184",
+                  },
+                ],
+              },
+            }
+          : {}),
+      });
+    }
+    const submittedCall = await backend.client.callTool({
+      name: "flowzone",
+      arguments: {
+        plugin: "dyna",
+        action: "submit-task-sync-batch",
+        input: {
+          runId,
+          claimToken,
+          requestId: randomUUID(),
+          observations,
+          unavailable,
+        },
+      },
+    });
+    if (submittedCall.isError) throw new Error("Could not submit the Dyna task sync batch.");
+  }
+
+  const completedCall = await backend.client.callTool({
+    name: "flowzone",
+    arguments: {
+      plugin: "dyna",
+      action: "complete-task-sync",
+      input: { runId, claimToken, requestId: randomUUID() },
+    },
+  });
+  if (completedCall.isError) throw new Error("Could not complete the Dyna task synchronization.");
+  const completed = flowzoneResult(completedCall);
+  return { handled: true, state: resultRecord(completed["summary"])["state"] };
+}
+
 async function runDynaFixtureUpdate(
   dataDirectory: string,
   dashboardId: string,
@@ -249,10 +399,13 @@ async function runDynaFixtureUpdate(
   fingerprint: string,
   input: Readonly<Record<string, unknown>>,
 ): Promise<void> {
+  // The shipping launcher intentionally strips store-selection variables. The harness runs the
+  // generated adapter directly so this mutation stays inside its isolated test database.
   const child = spawn(
-    resolve(pluginRoot, "bin/dyna"),
+    "node",
     [
-      "item",
+      resolve(pluginRoot, "server/dist/dyna.cjs"),
+      "work",
       "update",
       "--dashboard-id",
       dashboardId,
@@ -288,7 +441,7 @@ async function runDynaFixtureUpdate(
   }
 }
 
-const dynaResource = await client.readResource({ uri: "ui://flowzone/dyna/v15.html" });
+const dynaResource = await client.readResource({ uri: "ui://flowzone/dyna/v17.html" });
 const dynaResourceContent = dynaResource.contents[0];
 if (!dynaResourceContent || !("text" in dynaResourceContent)) {
   throw new Error("The Dyna HTML resource was not returned");
@@ -395,6 +548,51 @@ async function createDynaFixture(
   ) {
     throw new Error("Could not create the Dyna browser fixture");
   }
+  const attachControllerTask = async (
+    item: Readonly<Record<string, unknown>>,
+    task: Readonly<Record<string, unknown>>,
+  ): Promise<void> => {
+    const itemId = item["id"];
+    const taskId = task["taskId"];
+    const title = task["title"];
+    if (typeof itemId !== "string" || typeof taskId !== "string" || typeof title !== "string") {
+      throw new Error("The Dyna task fixture is incomplete.");
+    }
+    const reservationRequestId = randomUUID();
+    const reservedCall = await client.callTool({
+      name: "flowzone",
+      arguments: {
+        plugin: "dyna",
+        action: "check-codex-task-association",
+        input: { dashboardId, itemId, taskId, reservationRequestId },
+      },
+    });
+    if (reservedCall.isError) throw new Error("Could not reserve the Dyna task fixture.");
+    const reservation = flowzoneResult(reservedCall);
+    if (
+      reservation["association"] !== "attachable" ||
+      reservation["reservationId"] !== reservationRequestId
+    ) {
+      throw new Error("The Dyna task fixture reservation was not attachable.");
+    }
+    const attachment = await client.callTool({
+      name: "flowzone",
+      arguments: {
+        plugin: "dyna",
+        action: "attach-codex-task",
+        input: {
+          dashboardId,
+          itemId,
+          associationReservationId: reservationRequestId,
+          task: {
+            ...task,
+            title: canonicalDynaFixtureTaskTitle(item["itemNumber"], title),
+          },
+        },
+      },
+    });
+    if (attachment.isError) throw new Error(`Could not attach the Dyna task fixture: ${taskId}`);
+  };
   const binding = await client.callTool({
     name: "flowzone",
     arguments: {
@@ -663,29 +861,16 @@ async function createDynaFixture(
       if (!matchingCard)
         throw new Error(`Dyna pipeline fixture card was not found: ${target.title}`);
       const card = matchingCard;
-      const itemId = card["id"];
-      if (typeof itemId !== "string") continue;
-      await client.callTool({
-        name: "flowzone",
-        arguments: {
-          plugin: "dyna",
-          action: "attach-codex-task",
-          input: {
-            dashboardId,
-            itemId,
-            task: {
-              taskId: `pipeline-task-${String(offset + 1)}`,
-              hostId: "local",
-              title: `Codex execution ${String(offset + 1)}`,
-              state: target.state,
-              statusUpdatedAt: now,
-              observedAt: now,
-              ...(target.state === "succeeded"
-                ? { outcome: "Approved the release path and documented the remaining risk." }
-                : {}),
-            },
-          },
-        },
+      await attachControllerTask(card, {
+        taskId: `pipeline-task-${String(offset + 1)}`,
+        hostId: "local",
+        title: `Codex execution ${String(offset + 1)}`,
+        state: target.state,
+        statusUpdatedAt: now,
+        observedAt: now,
+        ...(target.state === "succeeded"
+          ? { outcome: "Approved the release path and documented the remaining risk." }
+          : {}),
       });
     }
     openedDyna = await client.callTool({
@@ -734,28 +919,14 @@ async function createDynaFixture(
         throw new Error(`Dyna work activity fixture card was not found: ${fixture.title}`);
       }
       for (const task of fixture.tasks) {
-        const attachment = await client.callTool({
-          name: "flowzone",
-          arguments: {
-            plugin: "dyna",
-            action: "attach-codex-task",
-            input: {
-              dashboardId,
-              itemId: card["id"],
-              task: {
-                taskId: task.taskId,
-                hostId: "local",
-                title: task.title,
-                state: "running",
-                statusUpdatedAt: now,
-                observedAt: now,
-              },
-            },
-          },
+        await attachControllerTask(card, {
+          taskId: task.taskId,
+          hostId: "local",
+          title: task.title,
+          state: "running",
+          statusUpdatedAt: now,
+          observedAt: now,
         });
-        if (attachment.isError) {
-          throw new Error(`Could not attach the Dyna work activity task: ${task.taskId}`);
-        }
       }
     }
 
@@ -880,7 +1051,10 @@ async function createDynaFixture(
           task: {
             taskId: "activity-superseded-task",
             hostId: "local",
-            title: "Fresh controller observation",
+            title: canonicalDynaFixtureTaskTitle(
+              supersededCard["itemNumber"],
+              "Fresh controller observation",
+            ),
             state: "running",
             statusUpdatedAt: newerObservation,
             observedAt: newerObservation,
@@ -1120,6 +1294,7 @@ const dynaHostScript = (dynaResult: unknown) => `<script>
     anchorInterceptorActivations: [],
     clipboardWrites: [],
     displayModeRequests: [],
+    taskSyncControllerRuns: [],
     snapshotResults: 0,
     replayedToolResults: 0,
     latestToolResult: initialResult,
@@ -1298,6 +1473,41 @@ const dynaHostScript = (dynaResult: unknown) => `<script>
               JSON.stringify(controllerResult);
           }
         }
+        const text = Array.isArray(request.params?.content)
+          ? request.params.content.find((entry) => entry?.type === "text")?.text
+          : undefined;
+        const taskSyncMatch = typeof text === "string"
+          ? /Handle Dyna task sync ([0-9a-f-]{36}) with \\$flowzone:dyna\\./u.exec(text)
+          : null;
+        const taskSyncMode = query.get("task-sync-controller");
+        if (
+          taskSyncMatch?.[1] &&
+          (taskSyncMode === "updated" ||
+            taskSyncMode === "partial" ||
+            taskSyncMode === "succeeded" ||
+            taskSyncMode === "missing-outcome")
+        ) {
+          const runId = taskSyncMatch[1];
+          state.taskSyncControllerRuns.push(runId);
+          const requestedDelay = Number(query.get("task-sync-delay-ms"));
+          const delay = Number.isFinite(requestedDelay)
+            ? Math.max(0, Math.min(requestedDelay, 5_000))
+            : 100;
+          setTimeout(() => {
+            void fetch("/dyna-sync-controller", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ runId, mode: taskSyncMode })
+            }).then(async (controllerResponse) => {
+              if (!controllerResponse.ok) throw new Error("Dyna task sync fixture controller failed");
+              const controllerResult = await controllerResponse.json();
+              document.documentElement.dataset.dynaLastTaskSyncController =
+                JSON.stringify(controllerResult);
+            }).catch((error) => {
+              document.documentElement.dataset.dynaTaskSyncControllerError = String(error);
+            });
+          }, delay);
+        }
       } else if (request.method === "ui/open-link") {
         state.externalLinks.push(request.params.url);
         document.documentElement.dataset.dynaLastExternalLink = request.params.url;
@@ -1367,33 +1577,50 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
   if (request.method === "GET" && requestUrl.pathname === "/dyna") {
     // Each Playwright page gets an isolated store. Keeping one store per browser project
     // makes unrelated tests consume production inventory limits and leak fixture history.
-    const backend = await resetDynaBackend(request);
-    const dynaFixture = await createDynaFixture(
-      backend.client,
-      backend.dataDirectory,
-      requestUrl.searchParams.get("stress") === "1"
-        ? 200
-        : requestUrl.searchParams.get("dense") === "1"
-          ? 9
-          : requestUrl.searchParams.get("many-items") === "1" ||
-              requestUrl.searchParams.get("pipeline") === "1" ||
-              requestUrl.searchParams.get("work-activity") === "1" ||
-              requestUrl.searchParams.get("activity-pages") === "1"
-            ? requestUrl.searchParams.get("work-activity") === "1" ||
-              requestUrl.searchParams.get("activity-pages") === "1"
-              ? 5
-              : 4
-            : 1,
-      requestUrl.searchParams.get("pipeline") === "1",
-      requestUrl.searchParams.get("long-content") === "1",
-      requestUrl.searchParams.get("older-match") === "1",
-      requestUrl.searchParams.get("failed-schedule") === "1",
-      requestUrl.searchParams.get("never-run-schedule") === "1",
-      requestUrl.searchParams.get("revoked-schedule") === "1",
-      requestUrl.searchParams.get("work-activity") === "1" ||
+    const partition = dynaPartition(request);
+    const reuseFixture = requestUrl.searchParams.get("reuse-fixture") === "1";
+    const backend = reuseFixture ? await dynaBackend(request) : await resetDynaBackend(request);
+    let dynaFixture: unknown;
+    if (reuseFixture) {
+      const dashboardId = dynaFixtureDashboardIds.get(partition);
+      if (!dashboardId) throw new Error("The Dyna remount fixture was not initialized.");
+      dynaFixture = await backend.client.callTool({
+        name: "render_dyna_dashboard",
+        arguments: { dashboardId },
+      });
+      if (resultRecord(dynaFixture)["isError"] === true) {
+        throw new Error("Could not reopen the Dyna browser fixture.");
+      }
+    } else {
+      dynaFixtureDashboardIds.delete(partition);
+      dynaFixture = await createDynaFixture(
+        backend.client,
+        backend.dataDirectory,
+        requestUrl.searchParams.get("stress") === "1"
+          ? 200
+          : requestUrl.searchParams.get("dense") === "1"
+            ? 9
+            : requestUrl.searchParams.get("many-items") === "1" ||
+                requestUrl.searchParams.get("pipeline") === "1" ||
+                requestUrl.searchParams.get("work-activity") === "1" ||
+                requestUrl.searchParams.get("activity-pages") === "1"
+              ? requestUrl.searchParams.get("work-activity") === "1" ||
+                requestUrl.searchParams.get("activity-pages") === "1"
+                ? 5
+                : 4
+              : 1,
+        requestUrl.searchParams.get("pipeline") === "1",
+        requestUrl.searchParams.get("long-content") === "1",
+        requestUrl.searchParams.get("older-match") === "1",
+        requestUrl.searchParams.get("failed-schedule") === "1",
+        requestUrl.searchParams.get("never-run-schedule") === "1",
+        requestUrl.searchParams.get("revoked-schedule") === "1",
+        requestUrl.searchParams.get("work-activity") === "1" ||
+          requestUrl.searchParams.get("activity-pages") === "1",
         requestUrl.searchParams.get("activity-pages") === "1",
-      requestUrl.searchParams.get("activity-pages") === "1",
-    );
+      );
+      dynaFixtureDashboardIds.set(partition, dynaFixtureDashboardId(dynaFixture));
+    }
     response.writeHead(200, {
       "cache-control": "no-store",
       "content-type": "text/html; charset=utf-8",
@@ -1435,6 +1662,21 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
         .strict()
         .parse(JSON.parse((await readRequestBody(request)).toString("utf8")));
       json(response, 200, await handleDynaControllerAction(request, requestId));
+    } catch (error: unknown) {
+      json(response, 400, { error: error instanceof Error ? error.message : String(error) });
+    }
+    return;
+  }
+  if (request.method === "POST" && request.url === "/dyna-sync-controller") {
+    try {
+      const { runId, mode } = z
+        .object({
+          runId: z.uuid(),
+          mode: z.enum(["updated", "partial", "succeeded", "missing-outcome"]),
+        })
+        .strict()
+        .parse(JSON.parse((await readRequestBody(request)).toString("utf8")));
+      json(response, 200, await handleDynaTaskSync(request, runId, mode));
     } catch (error: unknown) {
       json(response, 400, { error: error instanceof Error ? error.message : String(error) });
     }

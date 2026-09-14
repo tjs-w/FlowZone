@@ -2,10 +2,14 @@ import {
   DynaPublishSourceSlicesSchema,
   DynaScheduledPublishedItemSchema,
 } from "@flowzone/dyna-contracts";
-import { DynaService } from "@flowzone/dyna-node";
+import { DynaApplicationService, type DynaApplicationActor } from "@flowzone/dyna-node";
 import { z } from "zod";
 
 const MAX_INPUT_BYTES = 256 * 1024;
+const DYNA_PUBLISHER_ACTOR = {
+  kind: "publisher",
+  capabilities: ["publisher:publish"],
+} as const satisfies DynaApplicationActor;
 
 const PublishEnvelopeSchema = z
   .object({
@@ -45,7 +49,7 @@ async function readBoundedInput(): Promise<string> {
 async function main(): Promise<void> {
   const publisherId = publisherIdFromArguments(process.argv.slice(2));
   const input = PublishEnvelopeSchema.parse(JSON.parse(await readBoundedInput()) as unknown);
-  const service = new DynaService();
+  const service = new DynaApplicationService({ actor: DYNA_PUBLISHER_ACTOR });
   try {
     const result = service.publishLocal(publisherId, input.items, {
       runId: input.runId,

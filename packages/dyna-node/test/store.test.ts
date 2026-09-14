@@ -3,6 +3,31 @@ import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 
 describe("DynaStore lifecycle", () => {
+  test("coordinates canonical application operations atomically", () => {
+    const fixture = resolve(import.meta.dir, "application-service-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      todoReplay: true,
+      archivedReplay: true,
+      bulkBlock: true,
+      normalizedReplay: true,
+      atomicRollback: true,
+      queueOrderPreserved: true,
+      liveProjection: true,
+      serviceRetention: true,
+      canonicalTaskTitles: true,
+      spoofSafeTaskTitles: true,
+      exclusiveTaskOwnership: true,
+      expiredReservationCapacity: true,
+      hostRouting: true,
+      titleSyncProjection: true,
+      numericSearchRanking: true,
+      associationReservation: true,
+      legacyReceiptReplay: true,
+    });
+  });
+
   test("changes taskless workflow status without fabricating linked Codex state", () => {
     const fixture = resolve(import.meta.dir, "manual-workflow-node-fixture.mjs");
     const result = spawnSync("node", [fixture], { encoding: "utf8" });

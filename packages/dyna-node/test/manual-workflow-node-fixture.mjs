@@ -132,7 +132,7 @@ try {
   store.upsertTaskStatusForDashboard(dashboardA.id, linked.id, {
     taskId: "task-linked",
     hostId: "local",
-    title: "Controller-owned task",
+    title: `:${String(linked.itemNumber)}: Controller-owned task`,
     state: "running",
     statusUpdatedAt: timestamp(),
     observedAt: timestamp(),
@@ -254,7 +254,7 @@ try {
       store.upsertTaskStatusForDashboard(dashboardA.id, taskless.id, {
         taskId: "task-after-manual-completion",
         hostId: "local",
-        title: "Must not attach",
+        title: `:${String(taskless.itemNumber)}: Must not attach`,
         state: "running",
         statusUpdatedAt: timestamp(),
         observedAt: timestamp(),
@@ -347,7 +347,7 @@ try {
   const migrated = new DynaStore({ databasePath });
   migrated.close();
   const verified = new DatabaseSync(databasePath, { readOnly: true });
-  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 7);
+  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 9);
   assert.equal(
     verified
       .prepare(

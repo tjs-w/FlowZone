@@ -289,21 +289,22 @@ test("adds an annotation and sends only an opaque Codex action request", async (
   expect(Object.keys(reference)).toEqual([
     "schema",
     "dashboardId",
-    "dashboardName",
     "itemId",
+    "itemNumber",
     "expectedFingerprint",
     "sourceUpdatedAt",
     "copiedAt",
     "workAttemptId",
-    "linkedTasks",
   ]);
   expect(reference).toMatchObject({
-    schema: "dyna/work-item-v1",
-    dashboardName: "Executive Brief",
-    linkedTasks: [],
+    schema: "dyna/work-item-v2",
   });
+  expect(reference).not.toHaveProperty("dashboardName");
+  expect(reference).not.toHaveProperty("linkedTasks");
   expect(reference["dashboardId"]).toMatch(/^[0-9a-f-]{36}$/);
   expect(reference["itemId"]).toMatch(/^[0-9a-f-]{36}$/);
+  expect(typeof reference["itemNumber"]).toBe("number");
+  expect(Number(reference["itemNumber"])).toBeGreaterThan(0);
   expect(reference["expectedFingerprint"]).toMatch(/^[a-f0-9]{64}$/);
   expect(reference["sourceUpdatedAt"]).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   expect(reference["copiedAt"]).toMatch(/^\d{4}-\d{2}-\d{2}T/);
@@ -315,7 +316,9 @@ test("adds an annotation and sends only an opaque Codex action request", async (
     secondReferenceMatch?.groups?.["reference"] ?? "null",
   ) as Record<string, unknown>;
   expect(secondReference["workAttemptId"]).not.toBe(reference["workAttemptId"]);
-  expect(copiedPrompt).toContain("BEGIN UNTRUSTED DYNA CONTEXT\nTitle:");
+  expect(copiedPrompt).toContain(
+    "BEGIN UNTRUSTED DYNA CONTEXT\nDashboard: Executive Brief\nDyna item: :",
+  );
   expect(copiedPrompt).toContain("END UNTRUSTED DYNA CONTEXT");
   expect(copiedPrompt.match(/^BEGIN UNTRUSTED DYNA CONTEXT$/gmu)).toHaveLength(1);
   expect(copiedPrompt.match(/^END UNTRUSTED DYNA CONTEXT$/gmu)).toHaveLength(1);
@@ -343,6 +346,9 @@ test("loads recent Codex sessions on demand and associates the exact selection",
   await openDetails(page, "Review the release merge request");
 
   const inspector = page.locator(".dyna-inspector");
+  const itemNumberPrefix =
+    (await inspector.locator("h2 .dyna-item-number").textContent())?.trim() ?? "";
+  expect(itemNumberPrefix).toMatch(/^:\d+:$/);
   const codexWork = inspector.locator(".dyna-codex-work");
   await expect(codexWork.getByRole("heading", { name: "Codex Work" })).toBeVisible();
   await expect(codexWork).toContainText("No session linked.");
@@ -388,6 +394,7 @@ test("loads recent Codex sessions on demand and associates the exact selection",
     .filter({ hasText: "Review release guard" })
     .filter({ hasText: "Waiting" });
   await expect(linkedTask).toBeVisible();
+  await expect(linkedTask.locator("strong")).toHaveText(`${itemNumberPrefix} Review release guard`);
   await expect(codexWork.locator(".dyna-session-picker")).toHaveCount(0);
   await expect(codexWork.getByRole("button", { name: "Link existing session" })).toBeVisible();
   await expect(linkedTask.getByRole("button", { name: "Open task" })).toBeFocused();
@@ -719,7 +726,7 @@ test("tailors context actions to Progress tasks and archived items", async ({ pa
   await openDetails(page, "Additional priority 1");
   const task = page.locator(".dyna-task").filter({ hasText: "Codex execution 1" });
   await task.locator(":scope > span").click({ button: "right" });
-  const taskMenu = page.getByRole("menu", { name: "Actions for Codex execution 1" });
+  const taskMenu = page.getByRole("menu", { name: "Actions for :2: Codex execution 1" });
   await expect(taskMenu.getByRole("menuitem")).toHaveText(["Open task", "Refresh task status"]);
   await page.keyboard.press("Escape");
   await closeDetails(page);
@@ -814,13 +821,21 @@ test("opens details by clicking anywhere on a dashboard card", async ({ page }) 
     .locator(".dyna-card")
     .filter({ hasText: "Review the release merge request" })
     .first();
+  const itemNumber = card.locator(".dyna-row-heading > .dyna-item-number");
+  await expect(itemNumber).toHaveText(/^:\d+:$/);
+  const displayedNumber = await itemNumber.getAttribute("data-dyna-item-number");
+  expect(displayedNumber).toMatch(/^\d+$/);
+  await expect(card.locator(".dyna-row-title .dyna-item-number")).toHaveCount(0);
   await card.locator(".dyna-row-attention").click();
-  await expect(
-    page.locator(".dyna-inspector").getByRole("heading", {
-      name: "Review the release merge request",
-      level: 2,
-    }),
-  ).toBeVisible();
+  const inspectorHeading = page.locator(".dyna-inspector").getByRole("heading", {
+    name: "Review the release merge request",
+    level: 2,
+  });
+  await expect(inspectorHeading).toBeVisible();
+  await expect(inspectorHeading.locator(".dyna-item-number")).toHaveAttribute(
+    "data-dyna-item-number",
+    displayedNumber ?? "",
+  );
   await closeDetails(page);
   await expect(card.getByRole("button", { name: /Open details for/ })).toBeFocused();
 });
@@ -1072,6 +1087,7 @@ test("places an evidence-bound Executive Brief before the active view with expli
   await expect(brief.locator(".dyna-executive-summary-meta")).toContainText("All 4 active items");
   await expect(brief).toHaveAttribute("data-coverage", "current");
   await expect(brief.locator(".dyna-executive-summary-coverage")).toContainText("Current sources:");
+  await expect(brief.locator('li[data-kind="act"] .dyna-item-number')).toHaveText(/^:\d+:$/);
 
   const theme = brief.locator('li[data-kind="theme"]');
   await expect(theme).toHaveCount(1);
@@ -1263,6 +1279,7 @@ test("uses calm, legible light and dark host themes", async ({ page }) => {
   for (const selector of [
     ".dyna-stat strong",
     ".dyna-row-time",
+    ".dyna-item-number",
     ".dyna-header-meta",
     ".dyna-executive-summary-meta time",
   ]) {
@@ -1370,6 +1387,15 @@ test("adds, searches, reprioritizes, and sequences queue items", async ({ page }
   const releaseCard = page
     .locator('.dyna-card[data-presentation="queue"]')
     .filter({ hasText: "Review the release merge request" });
+  const releaseItemNumber = await releaseCard.getAttribute("data-item-number");
+  expect(releaseItemNumber).toMatch(/^\d+$/);
+  await search.fill(`:${releaseItemNumber ?? ""}:`);
+  await expect(page.locator('.dyna-card[data-presentation="queue"]')).toHaveCount(1);
+  await expect(releaseCard).toBeVisible();
+  await search.fill(releaseItemNumber ?? "");
+  await expect(page.locator('.dyna-card[data-presentation="queue"]')).toHaveCount(1);
+  await expect(releaseCard).toBeVisible();
+  await search.fill("github avery");
   await openOrganizationMenu(page, "Review the release merge request");
   await page.getByRole("button", { name: "Lower priority" }).click();
   await expect(releaseCard).toHaveAttribute("data-priority", "high");
@@ -1807,7 +1833,7 @@ test("keeps the maximum 200-item snapshot within interaction performance budgets
     const valueDescriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
     if (!valueDescriptor?.set) throw new Error("Expected the native input value setter");
     start = performance.now();
-    valueDescriptor.set.call(search, "Additional priority 199");
+    valueDescriptor.set.call(search, "Additional priority 199 quarterly-plan-199");
     search.dispatchEvent(new Event("input", { bubbles: true }));
     await settle();
     const searchFeedbackMs = performance.now() - start;
@@ -2139,7 +2165,9 @@ test("projects the same items through the Codex progress pipeline and creates fo
     .first()
     .click();
   await openContextDetails(page);
-  await expect(page.getByText("Follow-up to completed work")).toBeVisible();
+  await expect(
+    page.locator(".dyna-meta").filter({ hasText: /^Follow-up to :\d+:$/u }),
+  ).toBeVisible();
 });
 
 test("moves a taskless item between Progress lanes with drag or the touch status menu", async ({
@@ -2246,7 +2274,7 @@ test("requires a one-line outcome before a taskless item can move to Done", asyn
 });
 
 test("keeps linked Codex status controller-owned when Done is selected", async ({ page }) => {
-  await page.goto("/dyna?pipeline=1");
+  await page.goto("/dyna?pipeline=1&task-sync-controller=succeeded");
   await openFullDashboard(page);
   await page.getByRole("tab", { name: "Progress pipeline" }).click();
 
@@ -2271,11 +2299,14 @@ test("keeps linked Codex status controller-owned when Done is selected", async (
   });
   expect(calls).toContainEqual(
     expect.objectContaining({
-      name: "dyna_prepare_action",
+      name: "dyna_begin_task_sync",
       arguments: expect.objectContaining({
-        kind: "refresh_codex_status",
-        taskId: "pipeline-task-1",
-        taskHostId: "local",
+        scope: {
+          kind: "task",
+          itemId: expect.any(String),
+          taskId: "pipeline-task-1",
+          hostId: "local",
+        },
       }),
     }),
   );
@@ -2284,6 +2315,11 @@ test("keeps linked Codex status controller-owned when Done is selected", async (
       (call) => call.name === "dyna_set_item_status" && call.arguments?.["targetStage"] === "done",
     ),
   ).toBe(false);
+  await expect(
+    page
+      .locator('.dyna-pipeline-stage[data-workflow-stage="completed"] .dyna-card')
+      .filter({ hasText: title }),
+  ).toBeVisible({ timeout: 5_000 });
 });
 
 for (const theme of ["light", "dark"] as const) {
@@ -2363,7 +2399,9 @@ for (const theme of ["light", "dark"] as const) {
 
     await openDetails(page, "Review the release merge request");
     const activity = page.locator(".dyna-inspector .dyna-work-activity");
-    await expect(activity.getByRole("heading", { name: "Work Activity", level: 3 })).toBeVisible();
+    const activityHeading = activity.getByRole("heading", { name: "Work Activity", level: 3 });
+    await expect(activityHeading).toBeVisible();
+    await expect(activityHeading.locator(".dyna-item-number")).toHaveText(/^:\d+:$/);
     await expect(activity.locator(".dyna-work-list > li")).toHaveCount(2);
     await expect(activity.locator('[data-work-update-kind="decision"]')).toContainText(
       "Kept the fail-closed release policy after security review.",
@@ -2374,10 +2412,10 @@ for (const theme of ["light", "dark"] as const) {
     );
     await expect(
       progress.getByLabel(
-        "Update from linked Codex task Release guard implementation; task identity activity-progress-task on host local was verified, but the update content was not independently verified",
+        "Update from linked Codex task :1: Release guard implementation; task identity activity-progress-task on host local was verified, but the update content was not independently verified",
       ),
     ).toBeVisible();
-    await expect(progress).toContainText("From linked task · Release guard implementation");
+    await expect(progress).toContainText("From linked task · :1: Release guard implementation");
     await expect(progress).not.toContainText("Verified task");
     await expect(progress.locator("time")).toHaveAttribute("datetime", /^\d{4}-\d{2}-\d{2}T/);
     await expect(progress.locator("time")).not.toHaveText("");
@@ -2462,13 +2500,10 @@ for (const theme of ["light", "dark"] as const) {
     const referenceText = /Dyna work reference:\n```json\n(?<reference>[\s\S]*?)\n```/.exec(
       copiedPrompt,
     )?.groups?.["reference"];
-    const reference = JSON.parse(referenceText ?? "null") as {
-      linkedTasks?: Record<string, unknown>[];
-    };
-    expect(reference.linkedTasks).toHaveLength(1);
-    expect(Object.keys(reference.linkedTasks?.[0] ?? {}).sort()).toEqual(
-      ["taskId", "hostId", "title", "state", "statusUpdatedAt", "observedAt"].sort(),
-    );
+    const reference = JSON.parse(referenceText ?? "null") as Record<string, unknown>;
+    expect(reference).not.toHaveProperty("dashboardName");
+    expect(reference).not.toHaveProperty("linkedTasks");
+    expect(copiedPrompt).toContain("Linked Codex tasks:\n- activity-progress-task on local");
     expect(copiedPrompt).toContain("Recent work activity:\n- ");
     expect(copiedPrompt.indexOf("Recent work activity:")).toBeGreaterThan(
       copiedPrompt.indexOf("BEGIN UNTRUSTED DYNA CONTEXT"),
@@ -2532,6 +2567,38 @@ for (const theme of ["light", "dark"] as const) {
     );
   });
 }
+
+test("surfaces a bounded task-title sync warning for legacy cached observations", async ({
+  page,
+}) => {
+  await page.goto("/dyna?work-activity=1");
+  await openFullDashboard(page);
+  await page.evaluate(() => {
+    const host = (
+      window as typeof window & {
+        __dynaHost?: {
+          latestToolResult?: {
+            _meta?: { dynaDashboard?: { snapshot?: { cards?: Record<string, unknown>[] } } };
+          };
+          replayLatestToolResult?: () => void;
+        };
+      }
+    ).__dynaHost;
+    const card = host?.latestToolResult?._meta?.dynaDashboard?.snapshot?.cards?.find(
+      (candidate) => candidate["title"] === "Review the release merge request",
+    );
+    if (!card) throw new Error("Expected the Dyna title-sync fixture card");
+    card["titleSyncNeeded"] = true;
+    host?.replayLatestToolResult?.();
+  });
+  await openDetails(page, "Review the release merge request");
+  await expect(
+    page.getByRole("status").filter({
+      hasText:
+        "A linked task title needs sync. Refresh its status to apply and verify this item’s ID.",
+    }),
+  ).toBeVisible();
+});
 
 test("renders the latest activity immediately and loads older pages on demand", async ({
   page,
@@ -3306,22 +3373,301 @@ test("refreshes the latest authoritative backend state on demand", async ({ page
     return { ...((await response.json()) as Record<string, unknown>), revision };
   }, title);
   expect(mutation.isError).not.toBe(true);
+  if (typeof mutation.revision !== "number") throw new Error("The fixture revision is missing.");
+  const revisionBeforeMutation = mutation.revision;
   await expect(page.getByText(title, { exact: true })).toHaveCount(0);
+  const snapshotCallsBeforeRefresh = await page.evaluate(() => {
+    const calls = (
+      window as typeof window & {
+        __dynaHost?: { toolCalls?: { name?: string }[] };
+      }
+    ).__dynaHost?.toolCalls;
+    return calls?.filter((call) => call.name === "dyna_get_snapshot").length ?? 0;
+  });
 
   await refresh.click();
   await expect(page.getByText(title, { exact: true })).toBeVisible();
   await expect(page.getByRole("status").filter({ hasText: "Dashboard updated." })).toBeVisible();
   await expect(refresh).toBeFocused();
-  const latestRefresh = await page.evaluate(() => {
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const calls = (
+          window as typeof window & {
+            __dynaHost?: { toolCalls?: { name?: string }[] };
+          }
+        ).__dynaHost?.toolCalls;
+        return calls?.filter((call) => call.name === "dyna_get_snapshot").length ?? 0;
+      }),
+    )
+    .toBeGreaterThanOrEqual(snapshotCallsBeforeRefresh + 2);
+  const refreshes = await page.evaluate((startingIndex) => {
     const calls = (
       window as typeof window & {
         __dynaHost?: { toolCalls?: { name?: string; arguments?: Record<string, unknown> }[] };
       }
     ).__dynaHost?.toolCalls;
-    return calls?.filter((call) => call.name === "dyna_get_snapshot").at(-1);
+    return calls?.filter((call) => call.name === "dyna_get_snapshot").slice(startingIndex) ?? [];
+  }, snapshotCallsBeforeRefresh);
+  const firstRefresh = refreshes[0];
+  const finalRefresh = refreshes.at(-1);
+  expect(firstRefresh?.arguments?.["currentRevision"]).toBe(revisionBeforeMutation);
+  expect(firstRefresh?.arguments?.["scope"]).toBe("active");
+  expect(finalRefresh?.arguments?.["currentRevision"]).toEqual(expect.any(Number));
+  expect(finalRefresh?.arguments?.["currentRevision"] as number).toBeGreaterThan(
+    revisionBeforeMutation,
+  );
+  expect(finalRefresh?.arguments?.["scope"]).toBe("active");
+});
+
+test("keeps cached content usable while linked Codex tasks synchronize", async ({ page }) => {
+  await page.goto(
+    "/dyna?pipeline=1&inline-only=1&task-sync-controller=updated&task-sync-delay-ms=300",
+  );
+  const refresh = page.locator('[data-dyna-refresh="true"]:visible');
+  const visibleTitle = page.getByText("Review the release merge request", { exact: true });
+  await expect(visibleTitle).toBeVisible();
+  const snapshotsBefore = Number(
+    (await page.locator("html").getAttribute("data-dyna-snapshot-result-count")) ?? "0",
+  );
+
+  await refresh.click();
+  await expect(page.getByRole("status").filter({ hasText: /^Syncing \d+\/\d+$/u })).toBeVisible();
+  await expect(visibleTitle).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add to-do" })).toBeEnabled();
+
+  const delivery = await page.evaluate(() => {
+    const host = (
+      window as typeof window & {
+        __dynaHost?: {
+          messages?: { content?: { type?: string; text?: string }[] }[];
+          toolCalls?: { name?: string }[];
+        };
+      }
+    ).__dynaHost;
+    const message = host?.messages?.at(-1)?.content?.find((entry) => entry.type === "text")?.text;
+    return { message, calls: host?.toolCalls?.map((call) => call.name) ?? [] };
   });
-  expect(latestRefresh?.arguments?.["currentRevision"]).toBe(mutation.revision);
-  expect(latestRefresh?.arguments?.["scope"]).toBe("active");
+  expect(delivery.message).toMatch(/^Handle Dyna task sync [0-9a-f-]{36} with \$flowzone:dyna\.$/u);
+  expect(delivery.message).not.toContain("release merge request");
+  expect(delivery.calls.indexOf("dyna_get_snapshot")).toBeLessThan(
+    delivery.calls.indexOf("dyna_begin_task_sync"),
+  );
+  expect(delivery.calls.indexOf("dyna_begin_task_sync")).toBeLessThan(
+    delivery.calls.indexOf("dyna_mark_task_sync_delivered"),
+  );
+
+  await expect(page.getByRole("status").filter({ hasText: /^Updated [1-9]\d* ·/u })).toBeVisible({
+    timeout: 5_000,
+  });
+  await expect(visibleTitle).toBeVisible();
+  await expect
+    .poll(async () =>
+      Number((await page.locator("html").getAttribute("data-dyna-snapshot-result-count")) ?? "0"),
+    )
+    .toBeGreaterThanOrEqual(snapshotsBefore + 2);
+  const statusCalls = await page.evaluate(() => {
+    const host = (window as typeof window & { __dynaHost?: { toolCalls?: { name?: string }[] } })
+      .__dynaHost;
+    return host?.toolCalls?.filter((call) => call.name === "dyna_task_sync_status").length ?? 0;
+  });
+  expect(statusCalls).toBeGreaterThan(0);
+});
+
+test("joins repeated dashboard refreshes without another controller message", async ({ page }) => {
+  await page.goto("/dyna?pipeline=1&inline-only=1");
+  const refresh = page.locator('[data-dyna-refresh="true"]:visible');
+  await refresh.click();
+  await expect(page.getByRole("status").filter({ hasText: /^Syncing \d+\/\d+$/u })).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const host = (window as typeof window & { __dynaHost?: { messages?: unknown[] } })
+          .__dynaHost;
+        return host?.messages?.length ?? 0;
+      }),
+    )
+    .toBe(1);
+  await expect(refresh).toBeEnabled();
+  await refresh.click();
+
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const host = (
+          window as typeof window & { __dynaHost?: { toolCalls?: { name?: string }[] } }
+        ).__dynaHost;
+        return host?.toolCalls?.filter((call) => call.name === "dyna_begin_task_sync").length ?? 0;
+      }),
+    )
+    .toBe(2);
+
+  const activity = await page.evaluate(() => {
+    const host = (
+      window as typeof window & {
+        __dynaHost?: { messages?: unknown[]; toolCalls?: { name?: string }[] };
+      }
+    ).__dynaHost;
+    return {
+      messages: host?.messages?.length ?? 0,
+      begins: host?.toolCalls?.filter((call) => call.name === "dyna_begin_task_sync").length ?? 0,
+      deliveries:
+        host?.toolCalls?.filter((call) => call.name === "dyna_mark_task_sync_delivered").length ??
+        0,
+    };
+  });
+  expect(activity).toEqual({ messages: 1, begins: 2, deliveries: 1 });
+});
+
+test("recovers a persisted linked-task sync only after its delivery reservation expires", async ({
+  context,
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "chromium",
+    "The real-time delivery reservation recovery only needs one desktop engine smoke test.",
+  );
+  await page.goto("/dyna?pipeline=1&inline-only=1");
+  await page.locator('[data-dyna-refresh="true"]:visible').click();
+  await expect(page.getByRole("status").filter({ hasText: /^Syncing \d+\/\d+$/u })).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const host = (window as typeof window & { __dynaHost?: { messages?: unknown[] } })
+          .__dynaHost;
+        return host?.messages?.length ?? 0;
+      }),
+    )
+    .toBe(1);
+
+  const immediateWindow = await context.newPage();
+  await immediateWindow.goto("/dyna?pipeline=1&inline-only=1&reuse-fixture=1");
+  await expect(
+    immediateWindow.getByRole("status").filter({ hasText: /^Syncing \d+\/\d+$/u }),
+  ).toBeVisible();
+  await expect
+    .poll(() =>
+      immediateWindow.evaluate(() => {
+        const host = (
+          window as typeof window & {
+            __dynaHost?: { messages?: unknown[]; toolCalls?: { name?: string }[] };
+          }
+        ).__dynaHost;
+        return {
+          begins:
+            host?.toolCalls?.filter((call) => call.name === "dyna_begin_task_sync").length ?? 0,
+          messages: host?.messages?.length ?? 0,
+        };
+      }),
+    )
+    .toEqual({ begins: 1, messages: 0 });
+  await immediateWindow.close();
+
+  await page.waitForTimeout(15_200);
+  const originalWindowActivity = await page.evaluate(() => {
+    const host = (
+      window as typeof window & {
+        __dynaHost?: { messages?: unknown[]; toolCalls?: { name?: string }[] };
+      }
+    ).__dynaHost;
+    return {
+      begins: host?.toolCalls?.filter((call) => call.name === "dyna_begin_task_sync").length ?? 0,
+      messages: host?.messages?.length ?? 0,
+    };
+  });
+  expect(originalWindowActivity).toEqual({ begins: 1, messages: 1 });
+
+  const recoveredWindow = await context.newPage();
+  await recoveredWindow.goto("/dyna?pipeline=1&inline-only=1&reuse-fixture=1");
+  await expect
+    .poll(
+      () =>
+        recoveredWindow.evaluate(() => {
+          const host = (
+            window as typeof window & {
+              __dynaHost?: {
+                messages?: { content?: { type?: string; text?: string }[] }[];
+                toolCalls?: { name?: string }[];
+              };
+            }
+          ).__dynaHost;
+          return {
+            begins:
+              host?.toolCalls?.filter((call) => call.name === "dyna_begin_task_sync").length ?? 0,
+            deliveries:
+              host?.toolCalls?.filter((call) => call.name === "dyna_mark_task_sync_delivered")
+                .length ?? 0,
+            message:
+              host?.messages?.at(-1)?.content?.find((entry) => entry.type === "text")?.text ?? "",
+          };
+        }),
+      { timeout: 5_000 },
+    )
+    .toEqual({
+      begins: 1,
+      deliveries: 1,
+      message: expect.stringMatching(
+        /^Handle Dyna task sync [0-9a-f-]{36} with \$flowzone:dyna\.$/u,
+      ),
+    });
+  await recoveredWindow.close();
+});
+
+test("reports partial linked-task synchronization without replacing cached content", async ({
+  page,
+}) => {
+  await page.goto("/dyna?pipeline=1&inline-only=1&task-sync-controller=partial");
+  const title = page.getByText("Review the release merge request", { exact: true });
+  await expect(title).toBeVisible();
+  await page.locator('[data-dyna-refresh="true"]:visible').click();
+  const status = page
+    .getByRole("status")
+    .filter({ hasText: "Partial · 1 unavailable · 1 missing outcome" });
+  await expect(status).toBeVisible({ timeout: 5_000 });
+  await expect(status).toHaveAttribute(
+    "aria-label",
+    "Linked Codex task synchronization completed partially. 1 task was unavailable. 1 completed task is missing an outcome.",
+  );
+  await expect(title).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("reports native success without an outcome as incomplete metadata", async ({ page }) => {
+  await page.goto("/dyna?pipeline=1&inline-only=1&task-sync-controller=missing-outcome");
+  await page.locator('[data-dyna-refresh="true"]:visible').click();
+  const status = page.getByRole("status").filter({ hasText: "Partial · 1 missing outcome" });
+  await expect(status).toBeVisible({ timeout: 5_000 });
+  await expect(status).toHaveAttribute(
+    "aria-label",
+    "Linked Codex task synchronization completed partially. 1 completed task is missing an outcome.",
+  );
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("refreshes cached data honestly when task-message capability is unavailable", async ({
+  page,
+}) => {
+  await page.goto("/dyna?pipeline=1&inline-only=1&no-text-message=1");
+  const title = page.getByText("Review the release merge request", { exact: true });
+  await expect(title).toBeVisible();
+  await page.locator('[data-dyna-refresh="true"]:visible').click();
+  await expect(page.getByRole("status").filter({ hasText: "Sync unavailable" })).toBeVisible();
+  await expect(title).toBeVisible();
+  const activity = await page.evaluate(() => {
+    const host = (
+      window as typeof window & {
+        __dynaHost?: { messages?: unknown[]; toolCalls?: { name?: string }[] };
+      }
+    ).__dynaHost;
+    return {
+      messages: host?.messages?.length ?? 0,
+      begins: host?.toolCalls?.filter((call) => call.name === "dyna_begin_task_sync").length ?? 0,
+      snapshots: host?.toolCalls?.filter((call) => call.name === "dyna_get_snapshot").length ?? 0,
+    };
+  });
+  expect(activity.messages).toBe(0);
+  expect(activity.begins).toBe(0);
+  expect(activity.snapshots).toBeGreaterThan(0);
 });
 
 test("preserves filters, selection, and detail scroll through refresh and host replay", async ({
@@ -3422,6 +3768,10 @@ test("keeps inline content visible when the host cannot expand", async ({ page }
 test("keeps the bounded brief usable when an expanded presentation request fails", async ({
   page,
 }) => {
+  // The shared beforeEach page can still be finishing an app-private fetch when this
+  // test navigates. WebKit reports that expected navigation abort as a page error, so
+  // leave the bootstrap document before observing errors from the page under test.
+  await page.goto("about:blank");
   const pageErrors: Error[] = [];
   page.on("pageerror", (error) => pageErrors.push(error));
   await page.goto("/dyna?display-mode-error=1&dense=1");

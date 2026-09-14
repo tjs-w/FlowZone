@@ -1,24 +1,38 @@
 import {
-  DynaArchiveReasonSchema,
+  DynaDashboardListResultSchema,
+  DynaDashboardShowResultSchema,
+  DynaFollowUpCreateInputSchema,
+  DynaFollowUpCreateResultSchema,
+  DynaItemActivityResultSchema,
   DynaItemArchiveResultSchema,
   DynaItemEnrichResultSchema,
+  DynaItemHistoryResultSchema,
   DynaItemPlaceResultSchema,
   DynaItemRestoreResultSchema,
+  DynaItemSearchResultSchema,
+  DynaItemSearchScopeSchema,
   DynaItemShowResultSchema,
   DynaItemUpdateResultSchema,
-  DynaFollowUpCreateResultSchema,
-  DynaNextStepSchema,
-  DynaPersonSignalSchema,
-  DynaPrioritySchema,
-  DynaPublishedItemSchema,
-  DynaTodoInputSchema,
+  DynaLifecycleArchiveInputSchema,
+  DynaLifecycleRestoreInputSchema,
+  DynaOrganizePlaceInputSchema,
+  DynaOrganizePlaceManyInputSchema,
+  DynaPageCursorSchema,
+  DynaPlaceManyResultSchema,
+  DynaTodoCreateInputSchema,
+  DynaTodoCreateResultSchema,
+  DynaWorkEnrichInputSchema,
   DynaWorkUpdateInputSchema,
   DynaCliHelpResultSchema,
   DynaCliSetupResultSchema,
   DynaCliVersionResultSchema,
   DynaCliErrorSchema,
 } from "@flowzone/dyna-contracts";
-import { DynaCliStoreError, DynaService } from "@flowzone/dyna-node";
+import {
+  DynaApplicationService,
+  DynaCliStoreError,
+  type DynaApplicationActor,
+} from "@flowzone/dyna-node";
 import { spawnSync } from "node:child_process";
 import { z } from "zod";
 
@@ -27,6 +41,10 @@ const UUID = z.uuid();
 const FINGERPRINT = z.string().regex(/^[a-f0-9]{64}$/);
 const CLI_VERSION = "0.1.0";
 const MINIMUM_NODE_VERSION = "22.13.0";
+const DYNA_CLI_ACTOR = {
+  kind: "codex_task",
+  capabilities: ["dashboard:read", "item:read", "item:write"],
+} as const satisfies DynaApplicationActor;
 
 function restoreLauncherTerminal(): void {
   const state = process.env["FLOWZONE_DYNA_TTY_STATE"]?.trim();
@@ -44,38 +62,74 @@ process.once("SIGTSTP", () => {
 
 const CLI_COMMANDS = [
   {
+    command: "dyna dashboard list",
+    readsStdin: false,
+    description: "List up to 100 bounded dashboard records.",
+  },
+  {
+    command: "dyna dashboard show --dashboard-id D",
+    readsStdin: false,
+    description: "Read one dashboard by exact ID.",
+  },
+  {
+    command: "dyna item search --dashboard-id D [--query Q] [--scope active|archive]",
+    readsStdin: false,
+    description: "Search bounded active or archived dashboard items.",
+  },
+  {
     command: "dyna item show --dashboard-id D --item-id I",
     readsStdin: false,
     description: "Read bounded current item context and control versions.",
   },
   {
-    command: "dyna item update --dashboard-id D --item-id I --expected-fingerprint F",
+    command:
+      "dyna item history --dashboard-id D --item-id I [--limit N] [--archive-cursor C] [--order-cursor C] [--status-cursor C] [--work-cursor C]",
+    readsStdin: false,
+    description: "Read paginated lifecycle, placement, status, and work history.",
+  },
+  {
+    command: "dyna item activity --dashboard-id D --item-id I [--cursor C] [--limit N]",
+    readsStdin: false,
+    description: "Read paginated durable work activity.",
+  },
+  {
+    command: "dyna work update --dashboard-id D --item-id I --expected-fingerprint F",
     readsStdin: true,
     description: "Append one typed durable work update.",
   },
   {
     command:
-      "dyna item enrich --dashboard-id D --item-id I --expected-fingerprint F --expected-enrichment-version N",
+      "dyna work enrich --dashboard-id D --item-id I --expected-fingerprint F --expected-enrichment-version N",
     readsStdin: true,
     description: "Replace the bounded evidence-based enrichment overlay.",
   },
   {
     command:
-      "dyna item place --dashboard-id D --item-id I --expected-fingerprint F --expected-revision N",
+      "dyna organize place --dashboard-id D --item-id I --expected-fingerprint F --expected-revision N",
     readsStdin: true,
     description: "Change dashboard-local priority and sequence.",
   },
   {
+    command: "dyna organize place-many --dashboard-id D --expected-revision N",
+    readsStdin: true,
+    description: "Atomically change the priority group of bounded selected items.",
+  },
+  {
     command:
-      "dyna item archive --dashboard-id D --item-id I --expected-fingerprint F --expected-revision N",
+      "dyna lifecycle archive --dashboard-id D --item-id I --expected-fingerprint F --expected-revision N",
     readsStdin: true,
     description: "Archive with an explicit disposition.",
   },
   {
     command:
-      "dyna item restore --dashboard-id D --item-id I --expected-fingerprint F --expected-revision N",
+      "dyna lifecycle restore --dashboard-id D --item-id I --expected-fingerprint F --expected-revision N",
     readsStdin: true,
     description: "Restore an archived item without losing history.",
+  },
+  {
+    command: "dyna todo create --dashboard-id D",
+    readsStdin: true,
+    description: "Create one active dashboard to-do.",
   },
   {
     command:
@@ -100,95 +154,84 @@ const CLI_COMMANDS = [
   },
 ] as const;
 
-const EnrichInputSchema = z
-  .object({
-    requestId: UUID,
-    summary: DynaPublishedItemSchema.shape.summary.optional(),
-    priority: DynaPrioritySchema.optional(),
-    priorityReason: DynaPublishedItemSchema.shape.priorityReason.optional(),
-    dueAt: DynaPublishedItemSchema.shape.dueAt.nullable().optional(),
-    labels: DynaPublishedItemSchema.shape.labels.optional(),
-    people: z.array(DynaPersonSignalSchema).max(8).optional(),
-    attention: DynaPublishedItemSchema.shape.attention.optional(),
-    plan: DynaPublishedItemSchema.shape.plan.optional(),
-    nextSteps: z.array(DynaNextStepSchema).max(4).optional(),
-  })
-  .strict()
-  .refine((input) => Object.keys(input).some((key) => key !== "requestId"), {
-    message: "An enrichment must include at least one replacement field.",
-  });
+const MAX_ARGUMENTS = 20;
+const MAX_ARGUMENT_BYTES = 8 * 1024;
+const MAX_FLAG_VALUE_BYTES = 2 * 1024;
+const QUERY = z.string().trim().max(500);
 
-const PlaceInputSchema = z
-  .object({
-    requestId: UUID,
-    targetPriority: DynaPrioritySchema,
-    beforeItemId: UUID.optional(),
-  })
-  .strict();
+interface ItemIdentity {
+  readonly dashboardId: string;
+  readonly itemId: string;
+}
 
-const ArchiveInputSchema = z
-  .object({
-    requestId: UUID,
-    reason: DynaArchiveReasonSchema,
-    reasonDetail: z.string().trim().min(1).max(500).optional(),
-  })
-  .strict()
-  .superRefine((input, context) => {
-    if (input.reason === "other" && !input.reasonDetail) {
-      context.addIssue({
-        code: "custom",
-        path: ["reasonDetail"],
-        message: "Other requires a reason detail.",
-      });
-    }
-    if (input.reason !== "other" && input.reasonDetail) {
-      context.addIssue({
-        code: "custom",
-        path: ["reasonDetail"],
-        message: "Reason detail is only allowed for Other.",
-      });
-    }
-  });
-
-const RestoreInputSchema = z.object({ requestId: UUID }).strict();
-const FollowUpInputSchema = DynaTodoInputSchema.omit({ followUpOfItemId: true })
-  .extend({ requestId: UUID })
-  .strict();
+interface MutationPreconditions extends ItemIdentity {
+  readonly expectedFingerprint: string;
+  readonly expectedRevision: number;
+}
 
 type ParsedCommand =
   | { readonly kind: "help" | "version" | "setup" }
-  | { readonly kind: "show"; readonly dashboardId: string; readonly itemId: string }
+  | { readonly kind: "dashboard-list" }
+  | { readonly kind: "dashboard-show"; readonly dashboardId: string }
   | {
-      readonly kind: "update";
+      readonly kind: "item-search";
       readonly dashboardId: string;
-      readonly itemId: string;
-      readonly expectedFingerprint: string;
+      readonly query: string;
+      readonly scope: "active" | "archive";
     }
-  | {
-      readonly kind: "enrich";
-      readonly dashboardId: string;
-      readonly itemId: string;
-      readonly expectedFingerprint: string;
+  | ({ readonly kind: "item-show" } & ItemIdentity)
+  | ({
+      readonly kind: "item-history";
+      readonly limit: number;
+      readonly archiveCursor?: string;
+      readonly orderCursor?: string;
+      readonly statusCursor?: string;
+      readonly workCursor?: string;
+    } & ItemIdentity)
+  | ({
+      readonly kind: "item-activity";
+      readonly cursor?: string;
+      readonly limit: number;
+    } & ItemIdentity)
+  | ({ readonly kind: "work-update" } & Omit<MutationPreconditions, "expectedRevision">)
+  | ({
+      readonly kind: "work-enrich";
       readonly expectedEnrichmentVersion: number;
-    }
+    } & Omit<MutationPreconditions, "expectedRevision">)
+  | ({
+      readonly kind:
+        "organize-place" | "lifecycle-archive" | "lifecycle-restore" | "follow-up-create";
+    } & MutationPreconditions)
   | {
-      readonly kind: "place" | "archive" | "restore" | "follow-up";
+      readonly kind: "organize-place-many";
       readonly dashboardId: string;
-      readonly itemId: string;
-      readonly expectedFingerprint: string;
       readonly expectedRevision: number;
-    };
+    }
+  | { readonly kind: "todo-create"; readonly dashboardId: string };
 
-function exactFlags(
+function commandFlags(
   arguments_: readonly string[],
   required: readonly string[],
+  optional: readonly string[] = [],
 ): Map<string, string> {
-  if (arguments_.length !== required.length * 2) throw new Error("usage");
+  if (arguments_.length % 2 !== 0) throw new Error("usage");
+  const allowed = new Set([...required, ...optional]);
   const values = new Map<string, string>();
   for (let index = 0; index < arguments_.length; index += 2) {
     const flag = arguments_[index];
     const value = arguments_[index + 1];
-    if (!flag || !value || !required.includes(flag) || values.has(flag)) throw new Error("usage");
+    if (
+      !flag ||
+      value === undefined ||
+      !allowed.has(flag) ||
+      values.has(flag) ||
+      value.includes("\0") ||
+      value.includes("\r") ||
+      value.includes("\n") ||
+      Buffer.byteLength(value, "utf8") > MAX_FLAG_VALUE_BYTES
+    ) {
+      throw new Error("usage");
+    }
     values.set(flag, value);
   }
   if (required.some((flag) => !values.has(flag))) throw new Error("usage");
@@ -200,64 +243,151 @@ function nonnegativeInteger(value: string | undefined): number {
   return z.number().int().nonnegative().parse(Number(value));
 }
 
+function positiveInteger(value: string | undefined, maximum: number, fallback: number): number {
+  if (value === undefined) return fallback;
+  if (!/^[1-9][0-9]*$/.test(value)) throw new Error("usage");
+  return z.number().int().positive().max(maximum).parse(Number(value));
+}
+
+function optionalCursor(value: string | undefined): string | undefined {
+  return value === undefined ? undefined : DynaPageCursorSchema.parse(value);
+}
+
+function itemIdentity(flags: ReadonlyMap<string, string>): ItemIdentity {
+  return {
+    dashboardId: UUID.parse(flags.get("--dashboard-id")),
+    itemId: UUID.parse(flags.get("--item-id")),
+  };
+}
+
+function mutationPreconditions(flags: ReadonlyMap<string, string>): MutationPreconditions {
+  return {
+    ...itemIdentity(flags),
+    expectedFingerprint: FINGERPRINT.parse(flags.get("--expected-fingerprint")),
+    expectedRevision: nonnegativeInteger(flags.get("--expected-revision")),
+  };
+}
+
 function parseCommand(arguments_: readonly string[]): ParsedCommand {
   if (
-    arguments_.length === 1 &&
-    (arguments_[0] === "--help" || arguments_[0] === "-h" || arguments_[0] === "help")
+    arguments_.length > MAX_ARGUMENTS ||
+    arguments_.reduce((total, argument) => total + Buffer.byteLength(argument, "utf8"), 0) >
+      MAX_ARGUMENT_BYTES
   ) {
+    throw new Error("usage");
+  }
+  if (arguments_.length === 1 && arguments_[0] === "--help") {
     return { kind: "help" };
   }
-  if (arguments_.length === 1 && (arguments_[0] === "--version" || arguments_[0] === "version")) {
+  if (arguments_.length === 1 && arguments_[0] === "--version") {
     return { kind: "version" };
   }
   if (arguments_.length === 1 && arguments_[0] === "setup") return { kind: "setup" };
+
   const [noun, verb, ...rest] = arguments_;
-  const command = noun === "follow-up" && verb === "create" ? "follow-up" : verb;
-  if ((noun !== "item" && noun !== "follow-up") || !command) throw new Error("usage");
-  const common = ["--dashboard-id", "--item-id"];
-  if (noun === "item" && command === "show") {
-    const flags = exactFlags(rest, common);
+  if (!noun || !verb) throw new Error("usage");
+  const common = ["--dashboard-id", "--item-id"] as const;
+  const preconditionFlags = [...common, "--expected-fingerprint", "--expected-revision"];
+
+  if (noun === "dashboard" && verb === "list") {
+    commandFlags(rest, []);
+    return { kind: "dashboard-list" };
+  }
+  if (noun === "dashboard" && verb === "show") {
+    const flags = commandFlags(rest, ["--dashboard-id"]);
+    return { kind: "dashboard-show", dashboardId: UUID.parse(flags.get("--dashboard-id")) };
+  }
+  if (noun === "item" && verb === "search") {
+    const flags = commandFlags(rest, ["--dashboard-id"], ["--query", "--scope"]);
     return {
-      kind: "show",
+      kind: "item-search",
       dashboardId: UUID.parse(flags.get("--dashboard-id")),
-      itemId: UUID.parse(flags.get("--item-id")),
+      query: QUERY.parse(flags.get("--query") ?? ""),
+      scope: DynaItemSearchScopeSchema.parse(flags.get("--scope") ?? "active"),
     };
   }
-  if (noun === "item" && command === "update") {
-    const flags = exactFlags(rest, [...common, "--expected-fingerprint"]);
+  if (noun === "item" && verb === "show") {
+    return { kind: "item-show", ...itemIdentity(commandFlags(rest, common)) };
+  }
+  if (noun === "item" && verb === "history") {
+    const flags = commandFlags(rest, common, [
+      "--limit",
+      "--archive-cursor",
+      "--order-cursor",
+      "--status-cursor",
+      "--work-cursor",
+    ]);
+    const archiveCursor = optionalCursor(flags.get("--archive-cursor"));
+    const orderCursor = optionalCursor(flags.get("--order-cursor"));
+    const statusCursor = optionalCursor(flags.get("--status-cursor"));
+    const workCursor = optionalCursor(flags.get("--work-cursor"));
     return {
-      kind: "update",
-      dashboardId: UUID.parse(flags.get("--dashboard-id")),
-      itemId: UUID.parse(flags.get("--item-id")),
+      kind: "item-history",
+      ...itemIdentity(flags),
+      limit: positiveInteger(flags.get("--limit"), 50, 25),
+      ...(archiveCursor ? { archiveCursor } : {}),
+      ...(orderCursor ? { orderCursor } : {}),
+      ...(statusCursor ? { statusCursor } : {}),
+      ...(workCursor ? { workCursor } : {}),
+    };
+  }
+  if (noun === "item" && verb === "activity") {
+    const flags = commandFlags(rest, common, ["--cursor", "--limit"]);
+    const cursor = optionalCursor(flags.get("--cursor"));
+    return {
+      kind: "item-activity",
+      ...itemIdentity(flags),
+      limit: positiveInteger(flags.get("--limit"), 25, 25),
+      ...(cursor ? { cursor } : {}),
+    };
+  }
+  if (noun === "work" && verb === "update") {
+    const flags = commandFlags(rest, [...common, "--expected-fingerprint"]);
+    return {
+      kind: "work-update",
+      ...itemIdentity(flags),
       expectedFingerprint: FINGERPRINT.parse(flags.get("--expected-fingerprint")),
     };
   }
-  if (noun === "item" && command === "enrich") {
-    const flags = exactFlags(rest, [
+  if (noun === "work" && verb === "enrich") {
+    const flags = commandFlags(rest, [
       ...common,
       "--expected-fingerprint",
       "--expected-enrichment-version",
     ]);
     return {
-      kind: "enrich",
-      dashboardId: UUID.parse(flags.get("--dashboard-id")),
-      itemId: UUID.parse(flags.get("--item-id")),
+      kind: "work-enrich",
+      ...itemIdentity(flags),
       expectedFingerprint: FINGERPRINT.parse(flags.get("--expected-fingerprint")),
       expectedEnrichmentVersion: nonnegativeInteger(flags.get("--expected-enrichment-version")),
     };
   }
-  if (
-    (noun === "item" && ["place", "archive", "restore"].includes(command)) ||
-    (noun === "follow-up" && command === "follow-up")
-  ) {
-    const flags = exactFlags(rest, [...common, "--expected-fingerprint", "--expected-revision"]);
+  if (noun === "organize" && verb === "place") {
+    const flags = commandFlags(rest, preconditionFlags);
+    return { kind: "organize-place", ...mutationPreconditions(flags) };
+  }
+  if (noun === "organize" && verb === "place-many") {
+    const flags = commandFlags(rest, ["--dashboard-id", "--expected-revision"]);
     return {
-      kind: command as "place" | "archive" | "restore" | "follow-up",
+      kind: "organize-place-many",
       dashboardId: UUID.parse(flags.get("--dashboard-id")),
-      itemId: UUID.parse(flags.get("--item-id")),
-      expectedFingerprint: FINGERPRINT.parse(flags.get("--expected-fingerprint")),
       expectedRevision: nonnegativeInteger(flags.get("--expected-revision")),
     };
+  }
+  if (noun === "lifecycle" && (verb === "archive" || verb === "restore")) {
+    const flags = commandFlags(rest, preconditionFlags);
+    return {
+      kind: verb === "archive" ? "lifecycle-archive" : "lifecycle-restore",
+      ...mutationPreconditions(flags),
+    };
+  }
+  if (noun === "todo" && verb === "create") {
+    const flags = commandFlags(rest, ["--dashboard-id"]);
+    return { kind: "todo-create", dashboardId: UUID.parse(flags.get("--dashboard-id")) };
+  }
+  if (noun === "follow-up" && verb === "create") {
+    const flags = commandFlags(rest, preconditionFlags);
+    return { kind: "follow-up-create", ...mutationPreconditions(flags) };
   }
   throw new Error("usage");
 }
@@ -305,12 +435,12 @@ async function main(): Promise<void> {
     );
     return;
   }
-  const service = new DynaService();
+  const service = new DynaApplicationService({ actor: DYNA_CLI_ACTOR });
   try {
     let result: unknown;
     switch (command.kind) {
       case "setup":
-        service.store.listDashboards();
+        service.listDashboards();
         result = DynaCliSetupResultSchema.parse({
           schema: "dyna/setup-v1",
           ready: true,
@@ -318,12 +448,50 @@ async function main(): Promise<void> {
           credentialBoundary: "local-user",
         });
         break;
-      case "show":
+      case "dashboard-list":
+        result = DynaDashboardListResultSchema.parse(service.listDashboards());
+        break;
+      case "dashboard-show":
+        result = DynaDashboardShowResultSchema.parse(service.showDashboard(command.dashboardId));
+        break;
+      case "item-search":
+        result = DynaItemSearchResultSchema.parse(
+          service.searchItems(command.dashboardId, command.query, command.scope),
+        );
+        break;
+      case "item-show":
         result = DynaItemShowResultSchema.parse(
           service.showItem(command.dashboardId, command.itemId),
         );
         break;
-      case "update": {
+      case "item-history": {
+        const history = service.itemHistory(command.dashboardId, command.itemId, {
+          limit: command.limit,
+          ...(command.archiveCursor ? { archiveCursor: command.archiveCursor } : {}),
+          ...(command.orderCursor ? { orderCursor: command.orderCursor } : {}),
+          ...(command.statusCursor ? { statusCursor: command.statusCursor } : {}),
+          ...(command.workCursor ? { workCursor: command.workCursor } : {}),
+        });
+        result = DynaItemHistoryResultSchema.parse({
+          schema: "dyna/item-history-result-v2",
+          dashboardId: command.dashboardId,
+          history,
+        });
+        break;
+      }
+      case "item-activity": {
+        const activity = service.itemActivityPage(command.dashboardId, command.itemId, {
+          limit: command.limit,
+          ...(command.cursor ? { cursor: command.cursor } : {}),
+        });
+        result = DynaItemActivityResultSchema.parse({
+          schema: "dyna/item-activity-result-v2",
+          dashboardId: command.dashboardId,
+          activity,
+        });
+        break;
+      }
+      case "work-update": {
         const input = DynaWorkUpdateInputSchema.parse(await readBoundedJson());
         result = DynaItemUpdateResultSchema.parse(
           service.recordWorkUpdate(
@@ -335,21 +503,21 @@ async function main(): Promise<void> {
         );
         break;
       }
-      case "enrich": {
-        const input = EnrichInputSchema.parse(await readBoundedJson());
+      case "work-enrich": {
+        const input = DynaWorkEnrichInputSchema.parse(await readBoundedJson());
         result = DynaItemEnrichResultSchema.parse(
           service.enrichItem(
             command.dashboardId,
             command.itemId,
             command.expectedFingerprint,
             command.expectedEnrichmentVersion,
-            { ...input, provenance: "codex-task" },
+            input,
           ),
         );
         break;
       }
-      case "place": {
-        const input = PlaceInputSchema.parse(await readBoundedJson());
+      case "organize-place": {
+        const input = DynaOrganizePlaceInputSchema.parse(await readBoundedJson());
         result = DynaItemPlaceResultSchema.parse(
           service.placeItem(
             command.dashboardId,
@@ -361,8 +529,15 @@ async function main(): Promise<void> {
         );
         break;
       }
-      case "archive": {
-        const input = ArchiveInputSchema.parse(await readBoundedJson());
+      case "organize-place-many": {
+        const input = DynaOrganizePlaceManyInputSchema.parse(await readBoundedJson());
+        result = DynaPlaceManyResultSchema.parse(
+          service.placeMany(command.dashboardId, command.expectedRevision, input),
+        );
+        break;
+      }
+      case "lifecycle-archive": {
+        const input = DynaLifecycleArchiveInputSchema.parse(await readBoundedJson());
         result = DynaItemArchiveResultSchema.parse(
           service.archiveItem(
             command.dashboardId,
@@ -374,21 +549,26 @@ async function main(): Promise<void> {
         );
         break;
       }
-      case "restore": {
-        const input = RestoreInputSchema.parse(await readBoundedJson());
+      case "lifecycle-restore": {
+        const input = DynaLifecycleRestoreInputSchema.parse(await readBoundedJson());
         result = DynaItemRestoreResultSchema.parse(
           service.restoreItem(
             command.dashboardId,
             command.itemId,
             command.expectedRevision,
             command.expectedFingerprint,
-            input.requestId,
+            input,
           ),
         );
         break;
       }
-      case "follow-up": {
-        const input = FollowUpInputSchema.parse(await readBoundedJson());
+      case "todo-create": {
+        const input = DynaTodoCreateInputSchema.parse(await readBoundedJson());
+        result = DynaTodoCreateResultSchema.parse(service.createTodo(command.dashboardId, input));
+        break;
+      }
+      case "follow-up-create": {
+        const input = DynaFollowUpCreateInputSchema.parse(await readBoundedJson());
         result = DynaFollowUpCreateResultSchema.parse(
           service.createFollowUp(
             command.dashboardId,

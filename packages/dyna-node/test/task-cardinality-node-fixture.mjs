@@ -147,7 +147,7 @@ try {
     task: {
       taskId: "externally-created-eighth-task",
       hostId: "local",
-      title: "Externally created eighth task",
+      title: `:${String(reservationItem.itemNumber)}: Externally created eighth task`,
       state: "queued",
       statusUpdatedAt: now,
       observedAt: now,
@@ -221,7 +221,7 @@ try {
       task: {
         taskId: "reconciled-externally-created-task",
         hostId: "local",
-        title: "Reconciled externally created task",
+        title: `:${String(reconciliationItem.itemNumber)}: Reconciled externally created task`,
         state: "queued",
         statusUpdatedAt: reconciliationNow,
         observedAt: reconciliationNow,

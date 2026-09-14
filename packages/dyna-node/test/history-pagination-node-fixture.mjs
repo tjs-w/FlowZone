@@ -243,7 +243,7 @@ try {
       store.upsertTaskStatusForDashboard(outsideDashboard.id, item.id, {
         taskId: "outside-task",
         hostId: "local",
-        title: "Outside task",
+        title: `:${String(item.itemNumber)}: Outside task`,
         state: "running",
         statusUpdatedAt: new Date(baseTime + 100_000).toISOString(),
         observedAt: new Date(baseTime + 100_000).toISOString(),
@@ -254,7 +254,7 @@ try {
   store.upsertTaskStatusForDashboard(dashboard.id, item.id, {
     taskId: "inside-task",
     hostId: "local",
-    title: "Inside task",
+    title: `:${String(item.itemNumber)}: Inside task`,
     state: "running",
     statusUpdatedAt: new Date(baseTime + 100_000).toISOString(),
     observedAt: new Date(baseTime + 100_000).toISOString(),

@@ -154,7 +154,7 @@ try {
         task: {
           taskId: "substituted-task",
           hostId: "local",
-          title: "Substituted task",
+          title: `:${String(listed.current.item.itemNumber)}: Substituted task`,
           state: "running",
           statusUpdatedAt: timestamp(),
           observedAt: timestamp(),
@@ -170,7 +170,7 @@ try {
         taskId: selectedCandidate.taskId,
         hostId: selectedCandidate.hostId,
         projectId: selectedCandidate.projectId,
-        title: "Controller-verified title",
+        title: `:${String(listed.current.item.itemNumber)}: Controller-verified title`,
         state: "running",
         statusUpdatedAt: timestamp(),
         observedAt: timestamp(),
@@ -180,7 +180,10 @@ try {
   );
   const attached = store.showItem(dashboard.id, listed.current.item.id).item.linkedTasks;
   assert.equal(attached.length, 1);
-  assert.equal(attached[0]?.title, "Controller-verified title");
+  assert.equal(
+    attached[0]?.title,
+    `:${String(listed.current.item.itemNumber)}: Controller-verified title`,
+  );
 
   const archiveListed = listSessions("Archive race", "list-archive-race", [
     { ...selectedCandidate, taskId: "archive-race-task", updatedAt: timestamp() },
@@ -210,7 +213,7 @@ try {
       task: {
         taskId: "archive-race-task",
         hostId: "local",
-        title: "Must not attach",
+        title: `:${String(archiveListed.current.item.itemNumber)}: Must not attach`,
         state: "running",
         statusUpdatedAt: timestamp(),
         observedAt: timestamp(),

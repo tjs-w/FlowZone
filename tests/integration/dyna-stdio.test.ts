@@ -41,28 +41,30 @@ describe("Dyna checked-in Node bundle", () => {
     try {
       const resources = await client.listResources();
       const dynaResource = resources.resources.find(
-        (resource) => resource.uri === "ui://flowzone/dyna/v15.html",
+        (resource) => resource.uri === "ui://flowzone/dyna/v17.html",
+      );
+      expect(resources.resources.map((resource) => resource.uri)).toContain(
+        "ui://flowzone/dyna/v16.html",
       );
       expect(resources.resources.map((resource) => resource.uri)).toContain(
         "ui://flowzone/dyna/v14.html",
-      );
-      expect(resources.resources.map((resource) => resource.uri)).toContain(
-        "ui://flowzone/dyna/v13.html",
       );
       expect(dynaResource?._meta?.["ui"]).toEqual({
         prefersBorder: true,
         csp: { connectDomains: [], resourceDomains: [], frameDomains: [] },
         permissions: { clipboardWrite: {} },
       });
-      const dynaHtml = await client.readResource({ uri: "ui://flowzone/dyna/v15.html" });
+      const dynaHtml = await client.readResource({ uri: "ui://flowzone/dyna/v17.html" });
       const dynaContent = dynaHtml.contents[0];
       expect(dynaContent && "text" in dynaContent ? dynaContent.text : "").toContain(
         'id="dyna-root"',
       );
+      const currentLegacyDynaHtml = await client.readResource({
+        uri: "ui://flowzone/dyna/v16.html",
+      });
+      expect(currentLegacyDynaHtml.contents[0]?.uri).toBe("ui://flowzone/dyna/v16.html");
       const legacyDynaHtml = await client.readResource({ uri: "ui://flowzone/dyna/v14.html" });
       expect(legacyDynaHtml.contents[0]?.uri).toBe("ui://flowzone/dyna/v14.html");
-      const olderDynaHtml = await client.readResource({ uri: "ui://flowzone/dyna/v13.html" });
-      expect(olderDynaHtml.contents[0]?.uri).toBe("ui://flowzone/dyna/v13.html");
 
       const create = await client.callTool({
         name: "flowzone",
@@ -256,13 +258,19 @@ describe("Dyna checked-in Node bundle", () => {
       }
       const searchedItem = record(searchItems[0]);
       const itemId = searchedItem["itemId"];
+      const itemNumber = searchedItem["itemNumber"];
       const initialItemFingerprint = searchedItem["fingerprint"];
       expect(searchedItem["title"]).toBe("Review release MR");
       expect(searchedItem["summary"]).toBe("The MR is ready for review.");
       expect(searchedItem["workflowState"]).toBe("todo");
-      if (typeof itemId !== "string" || typeof initialItemFingerprint !== "string") {
+      if (
+        typeof itemId !== "string" ||
+        typeof itemNumber !== "number" ||
+        typeof initialItemFingerprint !== "string"
+      ) {
         throw new Error("Missing model-visible Dyna item identity");
       }
+      const canonicalTaskTitle = (description: string) => `:${String(itemNumber)}: ${description}`;
 
       const rendered = await client.callTool({
         name: "render_dyna_dashboard",
@@ -273,7 +281,7 @@ describe("Dyna checked-in Node bundle", () => {
         "The MR is ready for review.",
       );
       const payload = record(record(rendered._meta)["dynaDashboard"]);
-      expect(payload["schema"]).toBe("dyna/ui-v7");
+      expect(payload["schema"]).toBe("dyna/ui-v9");
       expect("spec" in payload).toBe(false);
       const viewToken = payload["viewToken"];
       const snapshot = record(payload["snapshot"]);
@@ -294,6 +302,7 @@ describe("Dyna checked-in Node bundle", () => {
       });
       expect(record(emptyActivity._meta?.["dynaWorkActivity"])).toEqual({
         itemId,
+        itemNumber,
         updates: [],
         total: 0,
       });
@@ -423,7 +432,7 @@ describe("Dyna checked-in Node bundle", () => {
         arguments: { viewToken },
       });
       const refreshedPayload = record(record(refreshed._meta)["dynaDashboard"]);
-      expect(refreshedPayload["schema"]).toBe("dyna/ui-v7");
+      expect(refreshedPayload["schema"]).toBe("dyna/ui-v9");
       expect("spec" in refreshedPayload).toBe(false);
       const refreshedSnapshot = record(refreshedPayload["snapshot"]);
       expect(record(refreshedSnapshot["counts"])["critical"]).toBe(1);
@@ -682,7 +691,7 @@ describe("Dyna checked-in Node bundle", () => {
             task: {
               taskId: "task-123",
               hostId: "local",
-              title: "Review release MR",
+              title: canonicalTaskTitle("Review release MR"),
               state: "running",
               statusUpdatedAt: observedAt,
               observedAt,
@@ -739,7 +748,7 @@ describe("Dyna checked-in Node bundle", () => {
             task: {
               taskId: "task-123",
               hostId: "local",
-              title: "Wrong dashboard",
+              title: canonicalTaskTitle("Wrong dashboard"),
               state: "failed",
               statusUpdatedAt: "2020-01-01T00:00:00.000Z",
               observedAt: new Date().toISOString(),
@@ -760,7 +769,7 @@ describe("Dyna checked-in Node bundle", () => {
             task: {
               taskId: "task-123",
               hostId: "local",
-              title: "Delayed stale observation",
+              title: canonicalTaskTitle("Delayed stale observation"),
               state: "failed",
               statusUpdatedAt: "2020-01-01T00:00:00.000Z",
               observedAt: new Date(Date.parse(observedAt) + 1_000).toISOString(),
@@ -1158,34 +1167,69 @@ describe("Dyna checked-in Node bundle", () => {
       const itemId = record(added.structuredContent)["itemId"];
       if (typeof itemId !== "string") throw new Error("Missing lifecycle item ID");
 
-      const attach = (task: Readonly<Record<string, unknown>>) =>
+      const initialRefresh = await client.callTool({
+        name: "dyna_get_snapshot",
+        arguments: { viewToken },
+      });
+      const initialSnapshot = record(
+        record(record(initialRefresh._meta)["dynaDashboard"])["snapshot"],
+      );
+      const initialCards = initialSnapshot["cards"];
+      if (!Array.isArray(initialCards)) throw new Error("Missing lifecycle cards");
+      const initialCard = initialCards.map(record).find((card) => card["id"] === itemId);
+      const itemNumber = initialCard?.["itemNumber"];
+      if (typeof itemNumber !== "number") throw new Error("Missing lifecycle item number");
+      const canonicalTaskTitle = (description: string) => `:${String(itemNumber)}: ${description}`;
+
+      const attach = (task: Readonly<Record<string, unknown>>, associationReservationId?: string) =>
         client.callTool({
           name: "flowzone",
           arguments: {
             plugin: "dyna",
             action: "attach-codex-task",
-            input: { dashboardId, itemId, task },
+            input: {
+              dashboardId,
+              itemId,
+              task,
+              ...(associationReservationId ? { associationReservationId } : {}),
+            },
           },
         });
       const now = Date.now();
+      const initialTask = {
+        taskId: "task-bound",
+        hostId: "local",
+        title: canonicalTaskTitle("Initial task"),
+        state: "running",
+        statusUpdatedAt: new Date(now - 4_000).toISOString(),
+        observedAt: new Date(now - 4_000).toISOString(),
+      };
+      expect((await attach(initialTask)).isError).toBe(true);
+      const reservationRequestId = randomUUID();
+      const reserved = await client.callTool({
+        name: "flowzone",
+        arguments: {
+          plugin: "dyna",
+          action: "check-codex-task-association",
+          input: {
+            dashboardId,
+            itemId,
+            taskId: "task-bound",
+            reservationRequestId,
+          },
+        },
+      });
+      expect(reserved.isError).toBeUndefined();
+      const reservation = record(record(reserved.structuredContent)["result"]);
+      expect(reservation["association"]).toBe("attachable");
+      expect(reservation["reservationId"]).toBe(reservationRequestId);
+      expect((await attach(initialTask, reservationRequestId)).isError).toBeUndefined();
       expect(
         (
           await attach({
             taskId: "task-bound",
             hostId: "local",
-            title: "Initial task",
-            state: "running",
-            statusUpdatedAt: new Date(now - 4_000).toISOString(),
-            observedAt: new Date(now - 4_000).toISOString(),
-          })
-        ).isError,
-      ).toBeUndefined();
-      expect(
-        (
-          await attach({
-            taskId: "task-bound",
-            hostId: "local",
-            title: "Completed task",
+            title: canonicalTaskTitle("Completed task"),
             state: "succeeded",
             outcome: "Verified the task binding lifecycle.",
             statusUpdatedAt: new Date(now - 3_000).toISOString(),
@@ -1197,7 +1241,7 @@ describe("Dyna checked-in Node bundle", () => {
       const completedRefresh = await attach({
         taskId: "task-bound",
         hostId: "local",
-        title: "Completed task, refreshed",
+        title: canonicalTaskTitle("Completed task, refreshed"),
         state: "succeeded",
         outcome: "Verified the task binding lifecycle and refreshed controller metadata.",
         statusUpdatedAt: new Date(now - 2_000).toISOString(),
@@ -1229,7 +1273,9 @@ describe("Dyna checked-in Node bundle", () => {
       const completedTasks = completedCard["linkedTasks"];
       if (!Array.isArray(completedTasks)) throw new Error("Missing completed linked tasks");
       expect(completedTasks).toHaveLength(1);
-      expect(record(completedTasks[0])["title"]).toBe("Completed task, refreshed");
+      expect(record(completedTasks[0])["title"]).toBe(
+        canonicalTaskTitle("Completed task, refreshed"),
+      );
 
       const archived = await client.callTool({
         name: "dyna_archive_item",
@@ -1255,7 +1301,7 @@ describe("Dyna checked-in Node bundle", () => {
       const archivedExistingRefresh = await attach({
         taskId: "task-bound",
         hostId: "local",
-        title: "Archived task, refreshed",
+        title: canonicalTaskTitle("Archived task, refreshed"),
         state: "succeeded",
         outcome: "Verified archived task metadata remains refreshable.",
         statusUpdatedAt: new Date(now + 1_000).toISOString(),
@@ -1277,7 +1323,9 @@ describe("Dyna checked-in Node bundle", () => {
       const archivedTasks = archiveCard["linkedTasks"];
       if (!Array.isArray(archivedTasks)) throw new Error("Missing archived linked tasks");
       expect(archivedTasks).toHaveLength(1);
-      expect(record(archivedTasks[0])["title"]).toBe("Archived task, refreshed");
+      expect(record(archivedTasks[0])["title"]).toBe(
+        canonicalTaskTitle("Archived task, refreshed"),
+      );
     } finally {
       await client.close();
     }

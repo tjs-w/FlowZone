@@ -3,6 +3,28 @@ import { z } from "zod";
 const IdentifierSchema = z.string().trim().min(1).max(256);
 const TimestampSchema = z.iso.datetime({ offset: true });
 
+export const DynaItemNumberSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
+export type DynaItemNumber = z.infer<typeof DynaItemNumberSchema>;
+
+export function formatDynaItemNumber(itemNumber: DynaItemNumber): string {
+  return `:${String(DynaItemNumberSchema.parse(itemNumber))}:`;
+}
+
+function validateFollowUpReference(
+  value: {
+    readonly followUpOfItemId?: string | undefined;
+    readonly followUpOfItemNumber?: number | undefined;
+  },
+  context: z.RefinementCtx,
+): void {
+  if ((value.followUpOfItemId === undefined) === (value.followUpOfItemNumber === undefined)) return;
+  context.addIssue({
+    code: "custom",
+    message: "A Dyna follow-up must include both the item UUID and human-readable number.",
+    path: [value.followUpOfItemId === undefined ? "followUpOfItemId" : "followUpOfItemNumber"],
+  });
+}
+
 export const DynaSourceSchema = z.enum([
   "slack",
   "outlook",
@@ -518,13 +540,24 @@ export const DynaTaskStateSchema = z.enum([
   "failed",
   "unknown",
 ]);
+export type DynaTaskState = z.infer<typeof DynaTaskStateSchema>;
+
+export const DynaTaskTitleSchema = z
+  .string()
+  .min(1)
+  .refine((value) => value.trim().length > 0, {
+    message: "A Codex task title cannot contain only whitespace.",
+  })
+  .refine((value) => Array.from(value).length <= 200, {
+    message: "A Codex task title cannot exceed 200 Unicode characters.",
+  });
 
 const DynaTaskStatusBaseSchema = z
   .object({
     taskId: IdentifierSchema,
     hostId: IdentifierSchema,
     projectId: IdentifierSchema.optional(),
-    title: z.string().trim().min(1).max(200),
+    title: DynaTaskTitleSchema,
     statusUpdatedAt: TimestampSchema,
     observedAt: TimestampSchema,
   })
@@ -600,7 +633,7 @@ export type DynaUserWorkflowEvent = z.infer<typeof DynaUserWorkflowEventSchema>;
 export const DynaTaskStatusSchema = z.discriminatedUnion("state", [
   DynaTaskStatusBaseSchema.extend({
     state: z.literal("succeeded"),
-    outcome: DynaOneLineOutcomeSchema,
+    outcome: DynaOneLineOutcomeSchema.optional(),
   }).strict(),
   DynaTaskStatusBaseSchema.extend({
     state: z.enum(["queued", "running", "waiting", "failed", "unknown"]),
@@ -614,7 +647,7 @@ export const DynaCodexSessionCandidateSchema = z
     taskId: IdentifierSchema,
     hostId: IdentifierSchema,
     projectId: IdentifierSchema.optional(),
-    title: z.string().trim().min(1).max(200),
+    title: DynaTaskTitleSchema,
     updatedAt: TimestampSchema,
   })
   .strict();
@@ -668,6 +701,65 @@ export const DynaArtifactRefSchema = z
   })
   .strict();
 export type DynaArtifactRef = z.infer<typeof DynaArtifactRefSchema>;
+
+export const DynaTaskSyncScopeSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("dashboard") }).strict(),
+  z
+    .object({
+      kind: z.literal("task"),
+      itemId: z.uuid(),
+      taskId: IdentifierSchema,
+      hostId: IdentifierSchema,
+    })
+    .strict(),
+]);
+export type DynaTaskSyncScope = z.infer<typeof DynaTaskSyncScopeSchema>;
+
+export const DynaTaskSyncPublicStateSchema = z.enum([
+  "syncing",
+  "updated",
+  "current",
+  "partial",
+  "expired",
+  "unavailable",
+]);
+export type DynaTaskSyncPublicState = z.infer<typeof DynaTaskSyncPublicStateSchema>;
+
+export const DynaTaskSyncSummarySchema = z
+  .object({
+    runId: z.uuid(),
+    dashboardId: z.uuid(),
+    state: DynaTaskSyncPublicStateSchema,
+    processedTasks: z.number().int().min(0).max(200),
+    totalTasks: z.number().int().min(0).max(200),
+    updatedItems: z.number().int().min(0).max(200),
+    unavailableTasks: z.number().int().min(0).max(200),
+    incompleteMetadataTasks: z.number().int().min(0).max(200),
+    remainingTasks: z.number().int().nonnegative(),
+    startedAt: TimestampSchema,
+    completedAt: TimestampSchema.optional(),
+    updatedAt: TimestampSchema,
+  })
+  .strict();
+export type DynaTaskSyncSummary = z.infer<typeof DynaTaskSyncSummarySchema>;
+
+export const DynaTaskSyncBeginResultSchema = z
+  .object({
+    schema: z.literal("dyna/task-sync-begin-result-v1"),
+    joined: z.boolean(),
+    deliveryRequired: z.boolean(),
+    summary: DynaTaskSyncSummarySchema,
+  })
+  .strict();
+export type DynaTaskSyncBeginResult = z.infer<typeof DynaTaskSyncBeginResultSchema>;
+
+export const DynaTaskSyncStatusResultSchema = z
+  .object({
+    schema: z.literal("dyna/task-sync-status-result-v1"),
+    summary: DynaTaskSyncSummarySchema,
+  })
+  .strict();
+export type DynaTaskSyncStatusResult = z.infer<typeof DynaTaskSyncStatusResultSchema>;
 
 export const DynaWorkUpdateKindSchema = z.enum([
   "note",
@@ -750,7 +842,7 @@ export const DynaWorkUpdateSchema = z
     outcome: DynaOneLineOutcomeSchema.optional(),
     artifacts: z.array(DynaArtifactRefSchema).max(4),
     task: DynaWorkTaskAttributionSchema.extend({
-      title: z.string().trim().min(1).max(200).optional(),
+      title: DynaTaskTitleSchema.optional(),
     })
       .strict()
       .optional(),
@@ -775,22 +867,50 @@ export const DynaWorkUpdateSchema = z
   });
 export type DynaWorkUpdate = z.infer<typeof DynaWorkUpdateSchema>;
 
-export const DynaWorkReferenceSchema = z
+const DynaWorkReferenceControlFields = {
+  dashboardId: z.uuid(),
+  itemId: z.uuid(),
+  expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+  sourceUpdatedAt: TimestampSchema,
+  copiedAt: TimestampSchema,
+  workAttemptId: z.uuid(),
+} as const;
+
+const DynaLegacyWorkReferenceDisplayFields = {
+  dashboardName: z.string().trim().min(1).max(96),
+  linkedTasks: z.array(DynaTaskStatusSchema).max(8),
+} as const;
+
+export const DynaWorkReferenceV1Schema = z
   .object({
     schema: z.literal("dyna/work-item-v1"),
-    dashboardId: z.uuid(),
-    dashboardName: z.string().trim().min(1).max(96),
-    itemId: z.uuid(),
-    expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
-    sourceUpdatedAt: TimestampSchema,
-    copiedAt: TimestampSchema,
-    workAttemptId: z.uuid(),
-    linkedTasks: z.array(DynaTaskStatusSchema).max(8),
+    ...DynaWorkReferenceControlFields,
+    ...DynaLegacyWorkReferenceDisplayFields,
+  })
+  .strict();
+export type DynaWorkReferenceV1 = z.infer<typeof DynaWorkReferenceV1Schema>;
+
+export const DynaWorkReferenceSchema = z
+  .object({
+    schema: z.literal("dyna/work-item-v2"),
+    ...DynaWorkReferenceControlFields,
+    itemNumber: DynaItemNumberSchema,
+    // Accepted only so previously copied v2 references remain readable. New
+    // prompts put these untrusted display fields inside the explicit envelope.
+    dashboardName: DynaLegacyWorkReferenceDisplayFields.dashboardName.optional(),
+    linkedTasks: DynaLegacyWorkReferenceDisplayFields.linkedTasks.optional(),
   })
   .strict();
 export type DynaWorkReference = z.infer<typeof DynaWorkReferenceSchema>;
 
-const DynaHistoryCursorSchema = z.string().trim().min(1).max(512);
+export const DynaCompatibleWorkReferenceSchema = z.discriminatedUnion("schema", [
+  DynaWorkReferenceSchema,
+  DynaWorkReferenceV1Schema,
+]);
+export type DynaCompatibleWorkReference = z.infer<typeof DynaCompatibleWorkReferenceSchema>;
+
+export const DynaPageCursorSchema = z.string().trim().min(1).max(512);
+export type DynaPageCursor = z.infer<typeof DynaPageCursorSchema>;
 
 export const DynaAnnotationSchema = z
   .object({
@@ -803,7 +923,10 @@ export const DynaAnnotationSchema = z
 
 export const DynaItemContextSchema = DynaMaterializedItemSchema.extend({
   id: z.uuid(),
+  itemNumber: DynaItemNumberSchema,
   fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+  followUpOfItemId: z.uuid().optional(),
+  followUpOfItemNumber: DynaItemNumberSchema.optional(),
   enrichment: z
     .object({
       state: z.enum(["active", "stale"]),
@@ -818,7 +941,9 @@ export const DynaItemContextSchema = DynaMaterializedItemSchema.extend({
   workUpdates: z.array(DynaWorkUpdateSchema).max(20),
   workUpdateCount: z.number().int().nonnegative(),
   linkedTasks: z.array(DynaTaskStatusSchema).max(8),
-}).strict();
+})
+  .strict()
+  .superRefine(validateFollowUpReference);
 export type DynaItemContext = z.infer<typeof DynaItemContextSchema>;
 
 export const DynaArchiveReasonSchema = z.enum([
@@ -849,6 +974,9 @@ export type DynaArchiveState = z.infer<typeof DynaArchiveStateSchema>;
 export const DynaItemHistorySchema = z
   .object({
     itemId: z.uuid(),
+    itemNumber: DynaItemNumberSchema,
+    followUpOfItemId: z.uuid().optional(),
+    followUpOfItemNumber: DynaItemNumberSchema.optional(),
     archives: z
       .array(
         DynaArchiveStateSchema.extend({
@@ -873,19 +1001,21 @@ export const DynaItemHistorySchema = z
       .max(50),
     statusChanges: z.array(DynaUserWorkflowEventSchema).max(50),
     workUpdates: z.array(DynaWorkUpdateSchema).max(50),
-    archiveEventsNextCursor: DynaHistoryCursorSchema.optional(),
-    orderHistoryNextCursor: DynaHistoryCursorSchema.optional(),
-    statusHistoryNextCursor: DynaHistoryCursorSchema.optional(),
-    workUpdatesNextCursor: DynaHistoryCursorSchema.optional(),
+    archiveEventsNextCursor: DynaPageCursorSchema.optional(),
+    orderHistoryNextCursor: DynaPageCursorSchema.optional(),
+    statusHistoryNextCursor: DynaPageCursorSchema.optional(),
+    workUpdatesNextCursor: DynaPageCursorSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine(validateFollowUpReference);
 export type DynaItemHistory = z.infer<typeof DynaItemHistorySchema>;
 
 export const DynaWorkActivityPageSchema = z
   .object({
     itemId: z.uuid(),
+    itemNumber: DynaItemNumberSchema,
     updates: z.array(DynaWorkUpdateSchema).max(25),
-    nextCursor: DynaHistoryCursorSchema.optional(),
+    nextCursor: DynaPageCursorSchema.optional(),
     total: z.number().int().nonnegative(),
   })
   .strict();
@@ -894,6 +1024,7 @@ export type DynaWorkActivityPage = z.infer<typeof DynaWorkActivityPageSchema>;
 export const DynaActionItemContextSchema = z
   .object({
     id: z.uuid(),
+    itemNumber: DynaItemNumberSchema,
     title: z.string().trim().min(1).max(200),
     sourceRef: DynaSourceRefSchema,
     sourceUpdatedAt: TimestampSchema,
@@ -940,6 +1071,7 @@ export const DynaActionRequestSchema = z
 export const DynaCardSchema = z
   .object({
     id: z.uuid(),
+    itemNumber: DynaItemNumberSchema,
     fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
     source: DynaSourceSchema,
     sourceRef: DynaSourceRefSchema,
@@ -962,6 +1094,7 @@ export const DynaCardSchema = z
     completedAt: TimestampSchema.optional(),
     outcome: z.string().trim().min(1).max(200).optional(),
     followUpOfItemId: z.uuid().optional(),
+    followUpOfItemNumber: DynaItemNumberSchema.optional(),
     attention: z.string().trim().min(1).max(500).optional(),
     plan: z.array(z.string().trim().min(1).max(200)).max(4),
     nextSteps: z.array(DynaNextStepSchema).max(4),
@@ -974,15 +1107,17 @@ export const DynaCardSchema = z
     workConditionTask: DynaWorkTaskAttributionSchema.optional(),
     matchedActivity: z.string().trim().min(1).max(500).optional(),
     blocked: z.boolean().default(false),
+    titleSyncNeeded: z.boolean().default(false),
     linkedTasks: z.array(DynaTaskStatusSchema).max(8),
     archive: DynaArchiveStateSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine(validateFollowUpReference);
 export type DynaCard = z.infer<typeof DynaCardSchema>;
 
 export const DynaDashboardSnapshotSchema = z
   .object({
-    schema: z.literal("dyna/snapshot-v5"),
+    schema: z.literal("dyna/snapshot-v7"),
     dashboard: DynaDashboardSchema,
     generatedAt: TimestampSchema,
     query: z.string().max(500),
@@ -1001,13 +1136,14 @@ export const DynaDashboardSnapshotSchema = z
       .strict(),
     schedules: z.array(DynaPublisherSchema).max(50),
     cards: z.array(DynaCardSchema).max(200),
+    taskSync: DynaTaskSyncSummarySchema.optional(),
   })
   .strict();
 export type DynaDashboardSnapshot = z.infer<typeof DynaDashboardSnapshotSchema>;
 
 export const DynaUiPayloadSchema = z
   .object({
-    schema: z.literal("dyna/ui-v7"),
+    schema: z.literal("dyna/ui-v9"),
     viewToken: z.string().min(32).max(128),
     snapshot: DynaDashboardSnapshotSchema,
   })
@@ -1016,7 +1152,7 @@ export type DynaUiPayload = z.infer<typeof DynaUiPayloadSchema>;
 
 export const DynaItemShowResultSchema = z
   .object({
-    schema: z.literal("dyna/item-show-result-v1"),
+    schema: z.literal("dyna/item-show-result-v3"),
     dashboard: DynaDashboardSchema,
     revision: z.number().int().nonnegative(),
     enrichmentVersion: z.number().int().nonnegative(),
@@ -1024,6 +1160,225 @@ export const DynaItemShowResultSchema = z
   })
   .strict();
 export type DynaItemShowResult = z.infer<typeof DynaItemShowResultSchema>;
+
+export const DynaDashboardListResultSchema = z
+  .object({
+    schema: z.literal("dyna/dashboard-list-result-v1"),
+    dashboards: z.array(DynaDashboardSchema).max(100),
+    total: z.number().int().nonnegative(),
+  })
+  .strict();
+export type DynaDashboardListResult = z.infer<typeof DynaDashboardListResultSchema>;
+
+export const DynaDashboardShowResultSchema = z
+  .object({
+    schema: z.literal("dyna/dashboard-show-result-v1"),
+    dashboardId: z.uuid(),
+    name: z.string().trim().min(1).max(96),
+    revision: z.number().int().nonnegative(),
+    freshness: z.enum(["fresh", "aging", "stale"]),
+    counts: z
+      .object({
+        active: z.number().int().nonnegative(),
+        archived: z.number().int().nonnegative(),
+      })
+      .strict(),
+    scheduledSources: z
+      .array(
+        z
+          .object({
+            name: z.string().trim().min(1).max(96),
+            scheduleTitle: z.string().trim().min(1).max(200).optional(),
+            scheduleState: z.enum(["active", "paused", "unknown"]),
+            lastRunStatus: z.enum(["never", "succeeded", "partial", "failed"]),
+            lastRunAt: TimestampSchema.optional(),
+            sourceSlices: z
+              .array(
+                z
+                  .object({
+                    source: DynaScheduledSourceSchema,
+                    status: z.enum(["succeeded", "failed"]),
+                    freshness: z.enum(["fresh", "aging", "stale"]),
+                  })
+                  .strict(),
+              )
+              .max(50)
+              .optional(),
+          })
+          .strict(),
+      )
+      .max(50),
+  })
+  .strict();
+export type DynaDashboardShowResult = z.infer<typeof DynaDashboardShowResultSchema>;
+
+export const DynaItemSearchScopeSchema = z.enum(["active", "archive"]);
+export type DynaItemSearchScope = z.infer<typeof DynaItemSearchScopeSchema>;
+
+export const DynaItemSearchBriefSchema = z
+  .object({
+    itemId: z.uuid(),
+    itemNumber: DynaItemNumberSchema,
+    fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+    title: z.string().trim().min(1).max(200),
+    summary: z.string().trim().min(1).max(1_000),
+    sourceRef: DynaSourceRefSchema,
+    priority: DynaPrioritySchema,
+    priorityReason: z.string().trim().min(1).max(500),
+    sourceUpdatedAt: TimestampSchema,
+    dueAt: TimestampSchema.optional(),
+    workflowState: z.enum(["todo", "executing", "paused", "attention", "completed"]),
+    followUpOfItemId: z.uuid().optional(),
+    followUpOfItemNumber: DynaItemNumberSchema.optional(),
+    attention: z.string().trim().min(1).max(500).optional(),
+    plan: z.array(z.string().trim().min(1).max(200)).max(4),
+    nextSteps: z.array(DynaNextStepSchema).max(4),
+    outcome: z.string().trim().min(1).max(200).optional(),
+    workState: DynaWorkStateSchema.optional(),
+    workUpdates: z.array(DynaWorkUpdateSchema).max(1),
+    workUpdateCount: z.number().int().nonnegative(),
+    workConditionSummary: z.string().trim().min(1).max(200).optional(),
+    workConditionTask: DynaWorkTaskAttributionSchema.optional(),
+    matchedActivity: z.string().trim().min(1).max(500).optional(),
+    titleSyncNeeded: z.boolean().default(false),
+    linkedTasks: z.array(DynaTaskStatusSchema).max(8),
+    archive: DynaArchiveStateSchema.optional(),
+  })
+  .strict()
+  .superRefine(validateFollowUpReference);
+export type DynaItemSearchBrief = z.infer<typeof DynaItemSearchBriefSchema>;
+
+export const DynaItemSearchResultSchema = z
+  .object({
+    schema: z.literal("dyna/item-search-result-v3"),
+    dashboardId: z.uuid(),
+    dashboardName: z.string().trim().min(1).max(96),
+    query: z.string().max(500),
+    scope: DynaItemSearchScopeSchema,
+    revision: z.number().int().nonnegative(),
+    freshness: z.enum(["fresh", "aging", "stale"]),
+    items: z.array(DynaItemSearchBriefSchema).max(20),
+    total: z.number().int().nonnegative(),
+  })
+  .strict();
+export type DynaItemSearchResult = z.infer<typeof DynaItemSearchResultSchema>;
+
+export const DynaItemHistoryResultSchema = z
+  .object({
+    schema: z.literal("dyna/item-history-result-v2"),
+    dashboardId: z.uuid(),
+    history: DynaItemHistorySchema,
+  })
+  .strict();
+export type DynaItemHistoryResult = z.infer<typeof DynaItemHistoryResultSchema>;
+
+export const DynaItemActivityResultSchema = z
+  .object({
+    schema: z.literal("dyna/item-activity-result-v2"),
+    dashboardId: z.uuid(),
+    activity: DynaWorkActivityPageSchema,
+  })
+  .strict();
+export type DynaItemActivityResult = z.infer<typeof DynaItemActivityResultSchema>;
+
+export const DynaWorkEnrichInputSchema = z
+  .object({
+    requestId: z.uuid(),
+    summary: DynaPublishedItemSchema.shape.summary.optional(),
+    priority: DynaPrioritySchema.optional(),
+    priorityReason: DynaPublishedItemSchema.shape.priorityReason.optional(),
+    dueAt: DynaPublishedItemSchema.shape.dueAt.nullable().optional(),
+    labels: DynaPublishedItemSchema.shape.labels.optional(),
+    people: z.array(DynaPersonSignalSchema).max(8).optional(),
+    attention: DynaPublishedItemSchema.shape.attention.optional(),
+    plan: DynaPublishedItemSchema.shape.plan.optional(),
+    nextSteps: z.array(DynaNextStepSchema).max(4).optional(),
+  })
+  .strict()
+  .refine((input) => Object.keys(input).some((key) => key !== "requestId"), {
+    message: "An enrichment must include at least one replacement field.",
+  });
+export type DynaWorkEnrichInput = z.infer<typeof DynaWorkEnrichInputSchema>;
+
+export const DynaOrganizePlaceInputSchema = z
+  .object({
+    requestId: z.uuid(),
+    targetPriority: DynaPrioritySchema,
+    beforeItemId: z.uuid().optional(),
+  })
+  .strict();
+export type DynaOrganizePlaceInput = z.infer<typeof DynaOrganizePlaceInputSchema>;
+
+export const DynaOrganizeSelectedItemSchema = z
+  .object({
+    itemId: z.uuid(),
+    expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+  })
+  .strict();
+export type DynaOrganizeSelectedItem = z.infer<typeof DynaOrganizeSelectedItemSchema>;
+
+export const DynaOrganizePlaceManyInputSchema = z
+  .object({
+    requestId: z.uuid(),
+    items: z
+      .array(DynaOrganizeSelectedItemSchema)
+      .min(1)
+      .max(200)
+      .superRefine((items, context) => {
+        const seen = new Set<string>();
+        for (const [index, item] of items.entries()) {
+          if (seen.has(item.itemId)) {
+            context.addIssue({
+              code: "custom",
+              path: [index, "itemId"],
+              message: "Each Dyna item can appear only once in a bulk priority change.",
+            });
+          }
+          seen.add(item.itemId);
+        }
+      }),
+    targetPriority: DynaPrioritySchema,
+  })
+  .strict();
+export type DynaOrganizePlaceManyInput = z.infer<typeof DynaOrganizePlaceManyInputSchema>;
+
+export const DynaLifecycleArchiveInputSchema = z
+  .object({
+    requestId: z.uuid(),
+    reason: DynaArchiveReasonSchema,
+    reasonDetail: z.string().trim().min(1).max(500).optional(),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    if (input.reason === "other" && !input.reasonDetail) {
+      context.addIssue({
+        code: "custom",
+        path: ["reasonDetail"],
+        message: "Other requires a reason detail.",
+      });
+    }
+    if (input.reason !== "other" && input.reasonDetail) {
+      context.addIssue({
+        code: "custom",
+        path: ["reasonDetail"],
+        message: "Reason detail is only allowed for Other.",
+      });
+    }
+  });
+export type DynaLifecycleArchiveInput = z.infer<typeof DynaLifecycleArchiveInputSchema>;
+
+export const DynaLifecycleRestoreInputSchema = z.object({ requestId: z.uuid() }).strict();
+export type DynaLifecycleRestoreInput = z.infer<typeof DynaLifecycleRestoreInputSchema>;
+
+export const DynaTodoCreateInputSchema = DynaTodoInputSchema.omit({ followUpOfItemId: true })
+  .extend({ requestId: z.uuid() })
+  .strict();
+export type DynaTodoCreateInput = z.infer<typeof DynaTodoCreateInputSchema>;
+
+export const DynaFollowUpCreateInputSchema = DynaTodoInputSchema.omit({ followUpOfItemId: true })
+  .extend({ requestId: z.uuid() })
+  .strict();
+export type DynaFollowUpCreateInput = z.infer<typeof DynaFollowUpCreateInputSchema>;
 
 const DynaMutationResultBaseSchema = z.object({
   requestId: z.uuid(),
@@ -1049,6 +1404,18 @@ export const DynaItemPlaceResultSchema = DynaMutationResultBaseSchema.extend({
 }).strict();
 export type DynaItemPlaceResult = z.infer<typeof DynaItemPlaceResultSchema>;
 
+export const DynaPlaceManyResultSchema = z
+  .object({
+    schema: z.literal("dyna/place-many-result-v1"),
+    requestId: z.uuid(),
+    dashboardId: z.uuid(),
+    changed: z.boolean(),
+    changedCount: z.number().int().nonnegative(),
+    deduplicated: z.boolean(),
+  })
+  .strict();
+export type DynaPlaceManyResult = z.infer<typeof DynaPlaceManyResultSchema>;
+
 export const DynaItemStatusResultSchema = DynaMutationResultBaseSchema.extend({
   schema: z.literal("dyna/item-status-result-v1"),
   targetStage: DynaUserWorkflowStageSchema,
@@ -1072,11 +1439,20 @@ export const DynaItemRestoreResultSchema = DynaMutationResultBaseSchema.extend({
 export type DynaItemRestoreResult = z.infer<typeof DynaItemRestoreResultSchema>;
 
 export const DynaFollowUpCreateResultSchema = DynaMutationResultBaseSchema.extend({
-  schema: z.literal("dyna/follow-up-create-result-v1"),
+  schema: z.literal("dyna/follow-up-create-result-v2"),
+  itemNumber: DynaItemNumberSchema,
   sourceItemId: z.uuid(),
+  sourceItemNumber: DynaItemNumberSchema,
   fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
 }).strict();
 export type DynaFollowUpCreateResult = z.infer<typeof DynaFollowUpCreateResultSchema>;
+
+export const DynaTodoCreateResultSchema = DynaMutationResultBaseSchema.extend({
+  schema: z.literal("dyna/todo-create-result-v2"),
+  itemNumber: DynaItemNumberSchema,
+  fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+}).strict();
+export type DynaTodoCreateResult = z.infer<typeof DynaTodoCreateResultSchema>;
 
 export const DynaCliHelpResultSchema = z
   .object({
@@ -1092,7 +1468,7 @@ export const DynaCliHelpResultSchema = z
           .strict(),
       )
       .min(1)
-      .max(10),
+      .max(17),
   })
   .strict();
 export type DynaCliHelpResult = z.infer<typeof DynaCliHelpResultSchema>;

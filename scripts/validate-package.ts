@@ -85,6 +85,11 @@ async function validateSkill(): Promise<void> {
   if (!dyna.includes("references/task-updates.md")) {
     throw new Error("Dyna must route cross-task synchronization through its focused reference");
   }
+  if (!dyna.includes("references/task-pull-sync.md")) {
+    throw new Error(
+      "Dyna must route linked-task pull synchronization through its focused reference",
+    );
+  }
   const taskUpdates = await readFile(
     resolve(root, "skills/dyna/references/task-updates.md"),
     "utf8",
@@ -94,16 +99,84 @@ async function validateSkill(): Promise<void> {
     "Restart Codex",
     "Do not set `FLOWZONE_DATA_DIR`",
     "## Strict mutation inputs",
+    "dyna dashboard list",
+    "dyna dashboard show",
+    "dyna item search",
+    "dyna item show",
+    "dyna item history",
+    "dyna item activity",
+    "dyna work update",
+    "dyna work enrich",
+    "dyna organize place",
+    "dyna organize place-many",
+    "dyna lifecycle archive",
+    "dyna lifecycle restore",
+    "dyna todo create",
+    "dyna follow-up create",
+    "returns at most 100 dashboards",
+    "returns at most 20 operational briefs",
+    "accepts at most 50 records",
+    "accepts at most 25 updates",
     '"targetPriority"',
     '"reasonDetail"',
-    "`item restore` accepts exactly",
+    "`lifecycle restore` accepts exactly",
     "`follow-up create` accepts",
+    "old `item update`",
     "omitted overlay fields are cleared",
     "Completed and archived items cannot be enriched",
+    "dyna/work-item-v2",
+    "itemNumber",
+    "check-codex-task-association",
+    "reservationRequestId",
+    "associationReservationId",
+    "`claim-action` atomically reserves",
+    "do not call `check-codex-task-association` again after claim",
+    "set_thread_title",
+    "200 Unicode code points",
+    "bidirectional control characters",
+    "newly copied v2 reference contains only",
   ]) {
     if (!taskUpdates.toLocaleLowerCase().includes(requiredContract.toLocaleLowerCase())) {
       throw new Error(
         `Dyna task-update reference must document the CLI contract: ${requiredContract}`,
+      );
+    }
+  }
+  for (const removedCommand of [
+    "dyna item update",
+    "dyna item enrich",
+    "dyna item place",
+    "dyna item archive",
+    "dyna item restore",
+  ]) {
+    if (taskUpdates.toLocaleLowerCase().includes(removedCommand)) {
+      throw new Error(
+        `Dyna task-update reference advertises removed CLI command: ${removedCommand}`,
+      );
+    }
+  }
+  const taskPullSync = await readFile(
+    resolve(root, "skills/dyna/references/task-pull-sync.md"),
+    "utf8",
+  );
+  for (const requiredBoundary of [
+    "claim-task-sync",
+    "submit-task-sync-batch",
+    "complete-task-sync",
+    "at most eight",
+    "200 targets",
+    "wait_threads",
+    "timeoutMs: 0",
+    "turnLimit: 1",
+    "includeOutputs: false",
+    "Do not read raw transcripts",
+    "Do not preload this skill",
+    "incompleteMetadataTasks",
+    "paired Mac",
+  ]) {
+    if (!taskPullSync.toLocaleLowerCase().includes(requiredBoundary.toLocaleLowerCase())) {
+      throw new Error(
+        `Dyna task-pull reference must retain its bounded synchronization contract: ${requiredBoundary}`,
       );
     }
   }
@@ -112,7 +185,17 @@ async function validateSkill(): Promise<void> {
   for (const requiredBoundary of [
     '"$DYNA_RULE_CODEX_ROOT"/plugins/cache/*/',
     "flowzone-dyna-worker.rules",
-    '["show", "update", "enrich", "place", "archive", "restore"]',
+    '"dashboard"',
+    '["list", "show"]',
+    '"item"',
+    '["search", "show", "history", "activity"]',
+    '"work"',
+    '["update", "enrich"]',
+    '"organize"',
+    '["place", "place-many"]',
+    '"lifecycle"',
+    '["archive", "restore"]',
+    '"todo"',
     '"follow-up"',
     '"create"',
     'pattern = [\\"$DYNA_RULE_LAUNCHER_LITERAL\\", \\"setup\\"]',
@@ -124,10 +207,11 @@ async function validateSkill(): Promise<void> {
   if (
     dynaRuleReconciler.includes("FLOWZONE_DATA_DIR=") ||
     dynaRuleReconciler.includes('pattern = ["sh"') ||
-    dynaRuleReconciler.includes('pattern = ["node"')
+    dynaRuleReconciler.includes('pattern = ["node"') ||
+    dynaRuleReconciler.includes('["show", "update", "enrich", "place", "archive", "restore"]')
   ) {
     throw new Error(
-      "Dyna rule reconciler must not authorize a database override, shell, or runtime",
+      "Dyna rule reconciler must authorize only the canonical bounded CLI, never a database override, shell, runtime, or legacy item-mutation group",
     );
   }
   await access(dynaRuleReconcilerPath, constants.X_OK);

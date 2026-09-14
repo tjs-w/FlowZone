@@ -434,18 +434,18 @@ test("loads recent Codex sessions on demand and associates the exact selection",
   expect(await touchTargetViolations(page, ".dyna-inspector")).toEqual([]);
 });
 
-test("opens originating records externally while preserving native link behavior", async ({
-  page,
-}) => {
+test("opens originating records exactly once through the host link bridge", async ({ page }) => {
   const rowLink = page.getByRole("link", {
     name: "Open source: Review the release merge request",
   });
   const rowTitle = rowLink.locator(":scope > span");
   await expect(rowLink).toHaveAttribute(
-    "href",
+    "data-dyna-link-url",
     "https://github.com/team/project/pull/fixture-pr-0",
   );
-  await expect(rowLink).toHaveAttribute("target", "_blank");
+  await expect(rowLink).not.toHaveAttribute("href", /.+/u);
+  await expect(rowLink).not.toHaveAttribute("target", /.+/u);
+  await expect(rowLink).toHaveAttribute("tabindex", "0");
   if ((page.viewportSize()?.width ?? 0) >= 700) {
     const emptyTitleLinePoint = await rowLink.evaluate((link) => {
       const heading = link.closest<HTMLElement>(".dyna-row-heading");
@@ -493,7 +493,7 @@ test("opens originating records externally while preserving native link behavior
   await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "0");
   const modifiedClick = await rowLink.evaluate((node) => {
     let reachedNativeGuard = false;
-    let preventedBeforeNativeGuard = true;
+    let preventedBeforeNativeGuard: boolean | null = null;
     const stopNavigation = (event: MouseEvent) => {
       reachedNativeGuard = true;
       preventedBeforeNativeGuard = event.defaultPrevented;
@@ -512,12 +512,39 @@ test("opens originating records externally while preserving native link behavior
   });
   expect(modifiedClick).toEqual({
     dispatched: false,
-    reachedNativeGuard: true,
-    preventedBeforeNativeGuard: false,
+    reachedNativeGuard: false,
+    preventedBeforeNativeGuard: null,
   });
   await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
-  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "1");
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "2");
   await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "0");
+  await rowLink.focus();
+  await rowLink.press("Enter");
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "3");
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "0");
+  const selectedActivation = await rowLink.evaluate((node) => {
+    const text = node.querySelector("span")?.firstChild;
+    if (!text) return { dispatched: true, selected: "" };
+    const range = document.createRange();
+    range.selectNodeContents(text);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    return {
+      dispatched: node.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 }),
+      ),
+      selected: selection?.toString() ?? "",
+    };
+  });
+  expect(selectedActivation).toEqual({
+    dispatched: false,
+    selected: "Review the release merge request",
+  });
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "3");
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "0");
+  await page.evaluate(() => window.getSelection()?.removeAllRanges());
   await rowLink.click({ button: "right" });
   const linkMenu = page.getByRole("menu", { name: "Link actions" });
   await expect(linkMenu.getByRole("menuitem")).toHaveText(["Open link", "Copy link"]);
@@ -571,17 +598,95 @@ test("opens originating records externally while preserving native link behavior
   ).toBeVisible();
   const sourceLink = page.getByRole("link", { name: "Open source", exact: true });
   await expect(sourceLink).toHaveAttribute(
-    "href",
+    "data-dyna-link-url",
     "https://github.com/team/project/pull/fixture-pr-0",
   );
+  await expect(sourceLink).not.toHaveAttribute("href", /.+/u);
+  await expect(sourceLink).not.toHaveAttribute("target", /.+/u);
   await sourceLink.click();
   await expect(page.locator("html")).toHaveAttribute(
     "data-dyna-last-external-link",
     "https://github.com/team/project/pull/fixture-pr-0",
   );
-  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "2");
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "4");
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "0");
+  const provenance = page
+    .locator(".dyna-inspector details.dyna-context-details")
+    .filter({ hasText: "Plan, priority rationale, and provenance" });
+  await provenance.locator("summary").click();
+  const originatingRecord = provenance.locator(".dyna-origin > .dyna-origin-link");
+  await expect(originatingRecord).toHaveAttribute(
+    "data-dyna-link-url",
+    "https://github.com/team/project/pull/fixture-pr-0",
+  );
+  await expect(originatingRecord).not.toHaveAttribute("href", /.+/u);
+  await originatingRecord.click();
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "5");
   await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "0");
   await expect(page.locator("html")).not.toHaveAttribute("data-dyna-message-count", /.+/);
+});
+
+test("retains native link fallback when the host cannot open links", async ({ page }) => {
+  await page.goto("/dyna?no-open-links=1&inline-only=1");
+  const rowLink = page.getByRole("link", {
+    name: "Open source: Review the release merge request",
+  });
+  const sourceUrl = "https://github.com/team/project/pull/fixture-pr-0";
+  await expect(rowLink).toHaveAttribute("data-dyna-link-url", sourceUrl);
+  await expect(rowLink).toHaveAttribute("href", sourceUrl);
+  await expect(rowLink).toHaveAttribute("target", "_blank");
+
+  await rowLink.locator(":scope > span").click();
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "1");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-dyna-last-anchor-interceptor-activation",
+    sourceUrl,
+  );
+  await expect(page.locator("html")).not.toHaveAttribute("data-dyna-external-link-count", /.+/u);
+
+  const modifiedClick = await rowLink.evaluate((node) => {
+    let reachedNativeGuard = false;
+    let preventedBeforeNativeGuard: boolean | null = null;
+    const stopNavigation = (event: MouseEvent) => {
+      reachedNativeGuard = true;
+      preventedBeforeNativeGuard = event.defaultPrevented;
+      event.preventDefault();
+    };
+    document.addEventListener("click", stopNavigation, { once: true });
+    const dispatched = node.dispatchEvent(
+      new MouseEvent("click", {
+        bubbles: true,
+        cancelable: true,
+        ctrlKey: true,
+      }),
+    );
+    document.removeEventListener("click", stopNavigation);
+    return { dispatched, reachedNativeGuard, preventedBeforeNativeGuard };
+  });
+  expect(modifiedClick).toEqual({
+    dispatched: false,
+    reachedNativeGuard: true,
+    preventedBeforeNativeGuard: false,
+  });
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "1");
+  await expect(page.locator("html")).not.toHaveAttribute("data-dyna-external-link-count", /.+/u);
+
+  await rowLink.focus();
+  await rowLink.press("Enter");
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "2");
+  await expect(page.locator("html")).not.toHaveAttribute("data-dyna-external-link-count", /.+/u);
+
+  const nativeContextMenuAllowed = await rowLink.evaluate((node) =>
+    node.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })),
+  );
+  expect(nativeContextMenuAllowed).toBe(true);
+  await expect(page.locator(".dyna-context-menu")).toHaveCount(0);
+
+  await rowLink.locator("xpath=ancestor::article").locator(".dyna-row-attention").click();
+  const inspectorSource = page.getByRole("link", { name: "Open source", exact: true });
+  await expect(inspectorSource).toHaveAttribute("data-dyna-link-url", sourceUrl);
+  await expect(inspectorSource).toHaveAttribute("href", sourceUrl);
+  await expect(inspectorSource).toHaveAttribute("target", "_blank");
 });
 
 test("offers deliberate context actions without replacing native field editing", async ({
@@ -2422,10 +2527,11 @@ for (const theme of ["light", "dark"] as const) {
 
     const artifact = progress.getByRole("link", { name: "Open artifact: Passing pipeline 8842" });
     await expect(artifact).toHaveAttribute(
-      "href",
+      "data-dyna-link-url",
       "https://gitlab.com/team/project/-/pipelines/8842",
     );
-    await expect(artifact).toHaveAttribute("target", "_blank");
+    await expect(artifact).not.toHaveAttribute("href", /.+/u);
+    await expect(artifact).not.toHaveAttribute("target", /.+/u);
     await artifact.click();
     await expect(page.locator("html")).toHaveAttribute(
       "data-dyna-last-external-link",
@@ -2433,23 +2539,18 @@ for (const theme of ["light", "dark"] as const) {
     );
     await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "1");
 
-    const modifiedClickWasIntercepted = await artifact.evaluate((node) => {
-      let preventedBeforeNativeGuard = true;
-      const stopNavigation = (event: MouseEvent) => {
-        preventedBeforeNativeGuard = event.defaultPrevented;
-        event.preventDefault();
-      };
-      document.addEventListener("click", stopNavigation, { once: true });
+    const modifiedClickDispatched = await artifact.evaluate((node) =>
       node.dispatchEvent(
         new MouseEvent("click", {
           bubbles: true,
           cancelable: true,
           ctrlKey: true,
         }),
-      );
-      return preventedBeforeNativeGuard;
-    });
-    expect(modifiedClickWasIntercepted).toBe(false);
+      ),
+    );
+    expect(modifiedClickDispatched).toBe(false);
+    await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "2");
+    await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "0");
     if (!testInfo.project.name.startsWith("mobile-")) {
       const selectedContextMenu = await artifact.evaluate((node) => {
         const text = node.querySelector("span")?.firstChild;
@@ -2488,7 +2589,7 @@ for (const theme of ["light", "dark"] as const) {
         ),
       ).toBe("Passing pipeline 8842");
     }
-    await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "1");
+    await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "2");
     await page.evaluate(() => window.getSelection()?.removeAllRanges());
 
     await page.getByRole("button", { name: "Copy work prompt" }).click();
@@ -2535,7 +2636,10 @@ for (const theme of ["light", "dark"] as const) {
     );
     await expect(
       completionActivity.getByRole("link", { name: "Open artifact: Merge request 4242" }),
-    ).toHaveAttribute("href", "https://gitlab.com/team/project/-/merge_requests/4242");
+    ).toHaveAttribute(
+      "data-dyna-link-url",
+      "https://gitlab.com/team/project/-/merge_requests/4242",
+    );
 
     await closeDetails(page);
     await page.getByRole("tab", { name: "Priority queue" }).click();
@@ -2721,9 +2825,10 @@ test("renders the latest activity immediately and loads older pages on demand", 
     name: "Open artifact: Historical evidence 01",
   });
   await expect(historicalArtifact).toHaveAttribute(
-    "href",
+    "data-dyna-link-url",
     "https://docs.example.test/release/history-01",
   );
+  await expect(historicalArtifact).not.toHaveAttribute("href", /.+/u);
   await historicalArtifact.click();
   await expect(page.locator("html")).toHaveAttribute(
     "data-dyna-last-external-link",
@@ -3056,7 +3161,7 @@ test("retains searchable work activity and artifacts after archive", async ({ pa
   await expect(activity).toContainText("Implemented the release guard");
   await expect(
     activity.getByRole("link", { name: "Open artifact: Release evidence packet" }),
-  ).toHaveAttribute("href", "https://docs.example.test/release/evidence-8842");
+  ).toHaveAttribute("data-dyna-link-url", "https://docs.example.test/release/evidence-8842");
   await expect(page.locator(".dyna-archive-notice")).toContainText("No Action Needed");
 });
 

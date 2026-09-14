@@ -1325,7 +1325,7 @@ const dynaHostScript = (dynaResult: unknown) => `<script>
       String(state.anchorInterceptorActivations.length);
     document.documentElement.dataset.dynaLastAnchorInterceptorActivation = anchor.href;
     event.preventDefault();
-  });
+  }, { capture: true });
   Object.defineProperty(navigator, "clipboard", {
     configurable: true,
     value: {
@@ -1380,7 +1380,7 @@ const dynaHostScript = (dynaResult: unknown) => `<script>
           protocolVersion: "2026-01-26",
           hostInfo: { name: "flowzone-dyna-harness", version: "0.1.0" },
           hostCapabilities: {
-            openLinks: {},
+            ...(query.get("no-open-links") === "1" ? {} : { openLinks: {} }),
             ...(query.get("no-server-tools") === "1" ? {} : { serverTools: {} }),
             ...(query.get("no-message") === "1"
               ? {}

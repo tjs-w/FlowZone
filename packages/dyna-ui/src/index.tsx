@@ -29,6 +29,7 @@ import {
 import {
   createContext,
   type DragEvent as ReactDragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type RefObject,
@@ -232,24 +233,83 @@ function useController(): DynaUiController {
   return controller;
 }
 
-function handleExternalAnchorClick(
-  event: ReactMouseEvent<HTMLAnchorElement>,
-  url: string,
-  controller: DynaUiController,
-): void {
-  if (
-    event.button !== 0 ||
-    event.metaKey ||
-    event.ctrlKey ||
-    event.shiftKey ||
-    event.altKey ||
-    !controller.externalLinks
-  ) {
-    return;
+function selectionIntersects(element: Element): boolean {
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0 || !selection.toString()) {
+    return false;
   }
-  event.preventDefault();
-  event.stopPropagation();
-  void controller.openExternal(url);
+  for (let index = 0; index < selection.rangeCount; index += 1) {
+    try {
+      if (selection.getRangeAt(index).intersectsNode(element)) return true;
+    } catch {
+      // Ignore a detached or otherwise inaccessible selection range.
+    }
+  }
+  return false;
+}
+
+interface ExternalResourceLinkProps {
+  readonly url: string;
+  readonly className: string;
+  readonly ariaLabel?: string;
+  readonly sourceLinkId?: string;
+  readonly artifactLinkId?: string;
+  readonly children: ReactNode;
+}
+
+function ExternalResourceLink({
+  url,
+  className,
+  ariaLabel,
+  sourceLinkId,
+  artifactLinkId,
+  children,
+}: ExternalResourceLinkProps) {
+  const controller = useController();
+  const useHostBridge = controller.externalLinks;
+  const activate = (element: HTMLAnchorElement) => {
+    if (selectionIntersects(element)) return;
+    void controller.openExternal(url);
+  };
+  const handleClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {
+    if (!useHostBridge || event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    activate(event.currentTarget);
+  };
+  const handleAuxClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {
+    if (!useHostBridge || event.button !== 1) return;
+    event.preventDefault();
+    event.stopPropagation();
+    activate(event.currentTarget);
+  };
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLAnchorElement>) => {
+    if (!useHostBridge || event.key !== "Enter") return;
+    event.preventDefault();
+    event.stopPropagation();
+    activate(event.currentTarget);
+  };
+
+  return (
+    <a
+      className={className}
+      data-dyna-link-url={url}
+      data-dyna-source-link={sourceLinkId}
+      data-dyna-artifact-link={artifactLinkId}
+      href={useHostBridge ? undefined : url}
+      target={useHostBridge ? undefined : "_blank"}
+      rel={useHostBridge ? undefined : "noopener noreferrer"}
+      role="link"
+      tabIndex={0}
+      style={{ cursor: "pointer" }}
+      aria-label={ariaLabel}
+      onClick={handleClick}
+      onAuxClick={handleAuxClick}
+      onKeyDown={handleKeyDown}
+    >
+      {children}
+    </a>
+  );
 }
 
 function relativeTime(value: string, locale?: string): string {
@@ -855,7 +915,10 @@ function contextSelection(
 }
 
 function contextLink(target: Element): string | undefined {
-  const href = target.closest<HTMLAnchorElement>("a[href]")?.href;
+  const link = target.closest<HTMLElement>("[data-dyna-link-url], a[href]");
+  const href =
+    link?.dataset["dynaLinkUrl"] ??
+    (link instanceof HTMLAnchorElement && link.hasAttribute("href") ? link.href : undefined);
   if (!href) return undefined;
   try {
     const url = new URL(href);
@@ -1283,19 +1346,14 @@ function InspectorActions({ card }: { readonly card: CardViewProps }) {
           </Button>
         ) : null}
         {sourceAction && card.sourceUrl ? (
-          <a
+          <ExternalResourceLink
             className="dyna-action-link"
-            data-dyna-source-link={card.itemId}
-            href={card.sourceUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(event) => {
-              handleExternalAnchorClick(event, card.sourceUrl ?? "", controller);
-            }}
+            sourceLinkId={card.itemId}
+            url={card.sourceUrl}
           >
             <ExternalLink className="dyna-icon" aria-hidden="true" />
             Open source
-          </a>
+          </ExternalResourceLink>
         ) : sourceAction ? (
           <Button
             data-dyna-action={`${card.itemId}:${sourceAction.name}`}
@@ -2125,20 +2183,15 @@ function WorkActivity({
                 <ul className="dyna-work-artifacts" aria-label="Result links">
                   {update.artifacts.map((artifact, index) => (
                     <li key={`${artifact.kind}:${artifact.url}:${String(index)}`}>
-                      <a
+                      <ExternalResourceLink
                         className="dyna-origin-link dyna-artifact-link"
-                        data-dyna-artifact-link={update.id}
-                        href={artifact.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        aria-label={`Open artifact: ${artifact.label}`}
-                        onClick={(event) => {
-                          handleExternalAnchorClick(event, artifact.url, controller);
-                        }}
+                        artifactLinkId={update.id}
+                        url={artifact.url}
+                        ariaLabel={`Open artifact: ${artifact.label}`}
                       >
                         <ExternalLink className="dyna-source-link-icon" aria-hidden="true" />
                         <span>{artifact.label}</span>
-                      </a>
+                      </ExternalResourceLink>
                     </li>
                   ))}
                 </ul>
@@ -3078,20 +3131,15 @@ const dynaComponents: DynaComponentCatalog = {
               <SourceFavicon kind={sourceMark} label={sourceMarkLabel} />
               <ItemNumber value={props.itemNumber} />
               {props.sourceUrl ? (
-                <a
+                <ExternalResourceLink
                   className="dyna-row-title dyna-source-link"
-                  data-dyna-source-link={props.itemId}
-                  href={props.sourceUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label={`Open source: ${props.title}`}
-                  onClick={(event) => {
-                    handleExternalAnchorClick(event, props.sourceUrl ?? "", controller);
-                  }}
+                  sourceLinkId={props.itemId}
+                  url={props.sourceUrl}
+                  ariaLabel={`Open source: ${props.title}`}
                 >
                   <span>{props.title}</span>
                   <i className="dyna-source-link-icon" aria-hidden="true" />
-                </a>
+                </ExternalResourceLink>
               ) : (
                 <span className="dyna-row-title">{props.title}</span>
               )}
@@ -3356,18 +3404,10 @@ const dynaComponents: DynaComponentCatalog = {
                       {props.source === "manual" ? "Created in Dyna" : "Originating record"}
                     </strong>
                     {props.source === "manual" ? null : props.sourceUrl ? (
-                      <a
-                        className="dyna-origin-link"
-                        href={props.sourceUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(event) => {
-                          handleExternalAnchorClick(event, props.sourceUrl ?? "", controller);
-                        }}
-                      >
+                      <ExternalResourceLink className="dyna-origin-link" url={props.sourceUrl}>
                         {sourceReferenceLabel(props.sourceRef)}
                         <ExternalLink className="dyna-source-link-icon" aria-hidden="true" />
-                      </a>
+                      </ExternalResourceLink>
                     ) : (
                       <code>{sourceReferenceLabel(props.sourceRef)}</code>
                     )}
@@ -4877,11 +4917,15 @@ function DynaApp({ app }: { readonly app: App }) {
         return false;
       }
       if (target.closest(".dyna-context-menu")) return true;
+      if (!hostCapabilitiesRef.current.openLinks && target.closest("a[href]")) {
+        setContextMenu(undefined);
+        return false;
+      }
       const selection =
         selectionOverride === undefined
           ? contextSelection(target, x, y, keyboard)
           : (selectionOverride ?? undefined);
-      const link = target.closest<HTMLAnchorElement>("a[href]");
+      const link = target.closest<HTMLElement>("[data-dyna-link-url], a[href]");
       const linkUrl = contextLink(link ?? target);
       const inspector = Boolean(target.closest(".dyna-inspector"));
       const cardElement = target.closest<HTMLElement>(".dyna-card");

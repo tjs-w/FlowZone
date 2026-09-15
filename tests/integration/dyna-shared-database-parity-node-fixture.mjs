@@ -50,7 +50,6 @@ const now = new Date().toISOString();
 const cliEnvironment = {
   FLOWZONE_DATA_DIR: dataDirectory,
   HOME: homeDirectory,
-  NODE_NO_WARNINGS: "1",
   PATH: "/usr/bin:/bin",
 };
 const actionContext = {
@@ -62,14 +61,18 @@ const actionContext = {
 };
 
 function invokeCli(arguments_, input, redactedValues = []) {
-  const result = spawnSync(globalThis.process.execPath, [cliBundle, ...arguments_], {
-    cwd: workingDirectory,
-    env: cliEnvironment,
-    encoding: "utf8",
-    timeout: 10_000,
-    maxBuffer: 1024 * 1024,
-    ...(input === undefined ? {} : { input: `${JSON.stringify(input)}\n` }),
-  });
+  const result = spawnSync(
+    globalThis.process.execPath,
+    ["--disable-warning=ExperimentalWarning", cliBundle, ...arguments_],
+    {
+      cwd: workingDirectory,
+      env: cliEnvironment,
+      encoding: "utf8",
+      timeout: 10_000,
+      maxBuffer: 1024 * 1024,
+      ...(input === undefined ? {} : { input: `${JSON.stringify(input)}\n` }),
+    },
+  );
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.signal, null);
   assert.equal(result.stderr, "");
@@ -84,7 +87,7 @@ function invokeCli(arguments_, input, redactedValues = []) {
 function publishThroughAdapter(publisherId, input) {
   const result = spawnSync(
     globalThis.process.execPath,
-    [publisherBundle, "--publisher", publisherId],
+    ["--disable-warning=ExperimentalWarning", publisherBundle, "--publisher", publisherId],
     {
       cwd: workingDirectory,
       env: cliEnvironment,

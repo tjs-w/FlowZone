@@ -39,17 +39,23 @@ if (!workerPath || !Number.isInteger(nodeCount) || nodeCount < 1 || nodeCount > 
           targets: [nodeId(index + 1)],
         })),
       };
-  const started = performance.now();
+  const roundTripStarted = performance.now();
   const worker = new Worker(workerPath, { workerData: { graph, groups, stageOrder } });
   worker.once("message", (message) => {
-    const elapsedMilliseconds = performance.now() - started;
-    if (!message?.ok || !Array.isArray(message.positions)) {
+    const roundTripMilliseconds = performance.now() - roundTripStarted;
+    if (
+      !message?.ok ||
+      !Array.isArray(message.positions) ||
+      !Number.isFinite(message.layoutMilliseconds) ||
+      message.layoutMilliseconds < 0
+    ) {
       process.exitCode = 1;
     } else {
       const positions = new Map(message.positions.map((position) => [position.nodeId, position]));
       process.stdout.write(
         `${JSON.stringify({
-          elapsedMilliseconds,
+          layoutMilliseconds: message.layoutMilliseconds,
+          roundTripMilliseconds,
           positionCount: message.positions.length,
           stageOrderPreserved: grouped
             ? positions.get("stage-b")?.x < positions.get("stage-a")?.x

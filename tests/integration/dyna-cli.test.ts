@@ -147,6 +147,11 @@ describe("bundled dyna CLI", () => {
       writeFileSync(
         join(fixedStoreDist, "dyna.cjs"),
         `const names = ["FLOWZONE_DATA_DIR", "HOME", "XDG_DATA_HOME", "LOCALAPPDATA"];
+if (process.argv.includes("--diagnostic-probe")) {
+  process.emitWarning("expected experimental warning", { type: "ExperimentalWarning" });
+  process.emitWarning("expected deprecation warning", { type: "DeprecationWarning" });
+  process.stderr.write("preserved application diagnostic\\n");
+}
 process.stdout.write(JSON.stringify({ schema: "dyna/test-launch-environment-v1", inherited: names.filter((name) => process.env[name] !== undefined) }) + "\\n");
 `,
       );
@@ -168,6 +173,16 @@ process.stdout.write(JSON.stringify({ schema: "dyna/test-launch-environment-v1",
         inherited: [],
       });
       expect(fixedStore.stderr).toBe("");
+
+      const diagnostics = spawnSync(fixedStoreLauncher, ["--diagnostic-probe"], {
+        encoding: "utf8",
+        cwd: directory,
+        env: { ...process.env, PATH: "/usr/bin:/bin" },
+      });
+      expect(diagnostics.status, diagnostics.stderr).toBe(0);
+      expect(diagnostics.stderr).not.toContain("expected experimental warning");
+      expect(diagnostics.stderr).toContain("expected deprecation warning");
+      expect(diagnostics.stderr).toContain("preserved application diagnostic");
 
       const isolatedBin = join(directory, "isolated plugin", "bin");
       mkdirSync(isolatedBin, { recursive: true });

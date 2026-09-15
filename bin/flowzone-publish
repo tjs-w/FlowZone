@@ -57,7 +57,7 @@ flowzone_publish_run_node() {
     trap 'exit 131' QUIT
     trap 'exit 143' TERM
     trap 'exit 148' TSTP
-    exec "$FLOWZONE_PUBLISH_NODE" "$FLOWZONE_PUBLISHER_PATH" "$@"
+    exec "$FLOWZONE_PUBLISH_NODE" --disable-warning=ExperimentalWarning "$FLOWZONE_PUBLISHER_PATH" "$@"
   ) <&0 &
   FLOWZONE_PUBLISH_CHILD_PID=$!
   if wait "$FLOWZONE_PUBLISH_CHILD_PID"; then

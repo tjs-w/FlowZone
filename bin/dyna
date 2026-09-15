@@ -57,7 +57,7 @@ dyna_run_node() {
   shift
   FLOWZONE_DYNA_TTY_STATE=$DYNA_TTY_STATE
   export FLOWZONE_DYNA_TTY_STATE
-  "$DYNA_SELECTED_NODE" "$DYNA_BUNDLE_PATH" "$@" <&0 &
+  "$DYNA_SELECTED_NODE" --disable-warning=ExperimentalWarning "$DYNA_BUNDLE_PATH" "$@" <&0 &
   DYNA_CHILD_PID=$!
   if wait "$DYNA_CHILD_PID"; then
     DYNA_CHILD_STATUS=0

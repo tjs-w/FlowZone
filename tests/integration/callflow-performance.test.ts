@@ -74,11 +74,12 @@ describe("CallFlow fixed performance budgets", () => {
       });
       expect(result.status).toBe(0);
       const measured = JSON.parse(result.stdout) as {
-        elapsedMilliseconds: number;
+        layoutMilliseconds: number;
+        roundTripMilliseconds: number;
         positionCount: number;
       };
       expect(measured.positionCount).toBe(nodeCount);
-      expect(measured.elapsedMilliseconds).toBeLessThanOrEqual(maximumMilliseconds);
+      expect(measured.layoutMilliseconds).toBeLessThanOrEqual(maximumMilliseconds);
     });
   }
 

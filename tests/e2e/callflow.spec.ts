@@ -44,17 +44,6 @@ test("renders the coordinated outline, causal canvas, and evidence inspector", a
   await expect(page.getByLabel("Overlay")).toHaveValue("data");
   await expect(page.getByRole("treeitem", { name: /processClaim call/u })).toHaveCount(0);
 
-  const usefulPaintMilliseconds = await page.evaluate(
-    () =>
-      (
-        window as typeof window & {
-          __callflowHarness?: { usefulPaintMilliseconds: number | null };
-        }
-      ).__callflowHarness?.usefulPaintMilliseconds,
-  );
-  expect(usefulPaintMilliseconds).not.toBeNull();
-  expect(usefulPaintMilliseconds ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(250);
-
   await page.getByRole("treeitem", { name: /Process record/u }).click();
   await expect(
     page.locator(".cf-inspector").getByRole("heading", { name: "Process record" }),
@@ -65,6 +54,19 @@ test("renders the coordinated outline, causal canvas, and evidence inspector", a
   ).toBeVisible();
   await expect(page.getByRole("heading", { name: "Incoming (1)" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Outgoing (2)" })).toBeVisible();
+});
+
+test("@performance keeps useful inline paint within 250 ms", async ({ page }) => {
+  const usefulPaintMilliseconds = await page.evaluate(
+    () =>
+      (
+        window as typeof window & {
+          __callflowHarness?: { usefulPaintMilliseconds: number | null };
+        }
+      ).__callflowHarness?.usefulPaintMilliseconds,
+  );
+  expect(usefulPaintMilliseconds).not.toBeNull();
+  expect(usefulPaintMilliseconds ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(250);
 });
 
 test("selects a connection and inspects its evidence and endpoints", async ({ page }) => {

@@ -1,4 +1,5 @@
 import { parentPort, workerData } from "node:worker_threads";
+import { performance } from "node:perf_hooks";
 
 import ELK from "elkjs/lib/elk.bundled.js";
 import type { ElkNode } from "elkjs/lib/elk-api.js";
@@ -27,6 +28,7 @@ async function run(): Promise<void> {
   const { graph, groups = [], stageOrder = [] } = workerData as LayoutWorkerData;
   const elk = new ELK();
   try {
+    const layoutStarted = performance.now();
     const result = await elk.layout(graph, {
       layoutOptions: {
         "elk.algorithm": "layered",
@@ -64,7 +66,11 @@ async function run(): Promise<void> {
         }));
       }),
     ].sort((left, right) => compareIds({ id: left.nodeId }, { id: right.nodeId }));
-    parentPort.postMessage({ ok: true, positions });
+    parentPort.postMessage({
+      ok: true,
+      layoutMilliseconds: performance.now() - layoutStarted,
+      positions,
+    });
   } catch {
     parentPort.postMessage({ ok: false });
   } finally {

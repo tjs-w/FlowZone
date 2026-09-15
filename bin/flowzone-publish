@@ -22,8 +22,12 @@ flowzone_publish_handle_signal() {
   FLOWZONE_PUBLISH_SIGNAL=$1
   FLOWZONE_PUBLISH_SIGNAL_STATUS=$2
   trap - "$FLOWZONE_PUBLISH_SIGNAL"
+  # Make the terminal usable before doing any process cleanup. A child that
+  # inherited an ignored interrupt must not leave the caller in no-echo mode.
+  flowzone_publish_restore_tty
   if [ -n "$FLOWZONE_PUBLISH_CHILD_PID" ] && kill -0 "$FLOWZONE_PUBLISH_CHILD_PID" 2>/dev/null; then
     kill -"$FLOWZONE_PUBLISH_SIGNAL" "$FLOWZONE_PUBLISH_CHILD_PID" 2>/dev/null || :
+    kill -CONT "$FLOWZONE_PUBLISH_CHILD_PID" 2>/dev/null || :
     wait "$FLOWZONE_PUBLISH_CHILD_PID" 2>/dev/null || :
   fi
   flowzone_publish_finish "$FLOWZONE_PUBLISH_SIGNAL_STATUS"
@@ -44,7 +48,17 @@ flowzone_publish_run_node() {
   FLOWZONE_PUBLISH_NODE=$1
   shift
   export FLOWZONE_PUBLISH_TTY_STATE
-  "$FLOWZONE_PUBLISH_NODE" "$FLOWZONE_PUBLISHER_PATH" "$@" <&0 &
+  # POSIX shells may start asynchronous children with INT/QUIT ignored. Mark
+  # every forwarded signal as caught in this subshell so exec resets it to the
+  # normal disposition before Node installs its own bounded exit handlers.
+  (
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 131' QUIT
+    trap 'exit 143' TERM
+    trap 'exit 148' TSTP
+    exec "$FLOWZONE_PUBLISH_NODE" "$FLOWZONE_PUBLISHER_PATH" "$@"
+  ) <&0 &
   FLOWZONE_PUBLISH_CHILD_PID=$!
   if wait "$FLOWZONE_PUBLISH_CHILD_PID"; then
     FLOWZONE_PUBLISH_CHILD_STATUS=0
@@ -69,6 +83,7 @@ if [ -t 0 ]; then
   trap 'flowzone_publish_restore_tty' 0
   trap 'flowzone_publish_handle_signal HUP 129' HUP
   trap 'flowzone_publish_handle_signal INT 130' INT
+  trap 'flowzone_publish_handle_signal QUIT 131' QUIT
   trap 'flowzone_publish_handle_signal TERM 143' TERM
   trap 'flowzone_publish_handle_stop' TSTP
   if ! /bin/stty -echo -echonl -icanon min 1 time 0 2>/dev/null; then
@@ -84,6 +99,11 @@ if [ ! -f "$FLOWZONE_PUBLISHER_PATH" ]; then
   echo "FlowZone publish failed: missing bundled publisher at $FLOWZONE_PUBLISHER_PATH" >&2
   exit 127
 fi
+
+# Never allow inherited Node preload paths to execute code inside the narrow
+# publisher boundary. FLOWZONE_NODE_PATH remains an explicit trusted-host
+# runtime override for installations whose Node binary is not in a fixed path.
+unset NODE_OPTIONS NODE_PATH
 
 if [ -n "${FLOWZONE_NODE_PATH:-}" ]; then
   if [ ! -x "$FLOWZONE_NODE_PATH" ]; then

@@ -30,10 +30,18 @@ function restoreLauncherTerminal(): void {
   spawnSync("/bin/stty", [state], { stdio: [process.stdin, "ignore", "ignore"] });
 }
 
-process.once("SIGTSTP", () => {
-  restoreLauncherTerminal();
-  process.exit(148);
-});
+function exitAfterSignal(signal: NodeJS.Signals, exitCode: number): void {
+  process.once(signal, () => {
+    restoreLauncherTerminal();
+    process.exit(exitCode);
+  });
+}
+
+exitAfterSignal("SIGHUP", 129);
+exitAfterSignal("SIGINT", 130);
+exitAfterSignal("SIGQUIT", 131);
+exitAfterSignal("SIGTERM", 143);
+exitAfterSignal("SIGTSTP", 148);
 
 function publisherIdFromArguments(arguments_: readonly string[]): string {
   if (arguments_.length !== 2 || arguments_[0] !== "--publisher") {

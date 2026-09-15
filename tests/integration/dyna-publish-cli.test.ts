@@ -5,6 +5,36 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import process from "node:process";
 
+function terminalState(output: string): {
+  readonly before: string;
+  readonly after: string;
+  readonly usable: boolean;
+  readonly status: number;
+  readonly interrupted: boolean;
+} {
+  const before = /^__DYNA_TTY_BEFORE__(?<value>[^\r\n]+)$/mu.exec(output)?.groups?.["value"];
+  const after = /^__DYNA_TTY_AFTER__(?<value>[^\r\n]+)$/mu.exec(output)?.groups?.["value"];
+  const status = /^__DYNA_TTY_STATUS__(?<value>\d+)$/mu.exec(output)?.groups?.["value"];
+  const usable = /^__DYNA_TTY_USABLE__(?<value>[01])$/mu.exec(output)?.groups?.["value"];
+  const interrupted = /^__DYNA_TTY_INTERRUPTED__(?<value>[01])$/mu.exec(output)?.groups?.["value"];
+  if (
+    !before ||
+    !after ||
+    usable === undefined ||
+    status === undefined ||
+    interrupted === undefined
+  ) {
+    throw new Error(`Missing terminal state markers: ${output}`);
+  }
+  return {
+    before,
+    after,
+    usable: usable === "1",
+    status: Number(status),
+    interrupted: interrupted === "1",
+  };
+}
+
 describe("flowzone-publish", () => {
   test("publishes valid stdin and rejects malformed input without echoing it", () => {
     const fixture = resolve(import.meta.dir, "dyna-publish-cli-node-fixture.mjs");
@@ -169,4 +199,101 @@ describe("flowzone-publish", () => {
       rmSync(dataDirectory, { force: true, recursive: true });
     }
   });
+
+  test("restores the PTY and terminates predictably for forwarded signals", async () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "flowzone-publish-pty-signals-"));
+    const publisherLauncher = resolve(import.meta.dir, "../../bin/flowzone-publish");
+    const terminalWrapper = resolve(import.meta.dir, "dyna-cli-tty-wrapper.sh");
+    const signalFixture = resolve(import.meta.dir, "dyna-cli-signal-node-fixture.mjs");
+    const nodePath = spawnSync("node", ["-p", "process.execPath"], {
+      encoding: "utf8",
+    }).stdout.trim();
+
+    const testSignal = async (signal: NodeJS.Signals, expectedExitCode: number) => {
+      const output: Uint8Array[] = [];
+      let launcherPid: number | undefined;
+      let launcherReady: (() => void) | undefined;
+      const launcherStarted = new Promise<void>((resolveStarted) => {
+        launcherReady = resolveStarted;
+      });
+      const processHandle = Bun.spawn(
+        [
+          "/bin/sh",
+          terminalWrapper,
+          nodePath,
+          signalFixture,
+          publisherLauncher,
+          "--publisher",
+          "00000000-0000-4000-8000-000000000001",
+        ],
+        {
+          env: {
+            ...process.env,
+            FLOWZONE_DATA_DIR: dataDirectory,
+            FLOWZONE_NODE_PATH: nodePath,
+          },
+          terminal: {
+            cols: 120,
+            rows: 24,
+            data(_terminal, data) {
+              output.push(typeof data === "string" ? Buffer.from(data) : Buffer.from(data));
+              const match = /__DYNA_SIGNAL_CHILD__(?<pid>\d+)/u.exec(
+                Buffer.concat(output).toString("utf8"),
+              );
+              if (launcherPid === undefined && match?.groups?.["pid"]) {
+                launcherPid = Number(match.groups["pid"]);
+                launcherReady?.();
+              }
+            },
+          },
+        },
+      );
+
+      await Promise.race([
+        launcherStarted,
+        Bun.sleep(5_000).then(() => {
+          throw new Error("Timed out waiting for the publisher signal-test process.");
+        }),
+      ]);
+      if (launcherPid === undefined) throw new Error("Missing publisher signal-test process ID.");
+      // The supervisor reports the PID immediately after spawn. Give the
+      // launcher time to capture the PTY state and install its signal traps.
+      await Bun.sleep(100);
+      if (signal === "SIGTSTP") {
+        processHandle.terminal?.write("\u001a");
+      } else {
+        process.kill(launcherPid, signal);
+      }
+
+      const exitCode = await Promise.race([
+        processHandle.exited,
+        Bun.sleep(5_000).then(() => {
+          if (launcherPid !== undefined) process.kill(launcherPid, "SIGKILL");
+          processHandle.kill("SIGKILL");
+          throw new Error(`Publisher did not terminate after ${signal}.`);
+        }),
+      ]);
+      processHandle.terminal?.close();
+      const terminalOutput = Buffer.concat(output).toString("utf8");
+      expect(exitCode, terminalOutput).toBe(expectedExitCode);
+      expect(terminalOutput).not.toContain("\u0007");
+      const state = terminalState(terminalOutput);
+      // Bun's PTY may toggle the macOS-only EXTPROC bit while delivering a
+      // signal. The user-facing invariant is that echo and canonical input are
+      // restored; ordinary success/error paths still assert the exact state.
+      expect(state.usable).toBe(true);
+      expect(state.status).toBe(expectedExitCode);
+      expect(state.interrupted).toBe(false);
+    };
+
+    try {
+      await testSignal("SIGHUP", 129);
+      await testSignal("SIGINT", 130);
+      await testSignal("SIGQUIT", 131);
+      await testSignal("SIGTERM", 143);
+      await testSignal("SIGTSTP", 148);
+    } finally {
+      rmSync(dataDirectory, { force: true, recursive: true });
+    }
+  }, 30_000);
 });

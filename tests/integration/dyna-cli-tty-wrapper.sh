@@ -12,9 +12,15 @@ else
   DYNA_WRAPPER_STATUS=$?
 fi
 DYNA_WRAPPER_AFTER=$(stty -g)
+DYNA_WRAPPER_FLAGS=$(stty -a)
+case " $DYNA_WRAPPER_FLAGS " in
+  *" -echo "*|*" -icanon "*) DYNA_WRAPPER_USABLE=0 ;;
+  *) DYNA_WRAPPER_USABLE=1 ;;
+esac
 
 printf '__DYNA_TTY_BEFORE__%s\n' "$DYNA_WRAPPER_BEFORE"
 printf '__DYNA_TTY_AFTER__%s\n' "$DYNA_WRAPPER_AFTER"
+printf '__DYNA_TTY_USABLE__%s\n' "$DYNA_WRAPPER_USABLE"
 printf '__DYNA_TTY_STATUS__%s\n' "$DYNA_WRAPPER_STATUS"
 printf '__DYNA_TTY_INTERRUPTED__%s\n' "$DYNA_WRAPPER_INTERRUPTED"
 

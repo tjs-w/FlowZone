@@ -60,7 +60,7 @@ jobs:
         with:
           bun-version: 1.4.0
       - run: bun install --frozen-lockfile
-      - run: bun run build:callflow
+      - run: bun run build
       - run: bun run license:check
       - run: bun test tests/integration/stdio.test.ts tests/integration/callflow-stdio.test.ts
 

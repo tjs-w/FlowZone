@@ -7,6 +7,8 @@ export const EXPORT_BUNDLE_SCHEMA = "callflow/export-bundle-v1" as const;
 export const GRAPH_PRESENTATION_SCHEMA = "callflow/graph-presentation-v1" as const;
 export const GRAPH_LAYOUT_HINTS_SCHEMA = "callflow/graph-layout-hints-v1" as const;
 export const CALLFLOW_UI_PAYLOAD_SCHEMA = "callflow/ui-payload-v1" as const;
+export const CALLFLOW_CAPABILITY_UPDATE_SCHEMA = "callflow/capability-update-v1" as const;
+export const CALLFLOW_LAYOUT_SCHEMA = "callflow/layout-v1" as const;
 export const CALLFLOW_SOURCE_SCHEMA = "callflow/source-v1" as const;
 
 export const MAX_GRAPH_NODES = 10_000;
@@ -967,6 +969,15 @@ export const CallFlowCapabilitySchema = z
   .strict();
 export type CallFlowCapability = z.infer<typeof CallFlowCapabilitySchema>;
 
+export const CallFlowCapabilityUpdateSchema = z
+  .object({
+    schema: z.literal(CALLFLOW_CAPABILITY_UPDATE_SCHEMA),
+    sessionId: IdentifierSchema,
+    capability: CallFlowCapabilitySchema,
+  })
+  .strict();
+export type CallFlowCapabilityUpdate = z.infer<typeof CallFlowCapabilityUpdateSchema>;
+
 export const CallFlowUiPayloadSchema = z
   .object({
     schema: z.literal(CALLFLOW_UI_PAYLOAD_SCHEMA),
@@ -993,6 +1004,66 @@ export const CallFlowUiPayloadSchema = z
   });
 export type CallFlowUiPayload = z.infer<typeof CallFlowUiPayloadSchema>;
 
+export const CallFlowNodeListResultSchema = z
+  .object({
+    nodeIds: z.array(IdentifierSchema).max(MAX_VISIBLE_NODES),
+    edgeIds: z.array(IdentifierSchema).max(MAX_VISIBLE_EDGES).optional(),
+    truncated: z.boolean().optional(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    for (const field of ["nodeIds", "edgeIds"] as const) {
+      const items = value[field];
+      if (items !== undefined && new Set(items).size !== items.length) {
+        context.addIssue({
+          code: "custom",
+          message: `${field} must contain unique identifiers.`,
+          path: [field],
+        });
+      }
+    }
+  });
+export type CallFlowNodeListResult = z.infer<typeof CallFlowNodeListResultSchema>;
+
+const MAX_LAYOUT_COORDINATE = 10_000_000;
+const LayoutCoordinateSchema = z
+  .number()
+  .refine(Number.isFinite, "Layout coordinates must be finite.")
+  .refine(
+    (value) => Math.abs(value) <= MAX_LAYOUT_COORDINATE,
+    `Layout coordinates must not exceed ${MAX_LAYOUT_COORDINATE}.`,
+  );
+
+export const CallFlowLayoutResultSchema = z
+  .object({
+    schema: z.literal(CALLFLOW_LAYOUT_SCHEMA),
+    graphRevision: IdentifierSchema,
+    engine: z.enum(["elk", "deterministic-fallback"]),
+    positions: z
+      .array(
+        z
+          .object({
+            nodeId: IdentifierSchema,
+            x: LayoutCoordinateSchema,
+            y: LayoutCoordinateSchema,
+          })
+          .strict(),
+      )
+      .max(MAX_VISIBLE_NODES),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const nodeIds = value.positions.map((position) => position.nodeId);
+    if (new Set(nodeIds).size !== nodeIds.length) {
+      context.addIssue({
+        code: "custom",
+        message: "Layout positions must reference unique nodes.",
+        path: ["positions"],
+      });
+    }
+  });
+export type CallFlowLayoutResult = z.infer<typeof CallFlowLayoutResultSchema>;
+
 function utf8ByteLength(value: string): number {
   let bytes = 0;
   for (let index = 0; index < value.length; index += 1) {
@@ -1012,14 +1083,13 @@ function utf8ByteLength(value: string): number {
   return bytes;
 }
 
-export const CallFlowSourceExcerptSchema = z
+export const CallFlowSourcePublicResultSchema = z
   .object({
     schema: z.literal(CALLFLOW_SOURCE_SCHEMA),
     evidenceId: IdentifierSchema,
     path: RepositoryRelativePathSchema,
     startLine: z.number().int().positive().max(10_000_000),
     endLine: z.number().int().positive().max(10_000_000),
-    content: z.string().max(MAX_SOURCE_EXCERPT_BYTES),
     truncated: z.boolean(),
     remainingByteBudget: z
       .number()
@@ -1028,20 +1098,21 @@ export const CallFlowSourceExcerptSchema = z
       .max(8 * 1024 * 1024),
   })
   .strict()
-  .superRefine((value, context) => {
-    if (value.endLine < value.startLine) {
-      context.addIssue({
-        code: "custom",
-        message: "endLine must not precede startLine.",
-        path: ["endLine"],
-      });
-    }
-    if (utf8ByteLength(value.content) > MAX_SOURCE_EXCERPT_BYTES) {
-      context.addIssue({
-        code: "custom",
-        message: `Source excerpts are limited to ${MAX_SOURCE_EXCERPT_BYTES} UTF-8 bytes.`,
-        path: ["content"],
-      });
-    }
+  .refine((value) => value.endLine >= value.startLine, {
+    message: "endLine must not precede startLine.",
+    path: ["endLine"],
   });
+export type CallFlowSourcePublicResult = z.infer<typeof CallFlowSourcePublicResultSchema>;
+
+export const CallFlowSourceExcerptSchema = CallFlowSourcePublicResultSchema.safeExtend({
+  content: z.string().max(MAX_SOURCE_EXCERPT_BYTES),
+}).superRefine((value, context) => {
+  if (utf8ByteLength(value.content) > MAX_SOURCE_EXCERPT_BYTES) {
+    context.addIssue({
+      code: "custom",
+      message: `Source excerpts are limited to ${MAX_SOURCE_EXCERPT_BYTES} UTF-8 bytes.`,
+      path: ["content"],
+    });
+  }
+});
 export type CallFlowSourceExcerpt = z.infer<typeof CallFlowSourceExcerptSchema>;

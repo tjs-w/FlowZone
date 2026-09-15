@@ -97,6 +97,13 @@ async function installShippingArtifacts(pluginRoot: string): Promise<void> {
     readdir(join(pluginRoot, "licenses", "callflow")),
   ]);
   expect(installedLicenseFiles.sort()).toEqual(sourceLicenseFiles.sort());
+  for (const licenseFile of sourceLicenseFiles) {
+    const [sourceLicense, installedLicense] = await Promise.all([
+      readFile(join(sourceRoot, "licenses", "callflow", licenseFile)),
+      readFile(join(pluginRoot, "licenses", "callflow", licenseFile)),
+    ]);
+    expect(installedLicense).toEqual(sourceLicense);
+  }
   await chmod(join(pluginRoot, "bin", "flowzone-mcp"), 0o755);
   await chmod(join(pluginRoot, "bin", "flowzone-publish"), 0o755);
   await chmod(join(pluginRoot, "bin", "dyna"), 0o755);

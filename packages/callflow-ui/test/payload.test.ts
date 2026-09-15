@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  metadataCapabilityUpdate,
   metadataPayload,
   parseBootstrapPayloadText,
   parseLayoutResult,
@@ -121,11 +122,40 @@ describe("CallFlow browser payload boundaries", () => {
     ).toBeUndefined();
   });
 
+  test("accepts only strict compact capability updates from private metadata", () => {
+    const capabilityUpdate = {
+      schema: "callflow/capability-update-v1",
+      sessionId: "session-1",
+      capability: {
+        ...payload.capability,
+        token: "b".repeat(32),
+        sourceByteBudget: 12_000,
+      },
+    } as const;
+    expect(metadataCapabilityUpdate({ _meta: { callflowCapability: capabilityUpdate } })).toEqual(
+      capabilityUpdate,
+    );
+    expect(
+      metadataCapabilityUpdate({ structuredContent: { callflowCapability: capabilityUpdate } }),
+    ).toBeUndefined();
+    expect(
+      metadataCapabilityUpdate({
+        _meta: { callflowCapability: { ...capabilityUpdate, snapshot: payload.snapshot } },
+      }),
+    ).toBeUndefined();
+  });
+
   test("bounds helper node lists", () => {
-    expect(parseNodeListResult({ structuredContent: { nodeIds: ["a", "b"] } })).toEqual({
-      nodeIds: ["a", "b"],
-    });
+    expect(
+      parseNodeListResult({
+        structuredContent: { nodeIds: ["a", "b"], edgeIds: ["edge-a"], truncated: false },
+      }),
+    ).toEqual({ nodeIds: ["a", "b"], edgeIds: ["edge-a"], truncated: false });
     expect(parseNodeListResult({ structuredContent: { nodeIds: ["a", 2] } })).toBeUndefined();
+    expect(parseNodeListResult({ structuredContent: { nodeIds: ["a", "a"] } })).toBeUndefined();
+    expect(
+      parseNodeListResult({ structuredContent: { nodeIds: ["a"], unexpected: true } }),
+    ).toBeUndefined();
     expect(
       parseNodeListResult({
         structuredContent: { nodeIds: Array.from({ length: 251 }, (_, index) => `n-${index}`) },

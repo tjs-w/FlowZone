@@ -6,6 +6,7 @@ import { join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 
 import {
+  CallFlowCapabilityUpdateSchema,
   CallFlowSourceExcerptSchema,
   CallFlowUiPayloadSchema,
   WorkflowManifestSchema,
@@ -127,12 +128,15 @@ describe("CallFlow in the shared FlowZone stdio server", () => {
 
       const resources = await client.listResources();
       expect(resources.resources.map((resource) => resource.uri)).toContain(
+        "ui://flowzone/callflow/v2.html",
+      );
+      expect(resources.resources.map((resource) => resource.uri)).toContain(
         "ui://flowzone/callflow/v1.html",
       );
       expect(resources.resources.map((resource) => resource.uri)).toContain(
         "ui://callflow/workflow/v1.html",
       );
-      const resource = await client.readResource({ uri: "ui://flowzone/callflow/v1.html" });
+      const resource = await client.readResource({ uri: "ui://flowzone/callflow/v2.html" });
       const content = resource.contents[0];
       expect(content?.mimeType).toBe("text/html;profile=mcp-app");
       const html = content && "text" in content ? content.text : "";
@@ -233,7 +237,13 @@ describe("CallFlow in the shared FlowZone stdio server", () => {
         expect(excerpt.content).toContain("selectedEntry");
         expect(JSON.stringify(source.structuredContent)).not.toContain(excerpt.content);
         expect(JSON.stringify(source.content)).not.toContain(excerpt.content);
-        activePayload = CallFlowUiPayloadSchema.parse(record(source._meta)["callflowGraph"]);
+        const sourceMetadata = record(source._meta);
+        const capabilityUpdate = CallFlowCapabilityUpdateSchema.parse(
+          sourceMetadata["callflowCapability"],
+        );
+        expect(sourceMetadata["callflowGraph"]).toBeUndefined();
+        expect(capabilityUpdate.sessionId).toBe(payload.sessionId);
+        activePayload = { ...payload, capability: capabilityUpdate.capability };
         expect(activePayload.capability.token).not.toBe(payload.capability.token);
       }
 
@@ -251,35 +261,30 @@ describe("CallFlow in the shared FlowZone stdio server", () => {
         },
       });
       expect(expansion.isError).toBeUndefined();
-      const expandedPayload = CallFlowUiPayloadSchema.parse(
-        record(expansion._meta)["callflowGraph"],
-      );
       expect(record(expansion.structuredContent)["nodeIds"]).toBeArray();
-      expect(expandedPayload.capability.token).not.toBe(activePayload.capability.token);
+      expect(expansion._meta ?? {}).not.toHaveProperty("callflowGraph");
 
       const relayout = await client.callTool({
         name: "callflow_relayout",
         arguments: {
           sessionId,
-          capabilityToken: expandedPayload.capability.token,
+          capabilityToken: activePayload.capability.token,
           graphRevision,
-          visibleNodeIds: expandedPayload.snapshot.nodes.map((node) => node.id),
+          visibleNodeIds: activePayload.snapshot.nodes.map((node) => node.id),
         },
       });
       expect(relayout.isError).toBeUndefined();
       expect(record(relayout.structuredContent)["engine"]).toBe("elk");
       expect(record(relayout.structuredContent)["positions"]).toBeArray();
-      const relayoutPayload = CallFlowUiPayloadSchema.parse(
-        record(relayout._meta)["callflowGraph"],
-      );
+      expect(relayout._meta ?? {}).not.toHaveProperty("callflowGraph");
 
       const described = await client.callTool({
         name: "callflow_describe_visible",
         arguments: {
           sessionId,
-          capabilityToken: relayoutPayload.capability.token,
+          capabilityToken: activePayload.capability.token,
           graphRevision,
-          visibleNodeIds: relayoutPayload.snapshot.nodes.map((node) => node.id),
+          visibleNodeIds: activePayload.snapshot.nodes.map((node) => node.id),
         },
       });
       expect(described.isError).toBeUndefined();
@@ -301,8 +306,25 @@ describe("CallFlow in the shared FlowZone stdio server", () => {
       });
       expect(queried.isError).toBeUndefined();
       const queryResult = record(record(queried.structuredContent)["result"]);
-      expect(queryResult["nodeIds"]).toBeArray();
+      expect(queryResult["nodeIds"]).toBeUndefined();
+      expect(queryResult["edgeIds"]).toBeUndefined();
       expect(queryResult["nodes"]).toBeArray();
+      expect(queryResult["edges"]).toBeArray();
+      const queryNodes = queryResult["nodes"];
+      if (!Array.isArray(queryNodes) || queryNodes.length === 0) {
+        throw new Error("CallFlow query did not return a bounded node description");
+      }
+      expect(record(queryNodes[0])).toMatchObject({
+        kind: "function",
+        level: "L1",
+        label: "selectedEntry",
+      });
+      expect(record(queryNodes[0])["evidenceStates"]).toBeArray();
+      expect(queryNodes.length).toBeLessThanOrEqual(30);
+      const queryEdges = queryResult["edges"];
+      expect(
+        Array.isArray(queryEdges) ? queryEdges.length : Number.POSITIVE_INFINITY,
+      ).toBeLessThanOrEqual(60);
       expect(JSON.stringify(queried)).not.toContain(canonicalRepository);
 
       const diffed = await client.callTool({
@@ -332,31 +354,11 @@ describe("CallFlow in the shared FlowZone stdio server", () => {
       expect(JSON.stringify(exported.content)).not.toContain(repository);
       expect(JSON.stringify(exported.content)).not.toContain(canonicalRepository);
       const exportResult = record(record(exported.structuredContent)["result"]);
-      expect(exportResult["schema"]).toBe("callflow/export-result-v1");
+      expect(exportResult["schema"]).toBe("callflow/export-preflight-v1");
       expect(exportResult["content"]).toBeUndefined();
-      const exportEnvelope = record(record(exported._meta)["flowzone"]);
-      expect(exportEnvelope).toMatchObject({
-        schema: "flowzone/ui-v1",
-        plugin: "callflow",
-        action: "export",
-        view: "export",
-      });
-      const exportPayload = record(exportEnvelope["payload"]);
-      expect(exportPayload).toMatchObject({
-        schema: "callflow/export-payload-v1",
-        graphRevision,
-        format: "graph-json",
-        contentDigest: exportResult["contentDigest"],
-        byteLength: exportResult["byteLength"],
-      });
-      expect(typeof exportPayload["content"]).toBe("string");
-      const exportByteLength = exportResult["byteLength"];
-      if (typeof exportByteLength !== "number") {
-        throw new Error("CallFlow export did not return a byte length");
-      }
-      expect(Buffer.byteLength(String(exportPayload["content"]), "utf8")).toBe(exportByteLength);
-      expect(String(exportPayload["content"])).not.toContain(repository);
-      expect(String(exportPayload["content"])).not.toContain(canonicalRepository);
+      expect(exportResult["delivery"]).toBe("cli-only");
+      expect(exported._meta ?? {}).not.toHaveProperty("flowzone");
+      expect(exported._meta ?? {}).not.toHaveProperty("callflowGraph");
     } finally {
       await client.close();
     }

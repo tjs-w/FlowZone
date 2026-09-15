@@ -4,6 +4,7 @@ import { lstat, open, realpath } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 
 import {
+  MAX_GRAPH_EDGES,
   RepositoryRelativePathSchema,
   type AdapterRevision,
   type DiscoveredEdgeDraft,
@@ -43,6 +44,9 @@ const MAX_GRAFT_JSON_BYTES = 8 * 1024 * 1024;
 const MAX_GRAFT_INDEX_BYTES = 64 * 1024 * 1024;
 const GRAFT_INDEX_CHUNK_BYTES = 64 * 1024;
 const GRAFT_INDEX_RELATIVE_PATH = "graft/.graph/wiring.json";
+// Leave room for the manifest's 256 legacy and 256 typed curated relationships.
+const MAX_MANIFEST_CURATED_RELATIONSHIPS = 512;
+export const MAX_GRAFT_RELATIONSHIPS = MAX_GRAPH_EDGES - MAX_MANIFEST_CURATED_RELATIONSHIPS;
 
 const GraftFreshnessSectionSchema = z
   .object({
@@ -822,6 +826,42 @@ export class GraftAdapter {
     };
   }
 
+  async #revalidateRepositoryRevision(
+    repository: RepositoryContext,
+    signal?: AbortSignal,
+  ): Promise<RepositoryContext> {
+    const current = await this.#repositoryPolicy.resolveRepository(repository.root, signal);
+    if (
+      current.root !== repository.root ||
+      current.revision.identity !== repository.revision.identity ||
+      current.revision.commit !== repository.revision.commit ||
+      current.revision.dirtyDigest !== repository.revision.dirtyDigest
+    ) {
+      throw new CallFlowError(
+        "source_changed",
+        "The repository changed while CallFlow was discovering the workflow.",
+        true,
+      );
+    }
+    return current;
+  }
+
+  async #revalidateGraftIndexRevision(
+    repository: RepositoryContext,
+    expectedRevision: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (!/^sha256:[a-f0-9]{64}$/.test(expectedRevision)) return;
+    const currentRevision = await fingerprintGraftIndex(repository, signal);
+    if (currentRevision !== expectedRevision) {
+      throw new CallFlowError(
+        "adapter_stale",
+        "The Graft index changed while CallFlow was discovering the workflow.",
+        true,
+      );
+    }
+  }
+
   async discoverDraft(
     repository: RepositoryContext,
     options: DiscoverDraftOptions,
@@ -831,7 +871,17 @@ export class GraftAdapter {
     const isExcluded = (path: string): boolean => matchesCompiledExclusion(path, exclusions);
     const status = await this.statusForRepository(repository, options.signal);
     if (status.state !== "ready") {
-      return await this.#discoverSourceLiterals(repository, status, options);
+      const draft = await this.#discoverSourceLiterals(repository, status, options);
+      const currentRepository = await this.#revalidateRepositoryRevision(
+        repository,
+        options.signal,
+      );
+      await this.#revalidateGraftIndexRevision(
+        currentRepository,
+        status.adapter.indexRevision,
+        options.signal,
+      );
+      return draft;
     }
     const executable = this.#graftExecutable ?? (await resolveExecutable(GRAFT_CANDIDATES));
     const symbols = new Map<string, { symbol: GraftSymbol; ambiguous: boolean }>();
@@ -848,6 +898,7 @@ export class GraftAdapter {
     const stagesBySymbol = new Map<string, Set<string>>();
     const warnings: GraphWarning[] = [];
     let nodeLimitReached = false;
+    let relationshipLimitReached = false;
     let queryFailed = false;
     const queue: {
       query: string;
@@ -866,7 +917,7 @@ export class GraftAdapter {
       });
     }
     const queried = new Set<string>();
-    while (queue.length > 0 && symbols.size < options.maximumNodes) {
+    while (queue.length > 0 && symbols.size < options.maximumNodes && !relationshipLimitReached) {
       const next = queue.shift();
       if (!next) break;
       const queryIdentity = `${next.expectedId ?? next.query}:${next.stageId ?? ""}:${String(next.remainingDepth)}`;
@@ -954,6 +1005,14 @@ export class GraftAdapter {
         const relationshipOccurrences = new Map<string, number>();
         for (const hit of orderedHits) {
           if (isExcluded(hit.path)) continue;
+          if (
+            hit.relation === "calls" &&
+            hit.depth === 1 &&
+            calls.size >= MAX_GRAFT_RELATIONSHIPS
+          ) {
+            relationshipLimitReached = true;
+            break;
+          }
           if (symbols.size >= options.maximumNodes && !symbols.has(hit.id)) {
             nodeLimitReached = true;
             continue;
@@ -986,6 +1045,7 @@ export class GraftAdapter {
             }
           }
         }
+        if (relationshipLimitReached) break;
       }
     }
 
@@ -1117,6 +1177,19 @@ export class GraftAdapter {
         retryable: false,
       });
     }
+    if (relationshipLimitReached) {
+      warnings.push({
+        code: "edge-limit",
+        message: `Discovery was limited to ${String(MAX_GRAFT_RELATIONSHIPS)} Graft call relationships. Narrow the workflow anchors or depth to inspect omitted relationships.`,
+        retryable: false,
+      });
+    }
+    const currentRepository = await this.#revalidateRepositoryRevision(repository, options.signal);
+    await this.#revalidateGraftIndexRevision(
+      currentRepository,
+      status.adapter.indexRevision,
+      options.signal,
+    );
     return {
       repository: repository.revision,
       adapter: status.adapter,
@@ -1365,13 +1438,4 @@ export class GraftAdapter {
       },
     };
   }
-}
-
-export function safeAdapterFailure(error: unknown): GraphWarning {
-  const failure = asCallFlowError(error);
-  return {
-    code: failure.code,
-    message: failure.message,
-    retryable: failure.retryable,
-  };
 }

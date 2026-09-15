@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   CallFlowUiPayloadSchema,
+  GraphDiffSchema,
   GraphSnapshotSchema,
   WorkflowManifestSchema,
   type GraphSnapshot,
@@ -24,6 +25,7 @@ import {
   type CallFlowPluginService,
 } from "../src/plugin.js";
 import { CallFlowSessionStore } from "../src/sessions.js";
+import { FlowZoneExecutionPolicy } from "../../mcp-server/src/execution-policy.js";
 
 function fixtureManifest(): WorkflowManifest {
   return WorkflowManifestSchema.parse({
@@ -177,9 +179,7 @@ describe("CallFlow FlowZone plugin", () => {
     expect(plugin.actions.find((candidate) => candidate.id === "discover")?.ui).not.toHaveProperty(
       "legacyMetaKey",
     );
-    expect(plugin.actions.find((candidate) => candidate.id === "export")?.ui).toMatchObject({
-      view: "export",
-    });
+    expect(plugin.actions.find((candidate) => candidate.id === "export")?.ui).toBeUndefined();
     expect(registry.routerActions).toHaveLength(5);
     expect(registry.presentations).toHaveLength(0);
     expect(plugin.appTools?.map((tool) => tool.name)).toEqual([
@@ -195,14 +195,15 @@ describe("CallFlow FlowZone plugin", () => {
         (plugin.appTools ?? []).map((tool) => [tool.name, tool.annotations.idempotentHint]),
       ),
     ).toEqual({
-      callflow_expand: false,
+      callflow_expand: true,
       callflow_get_source: false,
       callflow_search: true,
       callflow_find_path: true,
-      callflow_relayout: false,
+      callflow_relayout: true,
       callflow_describe_visible: true,
     });
-    expect(CALLFLOW_TEMPLATE_URI).toBe("ui://flowzone/callflow/v1.html");
+    expect(CALLFLOW_TEMPLATE_URI).toBe("ui://flowzone/callflow/v2.html");
+    expect(LEGACY_CALLFLOW_TEMPLATE_URIS).toContain("ui://flowzone/callflow/v1.html");
     expect(LEGACY_CALLFLOW_TEMPLATE_URIS).toContain("ui://callflow/workflow/v1.html");
   });
 
@@ -232,7 +233,7 @@ describe("CallFlow FlowZone plugin", () => {
     expect(maximumNodes).toEqual([undefined, 47]);
   });
 
-  test("keeps sanitized export content private while returning a public digest and byte count", async () => {
+  test("preflights sanitized CLI exports without returning the export body", async () => {
     const sessions = new CallFlowSessionStore({
       createId: () => "fixture-session",
       createToken: () => "e".repeat(43),
@@ -251,9 +252,10 @@ describe("CallFlow FlowZone plugin", () => {
     });
 
     expect(exported.result).toMatchObject({
-      schema: "callflow/export-result-v1",
+      schema: "callflow/export-preflight-v1",
       graphRevision: "fixture-graph",
       format: "graph-json",
+      delivery: "cli-only",
     });
     const publicResult = exported.result as Readonly<Record<string, unknown>>;
     expect(publicResult["contentDigest"]).toMatch(/^sha256:[0-9a-f]{64}$/);
@@ -261,26 +263,138 @@ describe("CallFlow FlowZone plugin", () => {
     expect(JSON.stringify(exported.result)).not.toContain("entry-node");
     expect(exportAction.summarize?.(exported.result)).not.toContain("entry-node");
 
-    const privatePayload = exported.uiPayload as Readonly<Record<string, unknown>>;
-    expect(privatePayload).toMatchObject({
-      schema: "callflow/export-payload-v1",
-      graphRevision: "fixture-graph",
-      format: "graph-json",
-      contentDigest: publicResult["contentDigest"],
-      byteLength: publicResult["byteLength"],
+    expect(exported.uiPayload).toBeUndefined();
+  });
+
+  test("returns a bounded sanitized topology without duplicate identifier arrays", async () => {
+    const sessions = new CallFlowSessionStore({
+      createId: () => "fixture-session",
+      createToken: () => "q".repeat(43),
     });
-    expect(typeof privatePayload["content"]).toBe("string");
-    const content = privatePayload["content"];
-    if (typeof content !== "string") throw new Error("Missing private export content");
-    const byteLength = privatePayload["byteLength"];
-    if (typeof byteLength !== "number") throw new Error("Missing private export byte length");
-    expect(Buffer.byteLength(content, "utf8")).toBe(byteLength);
-    expect(content).toContain("entry-node");
-    expect(content).not.toContain("/Users/private");
-    expect(JSON.parse(content)).toMatchObject({
-      schemaVersion: "callflow/graph-snapshot-v1",
-      id: "fixture-graph",
+    const plugin = createCallFlowPlugin({ service: fixtureService(), sessions });
+    const discovered = await execute(action(plugin.actions, "discover"), {
+      repositoryPath: "/Users/private/repository",
+      entries: ["entry"],
     });
+    const payload = CallFlowUiPayloadSchema.parse(discovered.uiPayload);
+    const queried = await execute(action(plugin.actions, "query"), {
+      sessionId: payload.sessionId,
+      graphRevision: payload.snapshot.id,
+      query: {},
+    });
+
+    expect(queried.result).toMatchObject({
+      schema: "callflow/query-result-v1",
+      totalMatchedNodes: 3,
+      totalMatchedEdges: 1,
+      truncated: false,
+      edges: [
+        {
+          id: "handoff-edge",
+          source: "entry-node",
+          target: "sink-node",
+          kind: "async-handoff",
+          assertion: "curated-workflow",
+          evidenceStates: ["exact"],
+        },
+      ],
+    });
+    const publicResult = queried.result as Readonly<Record<string, unknown>>;
+    expect(publicResult).not.toHaveProperty("nodeIds");
+    expect(publicResult).not.toHaveProperty("edgeIds");
+    expect(publicResult["nodes"]).toEqual([
+      {
+        id: "entry-node",
+        kind: "function",
+        level: "L1",
+        label: "[redacted-sensitive-text]",
+        stageId: "stage-node",
+        evidenceStates: ["exact"],
+      },
+      {
+        id: "sink-node",
+        kind: "queue",
+        level: "L1",
+        label: "Publish result",
+        evidenceStates: ["ambiguous"],
+      },
+      {
+        id: "stage-node",
+        kind: "stage",
+        level: "L0",
+        label: "Ingest stage",
+        evidenceStates: ["exact"],
+      },
+    ]);
+    expect(JSON.stringify(publicResult)).not.toContain("/Users/private");
+
+    let invalidQuery: unknown;
+    try {
+      await execute(action(plugin.actions, "query"), {
+        sessionId: payload.sessionId,
+        graphRevision: payload.snapshot.id,
+        query: { limit: 31 },
+      });
+    } catch (error: unknown) {
+      invalidQuery = error;
+    }
+    expect(invalidQuery).toMatchObject({ code: "invalid_input" });
+  });
+
+  test("bounds and prioritizes public diff entries", async () => {
+    const entries = ["current", "unverified", "changed", "broken"].flatMap((status) =>
+      Array.from({ length: 20 }, (_, index) => ({
+        entity: "node" as const,
+        id: `${status}-${String(index).padStart(2, "0")}`,
+        status: status as "current" | "unverified" | "changed" | "broken",
+        reason: `${status} fixture`,
+      })),
+    );
+    const diff = GraphDiffSchema.parse({
+      schemaVersion: "callflow/graph-diff-v1",
+      id: "fixture-diff",
+      workflowManifestId: "fixture-manifest",
+      baseGraphId: "fixture-graph",
+      baseRepository: fixtureSnapshot().repository,
+      entries,
+      summary: { current: 20, changed: 20, broken: 20, unverified: 20 },
+      warnings: [],
+    });
+    const baseService = fixtureService();
+    const sessions = new CallFlowSessionStore({
+      createId: () => "fixture-session",
+      createToken: () => "d".repeat(43),
+    });
+    const plugin = createCallFlowPlugin({
+      sessions,
+      service: { ...baseService, diff: () => diff },
+    });
+    const discovered = await execute(action(plugin.actions, "discover"), {
+      repositoryPath: "/Users/private/repository",
+      entries: ["entry"],
+    });
+    const payload = CallFlowUiPayloadSchema.parse(discovered.uiPayload);
+    const result = await execute(action(plugin.actions, "diff"), {
+      baseSessionId: payload.sessionId,
+      baseGraphRevision: payload.snapshot.id,
+    });
+    const publicResult = result.result as {
+      readonly entries: readonly { readonly id: string; readonly status: string }[];
+      readonly truncated: boolean;
+    };
+
+    expect(publicResult.entries).toHaveLength(64);
+    expect(publicResult.entries.slice(0, 20).every((entry) => entry.status === "broken")).toBe(
+      true,
+    );
+    expect(publicResult.entries.slice(20, 40).every((entry) => entry.status === "changed")).toBe(
+      true,
+    );
+    expect(publicResult.entries.slice(40, 60).every((entry) => entry.status === "unverified")).toBe(
+      true,
+    );
+    expect(publicResult.entries.slice(60).every((entry) => entry.status === "current")).toBe(true);
+    expect(publicResult.truncated).toBe(true);
   });
 
   test("discovers into a private UI session while returning only a bounded public summary", async () => {
@@ -310,7 +424,45 @@ describe("CallFlow FlowZone plugin", () => {
     expect(sessions.size).toBe(1);
   });
 
-  test("keeps graph search capability-bound and converts failures to FlowZone errors", async () => {
+  test("does not retry session-creating discovery after a retryable failure", async () => {
+    let attempts = 0;
+    const sessions = new CallFlowSessionStore({
+      createId: () => "fixture-session",
+      createToken: () => {
+        throw new CallFlowError("adapter_failed", "Transient token fixture failure.", true);
+      },
+    });
+    const service = fixtureService();
+    const plugin = createCallFlowPlugin({
+      sessions,
+      service: {
+        ...service,
+        discover(request) {
+          attempts += 1;
+          return service.discover(request);
+        },
+      },
+    });
+    const registry = createFlowZoneRegistry([plugin]);
+    const registered = registry.find("callflow", "discover");
+    if (!registered) throw new Error("Missing registered CallFlow discovery action");
+
+    let failure: unknown;
+    try {
+      await new FlowZoneExecutionPolicy().execute(
+        registered,
+        { repositoryPath: "/Users/private/repository", entries: ["entry"] },
+        context("discover"),
+      );
+    } catch (error: unknown) {
+      failure = error;
+    }
+    expect(failure).toMatchObject({ code: "unavailable", retryable: true });
+    expect(attempts).toBe(1);
+    expect(sessions.size).toBe(1);
+  });
+
+  test("keeps helpers capability-bound without rotating tokens or resending graphs", async () => {
     const sessions = new CallFlowSessionStore({
       createId: () => "fixture-session",
       createToken: () => "b".repeat(43),
@@ -322,7 +474,11 @@ describe("CallFlow FlowZone plugin", () => {
     });
     const payload = CallFlowUiPayloadSchema.parse(discovered.uiPayload);
     const search = plugin.appTools?.find((tool) => tool.name === "callflow_search");
+    const expand = plugin.appTools?.find((tool) => tool.name === "callflow_expand");
+    const relayout = plugin.appTools?.find((tool) => tool.name === "callflow_relayout");
     if (!search) throw new Error("Missing CallFlow search helper");
+    if (!expand) throw new Error("Missing CallFlow expand helper");
+    if (!relayout) throw new Error("Missing CallFlow relayout helper");
 
     const validResult = await search.handler(
       {
@@ -337,6 +493,48 @@ describe("CallFlow FlowZone plugin", () => {
       nodeIds: ["sink-node"],
       truncated: false,
     });
+
+    const expanded = await expand.handler(
+      {
+        sessionId: payload.sessionId,
+        graphRevision: payload.snapshot.id,
+        capabilityToken: payload.capability.token,
+        nodeId: "entry-node",
+        direction: "both",
+      },
+      { signal: new AbortController().signal, requestId: "expand" },
+    );
+    expect(expanded.structuredContent).toMatchObject({
+      nodeIds: ["entry-node", "sink-node"],
+      edgeIds: ["handoff-edge"],
+    });
+    expect(expanded._meta).toBeUndefined();
+
+    const laidOut = await relayout.handler(
+      {
+        sessionId: payload.sessionId,
+        graphRevision: payload.snapshot.id,
+        capabilityToken: payload.capability.token,
+        visibleNodeIds: ["stage-node", "entry-node", "sink-node"],
+      },
+      { signal: new AbortController().signal, requestId: "relayout" },
+    );
+    expect(laidOut.structuredContent).toMatchObject({
+      schema: "callflow/layout-v1",
+      graphRevision: "fixture-graph",
+    });
+    expect(laidOut._meta).toBeUndefined();
+
+    const afterReadOnlyHelpers = await search.handler(
+      {
+        sessionId: payload.sessionId,
+        graphRevision: payload.snapshot.id,
+        capabilityToken: payload.capability.token,
+        query: "Publish",
+      },
+      { signal: new AbortController().signal, requestId: "search-after-helpers" },
+    );
+    expect(afterReadOnlyHelpers.structuredContent).toEqual(validResult.structuredContent);
 
     let failure: unknown;
     try {

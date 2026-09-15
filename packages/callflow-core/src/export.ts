@@ -82,7 +82,7 @@ export function sanitizePublicText(value: string): string {
   return sanitized.length === 0 ? "[redacted-empty-text]" : sanitized;
 }
 
-function sanitizedIdentity(identity: string): string {
+export function sanitizeRepositoryIdentity(identity: string): string {
   return looksLocal(identity) || looksCredentialBearing(identity)
     ? `repository:sha256:${sha256Hex(identity)}`
     : sanitizePublicText(identity);
@@ -167,7 +167,7 @@ export function sanitizeGraphSnapshot(snapshotValue: GraphSnapshot): GraphSnapsh
     ...snapshot,
     repository: {
       ...snapshot.repository,
-      identity: sanitizedIdentity(snapshot.repository.identity),
+      identity: sanitizeRepositoryIdentity(snapshot.repository.identity),
       commit: sanitizePublicText(snapshot.repository.commit),
     },
     adapter: {

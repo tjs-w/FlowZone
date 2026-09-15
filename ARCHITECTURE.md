@@ -28,7 +28,7 @@ static validated registry
         ▼
 render_markdown_review ──────────────> ui://flowzone/v5.html
 render_dyna_dashboard ───────────────> ui://flowzone/dyna/v18.html
-CallFlow private view data ──────────> ui://flowzone/callflow/v1.html
+CallFlow private view data ──────────> ui://flowzone/callflow/v2.html
 
 plugin-owned typed helper tools       app-only
 ```
@@ -107,7 +107,7 @@ FlowZone retries only explicitly idempotent actions and only retryable failures,
 
 ## Presentation resources
 
-`ui://flowzone/v5.html` remains the Markdown Review output resource. `ui://flowzone/dyna/v18.html` is a separate, smaller Dyna resource with a closed network CSP and clipboard-write permission limited to explicit copy actions; v17 remains a compatibility alias. `ui://flowzone/callflow/v1.html` is CallFlow's contained interactive resource. Public model output stays small; complete graphs and authorized excerpts travel only in typed private metadata. Treat each UI resource URI as a host cache key and bump its version whenever the shipped HTML, JavaScript, or CSS changes materially.
+`ui://flowzone/v5.html` remains the Markdown Review output resource. `ui://flowzone/dyna/v18.html` is a separate, smaller Dyna resource with a closed network CSP and clipboard-write permission limited to explicit copy actions; v17 remains a compatibility alias. `ui://flowzone/callflow/v2.html` is CallFlow's contained interactive resource, with v1 and the original standalone URI retained as compatibility aliases. Public model output stays small; complete graphs and authorized excerpts travel only in typed private metadata. Treat each UI resource URI as a host cache key and bump its version whenever the shipped HTML, JavaScript, or CSS changes materially.
 
 ```json
 {

@@ -2,10 +2,13 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import { TextDecoder } from "node:util";
 
 import {
+  CallFlowCapabilityUpdateSchema,
   CallFlowSourceExcerptSchema,
   CallFlowUiPayloadSchema,
   MAX_INITIAL_GRAPH_BYTES,
   MAX_SOURCE_EXCERPT_BYTES,
+  type CallFlowCapability,
+  type CallFlowCapabilityUpdate,
   type CallFlowSourceExcerpt,
   type CallFlowUiPayload,
   type EvidenceSource,
@@ -24,14 +27,14 @@ interface StoredSession {
   readonly id: string;
   readonly repositoryRoot: string;
   readonly manifest: WorkflowManifest;
-  snapshot: GraphSnapshot;
+  readonly snapshot: GraphSnapshot;
   readonly createdAt: number;
   expiresAt: number;
   capabilityDigest?: Buffer;
   capabilityExpiresAt?: number;
   sourceGrant?: SourceGrant;
   sourceByteBudget: number;
-  serializedBytes: number;
+  readonly serializedBytes: number;
 }
 
 interface SourceGrant {
@@ -48,10 +51,6 @@ interface SourceGrant {
   readonly repositoryRevision: string;
   readonly graphRevision: string;
   used: boolean;
-}
-
-export interface AuthorizedSession {
-  readonly session: StoredSession;
 }
 
 export interface SessionAuthorization {
@@ -183,45 +182,21 @@ export class CallFlowSessionStore {
 
   issuePayload(sessionId: string): CallFlowUiPayload {
     const session = this.#get(sessionId);
-    const token = this.#createToken();
-    if (token.length < 32) {
-      throw new CallFlowError("invalid_output", "The capability token generator is invalid.");
-    }
-    const expiresAtMs = this.#now() + DEFAULT_CAPABILITY_TTL_MS;
-    session.capabilityDigest = tokenDigest(token);
-    session.capabilityExpiresAt = expiresAtMs;
-    delete session.sourceGrant;
     return CallFlowUiPayloadSchema.parse({
       schema: "callflow/ui-payload-v1",
       sessionId: session.id,
-      capability: {
-        token,
-        expiresAt: new Date(expiresAtMs).toISOString(),
-        repositoryRevision: session.snapshot.repository.commit,
-        graphRevision: session.snapshot.id,
-        sourceByteBudget: session.sourceByteBudget,
-      },
+      capability: this.#rotateCapability(session),
       snapshot: session.snapshot,
     });
   }
 
-  replaceSnapshot(sessionId: string, snapshot: GraphSnapshot): CallFlowUiPayload {
+  issueCapability(sessionId: string): CallFlowCapabilityUpdate {
     const session = this.#get(sessionId);
-    if (
-      snapshot.repository.identity !== session.snapshot.repository.identity ||
-      snapshot.workflowManifestId !== session.snapshot.workflowManifestId
-    ) {
-      throw new CallFlowError("invalid_output", "A refreshed graph changed session identity.");
-    }
-    const serializedBytes = Buffer.byteLength(JSON.stringify(snapshot), "utf8");
-    if (serializedBytes > MAX_INITIAL_GRAPH_BYTES) {
-      throw new CallFlowError("output_too_large", "The refreshed graph exceeds the session limit.");
-    }
-    this.#serializedBytes -= session.serializedBytes;
-    session.snapshot = snapshot;
-    session.serializedBytes = serializedBytes;
-    this.#serializedBytes += serializedBytes;
-    return this.issuePayload(sessionId);
+    return CallFlowCapabilityUpdateSchema.parse({
+      schema: "callflow/capability-update-v1",
+      sessionId: session.id,
+      capability: this.#rotateCapability(session),
+    });
   }
 
   async source(request: SourceRequest, signal?: AbortSignal): Promise<CallFlowSourceExcerpt> {
@@ -343,6 +318,24 @@ export class CallFlowSessionStore {
   get size(): number {
     this.#removeExpired(this.#now());
     return this.#sessions.size;
+  }
+
+  #rotateCapability(session: StoredSession): CallFlowCapability {
+    const token = this.#createToken();
+    if (token.length < 32) {
+      throw new CallFlowError("invalid_output", "The capability token generator is invalid.");
+    }
+    const expiresAtMs = this.#now() + DEFAULT_CAPABILITY_TTL_MS;
+    session.capabilityDigest = tokenDigest(token);
+    session.capabilityExpiresAt = expiresAtMs;
+    delete session.sourceGrant;
+    return {
+      token,
+      expiresAt: new Date(expiresAtMs).toISOString(),
+      repositoryRevision: session.snapshot.repository.commit,
+      graphRevision: session.snapshot.id,
+      sourceByteBudget: session.sourceByteBudget,
+    };
   }
 
   #get(sessionId: string): StoredSession {

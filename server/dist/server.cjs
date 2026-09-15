@@ -41074,6 +41074,8 @@ var EXPORT_BUNDLE_SCHEMA = "callflow/export-bundle-v1";
 var GRAPH_PRESENTATION_SCHEMA = "callflow/graph-presentation-v1";
 var GRAPH_LAYOUT_HINTS_SCHEMA = "callflow/graph-layout-hints-v1";
 var CALLFLOW_UI_PAYLOAD_SCHEMA = "callflow/ui-payload-v1";
+var CALLFLOW_CAPABILITY_UPDATE_SCHEMA = "callflow/capability-update-v1";
+var CALLFLOW_LAYOUT_SCHEMA = "callflow/layout-v1";
 var CALLFLOW_SOURCE_SCHEMA = "callflow/source-v1";
 var MAX_GRAPH_NODES = 1e4;
 var MAX_GRAPH_EDGES = 25e3;
@@ -41778,6 +41780,11 @@ var CallFlowCapabilitySchema = external_exports.object({
   graphRevision: IdentifierSchema,
   sourceByteBudget: external_exports.number().int().nonnegative().max(8 * 1024 * 1024)
 }).strict();
+var CallFlowCapabilityUpdateSchema = external_exports.object({
+  schema: external_exports.literal(CALLFLOW_CAPABILITY_UPDATE_SCHEMA),
+  sessionId: IdentifierSchema,
+  capability: CallFlowCapabilitySchema
+}).strict();
 var CallFlowUiPayloadSchema = external_exports.object({
   schema: external_exports.literal(CALLFLOW_UI_PAYLOAD_SCHEMA),
   sessionId: IdentifierSchema,
@@ -41799,6 +41806,48 @@ var CallFlowUiPayloadSchema = external_exports.object({
     });
   }
 });
+var CallFlowNodeListResultSchema = external_exports.object({
+  nodeIds: external_exports.array(IdentifierSchema).max(MAX_VISIBLE_NODES),
+  edgeIds: external_exports.array(IdentifierSchema).max(MAX_VISIBLE_EDGES).optional(),
+  truncated: external_exports.boolean().optional()
+}).strict().superRefine((value, context) => {
+  for (const field of ["nodeIds", "edgeIds"]) {
+    const items = value[field];
+    if (items !== void 0 && new Set(items).size !== items.length) {
+      context.addIssue({
+        code: "custom",
+        message: `${field} must contain unique identifiers.`,
+        path: [field]
+      });
+    }
+  }
+});
+var MAX_LAYOUT_COORDINATE = 1e7;
+var LayoutCoordinateSchema = external_exports.number().refine(Number.isFinite, "Layout coordinates must be finite.").refine(
+  (value) => Math.abs(value) <= MAX_LAYOUT_COORDINATE,
+  `Layout coordinates must not exceed ${MAX_LAYOUT_COORDINATE}.`
+);
+var CallFlowLayoutResultSchema = external_exports.object({
+  schema: external_exports.literal(CALLFLOW_LAYOUT_SCHEMA),
+  graphRevision: IdentifierSchema,
+  engine: external_exports.enum(["elk", "deterministic-fallback"]),
+  positions: external_exports.array(
+    external_exports.object({
+      nodeId: IdentifierSchema,
+      x: LayoutCoordinateSchema,
+      y: LayoutCoordinateSchema
+    }).strict()
+  ).max(MAX_VISIBLE_NODES)
+}).strict().superRefine((value, context) => {
+  const nodeIds = value.positions.map((position) => position.nodeId);
+  if (new Set(nodeIds).size !== nodeIds.length) {
+    context.addIssue({
+      code: "custom",
+      message: "Layout positions must reference unique nodes.",
+      path: ["positions"]
+    });
+  }
+});
 function utf8ByteLength(value) {
   let bytes = 0;
   for (let index = 0; index < value.length; index += 1) {
@@ -41817,23 +41866,21 @@ function utf8ByteLength(value) {
   }
   return bytes;
 }
-var CallFlowSourceExcerptSchema = external_exports.object({
+var CallFlowSourcePublicResultSchema = external_exports.object({
   schema: external_exports.literal(CALLFLOW_SOURCE_SCHEMA),
   evidenceId: IdentifierSchema,
   path: RepositoryRelativePathSchema,
   startLine: external_exports.number().int().positive().max(1e7),
   endLine: external_exports.number().int().positive().max(1e7),
-  content: external_exports.string().max(MAX_SOURCE_EXCERPT_BYTES),
   truncated: external_exports.boolean(),
   remainingByteBudget: external_exports.number().int().nonnegative().max(8 * 1024 * 1024)
-}).strict().superRefine((value, context) => {
-  if (value.endLine < value.startLine) {
-    context.addIssue({
-      code: "custom",
-      message: "endLine must not precede startLine.",
-      path: ["endLine"]
-    });
-  }
+}).strict().refine((value) => value.endLine >= value.startLine, {
+  message: "endLine must not precede startLine.",
+  path: ["endLine"]
+});
+var CallFlowSourceExcerptSchema = CallFlowSourcePublicResultSchema.safeExtend({
+  content: external_exports.string().max(MAX_SOURCE_EXCERPT_BYTES)
+}).superRefine((value, context) => {
   if (utf8ByteLength(value.content) > MAX_SOURCE_EXCERPT_BYTES) {
     context.addIssue({
       code: "custom",
@@ -42155,7 +42202,7 @@ function sanitizePublicText(value) {
   const sanitized = value.replace(CONTROL_CHARACTER_PATTERN, " ").trim();
   return sanitized.length === 0 ? "[redacted-empty-text]" : sanitized;
 }
-function sanitizedIdentity(identity) {
+function sanitizeRepositoryIdentity(identity) {
   return looksLocal(identity) || looksCredentialBearing(identity) ? `repository:sha256:${sha256Hex(identity)}` : sanitizePublicText(identity);
 }
 function sanitizeAttributes(attributes) {
@@ -42221,7 +42268,7 @@ function sanitizeGraphSnapshot(snapshotValue) {
     ...snapshot,
     repository: {
       ...snapshot.repository,
-      identity: sanitizedIdentity(snapshot.repository.identity),
+      identity: sanitizeRepositoryIdentity(snapshot.repository.identity),
       commit: sanitizePublicText(snapshot.repository.commit)
     },
     adapter: {
@@ -43533,6 +43580,8 @@ var MAX_GRAFT_JSON_BYTES = 8 * 1024 * 1024;
 var MAX_GRAFT_INDEX_BYTES = 64 * 1024 * 1024;
 var GRAFT_INDEX_CHUNK_BYTES = 64 * 1024;
 var GRAFT_INDEX_RELATIVE_PATH = "graft/.graph/wiring.json";
+var MAX_MANIFEST_CURATED_RELATIONSHIPS = 512;
+var MAX_GRAFT_RELATIONSHIPS = MAX_GRAPH_EDGES - MAX_MANIFEST_CURATED_RELATIONSHIPS;
 var GraftFreshnessSectionSchema = external_exports.object({
   ok: external_exports.boolean(),
   missing: external_exports.boolean().optional(),
@@ -43749,8 +43798,8 @@ function matchesCompiledExclusion(repositoryPath, exclusions) {
       return repositoryPath === exclusion.value || repositoryPath.startsWith(`${exclusion.value}/`);
     }
     const slash = repositoryPath.lastIndexOf("/");
-    const basename6 = slash < 0 ? repositoryPath : repositoryPath.slice(slash + 1);
-    return basename6.endsWith(exclusion.value);
+    const basename5 = slash < 0 ? repositoryPath : repositoryPath.slice(slash + 1);
+    return basename5.endsWith(exclusion.value);
   });
 }
 function isExcludedRepositoryPath(repositoryPath, patterns) {
@@ -44086,13 +44135,45 @@ var GraftAdapter = class {
       detail: fresh ? "Graft 0.18.x is available and its graph index is fresh." : indexRevision === void 0 ? "Graft is available, but its structural graph index is missing." : "Graft is available, but its graph index is stale."
     };
   }
+  async #revalidateRepositoryRevision(repository, signal) {
+    const current = await this.#repositoryPolicy.resolveRepository(repository.root, signal);
+    if (current.root !== repository.root || current.revision.identity !== repository.revision.identity || current.revision.commit !== repository.revision.commit || current.revision.dirtyDigest !== repository.revision.dirtyDigest) {
+      throw new CallFlowError(
+        "source_changed",
+        "The repository changed while CallFlow was discovering the workflow.",
+        true
+      );
+    }
+    return current;
+  }
+  async #revalidateGraftIndexRevision(repository, expectedRevision, signal) {
+    if (!/^sha256:[a-f0-9]{64}$/.test(expectedRevision)) return;
+    const currentRevision = await fingerprintGraftIndex(repository, signal);
+    if (currentRevision !== expectedRevision) {
+      throw new CallFlowError(
+        "adapter_stale",
+        "The Graft index changed while CallFlow was discovering the workflow.",
+        true
+      );
+    }
+  }
   async discoverDraft(repository, options) {
     const exclusionPatterns = options.exclusions ?? [];
     const exclusions = compileExclusions(exclusionPatterns);
     const isExcluded = (path) => matchesCompiledExclusion(path, exclusions);
     const status = await this.statusForRepository(repository, options.signal);
     if (status.state !== "ready") {
-      return await this.#discoverSourceLiterals(repository, status, options);
+      const draft = await this.#discoverSourceLiterals(repository, status, options);
+      const currentRepository2 = await this.#revalidateRepositoryRevision(
+        repository,
+        options.signal
+      );
+      await this.#revalidateGraftIndexRevision(
+        currentRepository2,
+        status.adapter.indexRevision,
+        options.signal
+      );
+      return draft;
     }
     const executable = this.#graftExecutable ?? await resolveExecutable(GRAFT_CANDIDATES);
     const symbols = /* @__PURE__ */ new Map();
@@ -44100,6 +44181,7 @@ var GraftAdapter = class {
     const stagesBySymbol = /* @__PURE__ */ new Map();
     const warnings = [];
     let nodeLimitReached = false;
+    let relationshipLimitReached = false;
     let queryFailed = false;
     const queue = [];
     for (const anchor of options.anchors) {
@@ -44112,7 +44194,7 @@ var GraftAdapter = class {
       });
     }
     const queried = /* @__PURE__ */ new Set();
-    while (queue.length > 0 && symbols.size < options.maximumNodes) {
+    while (queue.length > 0 && symbols.size < options.maximumNodes && !relationshipLimitReached) {
       const next = queue.shift();
       if (!next) break;
       const queryIdentity = `${next.expectedId ?? next.query}:${next.stageId ?? ""}:${String(next.remainingDepth)}`;
@@ -44196,6 +44278,10 @@ var GraftAdapter = class {
         const relationshipOccurrences = /* @__PURE__ */ new Map();
         for (const hit of orderedHits) {
           if (isExcluded(hit.path)) continue;
+          if (hit.relation === "calls" && hit.depth === 1 && calls.size >= MAX_GRAFT_RELATIONSHIPS) {
+            relationshipLimitReached = true;
+            break;
+          }
           if (symbols.size >= options.maximumNodes && !symbols.has(hit.id)) {
             nodeLimitReached = true;
             continue;
@@ -44228,6 +44314,7 @@ var GraftAdapter = class {
             }
           }
         }
+        if (relationshipLimitReached) break;
       }
     }
     if (queue.length > 0 && symbols.size >= options.maximumNodes) nodeLimitReached = true;
@@ -44346,6 +44433,19 @@ var GraftAdapter = class {
         retryable: false
       });
     }
+    if (relationshipLimitReached) {
+      warnings.push({
+        code: "edge-limit",
+        message: `Discovery was limited to ${String(MAX_GRAFT_RELATIONSHIPS)} Graft call relationships. Narrow the workflow anchors or depth to inspect omitted relationships.`,
+        retryable: false
+      });
+    }
+    const currentRepository = await this.#revalidateRepositoryRevision(repository, options.signal);
+    await this.#revalidateGraftIndexRevision(
+      currentRepository,
+      status.adapter.indexRevision,
+      options.signal
+    );
     return {
       repository: repository.revision,
       adapter: status.adapter,
@@ -44946,7 +45046,7 @@ var CallFlowService = class {
   }
 };
 function publicRepositoryIdentity(snapshot) {
-  return sanitizeExportBundle(snapshot).repository.identity;
+  return sanitizeRepositoryIdentity(snapshot.repository.identity);
 }
 
 // packages/mcp-server/src/assets.ts
@@ -56902,41 +57002,20 @@ var CallFlowSessionStore = class {
   }
   issuePayload(sessionId) {
     const session = this.#get(sessionId);
-    const token2 = this.#createToken();
-    if (token2.length < 32) {
-      throw new CallFlowError("invalid_output", "The capability token generator is invalid.");
-    }
-    const expiresAtMs = this.#now() + DEFAULT_CAPABILITY_TTL_MS;
-    session.capabilityDigest = tokenDigest(token2);
-    session.capabilityExpiresAt = expiresAtMs;
-    delete session.sourceGrant;
     return CallFlowUiPayloadSchema.parse({
       schema: "callflow/ui-payload-v1",
       sessionId: session.id,
-      capability: {
-        token: token2,
-        expiresAt: new Date(expiresAtMs).toISOString(),
-        repositoryRevision: session.snapshot.repository.commit,
-        graphRevision: session.snapshot.id,
-        sourceByteBudget: session.sourceByteBudget
-      },
+      capability: this.#rotateCapability(session),
       snapshot: session.snapshot
     });
   }
-  replaceSnapshot(sessionId, snapshot) {
+  issueCapability(sessionId) {
     const session = this.#get(sessionId);
-    if (snapshot.repository.identity !== session.snapshot.repository.identity || snapshot.workflowManifestId !== session.snapshot.workflowManifestId) {
-      throw new CallFlowError("invalid_output", "A refreshed graph changed session identity.");
-    }
-    const serializedBytes3 = Buffer.byteLength(JSON.stringify(snapshot), "utf8");
-    if (serializedBytes3 > MAX_INITIAL_GRAPH_BYTES) {
-      throw new CallFlowError("output_too_large", "The refreshed graph exceeds the session limit.");
-    }
-    this.#serializedBytes -= session.serializedBytes;
-    session.snapshot = snapshot;
-    session.serializedBytes = serializedBytes3;
-    this.#serializedBytes += serializedBytes3;
-    return this.issuePayload(sessionId);
+    return CallFlowCapabilityUpdateSchema.parse({
+      schema: "callflow/capability-update-v1",
+      sessionId: session.id,
+      capability: this.#rotateCapability(session)
+    });
   }
   async source(request, signal) {
     if (!request.purpose.trim() || request.purpose.length > 256) {
@@ -57034,6 +57113,23 @@ var CallFlowSessionStore = class {
     this.#removeExpired(this.#now());
     return this.#sessions.size;
   }
+  #rotateCapability(session) {
+    const token2 = this.#createToken();
+    if (token2.length < 32) {
+      throw new CallFlowError("invalid_output", "The capability token generator is invalid.");
+    }
+    const expiresAtMs = this.#now() + DEFAULT_CAPABILITY_TTL_MS;
+    session.capabilityDigest = tokenDigest(token2);
+    session.capabilityExpiresAt = expiresAtMs;
+    delete session.sourceGrant;
+    return {
+      token: token2,
+      expiresAt: new Date(expiresAtMs).toISOString(),
+      repositoryRevision: session.snapshot.repository.commit,
+      graphRevision: session.snapshot.id,
+      sourceByteBudget: session.sourceByteBudget
+    };
+  }
   #get(sessionId) {
     const now = this.#now();
     const session = this.#sessions.get(sessionId);
@@ -57071,8 +57167,12 @@ var CallFlowSessionStore = class {
 
 // packages/callflow-flowzone/src/plugin.ts
 var VERSION_PATTERN = /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}$/;
-var MAX_PUBLIC_RESULT_BYTES = 1024 * 1024;
+var MAX_PUBLIC_RESULT_BYTES = 64 * 1024;
+var MAX_EXPORT_BYTES = 1024 * 1024;
 var MAX_PRIVATE_RESULT_BYTES = 8 * 1024 * 1024;
+var MAX_PUBLIC_QUERY_NODES = 30;
+var MAX_PUBLIC_QUERY_EDGES = 60;
+var MAX_PUBLIC_DIFF_ENTRIES = 64;
 var READ_ONLY_IDEMPOTENT2 = {
   readOnlyHint: true,
   destructiveHint: false,
@@ -57084,8 +57184,11 @@ var READ_ONLY_NON_IDEMPOTENT = {
   idempotentHint: false
 };
 var CALLFLOW_PLUGIN_ID = "callflow";
-var CALLFLOW_TEMPLATE_URI = "ui://flowzone/callflow/v1.html";
-var LEGACY_CALLFLOW_TEMPLATE_URIS = ["ui://callflow/workflow/v1.html"];
+var CALLFLOW_TEMPLATE_URI = "ui://flowzone/callflow/v2.html";
+var LEGACY_CALLFLOW_TEMPLATE_URIS = [
+  "ui://flowzone/callflow/v1.html",
+  "ui://callflow/workflow/v1.html"
+];
 var SessionIdSchema = external_exports.string().trim().min(1).max(160);
 var RevisionSchema3 = external_exports.string().trim().min(1).max(160);
 var DiscoverInputSchema = external_exports.object({
@@ -57105,7 +57208,9 @@ var AuthorizedInputFields = {
 var QueryInputSchema = external_exports.object({
   sessionId: SessionIdSchema,
   graphRevision: RevisionSchema3,
-  query: GraphQuerySchema
+  query: GraphQuerySchema.extend({
+    limit: external_exports.number().int().positive().max(MAX_PUBLIC_QUERY_NODES).default(MAX_PUBLIC_QUERY_NODES)
+  })
 }).strict();
 var ValidateInputSchema = external_exports.object({
   manifest: WorkflowManifestSchema.optional(),
@@ -57192,15 +57297,26 @@ var SnapshotSummarySchema = external_exports.object({
 }).strict();
 var QueryResultSchema = external_exports.object({
   schema: external_exports.literal("callflow/query-result-v1"),
-  nodeIds: external_exports.array(RevisionSchema3).max(250),
-  edgeIds: external_exports.array(RevisionSchema3).max(600),
   nodes: external_exports.array(
     external_exports.object({
       id: RevisionSchema3,
-      kind: external_exports.string().min(1).max(64),
-      level: external_exports.string().min(1).max(8)
+      kind: NodeKindSchema,
+      level: GraphLevelSchema,
+      label: external_exports.string().trim().min(1).max(240),
+      stageId: RevisionSchema3.optional(),
+      evidenceStates: external_exports.array(EvidenceStateSchema).max(EvidenceStateSchema.options.length)
     }).strict()
-  ).max(250),
+  ).max(MAX_PUBLIC_QUERY_NODES),
+  edges: external_exports.array(
+    external_exports.object({
+      id: RevisionSchema3,
+      source: RevisionSchema3,
+      target: RevisionSchema3,
+      kind: EdgeKindSchema,
+      assertion: EdgeAssertionSchema,
+      evidenceStates: external_exports.array(EvidenceStateSchema).max(EvidenceStateSchema.options.length)
+    }).strict()
+  ).max(MAX_PUBLIC_QUERY_EDGES),
   totalMatchedNodes: external_exports.number().int().nonnegative(),
   totalMatchedEdges: external_exports.number().int().nonnegative(),
   truncated: external_exports.boolean()
@@ -57223,68 +57339,21 @@ var DiffResultSchema = external_exports.object({
   }).strict(),
   entries: external_exports.array(
     external_exports.object({
-      entity: external_exports.string().min(1).max(32),
+      entity: DiffEntitySchema,
       id: RevisionSchema3,
-      status: external_exports.string().min(1).max(32),
+      status: DiffStatusSchema,
       reason: external_exports.string().min(1).max(512)
     }).strict()
-  ).max(2e3),
+  ).max(MAX_PUBLIC_DIFF_ENTRIES),
   truncated: external_exports.boolean()
 }).strict();
 var ExportResultSchema = external_exports.object({
-  schema: external_exports.literal("callflow/export-result-v1"),
+  schema: external_exports.literal("callflow/export-preflight-v1"),
   graphRevision: RevisionSchema3,
   format: ExportFormatSchema,
   contentDigest: external_exports.string().regex(/^sha256:[0-9a-f]{64}$/),
-  byteLength: external_exports.number().int().nonnegative().max(MAX_PUBLIC_RESULT_BYTES)
-}).strict();
-var ExportUiPayloadSchema = ExportResultSchema.omit({ schema: true }).extend({
-  schema: external_exports.literal("callflow/export-payload-v1"),
-  content: external_exports.string().max(MAX_PUBLIC_RESULT_BYTES)
-}).strict().superRefine((value, context) => {
-  if (import_node_buffer3.Buffer.byteLength(value.content, "utf8") !== value.byteLength) {
-    context.addIssue({
-      code: "custom",
-      message: "Export content byte length does not match its metadata.",
-      path: ["byteLength"]
-    });
-  }
-  if (sha256(value.content) !== value.contentDigest) {
-    context.addIssue({
-      code: "custom",
-      message: "Export content digest does not match its metadata.",
-      path: ["contentDigest"]
-    });
-  }
-});
-var NodeListResultSchema = external_exports.object({
-  nodeIds: external_exports.array(RevisionSchema3).max(250),
-  edgeIds: external_exports.array(RevisionSchema3).max(600).optional(),
-  truncated: external_exports.boolean().optional()
-}).strict();
-var SourcePublicResultSchema = external_exports.object({
-  schema: external_exports.literal("callflow/source-v1"),
-  evidenceId: RevisionSchema3,
-  path: RepositoryRelativePathSchema,
-  startLine: external_exports.number().int().positive().max(1e7),
-  endLine: external_exports.number().int().positive().max(1e7),
-  truncated: external_exports.boolean(),
-  remainingByteBudget: external_exports.number().int().nonnegative().max(8 * 1024 * 1024)
-}).strict().refine((value) => value.endLine >= value.startLine, {
-  message: "endLine must not precede startLine.",
-  path: ["endLine"]
-});
-var LayoutResultSchema = external_exports.object({
-  schema: external_exports.literal("callflow/layout-v1"),
-  graphRevision: RevisionSchema3,
-  engine: external_exports.enum(["elk", "deterministic-fallback"]),
-  positions: external_exports.array(
-    external_exports.object({
-      nodeId: RevisionSchema3,
-      x: external_exports.number(),
-      y: external_exports.number()
-    }).strict()
-  ).max(250)
+  byteLength: external_exports.number().int().nonnegative().max(MAX_EXPORT_BYTES),
+  delivery: external_exports.literal("cli-only")
 }).strict();
 var DescriptionResultSchema = external_exports.object({ description: external_exports.string().min(1).max(8192) }).strict();
 function serializedBytes2(value) {
@@ -57389,6 +57458,11 @@ function boundedUtf8(value, maximumBytes) {
 }
 function stableCompare(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
+}
+function publicEvidenceStates(evidenceIds, stateById) {
+  return [...new Set(evidenceIds.map((id) => stateById.get(id) ?? "unavailable"))].sort(
+    stableCompare
+  );
 }
 function layoutSnapshotForVisible(snapshotValue, visibleNodeIds, pinnedNodeIds = []) {
   const snapshot = GraphSnapshotSchema.parse(snapshotValue);
@@ -57509,7 +57583,7 @@ function createCallFlowPlugin(options = {}) {
         description: "Discover one bounded local entry-to-sink workflow without refreshing or building the Graft index. Returns only a summary and stable IDs to Codex; the full graph remains in private FlowZone UI metadata.",
         inputSchema: DiscoverInputSchema,
         outputSchema: SnapshotSummarySchema,
-        risk: { readOnly: true, destructive: false, openWorld: false, idempotent: true },
+        risk: { readOnly: true, destructive: false, openWorld: false, idempotent: false },
         ui: {
           view: "workflow",
           payloadSchema: CallFlowUiPayloadSchema
@@ -57552,7 +57626,7 @@ function createCallFlowPlugin(options = {}) {
       {
         id: "query",
         title: "Query CallFlow graph",
-        description: "Query a server-side discovery session by fixed text, type, evidence state, stage, or hop and return only bounded IDs and kinds.",
+        description: "Query a server-side discovery session by fixed text, type, evidence state, stage, or hop and return a bounded sanitized topology.",
         inputSchema: QueryInputSchema,
         outputSchema: QueryResultSchema,
         risk: { readOnly: true, destructive: false, openWorld: false, idempotent: true },
@@ -57563,20 +57637,33 @@ function createCallFlowPlugin(options = {}) {
               const input = QueryInputSchema.parse(rawInput);
               const session = sessions.getForModel(input.sessionId, input.graphRevision);
               const queried = service.query(session.snapshot, input.query);
+              const evidenceStateById = new Map(
+                session.snapshot.evidence.map((evidence) => [evidence.id, evidence.state])
+              );
+              const edges = queried.edges.slice(0, MAX_PUBLIC_QUERY_EDGES);
               return {
                 result: safeResult(
                   QueryResultSchema.parse({
                     schema: "callflow/query-result-v1",
-                    nodeIds: queried.nodes.map((node) => node.id),
-                    edgeIds: queried.edges.map((edge) => edge.id),
                     nodes: queried.nodes.map((node) => ({
                       id: node.id,
                       kind: node.kind,
-                      level: node.level
+                      level: node.level,
+                      label: sanitizePublicText(node.label),
+                      ...node.stageId === void 0 ? {} : { stageId: node.stageId },
+                      evidenceStates: publicEvidenceStates(node.evidenceIds, evidenceStateById)
+                    })),
+                    edges: edges.map((edge) => ({
+                      id: edge.id,
+                      source: edge.source,
+                      target: edge.target,
+                      kind: edge.kind,
+                      assertion: edge.assertion,
+                      evidenceStates: publicEvidenceStates(edge.evidenceIds, evidenceStateById)
                     })),
                     totalMatchedNodes: queried.totalMatchedNodes,
                     totalMatchedEdges: queried.totalMatchedEdges,
-                    truncated: queried.truncated
+                    truncated: queried.truncated || queried.edges.length > edges.length
                   })
                 )
               };
@@ -57630,20 +57717,23 @@ function createCallFlowPlugin(options = {}) {
               const base = sessions.getForModel(input.baseSessionId, input.baseGraphRevision);
               const target = input.targetSessionId ? sessions.getForModel(input.targetSessionId, input.targetGraphRevision ?? "") : void 0;
               const diff = service.diff(base.snapshot, target?.snapshot);
-              const maximumEntries = 2e3;
+              const priority = { broken: 0, changed: 1, unverified: 2, current: 3 };
+              const entries = [...diff.entries].sort(
+                (left, right) => priority[left.status] - priority[right.status] || stableCompare(left.id, right.id)
+              ).slice(0, MAX_PUBLIC_DIFF_ENTRIES);
               return {
                 result: safeResult(
                   DiffResultSchema.parse({
                     schema: "callflow/diff-summary-v1",
                     diffId: diff.id,
                     summary: diff.summary,
-                    entries: diff.entries.slice(0, maximumEntries).map((entry) => ({
+                    entries: entries.map((entry) => ({
                       entity: entry.entity,
                       id: entry.id,
                       status: entry.status,
                       reason: sanitizePublicText(entry.reason)
                     })),
-                    truncated: diff.entries.length > maximumEntries
+                    truncated: diff.entries.length > entries.length
                   })
                 )
               };
@@ -57658,14 +57748,10 @@ function createCallFlowPlugin(options = {}) {
       {
         id: "export",
         title: "Export CallFlow graph",
-        description: "Prepare a bounded sanitized export server-side. The model-visible result contains only its format, size, and digest; export content remains in private FlowZone metadata.",
+        description: "Preflight a bounded sanitized export and return its format, size, and digest. Materialize the body with the local CallFlow CLI.",
         inputSchema: ExportInputSchema,
         outputSchema: ExportResultSchema,
         risk: { readOnly: true, destructive: false, openWorld: false, idempotent: true },
-        ui: {
-          view: "export",
-          payloadSchema: ExportUiPayloadSchema
-        },
         executor: {
           kind: "module",
           async execute(rawInput) {
@@ -57674,7 +57760,7 @@ function createCallFlowPlugin(options = {}) {
               const session = sessions.getForModel(input.sessionId, input.graphRevision);
               const content = service.export(session.snapshot, input.format);
               const byteLength = import_node_buffer3.Buffer.byteLength(content, "utf8");
-              if (byteLength > MAX_PUBLIC_RESULT_BYTES) {
+              if (byteLength > MAX_EXPORT_BYTES) {
                 throw new CallFlowError(
                   "output_too_large",
                   "Narrow the workflow before exporting it."
@@ -57683,29 +57769,20 @@ function createCallFlowPlugin(options = {}) {
               const contentDigest = sha256(content);
               return {
                 result: ExportResultSchema.parse({
-                  schema: "callflow/export-result-v1",
+                  schema: "callflow/export-preflight-v1",
                   graphRevision: session.snapshot.id,
                   format: input.format,
                   contentDigest,
-                  byteLength
-                }),
-                uiPayload: safePrivateResult(
-                  ExportUiPayloadSchema.parse({
-                    schema: "callflow/export-payload-v1",
-                    graphRevision: session.snapshot.id,
-                    format: input.format,
-                    contentDigest,
-                    byteLength,
-                    content
-                  })
-                )
+                  byteLength,
+                  delivery: "cli-only"
+                })
               };
             });
           }
         },
         summarize(resultValue) {
           const result = ExportResultSchema.parse(resultValue);
-          return `CallFlow prepared a sanitized ${result.format} export server-side (${String(result.byteLength)} bytes, ${result.contentDigest}).`;
+          return `CallFlow preflighted a sanitized ${result.format} export (${String(result.byteLength)} bytes, ${result.contentDigest}); materialize it with the local CLI.`;
         }
       }
     ],
@@ -57715,7 +57792,7 @@ function createCallFlowPlugin(options = {}) {
         "Expand CallFlow node",
         "Reveal a bounded existing caller/callee neighborhood without mutating source or manifests.",
         ExpandInputSchema,
-        NodeListResultSchema,
+        CallFlowNodeListResultSchema,
         (rawInput) => {
           const input = ExpandInputSchema.parse(rawInput);
           const session = sessions.authorize(input);
@@ -57724,34 +57801,34 @@ function createCallFlowPlugin(options = {}) {
             maxDepth: input.depth,
             limit: input.limit
           });
-          const result = NodeListResultSchema.parse({
+          const result = CallFlowNodeListResultSchema.parse({
             nodeIds: traversal.nodeIds,
             edgeIds: traversal.edgeIds,
             truncated: traversal.truncated
           });
           return {
             structuredContent: result,
-            content: [],
-            _meta: { callflowGraph: safePrivateResult(sessions.issuePayload(session.id)) }
+            content: []
           };
-        },
-        READ_ONLY_NON_IDEMPOTENT
+        }
       ),
       appTool(
         "callflow_get_source",
         "Load CallFlow source evidence",
         "Load one explicitly selected, revision-bound source span into private app metadata.",
         SourceInputSchema,
-        SourcePublicResultSchema,
+        CallFlowSourcePublicResultSchema,
         async (rawInput, signal) => {
           const input = SourceInputSchema.parse(rawInput);
           const excerpt = await sessions.source(input, signal);
           const { content, ...publicExcerpt } = excerpt;
           return {
-            structuredContent: SourcePublicResultSchema.parse(publicExcerpt),
+            structuredContent: CallFlowSourcePublicResultSchema.parse(publicExcerpt),
             content: [],
             _meta: {
-              callflowGraph: safePrivateResult(sessions.issuePayload(input.sessionId)),
+              callflowCapability: safePrivateResult(
+                CallFlowCapabilityUpdateSchema.parse(sessions.issueCapability(input.sessionId))
+              ),
               callflowSource: safePrivateResult(
                 CallFlowSourceExcerptSchema.parse({ ...publicExcerpt, content })
               )
@@ -57765,13 +57842,13 @@ function createCallFlowPlugin(options = {}) {
         "Search CallFlow graph",
         "Search the current graph with a bounded fixed-text match.",
         SearchInputSchema,
-        NodeListResultSchema,
+        CallFlowNodeListResultSchema,
         (rawInput) => {
           const input = SearchInputSchema.parse(rawInput);
           const session = sessions.authorize(input);
           const result = service.query(session.snapshot, { text: input.query, limit: input.limit });
           return {
-            structuredContent: NodeListResultSchema.parse({
+            structuredContent: CallFlowNodeListResultSchema.parse({
               nodeIds: result.nodes.map((node) => node.id),
               truncated: result.truncated
             }),
@@ -57784,7 +57861,7 @@ function createCallFlowPlugin(options = {}) {
         "Find CallFlow path",
         "Find a bounded directed path through the current evidence graph.",
         PathInputSchema,
-        NodeListResultSchema,
+        CallFlowNodeListResultSchema,
         (rawInput) => {
           const input = PathInputSchema.parse(rawInput);
           const session = sessions.authorize(input);
@@ -57793,7 +57870,7 @@ function createCallFlowPlugin(options = {}) {
             maxDepth: input.maxDepth
           });
           return {
-            structuredContent: NodeListResultSchema.parse({
+            structuredContent: CallFlowNodeListResultSchema.parse({
               nodeIds: path?.nodeIds ?? [],
               edgeIds: path?.edgeIds ?? [],
               truncated: false
@@ -57807,7 +57884,7 @@ function createCallFlowPlugin(options = {}) {
         "Relayout CallFlow graph",
         "Compute deterministic server-side ELK positions for the current graph.",
         RelayoutInputSchema,
-        LayoutResultSchema,
+        CallFlowLayoutResultSchema,
         async (rawInput, signal) => {
           const input = RelayoutInputSchema.parse(rawInput);
           const session = sessions.authorize(input);
@@ -57816,14 +57893,14 @@ function createCallFlowPlugin(options = {}) {
             input.visibleNodeIds,
             input.pinnedNodeIds
           );
-          const layout = LayoutResultSchema.parse(await layoutGraph(layoutSnapshot, signal));
+          const layout = CallFlowLayoutResultSchema.parse(
+            await layoutGraph(layoutSnapshot, signal)
+          );
           return {
             structuredContent: layout,
-            content: [],
-            _meta: { callflowGraph: safePrivateResult(sessions.issuePayload(session.id)) }
+            content: []
           };
-        },
-        READ_ONLY_NON_IDEMPOTENT
+        }
       ),
       appTool(
         "callflow_describe_visible",

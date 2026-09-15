@@ -2,6 +2,7 @@ import "@xyflow/react/dist/style.css";
 import "./styles.css";
 
 import {
+  type CallFlowCapabilityUpdate,
   type CallFlowSourceExcerpt,
   type CallFlowUiPayload,
   type EvidenceRecord,
@@ -57,6 +58,7 @@ import {
   type GraphDirection,
 } from "./graph";
 import {
+  metadataCapabilityUpdate,
   metadataPayload,
   parseLayoutResult,
   parseNodeListResult,
@@ -967,6 +969,7 @@ function CallFlowApp({
       return false;
     }
     const expired = Date.parse(candidate.capability.expiresAt) <= Date.now();
+    currentPayload.current = candidate;
     setPayload(candidate);
     setConnectionError(undefined);
     setOperationError(
@@ -986,6 +989,27 @@ function CallFlowApp({
       initialNodeIds: overviewNodeIds,
       defaultOverlay: presentationOverlay(candidate.snapshot.presentation.defaultOverlay),
     });
+    return true;
+  }, []);
+
+  const acceptCapabilityUpdate = useCallback((candidate: CallFlowCapabilityUpdate) => {
+    const active = currentPayload.current;
+    if (
+      candidate.sessionId !== active?.sessionId ||
+      candidate.capability.graphRevision !== active.snapshot.id ||
+      candidate.capability.repositoryRevision !== active.snapshot.repository.commit
+    ) {
+      setOperationError("A capability for a different CallFlow session was rejected.");
+      return false;
+    }
+    const next = { ...active, capability: candidate.capability };
+    currentPayload.current = next;
+    setPayload(next);
+    setOperationError(
+      Date.parse(candidate.capability.expiresAt) <= Date.now()
+        ? "This CallFlow source capability has expired. Render the workflow again."
+        : undefined,
+    );
     return true;
   }, []);
 
@@ -1324,9 +1348,11 @@ function CallFlowApp({
       if (toolFailed(result)) throw new Error(`${humanize(name)} failed.`);
       const next = metadataPayload(result);
       if (next) acceptPayload(next);
+      const capabilityUpdate = metadataCapabilityUpdate(result);
+      if (capabilityUpdate) acceptCapabilityUpdate(capabilityUpdate);
       return result;
     },
-    [acceptPayload, app],
+    [acceptCapabilityUpdate, acceptPayload, app],
   );
 
   const withBusy = useCallback(async (label: string, operation: () => Promise<void>) => {

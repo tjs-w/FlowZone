@@ -1,3 +1,8 @@
-# Deterministic generated bundle; upstream Mermaid shader/template literals contain
+# Deterministic generated bundles; upstream Mermaid, ELK, and Zod template literals contain
 # significant trailing spaces, so do not apply source whitespace checks or line merges.
 web/dist/flowzone.js binary
+web/dist/callflow.js binary
+server/dist/callflow-layout-worker.cjs binary
+
+# Preserve approved third-party license bytes, including upstream terminal blank lines.
+licenses/callflow/*-LICENSE.txt whitespace=-blank-at-eof

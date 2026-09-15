@@ -60,10 +60,11 @@ FlowZone McpServer
        │      └── static plugin registry
        │              ├── dyna/*
        │              └── callflow/{discover,query,validate,diff,export}
-       ├── typed app-only component tools
-       ├── render_markdown_review → ui://flowzone/v5.html
-       ├── render_dyna_dashboard → ui://flowzone/dyna/v18.html
-       └── CallFlow resource       ui://flowzone/callflow/v1.html
+       ├── presentation-only tools
+       │      ├── render_markdown_review → ui://flowzone/v5.html
+       │      └── render_dyna_dashboard → ui://flowzone/dyna/v18.html
+       ├── typed app-only component helpers
+       └── CallFlow resource       ui://flowzone/callflow/v2.html
 ```
 
 FlowZone exposes one model-visible `flowzone` data router. Its compact direct-object schema enumerates registered plugin and action names while keeping `input` generic; the server then validates `input` against the selected action's strict schema and validates the plugin-owned output. Markdown Review and Dyna retain their established presentation tools for compatibility; CallFlow adds no model-facing tool and is reached only through `flowzone`. Typed helpers used by a UI stay separate and are forcibly registered with `_meta.ui.visibility: ["app"]`.

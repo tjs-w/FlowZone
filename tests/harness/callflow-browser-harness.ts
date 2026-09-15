@@ -305,7 +305,20 @@ function hostScript(payload: unknown = callFlowHarnessPayload): string {
             truncated: source.truncated,
             remainingByteBudget: source.remainingByteBudget
           },
-          _meta: { callflowSource: source }
+          _meta: {
+            callflowCapability: {
+              schema: "callflow/capability-update-v1",
+              sessionId: payload.sessionId,
+              capability: {
+                token: "callflow-e2e-rotated-token-123456789012",
+                expiresAt: "2099-01-01T00:00:00.000Z",
+                repositoryRevision: payload.snapshot.repository.commit,
+                graphRevision: payload.snapshot.id,
+                sourceByteBudget: source.remainingByteBudget
+              }
+            },
+            callflowSource: source
+          }
         };
       } else if (name === "callflow_search") {
         result = { content: [], structuredContent: { nodeIds: ["worker"] } };
@@ -314,8 +327,7 @@ function hostScript(payload: unknown = callFlowHarnessPayload): string {
       } else if (name === "callflow_expand") {
         result = {
           content: [],
-          structuredContent: { nodeIds: ["worker", "transaction", "retry"] },
-          _meta: { callflowGraph: payload }
+          structuredContent: { nodeIds: ["worker", "transaction", "retry"] }
         };
       } else if (name === "callflow_relayout") {
         const requested = Array.isArray(request.params?.arguments?.visibleNodeIds)
@@ -337,13 +349,12 @@ function hostScript(payload: unknown = callFlowHarnessPayload): string {
               x: fixed[nodeId]?.x ?? 70 + index * 15,
               y: fixed[nodeId]?.y ?? 90 + index * 22
             }))
-          },
-          _meta: { callflowGraph: payload }
+          }
         };
       } else if (name === "callflow_describe_visible") {
         result = { content: [], structuredContent: { description: "Explain the visible CallFlow fixture." } };
       } else {
-        result = { content: [], _meta: { callflowGraph: payload } };
+        result = { content: [] };
       }
     } else if (request.method === "ui/message") {
       state.messages.push(request.params);

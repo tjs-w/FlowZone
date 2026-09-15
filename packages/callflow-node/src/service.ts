@@ -1,4 +1,4 @@
-import { basename, dirname, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 import {
   GraphQuerySchema,
@@ -20,6 +20,7 @@ import {
   queryGraph,
   sanitizeGraphSnapshot,
   sanitizeExportBundle,
+  sanitizeRepositoryIdentity,
   stableId,
 } from "@callflow/core";
 
@@ -284,9 +285,5 @@ export class CallFlowService {
 }
 
 export function publicRepositoryIdentity(snapshot: GraphSnapshot): string {
-  return sanitizeExportBundle(snapshot).repository.identity;
-}
-
-export function snapshotFilename(manifestPath: string): string {
-  return basename(generatedSnapshotPath(manifestPath));
+  return sanitizeRepositoryIdentity(snapshot.repository.identity);
 }

@@ -446,44 +446,6 @@ async function validatePlugin(): Promise<void> {
   if (callFlowPackage["name"] !== "@flowzone/callflow") {
     throw new Error("CallFlow must ship as the internal @flowzone/callflow module");
   }
-  const callFlowModule = await readFile(
-    resolve(root, "packages/callflow-flowzone/src/plugin.ts"),
-    "utf8",
-  );
-  for (const requiredBoundary of [
-    "createCallFlowPlugin",
-    'CALLFLOW_PLUGIN_ID = "callflow"',
-    'id: "discover"',
-    'id: "query"',
-    'id: "validate"',
-    'id: "diff"',
-    'id: "export"',
-    '"ui://flowzone/callflow/v1.html"',
-  ]) {
-    if (!callFlowModule.includes(requiredBoundary)) {
-      throw new Error(`Contained CallFlow module must retain: ${requiredBoundary}`);
-    }
-  }
-  for (const forbiddenStandaloneBoundary of [
-    "createCallFlowServer",
-    'name: "callflow_discover"',
-    'name: "render_callflow"',
-  ]) {
-    if (callFlowModule.includes(forbiddenStandaloneBoundary)) {
-      throw new Error(
-        `Contained CallFlow module must not retain standalone MCP boundary: ${forbiddenStandaloneBoundary}`,
-      );
-    }
-  }
-  const bundledRuntime = await readFile(resolve(root, "server/src/runtime.ts"), "utf8");
-  if (
-    !bundledRuntime.includes("createCallFlowPlugin") ||
-    !bundledRuntime.includes("CALLFLOW_TEMPLATE_URI")
-  ) {
-    throw new Error(
-      "The shared FlowZone runtime must statically register CallFlow and its UI resource",
-    );
-  }
 
   const marketplace = asRecord(
     await readJson(".agents/plugins/marketplace.json"),

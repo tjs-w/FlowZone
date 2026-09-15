@@ -5,7 +5,7 @@ The CLI writes stable JSON to stdout and bounded diagnostics to stderr.
 ```text
 callflow adapter status --repo REPO
 callflow adapter build --repo REPO [--lsp]
-callflow workflow discover --repo REPO [--entry SYMBOL] [--sink SYMBOL]
+callflow workflow discover --repo REPO --entry SYMBOL [--entry SYMBOL ...] [--sink SYMBOL]
 callflow workflow create --repo REPO --manifest PATH
 callflow workflow validate --manifest PATH
 callflow workflow refresh --manifest PATH [--against REF] [--write]

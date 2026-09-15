@@ -339,7 +339,6 @@ export interface CallFlowVisibility {
   >;
 }
 
-export const INITIAL_VISIBLE_NODE_MIN = 10;
 export const INITIAL_VISIBLE_NODE_MAX = 30;
 export const MAX_REVEAL_PER_ACTION = 25;
 export const MAX_VISIBLE_NODES = 250;
@@ -379,11 +378,7 @@ export function initialCallFlowNodeIds(
   const prioritized = [...stages, ...anchors];
   const prioritizedIds = new Set(prioritized.map((node) => node.id));
   const remaining = nodes.filter((node) => !prioritizedIds.has(node.id)).sort(compareNodeIds);
-  const target = Math.min(
-    INITIAL_VISIBLE_NODE_MAX,
-    Math.max(INITIAL_VISIBLE_NODE_MIN, Math.min(nodes.length, INITIAL_VISIBLE_NODE_MAX)),
-  );
-  return [...prioritized, ...remaining].slice(0, target).map((node) => node.id);
+  return [...prioritized, ...remaining].slice(0, INITIAL_VISIBLE_NODE_MAX).map((node) => node.id);
 }
 
 export function computeCallFlowVisibility(

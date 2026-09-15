@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  CallFlowCapabilityUpdateSchema,
+  CallFlowLayoutResultSchema,
+  CallFlowNodeListResultSchema,
   CallFlowSourceExcerptSchema,
+  CallFlowSourcePublicResultSchema,
   CallFlowUiPayloadSchema,
   EdgeAssertionSchema,
   EdgeKindSchema,
@@ -155,6 +159,44 @@ describe("CallFlow versioned contracts", () => {
       status: "unavailable",
       reason: "Graft index is missing.",
     });
+  });
+
+  test("shares strict bounded helper contracts across server and browser", () => {
+    expect(
+      CallFlowCapabilityUpdateSchema.safeParse({
+        schema: "callflow/capability-update-v1",
+        sessionId: "session-1",
+        capability: {
+          token: "a".repeat(32),
+          expiresAt: "2099-01-01T00:00:00.000Z",
+          repositoryRevision: "commit-1",
+          graphRevision: "graph-1",
+          sourceByteBudget: 1_024,
+        },
+      }).success,
+    ).toBe(true);
+    expect(CallFlowNodeListResultSchema.safeParse({ nodeIds: ["node-1", "node-1"] }).success).toBe(
+      false,
+    );
+    expect(
+      CallFlowLayoutResultSchema.safeParse({
+        schema: "callflow/layout-v1",
+        graphRevision: "graph-1",
+        engine: "elk",
+        positions: [{ nodeId: "node-1", x: Number.POSITIVE_INFINITY, y: 0 }],
+      }).success,
+    ).toBe(false);
+    expect(
+      CallFlowSourcePublicResultSchema.safeParse({
+        schema: "callflow/source-v1",
+        evidenceId: "evidence-1",
+        path: "src/handler.ts",
+        startLine: 12,
+        endLine: 10,
+        truncated: false,
+        remainingByteBudget: 1_024,
+      }).success,
+    ).toBe(false);
   });
 
   test("validates strict manifests and repository-relative anchors", () => {

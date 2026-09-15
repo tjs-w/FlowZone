@@ -203,11 +203,11 @@ describe("CallFlow source capabilities", () => {
       purpose: "Explain the first selected evidence.",
       maxBytes: 512,
     });
-    const secondPayload = sessions.issuePayload(sessionId);
+    const capabilityUpdate = sessions.issueCapability(sessionId);
     const second = await sessions.source({
       sessionId,
-      capabilityToken: secondPayload.capability.token,
-      graphRevision: secondPayload.snapshot.id,
+      capabilityToken: capabilityUpdate.capability.token,
+      graphRevision: capabilityUpdate.capability.graphRevision,
       evidenceId: "fixture-evidence-2",
       purpose: "Explain the second selected evidence.",
       maxBytes: 512,
@@ -215,7 +215,16 @@ describe("CallFlow source capabilities", () => {
 
     expect(first.content).toBe("pha\nbra");
     expect(second.content).toBe("charlie");
-    expect(secondPayload.capability.token).not.toBe(firstPayload.capability.token);
+    expect(capabilityUpdate).toMatchObject({
+      schema: "callflow/capability-update-v1",
+      sessionId,
+      capability: {
+        repositoryRevision: revision.commit,
+        graphRevision: firstPayload.snapshot.id,
+      },
+    });
+    expect(capabilityUpdate).not.toHaveProperty("snapshot");
+    expect(capabilityUpdate.capability.token).not.toBe(firstPayload.capability.token);
     expect(second.remainingByteBudget).toBeLessThan(first.remainingByteBudget);
   });
 

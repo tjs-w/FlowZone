@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import {
   CallFlowError,
   GraftAdapter,
+  MAX_GRAFT_RELATIONSHIPS,
   RepositoryPolicy,
   fingerprintGraftIndex,
   isExcludedRepositoryPath,
@@ -22,6 +23,12 @@ import type { WorkflowAnchor } from "@callflow/contracts";
 const fixtureRoot = resolve(import.meta.dir, "../../../tests/fixtures/callflow/graft-0.18");
 let fixtureIndexRoot = "";
 let repository: RepositoryContext;
+
+class FixtureRepositoryPolicy extends RepositoryPolicy {
+  override resolveRepository(): Promise<RepositoryContext> {
+    return Promise.resolve(repository);
+  }
+}
 
 beforeAll(async () => {
   fixtureIndexRoot = await realpath(await mkdtemp(join(tmpdir(), "callflow-graft-index-")));
@@ -376,7 +383,7 @@ describe("Graft response and workflow boundaries", () => {
         stderr: "",
       });
     };
-    class SourcePolicy extends RepositoryPolicy {
+    class SourcePolicy extends FixtureRepositoryPolicy {
       override readSource(): Promise<Buffer> {
         return Promise.resolve(Buffer.from("package fixture\n"));
       }
@@ -476,7 +483,7 @@ describe("Graft response and workflow boundaries", () => {
         stderr: "",
       });
     };
-    class SourcePolicy extends RepositoryPolicy {
+    class SourcePolicy extends FixtureRepositoryPolicy {
       override readSource(): Promise<Buffer> {
         return Promise.resolve(Buffer.from("fixture\n"));
       }
@@ -546,7 +553,7 @@ describe("Graft response and workflow boundaries", () => {
         stderr: "",
       });
     };
-    class SourcePolicy extends RepositoryPolicy {
+    class SourcePolicy extends FixtureRepositoryPolicy {
       override readSource(): Promise<Buffer> {
         return Promise.resolve(Buffer.from("fixture\n"));
       }
@@ -614,7 +621,7 @@ describe("Graft response and workflow boundaries", () => {
         stderr: "",
       });
     };
-    class SourcePolicy extends RepositoryPolicy {
+    class SourcePolicy extends FixtureRepositoryPolicy {
       override readSource(): Promise<Buffer> {
         return Promise.resolve(Buffer.from("Entry\n"));
       }
@@ -678,7 +685,7 @@ describe("Graft response and workflow boundaries", () => {
         stderr: "",
       });
     };
-    class SourcePolicy extends RepositoryPolicy {
+    class SourcePolicy extends FixtureRepositoryPolicy {
       override readSource(): Promise<Buffer> {
         return Promise.resolve(Buffer.from("Entry\n"));
       }
@@ -742,7 +749,7 @@ describe("Graft response and workflow boundaries", () => {
         stderr: "",
       });
     };
-    class SourcePolicy extends RepositoryPolicy {
+    class SourcePolicy extends FixtureRepositoryPolicy {
       override readSource(): Promise<Buffer> {
         return Promise.resolve(Buffer.from("fixture\n"));
       }
@@ -782,6 +789,331 @@ describe("Graft response and workflow boundaries", () => {
     );
   });
 
+  test("bounds duplicate call relationships across Graft responses", async () => {
+    const check = await readFile(resolve(fixtureRoot, "check-clean.json"), "utf8");
+    const symbol = (id: string, name: string) => ({
+      id,
+      name,
+      kind: "function",
+      path: id.slice(0, id.indexOf("#")),
+      span: "L1",
+    });
+    const entry = symbol("src/entry.go#Entry", "Entry");
+    const childA = symbol("src/a.go#A", "A");
+    const childB = symbol("src/b.go#B", "B");
+    const entryHit = { ...entry, relation: "calls", depth: 1 };
+    const relationshipsAfterRoot = MAX_GRAFT_RELATIONSHIPS - 2;
+    const childAHits = relationshipsAfterRoot / 2;
+    const childBHits = childAHits + 1;
+    const callerQueries: string[] = [];
+    const runner: ProcessRunner = (request) => {
+      if (request.args[0] === "--version") {
+        return Promise.resolve({ exitCode: 0, stdout: "0.18.0", stderr: "" });
+      }
+      if (request.args[0] === "check") {
+        return Promise.resolve({ exitCode: 0, stdout: check, stderr: "" });
+      }
+      const query = request.args.at(-2) ?? "";
+      callerQueries.push(query);
+      if (query === "Entry") {
+        return Promise.resolve({
+          exitCode: 0,
+          stdout: JSON.stringify({
+            query,
+            matches: [
+              {
+                symbol: entry,
+                hits: [
+                  { ...childA, relation: "calls", depth: 1 },
+                  { ...childB, relation: "calls", depth: 1 },
+                ],
+              },
+            ],
+          }),
+          stderr: "",
+        });
+      }
+      const child = query === "A" ? childA : childB;
+      const hitCount = query === "A" ? childAHits : childBHits;
+      return Promise.resolve({
+        exitCode: 0,
+        stdout: JSON.stringify({
+          query,
+          matches: [{ symbol: child, hits: Array.from({ length: hitCount }, () => entryHit) }],
+        }),
+        stderr: "",
+      });
+    };
+    class SourcePolicy extends FixtureRepositoryPolicy {
+      override readSource(): Promise<Buffer> {
+        return Promise.resolve(Buffer.from("fixture\n"));
+      }
+    }
+    const adapter = new GraftAdapter({
+      graftExecutable: "/fixture/graft",
+      runner,
+      repositoryPolicy: new SourcePolicy({ runner }),
+    });
+
+    const draft = await adapter.discoverDraft(repository, {
+      anchors: [
+        {
+          id: "entry",
+          label: "Entry",
+          role: "entry",
+          nodeKind: "function",
+          selector: { type: "symbol", value: "Entry" },
+        },
+      ],
+      depth: 2,
+      maximumNodes: 4,
+    });
+
+    expect(callerQueries).toEqual(["Entry", "A", "B"]);
+    expect(draft.edges).toHaveLength(MAX_GRAFT_RELATIONSHIPS);
+    expect(draft.evidence).toHaveLength(MAX_GRAFT_RELATIONSHIPS + 3);
+    expect(draft.warnings).toContainEqual({
+      code: "edge-limit",
+      message: `Discovery was limited to ${String(MAX_GRAFT_RELATIONSHIPS)} Graft call relationships. Narrow the workflow anchors or depth to inspect omitted relationships.`,
+      retryable: false,
+    });
+  });
+
+  test("fails retryably when the Graft index changes during traversal", async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "callflow-graft-drift-")));
+    const indexPath = join(root, "graft/.graph/wiring.json");
+    try {
+      await mkdir(join(root, "graft/.graph"), { recursive: true });
+      await writeFile(indexPath, '{"meta":{"version":1},"nodes":[{"id":"before"}]}\n');
+      const context: RepositoryContext = {
+        root,
+        revision: {
+          identity: `local:${root}`,
+          commit: "fixture-commit",
+          dirtyDigest: `sha256:${"0".repeat(64)}`,
+        },
+      };
+      const check = await readFile(resolve(fixtureRoot, "check-clean.json"), "utf8");
+      let indexMutated = false;
+      const runner: ProcessRunner = async (request) => {
+        if (request.args[0] === "--version") {
+          return { exitCode: 0, stdout: "0.18.0", stderr: "" };
+        }
+        if (request.args[0] === "check") {
+          return { exitCode: 0, stdout: check, stderr: "" };
+        }
+        await writeFile(indexPath, '{"meta":{"version":1},"nodes":[{"id":"after"}]}\n');
+        indexMutated = true;
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            query: "Entry",
+            matches: [
+              {
+                symbol: {
+                  id: "src/entry.go#Entry",
+                  name: "Entry",
+                  kind: "function",
+                  path: "src/entry.go",
+                  span: "L1",
+                },
+                hits: [],
+              },
+            ],
+          }),
+          stderr: "",
+        };
+      };
+      class StablePolicy extends RepositoryPolicy {
+        override resolveRepository(): Promise<RepositoryContext> {
+          return Promise.resolve(context);
+        }
+
+        override readSource(): Promise<Buffer> {
+          return Promise.resolve(Buffer.from("fixture\n"));
+        }
+      }
+      const adapter = new GraftAdapter({
+        graftExecutable: "/fixture/graft",
+        runner,
+        repositoryPolicy: new StablePolicy({ runner }),
+      });
+
+      let failure: unknown;
+      try {
+        await adapter.discoverDraft(context, {
+          anchors: [
+            {
+              id: "entry",
+              label: "Entry",
+              role: "entry",
+              nodeKind: "function",
+              selector: { type: "symbol", value: "Entry" },
+            },
+          ],
+          depth: 1,
+          maximumNodes: 25,
+        });
+      } catch (error: unknown) {
+        failure = error;
+      }
+
+      expect(indexMutated).toBe(true);
+      expect(failure).toMatchObject({ code: "adapter_stale", retryable: true });
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  test("fails retryably when the reported Graft index changes during source-literal fallback", async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "callflow-fallback-drift-")));
+    const indexPath = join(root, "graft/.graph/wiring.json");
+    try {
+      await mkdir(join(root, "graft/.graph"), { recursive: true });
+      await writeFile(indexPath, '{"meta":{"version":1},"nodes":[{"id":"before"}]}\n');
+      const context: RepositoryContext = {
+        root,
+        revision: {
+          identity: `local:${root}`,
+          commit: "fixture-commit",
+          dirtyDigest: `sha256:${"0".repeat(64)}`,
+        },
+      };
+      const staleCheck = JSON.stringify({
+        context: { ok: false, missing: true },
+        graph: { ok: false, missing: false, added: [], removed: [], changed: [], stale: ["x"] },
+      });
+      const match = JSON.stringify({
+        type: "match",
+        data: {
+          path: { text: "src/entry.ts" },
+          lines: { text: "Entry\n" },
+          line_number: 1,
+          submatches: [{ start: 0, end: 5 }],
+        },
+      });
+      let indexMutated = false;
+      const runner: ProcessRunner = async (request) => {
+        if (request.executable === "/fixture/graft" && request.args[0] === "--version") {
+          return { exitCode: 0, stdout: "0.18.0", stderr: "" };
+        }
+        if (request.executable === "/fixture/graft") {
+          return { exitCode: 1, stdout: staleCheck, stderr: "stale" };
+        }
+        await writeFile(indexPath, '{"meta":{"version":1},"nodes":[{"id":"after"}]}\n');
+        indexMutated = true;
+        return { exitCode: 0, stdout: `${match}\n`, stderr: "" };
+      };
+      class StablePolicy extends RepositoryPolicy {
+        override resolveRepository(): Promise<RepositoryContext> {
+          return Promise.resolve(context);
+        }
+
+        override readSource(): Promise<Buffer> {
+          return Promise.resolve(Buffer.from("Entry\n"));
+        }
+      }
+      const adapter = new GraftAdapter({
+        graftExecutable: "/fixture/graft",
+        ripgrepExecutable: "/fixture/rg",
+        runner,
+        repositoryPolicy: new StablePolicy({ runner }),
+      });
+
+      let failure: unknown;
+      try {
+        await adapter.discoverDraft(context, {
+          anchors: [
+            {
+              id: "entry",
+              label: "Entry",
+              role: "entry",
+              nodeKind: "function",
+              selector: { type: "symbol", value: "Entry" },
+            },
+          ],
+          depth: 1,
+          maximumNodes: 25,
+        });
+      } catch (error: unknown) {
+        failure = error;
+      }
+
+      expect(indexMutated).toBe(true);
+      expect(failure).toMatchObject({ code: "adapter_stale", retryable: true });
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  test("fails retryably when the repository changes during source-literal fallback", async () => {
+    const staleCheck = JSON.stringify({
+      context: { ok: false, missing: true },
+      graph: { ok: false, missing: true, added: [], removed: [], changed: [], stale: [] },
+    });
+    const match = JSON.stringify({
+      type: "match",
+      data: {
+        path: { text: "src/entry.ts" },
+        lines: { text: "Entry\n" },
+        line_number: 1,
+        submatches: [{ start: 0, end: 5 }],
+      },
+    });
+    const runner: ProcessRunner = (request) => {
+      if (request.executable === "/fixture/graft" && request.args[0] === "--version") {
+        return Promise.resolve({ exitCode: 0, stdout: "0.18.0", stderr: "" });
+      }
+      if (request.executable === "/fixture/graft") {
+        return Promise.resolve({ exitCode: 1, stdout: staleCheck, stderr: "stale" });
+      }
+      return Promise.resolve({ exitCode: 0, stdout: `${match}\n`, stderr: "" });
+    };
+    const changedRepository: RepositoryContext = {
+      ...repository,
+      revision: {
+        ...repository.revision,
+        dirtyDigest: `sha256:${"1".repeat(64)}`,
+      },
+    };
+    class ChangingPolicy extends RepositoryPolicy {
+      override resolveRepository(): Promise<RepositoryContext> {
+        return Promise.resolve(changedRepository);
+      }
+
+      override readSource(): Promise<Buffer> {
+        return Promise.resolve(Buffer.from("Entry\n"));
+      }
+    }
+    const adapter = new GraftAdapter({
+      graftExecutable: "/fixture/graft",
+      ripgrepExecutable: "/fixture/rg",
+      runner,
+      repositoryPolicy: new ChangingPolicy({ runner }),
+    });
+
+    let failure: unknown;
+    try {
+      await adapter.discoverDraft(repository, {
+        anchors: [
+          {
+            id: "entry",
+            label: "Entry",
+            role: "entry",
+            nodeKind: "function",
+            selector: { type: "symbol", value: "Entry" },
+          },
+        ],
+        depth: 1,
+        maximumNodes: 25,
+      });
+    } catch (error: unknown) {
+      failure = error;
+    }
+
+    expect(failure).toMatchObject({ code: "source_changed", retryable: true });
+  });
+
   test("distinguishes failed Graft extraction from a healthy empty result", async () => {
     const check = await readFile(resolve(fixtureRoot, "check-clean.json"), "utf8");
     let callersFail = true;
@@ -798,7 +1130,11 @@ describe("Graft response and workflow boundaries", () => {
           : { exitCode: 0, stdout: JSON.stringify({ query: "Entry", matches: [] }), stderr: "" },
       );
     };
-    const adapter = new GraftAdapter({ graftExecutable: "/fixture/graft", runner });
+    const adapter = new GraftAdapter({
+      graftExecutable: "/fixture/graft",
+      runner,
+      repositoryPolicy: new FixtureRepositoryPolicy({ runner }),
+    });
     const options = {
       anchors: [
         {
@@ -856,7 +1192,7 @@ describe("Graft response and workflow boundaries", () => {
         stderr: "",
       });
     };
-    class CancellingSourcePolicy extends RepositoryPolicy {
+    class CancellingSourcePolicy extends FixtureRepositoryPolicy {
       override readSource(_root: string, _path: string, signal?: AbortSignal): Promise<Buffer> {
         expect(signal).toBe(controller.signal);
         controller.abort();

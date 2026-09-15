@@ -22,12 +22,12 @@ Read [evidence-policy.md](references/evidence-policy.md) before interpreting amb
 The shared router intentionally exposes a compact generic `input` object. Use only these exact CallFlow action inputs:
 
 - `discover`: `{repositoryPath, entries, sink?, name?, depth?, maximumNodes?}`. `entries` contains 1–16 qualified symbols, `depth` is 1–8, and `maximumNodes` is 1–250; omit `maximumNodes` to use the 30-node initial default.
-- `query`: `{sessionId, graphRevision, query}`. The strict `query` object may contain `text`, `nodeKinds`, `edgeKinds`, `evidenceStates`, `levels`, `stageIds`, `anchorNodeIds`, `direction` (`out`, `in`, or `both`), `maxDepth` (0–32), and `limit` (1–250).
+- `query`: `{sessionId, graphRevision, query}`. The strict `query` object may contain `text`, `nodeKinds`, `edgeKinds`, `evidenceStates`, `levels`, `stageIds`, `anchorNodeIds`, `direction` (`out`, `in`, or `both`), `maxDepth` (0–32), and `limit` (1–30). It returns sanitized labels and typed, evidence-backed edge topology, never qualified names, signatures, paths, or evidence bodies.
 - `validate`: exactly one of `{manifest}` or `{manifestPath}`.
 - `diff`: `{baseSessionId, baseGraphRevision, targetSessionId?, targetGraphRevision?}`. Supply both target fields or neither; omitting them yields an explicitly unverified comparison.
-- `export`: `{sessionId, graphRevision, format}` where `format` is `markdown`, `graph-json`, `bundle-json`, `mermaid`, `svg`, or `html`. The router returns bounded export metadata and keeps sanitized content in private client metadata; use the CLI when the user wants a file written locally.
+- `export`: `{sessionId, graphRevision, format}` where `format` is `markdown`, `graph-json`, `bundle-json`, `mermaid`, `svg`, or `html`. The router returns a bounded CLI-only preflight with format, size, and digest; use the CLI when the user wants the body or a file written locally.
 
-For an interactive view, use the registered `ui://flowzone/callflow/v1.html` resource when the host can present it. Otherwise use the explicit local `callflow ui open --manifest PATH` command. Never introduce or call a second model-visible CallFlow render tool.
+For an interactive view, use the registered `ui://flowzone/callflow/v2.html` resource when the host can present it. Otherwise use the explicit local `callflow ui open --manifest PATH` command. Never introduce or call a second model-visible CallFlow render tool.
 
 ## Boundaries
 

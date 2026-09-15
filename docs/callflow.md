@@ -33,7 +33,7 @@ The checked-in `bin/callflow` launcher is part of the FlowZone installation and 
 callflow adapter status --repo REPO
 callflow adapter build --repo REPO [--lsp]
 
-callflow workflow discover --repo REPO [--entry SYMBOL] [--sink SYMBOL]
+callflow workflow discover --repo REPO --entry SYMBOL [--entry SYMBOL ...] [--sink SYMBOL]
 callflow workflow create --repo REPO --manifest PATH
 callflow workflow validate --manifest PATH
 callflow workflow refresh --manifest PATH [--against REF] [--write]
@@ -65,11 +65,11 @@ The model uses the existing `flowzone` tool. CallFlow contributes the read-only 
 }
 ```
 
-Model-visible results contain bounded summaries and identifiers. Graft output and complete graphs remain in server-side session state; capability tokens and authorized source excerpts travel only through private component metadata. The router's `export` action returns format, size, and digest rather than the export body; a bounded sanitized body is available only in the private client envelope, and the CLI remains the path for an explicit local export file. This keeps CallFlow's graph size out of model context while preserving useful headless actions.
+Model-visible results contain bounded summaries and sanitized topology. A query returns at most 30 nodes and 60 edges with display labels, typed endpoints, assertions, and evidence states; it excludes qualified names, signatures, paths, and evidence bodies. Graft output and complete graphs remain in server-side session state; capability tokens and authorized source excerpts travel only through private component metadata. The router's `export` action is a CLI-only preflight: it returns the requested format, size, and digest, but never the export body. Use the CLI when an explicit local export file is required. This keeps CallFlow's graph size out of model and component transport while preserving useful headless actions.
 
 Interactive expansion, source loading, fixed-text search, path finding, relayout, and visible-graph description use capability-bound app-only helpers. FlowZone centrally marks them with `_meta.ui.visibility: ["app"]`; they are not model-facing alternatives to the router.
 
-The interactive resource is `ui://flowzone/callflow/v1.html`. It is registered by the one FlowZone MCP server with a closed network/resource/frame CSP and clipboard-only host permission. No separate `.app.json`, CallFlow plugin manifest, or CallFlow MCP registration is shipped.
+The interactive resource is `ui://flowzone/callflow/v2.html`; the server retains the previous FlowZone URI and original standalone URI as compatibility aliases. It is registered by the one FlowZone MCP server with a closed network/resource/frame CSP and clipboard-only host permission. No separate `.app.json`, CallFlow plugin manifest, or CallFlow MCP registration is shipped.
 
 MCP Apps binds an output template statically to a tool descriptor, so the shared multi-capability `flowzone` router cannot select CallFlow's separate resource dynamically. Routed discovery is therefore headless in current Codex hosts. A host that explicitly presents the registered resource can use the private helpers; otherwise `callflow ui open --manifest PATH` provides the local interactive view. CallFlow does not add a `render_callflow` model tool to work around this protocol constraint.
 

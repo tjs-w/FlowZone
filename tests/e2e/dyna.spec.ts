@@ -1280,12 +1280,14 @@ test("locks the dashboard behind sheets and narrow detail routes across responsi
 }, testInfo) => {
   await page.setViewportSize({ width: 1_280, height: 500 });
   await page.goto("/dyna?stress=1&inline-only=1");
-  expect(
-    await page.evaluate(
-      () =>
-        Math.max(document.documentElement.scrollHeight, document.body.scrollHeight) > innerHeight,
-    ),
-  ).toBe(true);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          Math.max(document.documentElement.scrollHeight, document.body.scrollHeight) > innerHeight,
+      ),
+    )
+    .toBe(true);
   const dashboardBefore = await page.locator(".dyna").boundingBox();
 
   await page.getByRole("button", { name: "Add to-do" }).click();

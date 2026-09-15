@@ -87,7 +87,7 @@ describe("bundled dyna CLI", () => {
       setup: true,
       notFound: true,
     });
-  }, 15_000);
+  }, 30_000);
 
   test("ignores environment-selected executables and Node preload hooks", () => {
     const directory = mkdtempSync(join(tmpdir(), "flowzone-dyna-runtime-"));

@@ -1,0 +1,21 @@
+{
+  "context": {
+    "ok": false,
+    "missing": true,
+    "contentDrift": [],
+    "removed": [],
+    "coverage": [],
+    "indexDrift": []
+  },
+  "graph": {
+    "ok": true,
+    "missing": false,
+    "added": [],
+    "removed": [],
+    "changed": [],
+    "stale": [],
+    "pending": 2,
+    "pendingIds": ["src/outbox.ts", "src/outbox.ts#processClaim"],
+    "nodes": 15
+  }
+}

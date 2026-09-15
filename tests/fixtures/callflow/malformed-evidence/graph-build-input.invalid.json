@@ -1,0 +1,37 @@
+{
+  "repository": {
+    "identity": "fixture:malformed-evidence",
+    "commit": "fixture-v1",
+    "dirtyDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "adapter": {
+    "name": "graft",
+    "version": "0.18.0",
+    "indexRevision": "fixture-index-v1"
+  },
+  "evidence": [
+    {
+      "key": "bad-evidence",
+      "kind": "graft-exact",
+      "state": "exact",
+      "revision": "fixture-v1",
+      "source": {
+        "type": "source-span",
+        "path": "../../outside.ts",
+        "start": { "line": 8, "column": 9 },
+        "end": { "line": 7, "column": 1 },
+        "symbol": "outside"
+      },
+      "contentDigest": "not-a-digest",
+      "producer": { "name": "graft", "version": "0.18.0" }
+    }
+  ],
+  "nodes": [],
+  "edges": [],
+  "warnings": [],
+  "extraction": { "status": "succeeded", "items": ["missing-evidence"] },
+  "runtimeEvidence": {
+    "status": "unavailable",
+    "reason": "Runtime evidence is disabled in CallFlow v1."
+  }
+}

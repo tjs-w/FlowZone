@@ -1,0 +1,21 @@
+{
+  "context": {
+    "ok": true,
+    "missing": false,
+    "contentDrift": [],
+    "removed": [],
+    "coverage": [],
+    "indexDrift": []
+  },
+  "graph": {
+    "ok": true,
+    "missing": false,
+    "added": [],
+    "removed": [],
+    "changed": [],
+    "stale": [],
+    "pending": 0,
+    "pendingIds": [],
+    "nodes": 15
+  }
+}

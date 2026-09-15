@@ -1,0 +1,36 @@
+{
+  "name": "callflow",
+  "version": "0.1.0+codex.20260915050746",
+  "description": "Explore deterministic, evidence-backed code workflow maps without exposing local source by default.",
+  "author": {
+    "name": "Tejas",
+    "url": "https://github.com/tjs-w"
+  },
+  "homepage": "https://github.com/tjs-w/FlowZone#callflow",
+  "repository": "https://github.com/tjs-w/FlowZone",
+  "keywords": [
+    "callflow",
+    "codex",
+    "code-navigation",
+    "mcp-app",
+    "workflow"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "CallFlow",
+    "shortDescription": "Evidence-backed workflow maps for local code.",
+    "longDescription": "Builds a bounded, deterministic map of one selected code workflow. CallFlow keeps source local by default, distinguishes exact, ambiguous, stale, failed, and unavailable evidence, and coordinates an accessible outline, hierarchical canvas, and evidence inspector.",
+    "developerName": "Tejas",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Read"
+    ],
+    "defaultPrompt": [
+      "Use $callflow:callflow to map the workflow from this entry point to its sink.",
+      "Use $callflow:callflow to explain this workflow with source-backed evidence."
+    ],
+    "brandColor": "#0F766E"
+  },
+  "mcpServers": "./.mcp.json"
+}

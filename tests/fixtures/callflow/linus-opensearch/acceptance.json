@@ -1,0 +1,38 @@
+{
+  "schema": "callflow/linus-acceptance-v1",
+  "repository": "git@cd.splunkdev.com:linus/linus-findings-service.git",
+  "commit": "cd2949c1e4a686359900a3f47e8dbd2e2b44b861",
+  "checkoutState": "clean",
+  "graftVersion": "0.18.0",
+  "requiredLabels": [
+    "enqueueOpenSearchOutboxTx",
+    "EnqueueOpenSearchOutboxTx",
+    "signalOpenSearch",
+    "Worker.Run",
+    "ProcessOneRecord",
+    "SelectAndClaimOneOpenSearchRecordTx",
+    "processClaim",
+    "project",
+    "ReadFindingForProjectionTx",
+    "ReadIncidentForProjectionTx",
+    "projectFinding",
+    "projectIncident",
+    "IndexFor",
+    "IndexDoc",
+    "DeleteDelivered",
+    "MarkRetrying",
+    "MarkDead"
+  ],
+  "requiredRelationship": {
+    "sourceAnchorId": "signal",
+    "targetAnchorId": "worker",
+    "kind": "async-handoff",
+    "assertion": "curated-workflow"
+  },
+  "forbiddenRelationship": {
+    "sourceAnchorId": "signal",
+    "targetAnchorId": "worker",
+    "kind": "direct-call"
+  },
+  "notes": "Pin a fresh clean checkout of this exact commit. Build its external Graft index explicitly; never use or mutate the user's dirty checkout as golden evidence."
+}

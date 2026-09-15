@@ -1,0 +1,15 @@
+{
+  "query": "bad",
+  "matches": [
+    {
+      "symbol": {
+        "id": "../../outside#bad",
+        "name": "bad",
+        "kind": "function",
+        "path": "../../outside.ts",
+        "span": "not-a-span"
+      },
+      "hits": "not-an-array"
+    }
+  ]
+}

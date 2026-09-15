@@ -18,6 +18,18 @@
       "interface": {
         "displayName": "FlowZone"
       }
+    },
+    {
+      "name": "callflow",
+      "source": {
+        "source": "local",
+        "path": "./plugins/callflow"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
     }
   ]
 }

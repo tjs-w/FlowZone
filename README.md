@@ -1,10 +1,20 @@
 # FlowZone
 
-FlowZone is a local-first MCP plugin host. It exposes one MCP server endpoint and statically composes independently registered plugins behind that connection. It bundles Markdown Review and Dyna, a persistent executive priority queue, progress pipeline, and durable archive for scheduled email, messaging, source-control, TWG, skill, and Codex signals.
+FlowZone is a local-first MCP plugin host and repository marketplace. Its primary plugin exposes one MCP server endpoint and bundles Markdown Review and Dyna. The same marketplace also ships CallFlow as a separate installable plugin for deterministic, evidence-backed code workflow maps.
 
 Installing FlowZone installs the shared `flowzone` MCP server and both qualified skills. Invoke them explicitly as `$flowzone:markdown-review` and `$flowzone:dyna`; Codex renders their display names as **FlowZone**, **Markdown Review**, and **Dyna**.
 
 > **Status:** early development. Dyna's vertical slice is implemented; physical iOS and Android Remote acceptance remains a release gate.
+
+## Separate plugin: CallFlow
+
+- Maps one selected entry-to-sink workflow rather than attempting a whole-repository diagram.
+- Uses external Graft `0.18.x` through its read-only drift check and bounded `--no-refresh` graph-reading commands, and reports stale, failed, ambiguous, and unavailable evidence explicitly.
+- Coordinates an accessible outline, hierarchical React Flow canvas, and evidence/source inspector while preserving selection, pins, viewport, filters, breadcrumbs, and history.
+- Keeps source local by default; model-visible output contains bounded summaries while full graphs and explicitly authorized source spans stay private to the component.
+- Provides the `$callflow:callflow` skill, a standalone Node CLI, six read-only MCP tools, and Markdown, JSON, Mermaid, SVG, and HTML exports.
+
+See [CallFlow workflow maps](./docs/callflow.md) for contracts, commands, privacy boundaries, and release gates.
 
 ## Bundled plugin: Dyna
 
@@ -109,7 +119,7 @@ Add this repository as a marketplace:
 codex plugin marketplace add tjs-w/FlowZone --ref main
 ```
 
-Restart the desktop app, open the Plugins Directory, select **FlowZone**, and install it. Start a new task after installation so the task receives the bundled plugin registrations.
+Restart the desktop app, open the Plugins Directory, and install **FlowZone**, **CallFlow**, or both. Start a new task after installation so the task receives the selected plugin registrations.
 
 To refresh an existing installation:
 
@@ -202,8 +212,14 @@ Review only files you intend to expose to the local FlowZone process. Submitted 
 | Path                               | Purpose                                                        |
 | ---------------------------------- | -------------------------------------------------------------- |
 | `.codex-plugin/plugin.json`        | FlowZone bundle identity and install-surface metadata          |
-| `.agents/plugins/marketplace.json` | Repository marketplace entry                                   |
+| `.agents/plugins/marketplace.json` | FlowZone and CallFlow marketplace entries                      |
 | `.mcp.json`                        | Bundled local MCP server configuration                         |
+| `plugins/callflow/`                | Separately installable CallFlow bundle and checked artifacts   |
+| `packages/callflow-contracts/`     | CallFlow schemas, evidence invariants, limits, and redaction   |
+| `packages/callflow-core/`          | Deterministic graph construction, query, diff, and export      |
+| `packages/callflow-node/`          | Secure Graft adapter, repository policy, layout, and CLI       |
+| `packages/callflow-mcp/`           | Dedicated stdio tools, private sessions, and UI resource       |
+| `packages/callflow-ui/`            | Controlled React Flow outline, canvas, and inspector           |
 | `skills/markdown-review/`          | Codex workflow and feedback-handling instructions              |
 | `skills/dyna/`                     | Schedule, publishing, dashboard, and Codex action workflow     |
 | `packages/dyna-contracts/`         | Dyna source, snapshot, action, and UI payload schemas          |

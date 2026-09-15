@@ -18,7 +18,7 @@ export default defineConfig({
     screenshot: "only-on-failure",
   },
   webServer: {
-    command: `${bunExecutable} scripts/build.ts && ${bunExecutable} tests/harness/browser-harness.ts --generated-fixture`,
+    command: `${bunExecutable} scripts/build.ts --callflow-only && ${bunExecutable} tests/harness/browser-harness.ts --generated-fixture`,
     url: `${browserOrigin}/health`,
     reuseExistingServer: !process.env["CI"],
     timeout: 30_000,
@@ -47,7 +47,7 @@ export default defineConfig({
     },
     {
       name: "mobile-webkit",
-      testMatch: /dyna\.spec\.ts/,
+      testMatch: /(?:dyna|callflow)\.spec\.ts/,
       use: {
         ...devices["iPhone 13"],
         extraHTTPHeaders: { "x-flowzone-e2e-project": "mobile-webkit" },

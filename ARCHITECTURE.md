@@ -1,5 +1,15 @@
 # FlowZone architecture
 
+The repository marketplace contains two independently installable plugins. The root FlowZone plugin retains its single-router architecture. `plugins/callflow` owns a separate stdio server, skill, CLI, resource identity, and bundle budget so workflow mapping cannot expand FlowZone's public router or nearly-full Dyna payload.
+
+```text
+Codex / MCP client
+        ├── flowzone stdio  → Markdown Review and Dyna
+        └── callflow stdio  → deterministic workflow graph + ui://callflow/workflow/v1.html
+```
+
+CallFlow's human manifest and generated snapshot are distinct versioned documents. Its Graft adapter is a fixed direct subprocess boundary, all MCP actions are read-only, app helpers are component-only, and source disclosure requires a revision-bound expiring capability. See [docs/callflow.md](./docs/callflow.md).
+
 FlowZone is one MCP server process with one selected transport, one model-visible data router, and dedicated model-visible presentation tools. A fixed startup registry dispatches actions to independently owned plugins. Markdown Review and the Dyna executive dashboard are bundled.
 
 ```text

@@ -169,6 +169,9 @@ export async function runFlowZoneBuildPipeline({
   await assertFlowZoneBudgets(root, outputRoot);
   return {
     bundles,
-    destinations: FLOWZONE_BUILD_OUTPUTS.map((output) => output.destination),
+    destinations: [
+      ...FLOWZONE_BUILD_OUTPUTS.map((output) => output.destination),
+      "web/dist/dyna.css",
+    ],
   };
 }

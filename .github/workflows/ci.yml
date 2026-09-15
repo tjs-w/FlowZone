@@ -11,7 +11,7 @@ permissions:
 jobs:
   quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - name: Check out repository
@@ -60,8 +60,9 @@ jobs:
         with:
           bun-version: 1.4.0
       - run: bun install --frozen-lockfile
-      - run: bun run build
-      - run: bun test tests/integration/stdio.test.ts
+      - run: bun run build:check
+      - run: bun run license:check
+      - run: bun test tests/integration/stdio.test.ts tests/integration/callflow-stdio.test.ts
 
   firefox-advisory:
     runs-on: ubuntu-latest

@@ -7,6 +7,8 @@ export default tseslint.config(
       "**/.build/**",
       "coverage/**",
       "playwright-report/**",
+      "server/dist/callflow*.cjs",
+      "web/dist/callflow.*",
       "server/dist/**",
       "test-results/**",
       "web/dist/**",
@@ -57,6 +59,7 @@ export default tseslint.config(
       "packages/core/src/**/*.ts",
       "packages/review-ui/src/**/*.ts",
       "packages/dyna-contracts/src/**/*.ts",
+      "packages/callflow-contracts/src/**/*.ts",
     ],
     rules: {
       "no-restricted-imports": [

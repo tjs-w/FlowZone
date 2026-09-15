@@ -9,6 +9,7 @@
   },
   "include": ["src/**/*.ts"],
   "references": [
+    { "path": "../packages/callflow-flowzone" },
     { "path": "../packages/dyna-node" },
     { "path": "../packages/markdown-node" },
     { "path": "../packages/mcp-server" }

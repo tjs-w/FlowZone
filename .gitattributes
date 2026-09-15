@@ -1,3 +1,8 @@
-# Deterministic generated bundle; upstream Mermaid shader/template literals contain
-# significant trailing spaces, so do not apply source whitespace checks or line merges.
-web/dist/flowzone.js binary
+# Deterministic generated shipping artifacts. Preserve their exact bytes across
+# platforms instead of allowing core.autocrlf to rewrite a Windows checkout.
+server/dist/** binary
+web/dist/** binary
+
+# Preserve approved third-party license bytes, including upstream terminal blank lines.
+licenses/callflow/** -text
+licenses/callflow/*-LICENSE.txt whitespace=-blank-at-eof

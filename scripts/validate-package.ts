@@ -1,4 +1,4 @@
-import { access, constants, readFile, stat } from "node:fs/promises";
+import { access, constants, lstat, readFile, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -15,6 +15,16 @@ function asRecord(value: unknown, label: string): UnknownRecord {
 
 async function readJson(path: string): Promise<unknown> {
   return JSON.parse(await readFile(resolve(root, path), "utf8")) as unknown;
+}
+
+async function assertMissing(path: string, message: string): Promise<void> {
+  try {
+    await lstat(resolve(root, path));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  throw new Error(message);
 }
 
 async function validateMarkdownReferences(
@@ -52,6 +62,12 @@ async function validateSkill(): Promise<void> {
       agentPath: "skills/dyna/agents/openai.yaml",
       name: "dyna",
       invocation: "$flowzone:dyna",
+    },
+    {
+      path: "skills/callflow/SKILL.md",
+      agentPath: "skills/callflow/agents/openai.yaml",
+      name: "callflow",
+      invocation: "$flowzone:callflow",
     },
   ] as const;
   for (const definition of skills) {
@@ -130,6 +146,21 @@ async function validateSkill(): Promise<void> {
       throw new Error(
         `Dyna skill must preserve native task-title synchronization: ${requiredTaskTitleBoundary}`,
       );
+    }
+  }
+  const callFlow = await readFile(resolve(root, "skills/callflow/SKILL.md"), "utf8");
+  for (const requiredBoundary of [
+    "`flowzone` router",
+    '"plugin":"callflow"',
+    '"action":"discover"',
+    "complete graph remains server-to-component data",
+    "Do not run `graft build` implicitly",
+    "Source stays local",
+    "AI may explain",
+    "Durable writes are CLI-only",
+  ]) {
+    if (!callFlow.includes(requiredBoundary)) {
+      throw new Error(`CallFlow skill must retain its evidence boundary: ${requiredBoundary}`);
     }
   }
   const taskUpdates = await readFile(
@@ -300,14 +331,20 @@ async function validatePlugin(): Promise<void> {
     ) ||
     !defaultPrompts.some((prompt) =>
       typeof prompt === "string" ? prompt.includes("$flowzone:dyna") : false,
+    ) ||
+    !defaultPrompts.some((prompt) =>
+      typeof prompt === "string" ? prompt.includes("$flowzone:callflow") : false,
     )
   ) {
-    throw new Error("Plugin starter prompts must expose both qualified FlowZone skills");
+    throw new Error("Plugin starter prompts must expose all qualified FlowZone skills");
   }
   const mcpManifest = asRecord(await readJson(".mcp.json"), "MCP manifest");
   const servers = asRecord(mcpManifest["mcpServers"], "mcpServers");
   if (Object.keys(servers).length !== 1) {
     throw new Error("FlowZone must expose exactly one MCP server endpoint");
+  }
+  if (JSON.stringify(mcpManifest).toLocaleLowerCase().includes("callflow")) {
+    throw new Error("The root FlowZone MCP registration must not register CallFlow");
   }
   const server = asRecord(servers["flowzone"], "flowzone MCP server");
   if (server["command"] !== "./bin/flowzone-mcp") {
@@ -320,6 +357,8 @@ async function validatePlugin(): Promise<void> {
   const launcherPath = resolve(root, "bin/flowzone-mcp");
   const publisherLauncherPath = resolve(root, "bin/flowzone-publish");
   const dynaLauncherPath = resolve(root, "bin/dyna");
+  const callFlowLauncherPath = resolve(root, "bin/callflow");
+  const callFlowWindowsLauncherPath = resolve(root, "bin/callflow.cmd");
   const launcher = await readFile(launcherPath, "utf8");
   if (!launcher.includes("server/dist/server.cjs")) {
     throw new Error("The MCP launcher must resolve the checked-in Node bundle");
@@ -335,6 +374,17 @@ async function validatePlugin(): Promise<void> {
     throw new Error("The Dyna launcher must resolve the checked-in CLI bundle");
   }
   await access(dynaLauncherPath, constants.X_OK);
+  const [callFlowLauncher, callFlowWindowsLauncher] = await Promise.all([
+    readFile(callFlowLauncherPath, "utf8"),
+    readFile(callFlowWindowsLauncherPath, "utf8"),
+  ]);
+  if (!callFlowLauncher.includes("server/dist/callflow.cjs")) {
+    throw new Error("The CallFlow CLI launcher must resolve its checked-in Node bundle");
+  }
+  if (!callFlowWindowsLauncher.includes("server\\dist\\callflow.cjs")) {
+    throw new Error("The CallFlow Windows CLI launcher must resolve its checked-in Node bundle");
+  }
+  await access(callFlowLauncherPath, constants.X_OK);
   if (!(await stat(launcherPath)).isFile()) {
     throw new Error("The MCP launcher must be a regular executable file");
   }
@@ -344,6 +394,9 @@ async function validatePlugin(): Promise<void> {
   if (!(await stat(dynaLauncherPath)).isFile()) {
     throw new Error("The Dyna launcher must be a regular executable file");
   }
+  if (!(await stat(callFlowLauncherPath)).isFile()) {
+    throw new Error("The CallFlow launcher must be a regular executable file");
+  }
   await Promise.all([
     access(launcherPath),
     access(publisherLauncherPath),
@@ -351,12 +404,78 @@ async function validatePlugin(): Promise<void> {
     access(resolve(root, "server/dist/server.cjs")),
     access(resolve(root, "server/dist/flowzone-publish.cjs")),
     access(resolve(root, "server/dist/dyna.cjs")),
+    access(callFlowLauncherPath),
+    access(callFlowWindowsLauncherPath),
+    access(resolve(root, "server/dist/callflow.cjs")),
+    access(resolve(root, "server/dist/callflow-layout-worker.cjs")),
     access(resolve(root, "web/flowzone.html")),
     access(resolve(root, "web/dist/flowzone.js")),
     access(resolve(root, "web/dyna.html")),
     access(resolve(root, "web/dist/dyna.js")),
     access(resolve(root, "web/dist/dyna.css")),
+    access(resolve(root, "web/callflow.html")),
+    access(resolve(root, "web/dist/callflow.js")),
+    access(resolve(root, "web/dist/callflow.css")),
+    access(resolve(root, "licenses/callflow/THIRD_PARTY_NOTICES.md")),
+    access(resolve(root, "licenses/callflow/sbom.json")),
   ]);
+
+  await Promise.all([
+    assertMissing(
+      "plugins/callflow",
+      "CallFlow must be contained by FlowZone, not shipped as a separate plugin directory",
+    ),
+    assertMissing(
+      "packages/callflow-mcp/package.json",
+      "CallFlow must be an internal FlowZone module, not a separate MCP package",
+    ),
+    assertMissing(
+      "bin/callflow-mcp",
+      "CallFlow must use the shared FlowZone MCP launcher, not a dedicated server launcher",
+    ),
+    assertMissing(
+      "bin/callflow-mcp.cmd",
+      "CallFlow must not ship a dedicated Windows MCP launcher",
+    ),
+  ]);
+
+  const callFlowPackage = asRecord(
+    await readJson("packages/callflow-flowzone/package.json"),
+    "contained CallFlow package",
+  );
+  if (callFlowPackage["name"] !== "@flowzone/callflow") {
+    throw new Error("CallFlow must ship as the internal @flowzone/callflow module");
+  }
+
+  const marketplace = asRecord(
+    await readJson(".agents/plugins/marketplace.json"),
+    "repository marketplace",
+  );
+  const entries = marketplace["plugins"];
+  if (!Array.isArray(entries)) throw new Error("Repository marketplace plugins must be an array");
+  if (entries.length !== 1) {
+    throw new Error("Repository marketplace must expose one FlowZone installation only");
+  }
+  const flowZoneEntries = entries.filter((entry) => {
+    return entry && typeof entry === "object" && !Array.isArray(entry)
+      ? (entry as UnknownRecord)["name"] === "flowzone"
+      : false;
+  });
+  if (flowZoneEntries.length !== 1) {
+    throw new Error("Repository marketplace must retain exactly one FlowZone entry");
+  }
+  const flowZoneMarketplace = asRecord(flowZoneEntries[0], "FlowZone marketplace entry");
+  const flowZoneSource = asRecord(flowZoneMarketplace["source"], "FlowZone marketplace source");
+  const flowZonePolicy = asRecord(flowZoneMarketplace["policy"], "FlowZone marketplace policy");
+  if (
+    flowZoneSource["source"] !== "local" ||
+    flowZoneSource["path"] !== "./" ||
+    flowZonePolicy["installation"] !== "AVAILABLE" ||
+    flowZonePolicy["authentication"] !== "ON_INSTALL" ||
+    flowZoneMarketplace["category"] !== "Productivity"
+  ) {
+    throw new Error("Repository marketplace must retain the FlowZone install policy");
+  }
 }
 
 const target = process.argv[2];

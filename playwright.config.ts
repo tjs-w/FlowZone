@@ -10,7 +10,8 @@ export default defineConfig({
   expect: { timeout: 8_000 },
   fullyParallel: false,
   forbidOnly: Boolean(process.env["CI"]),
-  retries: process.env["CI"] ? 1 : 0,
+  retries: 0,
+  ...(process.env["CI"] ? { workers: 1 } : {}),
   reporter: process.env["CI"] ? "github" : "line",
   use: {
     baseURL: browserOrigin,
@@ -47,7 +48,7 @@ export default defineConfig({
     },
     {
       name: "mobile-webkit",
-      testMatch: /dyna\.spec\.ts/,
+      testMatch: /(?:dyna|callflow)\.spec\.ts/,
       use: {
         ...devices["iPhone 13"],
         extraHTTPHeaders: { "x-flowzone-e2e-project": "mobile-webkit" },

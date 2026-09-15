@@ -1,0 +1,21 @@
+{
+  "context": {
+    "ok": false,
+    "missing": true,
+    "contentDrift": [],
+    "removed": [],
+    "coverage": [],
+    "indexDrift": []
+  },
+  "graph": {
+    "ok": true,
+    "missing": false,
+    "added": [],
+    "removed": [],
+    "changed": [],
+    "stale": [],
+    "pending": 6308,
+    "pendingIds": ["internal/opensearch/outbox.go", "internal/opensearch/outbox.go#processClaim"],
+    "nodes": 6308
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "schemaVersion": "callflow/workflow-manifest-v1",
+  "id": "generic-request-workflow",
+  "name": "Generic request processing",
+  "repository": {
+    "identity": "fixture:generic-workflow"
+  },
+  "anchors": [
+    {
+      "id": "entry-handle-request",
+      "label": "handleRequest",
+      "role": "entry",
+      "nodeKind": "function",
+      "selector": {
+        "type": "symbol",
+        "value": "handleRequest"
+      },
+      "stageId": "accept"
+    },
+    {
+      "id": "queue-work",
+      "label": "work queue",
+      "role": "queue",
+      "nodeKind": "queue",
+      "selector": {
+        "type": "symbol",
+        "value": "enqueueWork"
+      },
+      "stageId": "handoff"
+    },
+    {
+      "id": "sink-notify",
+      "label": "external notification",
+      "role": "sink",
+      "nodeKind": "external-system",
+      "selector": {
+        "type": "symbol",
+        "value": "notifyExternalSystem"
+      },
+      "stageId": "deliver"
+    }
+  ],
+  "stages": [
+    { "id": "accept", "label": "Accept", "order": 0 },
+    { "id": "handoff", "label": "Handoff", "order": 1 },
+    { "id": "deliver", "label": "Deliver", "order": 2 }
+  ],
+  "exclusions": [],
+  "acceptedSemanticLinks": [],
+  "presentation": {
+    "direction": "RIGHT",
+    "defaultOverlay": "none"
+  }
+}

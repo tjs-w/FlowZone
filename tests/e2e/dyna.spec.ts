@@ -34,6 +34,7 @@ async function openDetails(page: Page, title: string): Promise<void> {
   const inspector = page.locator(".dyna-inspector");
   const wide = (page.viewportSize()?.width ?? 0) >= 980;
   await expect(inspector.getByRole("heading", { name: title, level: 2 })).toBeVisible();
+  await expect(inspector).toHaveCSS("opacity", "1");
   await expect(inspector).toHaveAttribute("role", wide ? "region" : "dialog");
   await expect(
     page.getByRole("button", {
@@ -67,6 +68,14 @@ async function openFullDashboard(page: Page): Promise<void> {
     if (await expand.isVisible()) await expand.click();
   }
   await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "fullscreen");
+}
+
+async function awaitInitialDynaSnapshot(page: Page): Promise<void> {
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-dyna-snapshot-result-count",
+    /^[1-9]\d*$/u,
+  );
+  await expect(page.locator('[data-dyna-refresh="true"]:visible')).toBeEnabled();
 }
 
 async function inlineBriefLimit(page: Page): Promise<4 | 5> {
@@ -561,6 +570,7 @@ test("loads recent Codex sessions on demand and associates the exact selection",
   );
 
   await sessionSelect.selectOption(JSON.stringify(["remote-picker", "picker-waiting-task"]));
+  await page.bringToFront();
   await picker.getByRole("button", { name: "Link", exact: true }).click();
   const linkedTask = codexWork
     .locator(".dyna-task")
@@ -1270,12 +1280,14 @@ test("locks the dashboard behind sheets and narrow detail routes across responsi
 }, testInfo) => {
   await page.setViewportSize({ width: 1_280, height: 500 });
   await page.goto("/dyna?stress=1&inline-only=1");
-  expect(
-    await page.evaluate(
-      () =>
-        Math.max(document.documentElement.scrollHeight, document.body.scrollHeight) > innerHeight,
-    ),
-  ).toBe(true);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          Math.max(document.documentElement.scrollHeight, document.body.scrollHeight) > innerHeight,
+      ),
+    )
+    .toBe(true);
   const dashboardBefore = await page.locator(".dyna").boundingBox();
 
   await page.getByRole("button", { name: "Add to-do" }).click();
@@ -3037,6 +3049,7 @@ test("keeps mixed-task completion reports in Needs You when another task fails o
   await page.goto("/dyna?work-activity=1");
   await openFullDashboard(page);
   await page.getByRole("tab", { name: "Progress pipeline" }).click();
+  await awaitInitialDynaSnapshot(page);
 
   const title = "Additional priority 3";
   const stage = (value: string) =>
@@ -3828,11 +3841,12 @@ test("refreshes the latest authoritative backend state on demand", async ({ page
 
 test("keeps cached content usable while linked Codex tasks synchronize", async ({ page }) => {
   await page.goto(
-    "/dyna?pipeline=1&inline-only=1&task-sync-controller=updated&task-sync-delay-ms=300",
+    "/dyna?pipeline=1&inline-only=1&task-sync-controller=updated&task-sync-delay-ms=1000",
   );
   const refresh = page.locator('[data-dyna-refresh="true"]:visible');
   const visibleTitle = page.getByText("Review the release merge request", { exact: true });
   await expect(visibleTitle).toBeVisible();
+  await awaitInitialDynaSnapshot(page);
   const snapshotsBefore = Number(
     (await page.locator("html").getAttribute("data-dyna-snapshot-result-count")) ?? "0",
   );
@@ -3947,6 +3961,7 @@ test("keeps cached content usable while linked Codex tasks synchronize", async (
 
 test("joins repeated dashboard refreshes without another controller message", async ({ page }) => {
   await page.goto("/dyna?pipeline=1&inline-only=1");
+  await awaitInitialDynaSnapshot(page);
   const refresh = page.locator('[data-dyna-refresh="true"]:visible');
   await refresh.click();
   await expect(page.getByRole("status").filter({ hasText: /^Syncing \d+\/\d+$/u })).toBeVisible();
@@ -4088,6 +4103,7 @@ test("reports partial linked-task synchronization without replacing cached conte
   await page.goto("/dyna?pipeline=1&inline-only=1&task-sync-controller=partial");
   const title = page.getByText("Review the release merge request", { exact: true });
   await expect(title).toBeVisible();
+  await awaitInitialDynaSnapshot(page);
   await page.locator('[data-dyna-refresh="true"]:visible').click();
   const status = page
     .getByRole("status")
@@ -4103,6 +4119,7 @@ test("reports partial linked-task synchronization without replacing cached conte
 
 test("reports native success without an outcome as incomplete metadata", async ({ page }) => {
   await page.goto("/dyna?pipeline=1&inline-only=1&task-sync-controller=missing-outcome");
+  await awaitInitialDynaSnapshot(page);
   await page.locator('[data-dyna-refresh="true"]:visible').click();
   const status = page.getByRole("status").filter({ hasText: "Partial · 1 missing outcome" });
   await expect(status).toBeVisible({ timeout: 5_000 });
@@ -4119,6 +4136,7 @@ test("refreshes cached data honestly when task-message capability is unavailable
   await page.goto("/dyna?pipeline=1&inline-only=1&no-text-message=1");
   const title = page.getByText("Review the release merge request", { exact: true });
   await expect(title).toBeVisible();
+  await awaitInitialDynaSnapshot(page);
   await page.locator('[data-dyna-refresh="true"]:visible').click();
   await expect(page.getByRole("status").filter({ hasText: "Sync unavailable" })).toBeVisible();
   await expect(title).toBeVisible();

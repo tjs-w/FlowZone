@@ -15,6 +15,7 @@ export const LEGACY_MARKDOWN_REVIEW_TEMPLATE_URI = "ui://markdown-review/v30.htm
 const FLOWZONE_BUNDLE_MARKER = "<!-- FLOWZONE_APP -->";
 const LEGACY_BUNDLE_MARKER = "<!-- MARKDOWN_REVIEW_APP -->";
 const DYNA_BUNDLE_MARKER = "<!-- DYNA_APP -->";
+const CALLFLOW_BUNDLE_MARKER = "<!-- CALLFLOW_APP -->";
 
 const UI_METADATA = {
   prefersBorder: true,
@@ -44,7 +45,9 @@ function configureHtml(
       ? LEGACY_BUNDLE_MARKER
       : template.includes(DYNA_BUNDLE_MARKER)
         ? DYNA_BUNDLE_MARKER
-        : undefined;
+        : template.includes(CALLFLOW_BUNDLE_MARKER)
+          ? CALLFLOW_BUNDLE_MARKER
+          : undefined;
   if (!marker) throw new Error("The FlowZone template is missing its application bundle marker.");
   const styledTemplate = stylesheet
     ? template.replace(

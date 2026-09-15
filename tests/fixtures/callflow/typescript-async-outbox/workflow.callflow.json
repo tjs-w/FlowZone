@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "callflow/workflow-manifest-v1",
+  "id": "typescript-async-outbox",
+  "name": "Transactional OpenSearch outbox",
+  "repository": {
+    "identity": "fixture:typescript-async-outbox"
+  },
+  "anchors": [
+    {
+      "id": "enqueue-entry",
+      "label": "enqueueOpenSearchOutboxTx",
+      "role": "entry",
+      "nodeKind": "function",
+      "selector": {
+        "type": "symbol",
+        "value": "enqueueOpenSearchOutboxTx"
+      },
+      "stageId": "write"
+    },
+    {
+      "id": "outbox-queue",
+      "label": "OpenSearch outbox",
+      "role": "queue",
+      "nodeKind": "queue",
+      "selector": {
+        "type": "symbol",
+        "value": "Enqueue"
+      },
+      "stageId": "handoff"
+    },
+    {
+      "id": "signal",
+      "label": "signalOpenSearch",
+      "role": "route",
+      "nodeKind": "function",
+      "selector": {
+        "type": "symbol",
+        "value": "signalOpenSearch"
+      },
+      "stageId": "handoff"
+    },
+    {
+      "id": "worker",
+      "label": "Worker.Run",
+      "role": "route",
+      "nodeKind": "function",
+      "selector": {
+        "type": "symbol",
+        "value": "Worker.Run"
+      },
+      "stageId": "claim"
+    },
+    {
+      "id": "index-sink",
+      "label": "IndexDoc",
+      "role": "sink",
+      "nodeKind": "external-system",
+      "selector": {
+        "type": "symbol",
+        "value": "IndexDoc"
+      },
+      "stageId": "project"
+    }
+  ],
+  "stages": [
+    { "id": "write", "label": "Transactional write", "order": 0 },
+    { "id": "handoff", "label": "Async handoff", "order": 1 },
+    { "id": "claim", "label": "Claim", "order": 2 },
+    { "id": "project", "label": "Project", "order": 3 },
+    { "id": "settle", "label": "Settle", "order": 4 }
+  ],
+  "exclusions": [],
+  "acceptedSemanticLinks": [
+    {
+      "sourceAnchorId": "outbox-queue",
+      "targetAnchorId": "index-sink",
+      "kind": "semantic-link",
+      "label": "eventually projected",
+      "rationale": "The outbox is consumed asynchronously before the projection is indexed."
+    }
+  ],
+  "acceptedRelationships": [
+    {
+      "sourceAnchorId": "signal",
+      "targetAnchorId": "worker",
+      "kind": "async-handoff",
+      "label": "wakes worker",
+      "rationale": "The signal wakes the independently scheduled worker and is not a direct call to Worker.Run."
+    }
+  ],
+  "presentation": {
+    "direction": "RIGHT",
+    "defaultOverlay": "retry"
+  }
+}

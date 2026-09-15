@@ -1,0 +1,38 @@
+{
+  "query": "enqueueOpenSearchOutboxTx",
+  "matches": [
+    {
+      "symbol": {
+        "id": "src/outbox.ts#enqueueOpenSearchOutboxTx",
+        "name": "enqueueOpenSearchOutboxTx",
+        "kind": "function",
+        "path": "src/outbox.ts",
+        "span": "L6-L9"
+      },
+      "hits": [
+        {
+          "id": "src/outbox.ts#Enqueue",
+          "relation": "calls",
+          "depth": 1,
+          "name": "Enqueue",
+          "kind": "function",
+          "path": "src/outbox.ts",
+          "span": "L15-L17"
+        },
+        {
+          "id": "src/outbox.ts#signalOpenSearch",
+          "relation": "calls",
+          "depth": 1,
+          "name": "signalOpenSearch",
+          "kind": "function",
+          "path": "src/outbox.ts",
+          "span": "L19-L21"
+        }
+      ]
+    }
+  ],
+  "saved": {
+    "files": 1,
+    "baselineChars": 2048
+  }
+}

@@ -26,6 +26,7 @@ const MAX_VERSION_LENGTH = 64;
 const MAX_TITLE_LENGTH = 128;
 const MAX_DESCRIPTION_BYTES = 8 * 1024;
 const MAX_SCHEMA_BYTES = 256 * 1024;
+const MAX_ROUTER_INPUT_SCHEMA_BYTES = 8 * 1024;
 
 export interface RegisteredFlowZoneAction {
   readonly plugin: FlowZonePlugin;
@@ -115,15 +116,6 @@ function assertSdkOutputSchema(schema: z.ZodType, label: string): void {
   if ((json as Readonly<Record<string, unknown>>)["type"] !== "object") {
     throw new Error(`${label} must be a direct object schema for MCP output validation.`);
   }
-}
-
-function unionOrSingle(schemas: readonly z.ZodType[]): z.ZodType {
-  const first = schemas[0];
-  if (!first) {
-    return z.object({ unavailable: z.never() }).strict();
-  }
-  if (schemas.length === 1) return first;
-  return z.union(schemas as [z.ZodType, z.ZodType, ...z.ZodType[]]);
 }
 
 function routeKey(plugin: string, action: string): string {
@@ -321,23 +313,44 @@ export function createFlowZoneRegistry(plugins: readonly FlowZonePlugin[]): Flow
     throw new Error(`FlowZone supports at most ${String(MAX_FLOWZONE_ACTIONS)} actions.`);
   }
 
-  const inputSchema = unionOrSingle(
-    routerActions.map(({ plugin, action }) =>
-      z
-        .object({
-          plugin: z.literal(plugin.id),
-          action: z.literal(action.id),
-          input: action.inputSchema,
-        })
-        .strict(),
-    ),
-  );
+  const routeNames = routerActions.map(({ plugin, action }) => `${plugin.id}.${action.id}`);
+  const routerPluginIds = [...new Set(routerActions.map(({ plugin }) => plugin.id))];
+  const routerActionIds = [...new Set(routerActions.map(({ action }) => action.id))];
+  const enumOrNever = (values: readonly string[]): z.ZodType<string> => {
+    const [first, ...rest] = values;
+    return first === undefined ? z.never() : z.enum([first, ...rest]);
+  };
+  // MCP SDK tool schemas must have a direct object root. Advertising the
+  // action-specific union here is normalized to an empty object by the SDK,
+  // and repeating every action schema also defeats the router's context-saving
+  // purpose. Keep the public envelope compact; the router still performs the
+  // exact selected action's schema validation before execution.
+  const inputSchema = z
+    .object({
+      plugin: enumOrNever(routerPluginIds).describe("Registered FlowZone plugin identifier."),
+      action: enumOrNever(routerActionIds).describe(
+        `Registered FlowZone action identifier. Valid routes: ${routeNames.join(", ")}.`,
+      ),
+      input: z
+        .record(z.string(), z.unknown())
+        .describe("Arguments for the selected action; validated against its private schema."),
+    })
+    .strict();
   // The SDK currently validates output schemas through its object-schema path.
   // Keep the advertised envelope object-shaped and perform action-specific
   // result validation in the router before returning it.
   const outputSchema = FlowZoneResultBaseSchema;
   assertObjectSchema(inputSchema, "FlowZone router input");
   assertObjectSchema(outputSchema, "FlowZone router output");
+  const routerInputSchemaBytes = Buffer.byteLength(
+    JSON.stringify(z.toJSONSchema(inputSchema)),
+    "utf8",
+  );
+  if (routerInputSchemaBytes > MAX_ROUTER_INPUT_SCHEMA_BYTES) {
+    throw new Error(
+      `FlowZone router input schema exceeds its ${String(MAX_ROUTER_INPUT_SCHEMA_BYTES)} byte model-context limit.`,
+    );
+  }
 
   return Object.freeze({
     plugins: Object.freeze(registeredPlugins),

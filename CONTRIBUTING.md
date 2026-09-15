@@ -1,6 +1,6 @@
 # Contributing to FlowZone
 
-FlowZone contributions should preserve the single-server plugin boundary in [ARCHITECTURE.md](./ARCHITECTURE.md). Markdown Review contributions also preserve one core invariant: the `.md` or `.markdown` file is the only canonical document. The review component renders and annotates it but never writes an HTML mirror or edits the source directly.
+FlowZone contributions should preserve the plugin's single-server, single-router boundary in [ARCHITECTURE.md](./ARCHITECTURE.md). CallFlow is an internal FlowZone module: model actions must use the `flowzone` router, while its UI helpers remain app-only. Markdown Review contributions also preserve one core invariant: the `.md` or `.markdown` file is the only canonical document. The review component renders and annotates it but never writes an HTML mirror or edits the source directly.
 
 ## Development workflow
 
@@ -10,6 +10,7 @@ FlowZone contributions should preserve the single-server plugin boundary in [ARC
 4. Run `bun run verify`, then `bun run build` when checked-in artifacts changed.
 5. If UI behavior changed, run the browser harness and inspect keyboard, pointer, light-theme, and dark-theme behavior.
 6. Include updated `server/dist/server.cjs` and `web/dist/flowzone.js` output when their source changes.
+7. Include updated root `server/dist/callflow*.cjs` and `web/callflow.html` plus `web/dist/callflow.*` artifacts when CallFlow source changes.
 
 Keep reusable packages host-neutral: `review-ui` must not import Node, MCP, Codex, or Tauri APIs. Host-specific behavior belongs in an adapter behind the documented ports. New FlowZone plugins use the declarative contract and static composition root; they never receive the raw MCP server. Preserve the single model-visible router, register UI helpers app-only, and retain plugin ownership of schemas and domain trust boundaries. Validate data received across router, executor, host, persisted-state, document, and image boundaries before use.
 

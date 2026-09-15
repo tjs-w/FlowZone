@@ -51,15 +51,19 @@ flowzone_publish_run_node() {
   # POSIX shells may start asynchronous children with INT/QUIT ignored. Mark
   # every forwarded signal as caught in this subshell so exec resets it to the
   # normal disposition before Node installs its own bounded exit handlers.
+  # Capture stdin before backgrounding because dash otherwise replaces it with
+  # /dev/null for the asynchronous command.
+  exec 3<&0
   (
     trap 'exit 129' HUP
     trap 'exit 130' INT
     trap 'exit 131' QUIT
     trap 'exit 143' TERM
     trap 'exit 148' TSTP
-    exec "$FLOWZONE_PUBLISH_NODE" "$FLOWZONE_PUBLISHER_PATH" "$@"
-  ) <&0 &
+    exec "$FLOWZONE_PUBLISH_NODE" --disable-warning=ExperimentalWarning "$FLOWZONE_PUBLISHER_PATH" "$@"
+  ) <&3 3<&- &
   FLOWZONE_PUBLISH_CHILD_PID=$!
+  exec 3<&-
   if wait "$FLOWZONE_PUBLISH_CHILD_PID"; then
     FLOWZONE_PUBLISH_CHILD_STATUS=0
   else

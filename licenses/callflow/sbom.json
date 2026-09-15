@@ -1,0 +1,315 @@
+{
+  "schema": "callflow/dependency-sbom-v1",
+  "packages": [
+    {
+      "name": "@modelcontextprotocol/ext-apps",
+      "version": "1.7.5",
+      "declaredLicense": "MIT",
+      "selectedLicense": "Apache-2.0 AND MIT",
+      "licenseTextSha256": "0382b0057770ca05e9c350a50aa3b1c1fea84da0bc81d723bf00b9aa841be58a",
+      "licenseFile": "modelcontextprotocol--ext-apps-1.7.5-LICENSE.txt",
+      "bundledIn": [
+        "web/dist/callflow.js"
+      ]
+    },
+    {
+      "name": "@modelcontextprotocol/sdk",
+      "version": "1.30.0",
+      "declaredLicense": "MIT",
+      "selectedLicense": "MIT",
+      "licenseTextSha256": "5e13dbbc1d120fc2a03cecde7c91424ae2d7de11b63d58ded2f4431e261ee50d",
+      "licenseFile": "modelcontextprotocol--sdk-1.30.0-LICENSE.txt",
+      "bundledIn": [
+        "web/dist/callflow.js"
+      ]
+    },
+    {
+      "name": "@openai/apps-sdk-ui",
+      "version": "0.2.2",
+      "declaredLicense": "MIT",
+      "selectedLicense": "MIT",
+      "licenseTextSha256": "f26a46776c890b0d7b45d042cb8a78fdca9c4742a5c7fd97f0f53767411b1cc6",
+      "licenseFile": "openai--apps-sdk-ui-0.2.2-LICENSE.txt",
+      "bundledIn": [
+        "web/dist/callflow.js"
+      ]
+    },
+    {
+      "name": "@xyflow/react",
+      "version": "12.11.6",
+      "declaredLicense": "MIT",
+      "selectedLicense": "MIT",
+      "licenseTextSha256": "023119ac20fb1c8c9930abe0bcd196989a1960388529a96fc43cebf96f07c9ff",
+      "licenseFile": "xyflow--react-12.11.6-LICENSE.txt",
+      "bundledIn": [
+        "web/dist/callflow.js"
+      ]
+    },
+    {
+      "name": "@xyflow/system",
+      "version": "0.0.82",
+      "declaredLicense": "MIT",
+      "selectedLicense": "MIT",
+      "licenseTextSha256": "023119ac20fb1c8c9930abe0bcd196989a1960388529a96fc43cebf96f07c9ff",
+      "licenseFile": "xyflow--system-0.0.82-LICENSE.txt",
+      "bundledIn": [
+        "web/dist/callflow.js"
+      ]
+    },
+    {
+      "name": "ajv-formats",
+      "version": "3.0.1",
+      "declaredLicense": "MIT",
+      "selectedLicense": "MIT",
+      "licenseTextSha256": "9df3bb69929a3b650ed73b3bfa1756725aaff0ac296461605753547004eafeaf",
+      "licenseFile": "ajv-formats-3.0.1-LICENSE.txt",
+      "bundledIn": [
+        "server/dist/server.cjs"
+      ]
+    },
+    {
+      "name": "ajv",
+      "version": "8.20.0",
+      "declaredLicense": "MIT",
+      "selectedLicense": "MIT",
+      "licenseTextSha256": "a05350a88e318e4f5f2c2a1ff1e2e88daa4dd38e6e78b71cccae422bdc762cc3",
+      "licenseFile": "ajv-8.20.0-LICENSE.txt",
+      "bundledIn": [
+        "server/dist/server.cjs"
+      ]
+    },
+    {
+      "name": "classcat",
+      "version": "5.0.5",
+      "declaredLicense": "MIT",
+      "selectedLicense": "MIT",
+      "licenseTextSha256": "f101c761d255d0dddc77dd8a9327733b03d381798ec54a1bb718367207b48a8e",
+      "licenseFile": "classcat-5.0.5-LICENSE.txt",
+      "bundledIn": [
+        "web/dist/callflow.js"
+      ]
+    },
+    {
+      "name": "d3-color",
+      "version": "3.1.0",
+      "declaredLicense": "ISC",
+      "selectedLicense": "ISC",
+      "licenseTextSha256": "faa682e3e430941f958d26180458f5934a62f58dac4d70ccdd15608c15d0f884",
+      "licenseFile": "d3-color-3.1.0-LICENSE.txt",
+      "bundledIn": [
+        "web/dist/callflow.js"
+      ]
+    },
+    {
+      "name": "d3-dispatch",
+      "version": "3.0.1",
+      "declaredLicense": "ISC",
+      "selectedLicense": "ISC",
+      "licenseTextSha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
+      "licenseFile": "d3-dispatch-3.0.1-LICENSE.txt",
+      "bundledIn": [
+        "web/dist/callflow.js"
+      ]
+    },
+    {
+      "name": "d3-drag",
+      "version": "3.0.0",
+      "declaredLicense": "ISC",
+      "selectedLicense": "ISC",
+      "licenseTextSha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
+      "licenseFile": "d3-drag-3.0.0-LICENSE.txt",
+      "bundledIn": [
+        "web/dist/callflow.js"
+      ]
+    },
+    {
+      "name": "d3-ease",
+      "version": "3.0.1",
+      "declaredLicense": "BSD-3-Clause",
+      "selectedLicense": "BSD-3-Clause",
+      "licenseTextSha256": "b989d9085148d21ff64a75e14462aefa06b2589a55553b07b1460c70081c7d08",
+      "licenseFile": "d3-ease-3.0.1-LICENSE.txt",
+      "bundledIn": [
+        "web/dist/callflow.js"
+      ]
+    },
+    {
+      "name": "d3-interpolate",
+      "version": "3.0.1",
+      "declaredLicense": "ISC",
+      "selectedLicense": "ISC",
+      "licenseTextSha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
+      "licenseFile": "d3-interpolate-3.0.1-LICENSE.txt",
+      "bundledIn": [
+        "web/dist/callflow.js"
+      ]
+    },
+    {
+      "name": "d3-selection",
+      "version": "3.0.0",
+      "declaredLicense": "ISC",
+      "selectedLicense": "ISC",
+      "licenseTextSha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
+      "licenseFile": "d3-selection-3.0.0-LICENSE.txt",
+      "bundledIn": [
+        "web/dist/callflow.js"
+      ]
+    },
+    {
+      "name": "d3-timer",
+      "version": "3.0.1",
+      "declaredLicense": "ISC",
+      "selectedLicense": "ISC",
+      "licenseTextSha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
+      "licenseFile": "d3-timer-3.0.1-LICENSE.txt",
+      "bundledIn": [
+        "web/dist/callflow.js"
+      ]
+    },
+    {
+      "name": "d3-transition",
+      "version": "3.0.1",
+      "declaredLicense": "ISC",
+      "selectedLicense": "ISC",
+      "licenseTextSha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
+      "licenseFile": "d3-transition-3.0.1-LICENSE.txt",
+      "bundledIn": [
+        "web/dist/callflow.js"
+      ]
+    },
+    {
+      "name": "d3-zoom",
+      "version": "3.0.0",
+      "declaredLicense": "ISC",
+      "selectedLicense": "ISC",
+      "licenseTextSha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
+      "licenseFile": "d3-zoom-3.0.0-LICENSE.txt",
+      "bundledIn": [
+        "web/dist/callflow.js"
+      ]
+    },
+    {
+      "name": "elkjs",
+      "version": "0.12.0",
+      "declaredLicense": "EPL-2.0 OR GPL-3.0-or-later",
+      "selectedLicense": "EPL-2.0",
+      "licenseTextSha256": "637e81f4a1b6b4079535c499fca05e238cf7605c1ff5b76d60d7da7ce96700c9",
+      "licenseFile": "elkjs-0.12.0-LICENSE.txt",
+      "bundledIn": [
+        "server/dist/callflow-layout-worker.cjs"
+      ]
+    },
+    {
+      "name": "fast-deep-equal",
+      "version": "3.1.3",
+      "declaredLicense": "MIT",
+      "selectedLicense": "MIT",
+      "licenseTextSha256": "7bf9b2de73a6b356761c948d0e9eeb4be6c1270bd04c79cd489c1e400ffdfc1a",
+      "licenseFile": "fast-deep-equal-3.1.3-LICENSE.txt",
+      "bundledIn": [
+        "server/dist/server.cjs"
+      ]
+    },
+    {
+      "name": "fast-uri",
+      "version": "3.1.6",
+      "declaredLicense": "BSD-3-Clause",
+      "selectedLicense": "BSD-3-Clause",
+      "licenseTextSha256": "b010b0dfdfdb23d7396e03b82cd4621fc9bb8f95d6b0aea70b9c24e12074c786",
+      "licenseFile": "fast-uri-3.1.6-LICENSE.txt",
+      "bundledIn": [
+        "server/dist/server.cjs"
+      ]
+    },
+    {
+      "name": "json-schema-traverse",
+      "version": "1.0.0",
+      "declaredLicense": "MIT",
+      "selectedLicense": "MIT",
+      "licenseTextSha256": "7bf9b2de73a6b356761c948d0e9eeb4be6c1270bd04c79cd489c1e400ffdfc1a",
+      "licenseFile": "json-schema-traverse-1.0.0-LICENSE.txt",
+      "bundledIn": [
+        "server/dist/server.cjs"
+      ]
+    },
+    {
+      "name": "react-dom",
+      "version": "19.2.8",
+      "declaredLicense": "MIT",
+      "selectedLicense": "MIT",
+      "licenseTextSha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93",
+      "licenseFile": "react-dom-19.2.8-LICENSE.txt",
+      "bundledIn": [
+        "web/dist/callflow.js"
+      ]
+    },
+    {
+      "name": "react",
+      "version": "19.2.8",
+      "declaredLicense": "MIT",
+      "selectedLicense": "MIT",
+      "licenseTextSha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93",
+      "licenseFile": "react-19.2.8-LICENSE.txt",
+      "bundledIn": [
+        "web/dist/callflow.js"
+      ]
+    },
+    {
+      "name": "scheduler",
+      "version": "0.27.0",
+      "declaredLicense": "MIT",
+      "selectedLicense": "MIT",
+      "licenseTextSha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93",
+      "licenseFile": "scheduler-0.27.0-LICENSE.txt",
+      "bundledIn": [
+        "web/dist/callflow.js"
+      ]
+    },
+    {
+      "name": "use-sync-external-store",
+      "version": "1.7.0",
+      "declaredLicense": "MIT",
+      "selectedLicense": "MIT",
+      "licenseTextSha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93",
+      "licenseFile": "use-sync-external-store-1.7.0-LICENSE.txt",
+      "bundledIn": [
+        "web/dist/callflow.js"
+      ]
+    },
+    {
+      "name": "zod-to-json-schema",
+      "version": "3.25.2",
+      "declaredLicense": "ISC",
+      "selectedLicense": "ISC",
+      "licenseTextSha256": "80d3168ad2f70f6f5bb2ab22b23414707abf6f0a392034891481ae36a1a429d4",
+      "licenseFile": "zod-to-json-schema-3.25.2-LICENSE.txt",
+      "bundledIn": [
+        "web/dist/callflow.js"
+      ]
+    },
+    {
+      "name": "zod",
+      "version": "4.4.3",
+      "declaredLicense": "MIT",
+      "selectedLicense": "MIT",
+      "licenseTextSha256": "3f1189b28e3866e0d979968d466b78f813f76827cfdca1fbb124cc0a5c8841f8",
+      "licenseFile": "zod-4.4.3-LICENSE.txt",
+      "bundledIn": [
+        "server/dist/callflow.cjs",
+        "server/dist/server.cjs",
+        "web/dist/callflow.js"
+      ]
+    },
+    {
+      "name": "zustand",
+      "version": "4.5.7",
+      "declaredLicense": "MIT",
+      "selectedLicense": "MIT",
+      "licenseTextSha256": "c1e6e266563517467b1bf874817d23e426f3149252bd7d42758cd697514b8417",
+      "licenseFile": "zustand-4.5.7-LICENSE.txt",
+      "bundledIn": [
+        "web/dist/callflow.js"
+      ]
+    }
+  ]
+}

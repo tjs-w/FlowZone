@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 
 import {
   CallFlowCapabilityUpdateSchema,
+  CallFlowLayoutResultSchema,
   CallFlowSourceExcerptSchema,
   CallFlowUiPayloadSchema,
   WorkflowManifestSchema,
@@ -274,8 +275,11 @@ describe("CallFlow in the shared FlowZone stdio server", () => {
         },
       });
       expect(relayout.isError).toBeUndefined();
-      expect(record(relayout.structuredContent)["engine"]).toBe("elk");
-      expect(record(relayout.structuredContent)["positions"]).toBeArray();
+      const layout = CallFlowLayoutResultSchema.parse(relayout.structuredContent);
+      expect(layout.graphRevision).toBe(graphRevision);
+      expect(layout.positions.map(({ nodeId }) => nodeId).sort()).toEqual(
+        activePayload.snapshot.nodes.map(({ id }) => id).sort(),
+      );
       expect(relayout._meta ?? {}).not.toHaveProperty("callflowGraph");
 
       const described = await client.callTool({
@@ -377,6 +381,7 @@ describe("CallFlow CLI process contract", () => {
     await execFileAsync(invocation.command, [...invocation.args], {
       encoding: "utf8",
       timeout: 30_000,
+      windowsVerbatimArguments: process.platform === "win32",
     });
   }
 

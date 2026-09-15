@@ -208,10 +208,12 @@ process.stdout.write(JSON.stringify({ schema: "dyna/test-launch-environment-v1",
     try {
       const setup = spawnSync("node", [fixture, "setup", databasePath], { encoding: "utf8" });
       expect(setup.status, setup.stderr).toBe(0);
-      const { dashboardId, itemId, fingerprint } = JSON.parse(setup.stdout) as {
+      const { dashboardId, itemId, fingerprint, taskId, taskHostId } = JSON.parse(setup.stdout) as {
         dashboardId: string;
         itemId: string;
         fingerprint: string;
+        taskId: string;
+        taskHostId: string;
       };
       const nodePath = spawnSync("node", ["-p", "process.execPath"], {
         encoding: "utf8",
@@ -264,6 +266,7 @@ process.stdout.write(JSON.stringify({ schema: "dyna/test-launch-environment-v1",
           kind: "note",
           body: marker,
           artifacts: [],
+          task: { taskId, hostId: taskHostId },
         })}\n\u0004`,
       );
       const exitCode = await processHandle.exited;

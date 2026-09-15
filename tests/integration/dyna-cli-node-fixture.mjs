@@ -7,7 +7,10 @@ import { join, resolve } from "node:path";
 
 import { buildSync } from "esbuild";
 
-import { DynaApplicationService } from "../../packages/dyna-node/src/service.ts";
+import {
+  canonicalDynaTaskTitle,
+  DynaApplicationService,
+} from "../../packages/dyna-node/src/service.ts";
 
 const temporaryRoot = mkdtempSync(join(tmpdir(), "flowzone-dyna-cli-"));
 const directory = join(temporaryRoot, "Dyna data ü with spaces");
@@ -196,6 +199,18 @@ try {
   );
   const item = store.snapshot(dashboard.id).cards.find((card) => card.title === "Exercise the CLI");
   assert.ok(item);
+  const cliTaskId = "cli-task";
+  const cliTaskHostId = "local";
+  const cliTaskTitle = canonicalDynaTaskTitle(item.itemNumber, "Exercise the CLI through Codex");
+  const taskObservedAt = new Date().toISOString();
+  store.updateTask(dashboard.id, item.id, {
+    taskId: cliTaskId,
+    hostId: cliTaskHostId,
+    title: cliTaskTitle,
+    state: "running",
+    statusUpdatedAt: taskObservedAt,
+    observedAt: taskObservedAt,
+  });
   store.close();
 
   const unknownDashboardId = randomUUID();
@@ -378,6 +393,7 @@ try {
     kind: "note",
     body: "CLI note",
     artifacts: [{ kind: "issue", label: "Issue", url: "https://example.com/issue/7" }],
+    task: { taskId: cliTaskId, hostId: cliTaskHostId },
   };
   const updateArguments = [
     "work",
@@ -421,6 +437,11 @@ try {
   assert.equal(result.json.schema, "dyna/item-activity-result-v2");
   assert.equal(result.json.activity.updates.length, 1);
   assert.equal(result.json.activity.total, 2);
+  assert.deepEqual(result.json.activity.updates[0]?.task, {
+    taskId: cliTaskId,
+    hostId: cliTaskHostId,
+    title: cliTaskTitle,
+  });
   assert.equal(typeof result.json.activity.nextCursor, "string");
   const activityPageTwo = invoke([
     "item",

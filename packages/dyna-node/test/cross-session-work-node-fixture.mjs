@@ -111,8 +111,14 @@ try {
   const failedItem = mixedSnapshot.cards.find((card) => card.title === "Review MR 44");
   assert.ok(waitingItem && failedItem);
 
-  store.upsertTaskStatus(waitingItem.id, status("waiting-task-a", "running"));
-  store.upsertTaskStatus(waitingItem.id, status("waiting-task-b", "waiting"));
+  store.upsertTaskStatus(
+    waitingItem.id,
+    status("waiting-task-a", "running", undefined, waitingItem.itemNumber),
+  );
+  store.upsertTaskStatus(
+    waitingItem.id,
+    status("waiting-task-b", "waiting", undefined, waitingItem.itemNumber),
+  );
   advance();
   store.recordWorkUpdate(dashboardA.id, waitingItem.id, waitingItem.fingerprint, {
     requestId: request(),
@@ -138,7 +144,10 @@ try {
   assert.equal(mixedCard.workflowState, "paused");
   assert.equal(mixedCard.blocked, false);
   advance();
-  store.upsertTaskStatus(waitingItem.id, status("waiting-task-b", "unknown"));
+  store.upsertTaskStatus(
+    waitingItem.id,
+    status("waiting-task-b", "unknown", undefined, waitingItem.itemNumber),
+  );
   advance();
   store.recordWorkUpdate(dashboardA.id, waitingItem.id, waitingItem.fingerprint, {
     requestId: request(),
@@ -152,13 +161,22 @@ try {
   assert.equal(mixedCard.workflowState, "attention");
   assert.equal(mixedCard.blocked, true);
   advance();
-  store.upsertTaskStatus(waitingItem.id, status("waiting-task-b", "running"));
+  store.upsertTaskStatus(
+    waitingItem.id,
+    status("waiting-task-b", "running", undefined, waitingItem.itemNumber),
+  );
   mixedCard = store.showItem(dashboardA.id, waitingItem.id).item;
   assert.equal(mixedCard.workflowState, "executing");
   assert.equal(mixedCard.blocked, false);
 
-  store.upsertTaskStatus(failedItem.id, status("failed-task-a", "running"));
-  store.upsertTaskStatus(failedItem.id, status("failed-task-b", "failed"));
+  store.upsertTaskStatus(
+    failedItem.id,
+    status("failed-task-a", "running", undefined, failedItem.itemNumber),
+  );
+  store.upsertTaskStatus(
+    failedItem.id,
+    status("failed-task-b", "failed", undefined, failedItem.itemNumber),
+  );
   advance();
   store.recordWorkUpdate(dashboardA.id, failedItem.id, failedItem.fingerprint, {
     requestId: request(),
@@ -187,8 +205,14 @@ try {
   assert.equal(mixedCard.blocked, true);
   assert.equal(store.snapshot(dashboardA.id).counts.blocked, 1);
   advance();
-  store.upsertTaskStatus(failedItem.id, status("failed-task-b", "running"));
-  store.upsertTaskStatus(failedItem.id, status("failed-task-a", "succeeded", "Task A finished."));
+  store.upsertTaskStatus(
+    failedItem.id,
+    status("failed-task-b", "running", undefined, failedItem.itemNumber),
+  );
+  store.upsertTaskStatus(
+    failedItem.id,
+    status("failed-task-a", "succeeded", "Task A finished.", failedItem.itemNumber),
+  );
   advance();
   store.recordWorkUpdate(dashboardA.id, failedItem.id, failedItem.fingerprint, {
     requestId: request(),
@@ -231,8 +255,8 @@ try {
   assert.equal(store.showItem(dashboardA.id, itemId).item.workState, undefined);
 
   advance();
-  store.upsertTaskStatus(itemId, status("task-a", "running"));
-  store.upsertTaskStatus(itemId, status("task-b", "running"));
+  store.upsertTaskStatus(itemId, status("task-a", "running", undefined, itemNumber));
+  store.upsertTaskStatus(itemId, status("task-b", "running", undefined, itemNumber));
   advance();
   const needsInputRequest = request();
   store.recordWorkUpdate(dashboardA.id, itemId, fingerprint, {
@@ -318,9 +342,9 @@ try {
   assert.equal(sharedItem.workUpdateCount, 5);
 
   advance();
-  store.upsertTaskStatus(itemId, status("task-a", "running"));
+  store.upsertTaskStatus(itemId, status("task-a", "running", undefined, itemNumber));
   advance();
-  store.upsertTaskStatus(itemId, status("task-b", "running"));
+  store.upsertTaskStatus(itemId, status("task-b", "running", undefined, itemNumber));
   shown = store.showItem(dashboardA.id, itemId);
   assert.equal(shown.item.workState, undefined);
   assert.equal(shown.item.workflowState, "executing");
@@ -337,21 +361,21 @@ try {
   });
   assert.equal(store.showItem(dashboardA.id, itemId).item.workflowState, "executing");
   advance();
-  store.upsertTaskStatus(itemId, status("task-a", "succeeded", "Task A finished."));
+  store.upsertTaskStatus(itemId, status("task-a", "succeeded", "Task A finished.", itemNumber));
   assert.equal(store.showItem(dashboardA.id, itemId).item.workflowState, "executing");
   advance();
-  store.upsertTaskStatus(itemId, status("task-b", "succeeded", "Task B finished."));
+  store.upsertTaskStatus(itemId, status("task-b", "succeeded", "Task B finished.", itemNumber));
   shown = store.showItem(dashboardA.id, itemId);
   assert.equal(shown.item.workflowState, "completed");
   assert.equal(shown.item.workState, undefined);
   advance();
   assert.throws(
-    () => store.upsertTaskStatus(itemId, status("task-a", "running")),
+    () => store.upsertTaskStatus(itemId, status("task-a", "running", undefined, itemNumber)),
     (error) => error instanceof DynaCliStoreError && error.code === "request_conflict",
   );
   advance();
   assert.throws(
-    () => store.upsertTaskStatus(itemId, status("task-b", "failed")),
+    () => store.upsertTaskStatus(itemId, status("task-b", "failed", undefined, itemNumber)),
     (error) => error instanceof DynaCliStoreError && error.code === "request_conflict",
   );
   shown = store.showItem(dashboardA.id, itemId);

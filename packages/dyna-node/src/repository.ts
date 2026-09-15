@@ -725,7 +725,7 @@ export interface DynaRepositoryTaskSyncRun {
 export interface DynaRepositoryTaskSyncCandidate {
   readonly itemId: string;
   readonly itemNumber: number;
-  readonly itemTitle: string;
+  readonly taskTitle: string;
   readonly taskId: string;
   readonly hostId: string;
   readonly checkpointVersion: number;
@@ -7407,7 +7407,7 @@ export class SqliteDynaRepository {
     const rows = this.#database
       .prepare(
         `SELECT DISTINCT item.id AS item_id, item_number.number AS item_number,
-           item.title AS item_title, task.task_id, task.host_id,
+           task.title AS task_title, task.task_id, task.host_id,
            COALESCE(checkpoint.version, 0) AS checkpoint_version,
            CASE WHEN checkpoint.host_id = task.host_id THEN checkpoint.cursor END AS cursor,
            checkpoint.last_turn_id,
@@ -7422,7 +7422,7 @@ export class SqliteDynaRepository {
       candidates: rows.map((row) => ({
         itemId: requiredString(row, "item_id"),
         itemNumber: requiredItemNumber(row, "item_number"),
-        itemTitle: requiredString(row, "item_title"),
+        taskTitle: requiredString(row, "task_title"),
         taskId: requiredString(row, "task_id"),
         hostId: requiredString(row, "host_id"),
         checkpointVersion: requiredNumber(row, "checkpoint_version"),
@@ -7446,7 +7446,10 @@ export class SqliteDynaRepository {
       runId: requiredString(row, "run_id"),
       itemId: requiredString(row, "item_id"),
       itemNumber: requiredItemNumber(row, "item_number"),
-      itemTitle: requiredString(row, "item_title"),
+      // The v9 schema named this captured title column after the item. Keep the
+      // physical column for compatibility, but expose its actual task-title
+      // semantics to the application layer.
+      taskTitle: requiredString(row, "item_title"),
       taskId: requiredString(row, "task_id"),
       hostId: requiredString(row, "host_id"),
       checkpointVersion: requiredNumber(row, "checkpoint_version"),
@@ -7585,7 +7588,7 @@ export class SqliteDynaRepository {
         runId,
         target.itemId,
         target.itemNumber,
-        target.itemTitle,
+        target.taskTitle,
         target.taskId,
         target.hostId,
         target.checkpointVersion,

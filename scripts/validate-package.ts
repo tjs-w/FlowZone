@@ -90,6 +90,20 @@ async function validateSkill(): Promise<void> {
       "Dyna must route linked-task pull synchronization through its focused reference",
     );
   }
+  for (const requiredTaskTitleBoundary of [
+    "Before any task-originated mutation",
+    "Do not attach a collector or administration task",
+    "`expectedTitle` is advisory stored state, neither evidence nor the full desired title",
+    "canonicalize its controller-observed current suffix",
+    "never enforce or copy the stored expected suffix",
+    "submit that target as unavailable",
+  ]) {
+    if (!dyna.toLocaleLowerCase().includes(requiredTaskTitleBoundary.toLocaleLowerCase())) {
+      throw new Error(
+        `Dyna skill must preserve native task-title synchronization: ${requiredTaskTitleBoundary}`,
+      );
+    }
+  }
   const taskUpdates = await readFile(
     resolve(root, "skills/dyna/references/task-updates.md"),
     "utf8",
@@ -135,6 +149,16 @@ async function validateSkill(): Promise<void> {
     "200 Unicode code points",
     "bidirectional control characters",
     "newly copied v2 reference contains only",
+    "## Mandatory receiving-task preflight",
+    "Before any task-originated mutation of the referenced item",
+    "Notes and decisions are not exceptions",
+    "every bundled-CLI work update from the receiving task must include",
+    "exact code-point equality",
+    "Only after `attach-codex-task` succeeds",
+    "stop without running the mutation",
+    "new to-do created to represent the current task",
+    "Do not attach a collector or administration task",
+    "rejects an unattributed update before consuming its request ID",
   ]) {
     if (!taskUpdates.toLocaleLowerCase().includes(requiredContract.toLocaleLowerCase())) {
       throw new Error(
@@ -173,6 +197,16 @@ async function validateSkill(): Promise<void> {
     "Do not preload this skill",
     "incompleteMetadataTasks",
     "paired Mac",
+    "`expectedTitle` is an advisory, potentially stale baseline",
+    "Never enforce or copy `expectedTitle` into an observation",
+    "For every target, call `read_thread`",
+    "using the target's `itemNumber`",
+    "preserve the remaining current suffix",
+    "not to `expectedTitle`",
+    "exact code-point equality",
+    "submit the target as unavailable",
+    "must come from the exact native read-back",
+    "never a locally copied expectation or the compact snapshot",
   ]) {
     if (!taskPullSync.toLocaleLowerCase().includes(requiredBoundary.toLocaleLowerCase())) {
       throw new Error(

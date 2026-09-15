@@ -210,6 +210,10 @@ try {
   assert.equal(canonicalDynaTaskTitle(projectedTodo.itemNumber, canonical), canonical);
   assert.equal(canonical.startsWith(`:${String(projectedTodo.itemNumber)}: `), true);
   assert.equal(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u.test(canonical), false);
+  assert.equal(
+    canonicalDynaTaskTitle(projectedTodo.itemNumber, ":999991: :999992: Existing task suffix"),
+    `:${String(projectedTodo.itemNumber)}: Existing task suffix`,
+  );
   const longCanonical = canonicalDynaTaskTitle(projectedTodo.itemNumber, "🧭".repeat(300));
   assert.equal(Array.from(longCanonical).length, 200);
 
@@ -321,6 +325,28 @@ try {
     statusUpdatedAt: legacyObservedAt,
     observedAt: legacyObservedAt,
   });
+  const titleRepairRetryInput = {
+    requestId: randomUUID(),
+    workAttemptId: randomUUID(),
+    kind: "progress",
+    body: "Continue after synchronizing the linked task title.",
+    artifacts: [],
+    task: { taskId: "legacy-title-task", hostId: "local" },
+  };
+  assert.throws(
+    () =>
+      service.recordWorkUpdate(
+        orderingDashboard.id,
+        associationItem.itemId,
+        associationItem.fingerprint,
+        titleRepairRetryInput,
+      ),
+    (error) =>
+      error instanceof DynaCliStoreError &&
+      error.code === "invalid_input" &&
+      error.message.includes(`:${String(associationItem.itemNumber)}:`) &&
+      error.message.includes("retry"),
+  );
   assert.equal(
     service.snapshot(orderingDashboard.id).cards.find((card) => card.id === associationItem.itemId)
       ?.titleSyncNeeded,
@@ -336,6 +362,14 @@ try {
     statusUpdatedAt: titleSyncedAt,
     observedAt: titleSyncedAt,
   });
+  const titleRepairRetry = service.recordWorkUpdate(
+    orderingDashboard.id,
+    associationItem.itemId,
+    associationItem.fingerprint,
+    titleRepairRetryInput,
+  );
+  assert.equal(titleRepairRetry.requestId, titleRepairRetryInput.requestId);
+  assert.equal(titleRepairRetry.deduplicated, false);
   assert.equal(
     service.snapshot(orderingDashboard.id).cards.find((card) => card.id === associationItem.itemId)
       ?.titleSyncNeeded,
@@ -573,6 +607,152 @@ try {
     );
   } finally {
     reservationService.close();
+  }
+
+  const taskActorDirectory = mkdtempSync(join(tmpdir(), "flowzone-dyna-task-actor-"));
+  const taskActorDatabasePath = join(taskActorDirectory, "dyna.sqlite3");
+  const taskActorSeed = new DynaApplicationService({
+    databasePath: taskActorDatabasePath,
+    clock: () => new Date(now),
+  });
+  let taskActorWorker;
+  try {
+    const taskActorDashboard = taskActorSeed.createDashboard(
+      "Task actor attribution",
+      "Receiving-task preflight",
+    );
+    const taskActorItem = taskActorSeed.createTodo(taskActorDashboard.id, {
+      requestId: randomUUID(),
+      title: "Keep a task-authored update attributable",
+      priority: "normal",
+      labels: [],
+    });
+    const legacyUnattributedNote = {
+      requestId: randomUUID(),
+      workAttemptId: randomUUID(),
+      kind: "note",
+      body: "A durable note accepted before receiving-task attribution became mandatory.",
+      artifacts: [],
+    };
+    assert.equal(
+      taskActorSeed.recordWorkUpdate(
+        taskActorDashboard.id,
+        taskActorItem.itemId,
+        taskActorItem.fingerprint,
+        legacyUnattributedNote,
+      ).deduplicated,
+      false,
+    );
+    now += 1_000;
+    const unprefixedAt = new Date(now).toISOString();
+    taskActorSeed.compatibilityUpsertTaskStatus(taskActorItem.itemId, {
+      taskId: "receiving-task",
+      hostId: "local",
+      title: "Receiving task suffix",
+      state: "running",
+      statusUpdatedAt: unprefixedAt,
+      observedAt: unprefixedAt,
+    });
+    taskActorWorker = new DynaApplicationService({
+      databasePath: taskActorDatabasePath,
+      clock: () => new Date(now),
+      actor: {
+        kind: "codex_task",
+        capabilities: ["dashboard:read", "item:read", "item:write"],
+      },
+    });
+    assert.equal(
+      taskActorWorker.recordWorkUpdate(
+        taskActorDashboard.id,
+        taskActorItem.itemId,
+        taskActorItem.fingerprint,
+        legacyUnattributedNote,
+      ).deduplicated,
+      true,
+    );
+    const taskActorRequest = {
+      requestId: randomUUID(),
+      workAttemptId: randomUUID(),
+      kind: "decision",
+      body: "Use the verified implementation path.",
+      artifacts: [],
+    };
+    assert.throws(
+      () =>
+        taskActorWorker.recordWorkUpdate(
+          taskActorDashboard.id,
+          taskActorItem.itemId,
+          taskActorItem.fingerprint,
+          taskActorRequest,
+        ),
+      (error) =>
+        error instanceof DynaCliStoreError &&
+        error.code === "invalid_input" &&
+        error.message.includes("receiving linked Codex task"),
+    );
+    assert.throws(
+      () =>
+        taskActorWorker.recordWorkUpdate(
+          taskActorDashboard.id,
+          taskActorItem.itemId,
+          taskActorItem.fingerprint,
+          {
+            requestId: randomUUID(),
+            workAttemptId: randomUUID(),
+            kind: "note",
+            body: "This note must still identify the receiving task.",
+            artifacts: [],
+          },
+        ),
+      (error) => error instanceof DynaCliStoreError && error.code === "invalid_input",
+    );
+    const attributedTaskActorRequest = {
+      ...taskActorRequest,
+      task: { taskId: "receiving-task", hostId: "local" },
+    };
+    assert.throws(
+      () =>
+        taskActorWorker.recordWorkUpdate(
+          taskActorDashboard.id,
+          taskActorItem.itemId,
+          taskActorItem.fingerprint,
+          attributedTaskActorRequest,
+        ),
+      (error) =>
+        error instanceof DynaCliStoreError &&
+        error.code === "invalid_input" &&
+        error.message.includes("title is not synchronized"),
+    );
+    now += 1_000;
+    const repairedAt = new Date(now).toISOString();
+    taskActorSeed.updateTask(taskActorDashboard.id, taskActorItem.itemId, {
+      taskId: "receiving-task",
+      hostId: "local",
+      title: canonicalDynaTaskTitle(taskActorItem.itemNumber, "Receiving task suffix"),
+      state: "running",
+      statusUpdatedAt: repairedAt,
+      observedAt: repairedAt,
+    });
+    const acceptedTaskActorUpdate = taskActorWorker.recordWorkUpdate(
+      taskActorDashboard.id,
+      taskActorItem.itemId,
+      taskActorItem.fingerprint,
+      attributedTaskActorRequest,
+    );
+    assert.equal(acceptedTaskActorUpdate.deduplicated, false);
+    assert.equal(
+      taskActorWorker.recordWorkUpdate(
+        taskActorDashboard.id,
+        taskActorItem.itemId,
+        taskActorItem.fingerprint,
+        attributedTaskActorRequest,
+      ).deduplicated,
+      true,
+    );
+  } finally {
+    taskActorWorker?.close();
+    taskActorSeed.close();
+    rmSync(taskActorDirectory, { recursive: true, force: true });
   }
 
   globalThis.process.stdout.write(

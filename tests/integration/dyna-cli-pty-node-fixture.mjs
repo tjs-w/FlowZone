@@ -1,4 +1,7 @@
-import { DynaApplicationService } from "../../packages/dyna-node/src/service.ts";
+import {
+  canonicalDynaTaskTitle,
+  DynaApplicationService,
+} from "../../packages/dyna-node/src/service.ts";
 
 const [mode, databasePath, dashboardId, itemId] = globalThis.process.argv.slice(2);
 if (!databasePath) throw new Error("Expected a database path.");
@@ -50,11 +53,23 @@ try {
     );
     const item = store.snapshot(dashboard.id).cards[0];
     if (!item) throw new Error("Dyna PTY fixture item is missing.");
+    const taskId = "dyna-pty-task";
+    const taskHostId = "local";
+    store.updateTask(dashboard.id, item.id, {
+      taskId,
+      hostId: taskHostId,
+      title: canonicalDynaTaskTitle(item.itemNumber, "PTY work update task"),
+      state: "running",
+      statusUpdatedAt: now,
+      observedAt: now,
+    });
     globalThis.process.stdout.write(
       JSON.stringify({
         dashboardId: dashboard.id,
         itemId: item.id,
         fingerprint: item.fingerprint,
+        taskId,
+        taskHostId,
       }),
     );
   } else if (mode === "snapshot" && dashboardId && itemId) {

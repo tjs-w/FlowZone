@@ -1,6 +1,28 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 
+const TASK_SYNC_DELIVERY_PATTERN = /^Handle Dyna task sync [0-9a-f-]{36} with \$flowzone:dyna\.$/u;
+
+interface HarnessTaskTitleOperation {
+  readonly kind: string;
+  readonly taskId: string;
+  readonly title: string;
+}
+
+interface HarnessTaskSyncControllerResult {
+  readonly runId: string;
+  readonly titleOperations: readonly HarnessTaskTitleOperation[];
+}
+
+function parseHarnessTaskSyncControllerResult(value: unknown): HarnessTaskSyncControllerResult {
+  if (!value || typeof value !== "object") throw new Error("Missing task sync controller result.");
+  const result = value as Record<string, unknown>;
+  if (typeof result["runId"] !== "string" || !Array.isArray(result["titleOperations"])) {
+    throw new Error("Invalid task sync controller result.");
+  }
+  return result as unknown as HarnessTaskSyncControllerResult;
+}
+
 async function openDetails(page: Page, title: string): Promise<void> {
   const activeView = page
     .locator("#dyna-panel-queue:visible, #dyna-panel-pipeline:visible, #dyna-panel-archive:visible")
@@ -277,7 +299,7 @@ test("adds an annotation and sends only an opaque Codex action request", async (
   expect(copiedPrompts).toHaveLength(2);
   const copiedPrompt = copiedPrompts[0] ?? "";
   expect(copiedPrompt).toMatch(
-    /^Use \$flowzone:dyna to keep this item synchronized while you work\.\n\nDyna work reference:\n```json\n/,
+    /^Use \$flowzone:dyna to keep this item synchronized while you work\.\n\nDyna work reference:\n```json\n/u,
   );
   const referenceMatch = /Dyna work reference:\n```json\n(?<reference>[\s\S]*?)\n```/.exec(
     copiedPrompt,
@@ -3681,7 +3703,7 @@ test("keeps cached content usable while linked Codex tasks synchronize", async (
     const message = host?.messages?.at(-1)?.content?.find((entry) => entry.type === "text")?.text;
     return { message, calls: host?.toolCalls?.map((call) => call.name) ?? [] };
   });
-  expect(delivery.message).toMatch(/^Handle Dyna task sync [0-9a-f-]{36} with \$flowzone:dyna\.$/u);
+  expect(delivery.message).toMatch(TASK_SYNC_DELIVERY_PATTERN);
   expect(delivery.message).not.toContain("release merge request");
   expect(delivery.calls.indexOf("dyna_get_snapshot")).toBeLessThan(
     delivery.calls.indexOf("dyna_begin_task_sync"),
@@ -3705,6 +3727,71 @@ test("keeps cached content usable while linked Codex tasks synchronize", async (
     return host?.toolCalls?.filter((call) => call.name === "dyna_task_sync_status").length ?? 0;
   });
   expect(statusCalls).toBeGreaterThan(0);
+
+  await expect
+    .poll(() => page.locator("html").getAttribute("data-dyna-last-task-sync-controller"))
+    .toContain("titleOperations");
+  const firstController = parseHarnessTaskSyncControllerResult(
+    await page.evaluate(() => {
+      const raw = document.documentElement.dataset["dynaLastTaskSyncController"];
+      return raw ? (JSON.parse(raw) as unknown) : undefined;
+    }),
+  );
+  const firstOperations = firstController.titleOperations;
+  expect(firstOperations.length).toBeGreaterThan(0);
+  const firstRenameIndex = firstOperations.findIndex(
+    (operation) => operation.kind === "set_thread_title",
+  );
+  expect(firstRenameIndex).toBeGreaterThan(0);
+  const initialRead = firstOperations[firstRenameIndex - 1];
+  const rename = firstOperations[firstRenameIndex];
+  const exactReadBack = firstOperations[firstRenameIndex + 1];
+  const firstObservation = firstOperations[firstRenameIndex + 2];
+  expect(initialRead).toMatchObject({ kind: "read_thread", taskId: rename?.taskId });
+  expect(initialRead?.title).not.toBe(rename?.title);
+  const renamedPrefix = /^(:[1-9]\d*: )/u.exec(rename?.title ?? "")?.[1];
+  expect(renamedPrefix).toBeTruthy();
+  expect(rename?.title).toBe(`${renamedPrefix}${initialRead?.title ?? ""}`);
+  expect(exactReadBack).toEqual({
+    kind: "read_thread",
+    taskId: rename?.taskId,
+    title: rename?.title,
+  });
+  expect(firstObservation).toEqual({
+    kind: "submit_observation",
+    taskId: rename?.taskId,
+    title: rename?.title,
+  });
+  const firstRenameCount = firstOperations.filter(
+    (operation) => operation.kind === "set_thread_title",
+  ).length;
+
+  await refresh.click();
+  await expect.poll(() => page.locator("html").getAttribute("data-dyna-message-count")).toBe("2");
+  await expect
+    .poll(async () => {
+      const raw = await page.locator("html").getAttribute("data-dyna-last-task-sync-controller");
+      const result = raw ? (JSON.parse(raw) as unknown) : undefined;
+      if (!result || typeof result !== "object") return undefined;
+      const runId = (result as Record<string, unknown>)["runId"];
+      return typeof runId === "string" ? runId : undefined;
+    })
+    .not.toBe(firstController.runId);
+  const secondController = parseHarnessTaskSyncControllerResult(
+    await page.evaluate(() => {
+      const raw = document.documentElement.dataset["dynaLastTaskSyncController"];
+      return raw ? (JSON.parse(raw) as unknown) : undefined;
+    }),
+  );
+  const secondOperations = secondController.titleOperations;
+  expect(secondOperations.length).toBeGreaterThan(firstOperations.length);
+  expect(secondOperations.filter((operation) => operation.kind === "set_thread_title").length).toBe(
+    firstRenameCount,
+  );
+  const laterOperations = secondOperations.slice(firstOperations.length);
+  expect(laterOperations.some((operation) => operation.kind === "read_thread")).toBe(true);
+  expect(laterOperations.some((operation) => operation.kind === "submit_observation")).toBe(true);
+  expect(laterOperations.some((operation) => operation.kind === "set_thread_title")).toBe(false);
 });
 
 test("joins repeated dashboard refreshes without another controller message", async ({ page }) => {
@@ -3839,9 +3926,7 @@ test("recovers a persisted linked-task sync only after its delivery reservation 
     .toEqual({
       begins: 1,
       deliveries: 1,
-      message: expect.stringMatching(
-        /^Handle Dyna task sync [0-9a-f-]{36} with \$flowzone:dyna\.$/u,
-      ),
+      message: expect.stringMatching(TASK_SYNC_DELIVERY_PATTERN),
     });
   await recoveredWindow.close();
 });

@@ -28,6 +28,7 @@ describe("Dyna linked-task pull synchronization", () => {
       invalidCursorRecovery: true,
       incompleteOutcomeMetadata: true,
       stableEventIdentity: true,
+      taskTitlePrefixProjection: true,
       failClosedV9Ledger: true,
     });
   });

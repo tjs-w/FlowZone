@@ -59491,7 +59491,7 @@ var SqliteDynaRepository = class {
     );
     const rows = this.#database.prepare(
       `SELECT DISTINCT item.id AS item_id, item_number.number AS item_number,
-           item.title AS item_title, task.task_id, task.host_id,
+           task.title AS task_title, task.task_id, task.host_id,
            COALESCE(checkpoint.version, 0) AS checkpoint_version,
            CASE WHEN checkpoint.host_id = task.host_id THEN checkpoint.cursor END AS cursor,
            checkpoint.last_turn_id,
@@ -59505,7 +59505,7 @@ var SqliteDynaRepository = class {
       candidates: rows.map((row) => ({
         itemId: requiredString(row, "item_id"),
         itemNumber: requiredItemNumber(row, "item_number"),
-        itemTitle: requiredString(row, "item_title"),
+        taskTitle: requiredString(row, "task_title"),
         taskId: requiredString(row, "task_id"),
         hostId: requiredString(row, "host_id"),
         checkpointVersion: requiredNumber(row, "checkpoint_version"),
@@ -59520,7 +59520,10 @@ var SqliteDynaRepository = class {
       runId: requiredString(row, "run_id"),
       itemId: requiredString(row, "item_id"),
       itemNumber: requiredItemNumber(row, "item_number"),
-      itemTitle: requiredString(row, "item_title"),
+      // The v9 schema named this captured title column after the item. Keep the
+      // physical column for compatibility, but expose its actual task-title
+      // semantics to the application layer.
+      taskTitle: requiredString(row, "item_title"),
       taskId: requiredString(row, "task_id"),
       hostId: requiredString(row, "host_id"),
       checkpointVersion: requiredNumber(row, "checkpoint_version"),
@@ -59632,7 +59635,7 @@ var SqliteDynaRepository = class {
         runId,
         target.itemId,
         target.itemNumber,
-        target.itemTitle,
+        target.taskTitle,
         target.taskId,
         target.hostId,
         target.checkpointVersion,
@@ -61229,7 +61232,7 @@ var DynaApplicationService = class {
         checkpointVersion: target.checkpointVersion,
         ...target.cursor ? { afterCursor: target.cursor } : {},
         ...target.lastTurnId ? { lastTurnId: target.lastTurnId } : {},
-        expectedTitle: canonicalDynaTaskTitle(target.itemNumber, target.itemTitle)
+        expectedTitle: canonicalDynaTaskTitle(target.itemNumber, target.taskTitle)
       }));
       return DynaTaskSyncClaimSchema.parse({
         schema: "dyna/task-sync-claim-v1",
@@ -62377,6 +62380,12 @@ var DynaApplicationService = class {
       { expectedFingerprint, input: parsed },
       (value) => DynaItemUpdateResultSchema.parse(value),
       (unitOfWork) => {
+        if (this.#actorKind === "codex_task" && !parsed.task) {
+          throw new DynaCliError(
+            "invalid_input",
+            "A Codex-task Dyna update requires attribution to the receiving linked Codex task. Verify and synchronize that task before retrying."
+          );
+        }
         const item = unitOfWork.findItemBase(itemId);
         if (item?.fingerprint !== expectedFingerprint) {
           throw new DynaCliError(
@@ -62404,6 +62413,12 @@ var DynaApplicationService = class {
             throw new DynaCliError(
               "task_not_linked",
               "The attributed Codex task is not linked to this Dyna item."
+            );
+          }
+          if (!isCanonicalDynaTaskTitle(item.itemNumber, taskTitle)) {
+            throw new DynaCliError(
+              "invalid_input",
+              `The linked Codex task title is not synchronized. Rename it so ${formatDynaItemNumber(item.itemNumber)} appears exactly once at the start, verify the title, and retry this update.`
             );
           }
         }

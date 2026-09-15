@@ -40,7 +40,9 @@ for (const [entryPoint, outfile, format] of [
   });
 }
 
-const { DynaApplicationService } = await import(pathToFileURL(serviceBundle).href);
+const { DynaApplicationService, canonicalDynaTaskTitle } = await import(
+  pathToFileURL(serviceBundle).href
+);
 const { createDynaPlugin } = await import(pathToFileURL(pluginBundle).href);
 
 const databasePath = join(dataDirectory, "dyna.sqlite3");
@@ -217,6 +219,20 @@ try {
   const peer = seeded.cards.find((card) => card.title === "Peer parity item");
   assert.ok(primary);
   assert.ok(peer);
+  const parityTaskId = "shared-parity-task";
+  const parityTaskHostId = "local";
+  const parityTaskTitle = canonicalDynaTaskTitle(
+    primary.itemNumber,
+    "Execute shared database parity work",
+  );
+  mcpService.updateTask(dashboard.id, primary.id, {
+    taskId: parityTaskId,
+    hostId: parityTaskHostId,
+    title: parityTaskTitle,
+    state: "running",
+    statusUpdatedAt: now,
+    observedAt: now,
+  });
 
   const database = new DatabaseSync(databasePath, { readOnly: true });
   try {
@@ -268,6 +284,7 @@ try {
       kind: "note",
       body: workBody,
       artifacts: [{ kind: "merge_request", label: "MR 8842", url: artifactUrl }],
+      task: { taskId: parityTaskId, hostId: parityTaskHostId },
     },
     [workBody, artifactUrl, dataDirectory],
   );
@@ -287,6 +304,11 @@ try {
   assert.equal(visiblePrimary?.workUpdateCount, 1);
   assert.equal(visiblePrimary?.workUpdates[0]?.body, workBody);
   assert.equal(visiblePrimary?.workUpdates[0]?.artifacts[0]?.url, artifactUrl);
+  assert.deepEqual(visiblePrimary?.workUpdates[0]?.task, {
+    taskId: parityTaskId,
+    hostId: parityTaskHostId,
+    title: parityTaskTitle,
+  });
 
   const enrichmentSummary = "Correlated parity summary from all sources.";
   const enrichmentAttention = "Confirm the release decision.";

@@ -1773,7 +1773,7 @@ export class DynaApplicationService {
           checkpointVersion: target.checkpointVersion,
           ...(target.cursor ? { afterCursor: target.cursor } : {}),
           ...(target.lastTurnId ? { lastTurnId: target.lastTurnId } : {}),
-          expectedTitle: canonicalDynaTaskTitle(target.itemNumber, target.itemTitle),
+          expectedTitle: canonicalDynaTaskTitle(target.itemNumber, target.taskTitle),
         }));
       return DynaTaskSyncClaimSchema.parse({
         schema: "dyna/task-sync-claim-v1",
@@ -3137,6 +3137,12 @@ export class DynaApplicationService {
       { expectedFingerprint, input: parsed },
       (value) => DynaItemUpdateResultSchema.parse(value),
       (unitOfWork) => {
+        if (this.#actorKind === "codex_task" && !parsed.task) {
+          throw new DynaCliError(
+            "invalid_input",
+            "A Codex-task Dyna update requires attribution to the receiving linked Codex task. Verify and synchronize that task before retrying.",
+          );
+        }
         const item = unitOfWork.findItemBase(itemId);
         if (item?.fingerprint !== expectedFingerprint) {
           throw new DynaCliError(
@@ -3168,6 +3174,12 @@ export class DynaApplicationService {
             throw new DynaCliError(
               "task_not_linked",
               "The attributed Codex task is not linked to this Dyna item.",
+            );
+          }
+          if (!isCanonicalDynaTaskTitle(item.itemNumber, taskTitle)) {
+            throw new DynaCliError(
+              "invalid_input",
+              `The linked Codex task title is not synchronized. Rename it so ${formatDynaItemNumber(item.itemNumber)} appears exactly once at the start, verify the title, and retry this update.`,
             );
           }
         }

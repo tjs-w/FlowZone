@@ -69,6 +69,19 @@ interface DynaHarnessBackend {
 const dynaBackendPromises = new Map<string, Promise<DynaHarnessBackend>>();
 const dynaFixtureDashboardIds = new Map<string, string>();
 
+type DynaNativeTaskTitleOperation = Readonly<{
+  kind: "read_thread" | "set_thread_title" | "submit_observation";
+  taskId: string;
+  title: string;
+}>;
+
+interface DynaNativeTaskTitleState {
+  readonly titles: Map<string, string>;
+  readonly operations: DynaNativeTaskTitleOperation[];
+}
+
+const dynaNativeTaskTitleStates = new Map<string, DynaNativeTaskTitleState>();
+
 function dynaPartition(request: IncomingMessage): string {
   const header = request.headers["x-flowzone-e2e-project"];
   const value = Array.isArray(header) ? header[0] : header;
@@ -77,6 +90,15 @@ function dynaPartition(request: IncomingMessage): string {
     throw new Error("The Dyna harness project partition is invalid.");
   }
   return value;
+}
+
+function dynaNativeTaskTitleState(request: IncomingMessage): DynaNativeTaskTitleState {
+  const partition = dynaPartition(request);
+  const existing = dynaNativeTaskTitleStates.get(partition);
+  if (existing) return existing;
+  const created = { titles: new Map<string, string>(), operations: [] };
+  dynaNativeTaskTitleStates.set(partition, created);
+  return created;
 }
 
 async function dynaBackend(request: IncomingMessage): Promise<DynaHarnessBackend> {
@@ -114,6 +136,7 @@ async function dynaBackend(request: IncomingMessage): Promise<DynaHarnessBackend
 
 async function resetDynaBackend(request: IncomingMessage): Promise<DynaHarnessBackend> {
   const partition = dynaPartition(request);
+  dynaNativeTaskTitleStates.delete(partition);
   if (partition === "default") return { client, dataDirectory: dynaDataDirectory };
   const existing = dynaBackendPromises.get(partition);
   dynaBackendPromises.delete(partition);
@@ -279,6 +302,7 @@ async function handleDynaTaskSync(
   mode: "updated" | "partial" | "succeeded" | "missing-outcome",
 ): Promise<Readonly<Record<string, unknown>>> {
   const backend = await dynaBackend(request);
+  const nativeTitles = dynaNativeTaskTitleState(request);
   const claimedCall = await backend.client.callTool({
     name: "flowzone",
     arguments: {
@@ -304,12 +328,14 @@ async function handleDynaTaskSync(
       const taskId = target["taskId"];
       const hostId = target["hostId"];
       const itemId = target["itemId"];
+      const itemNumber = target["itemNumber"];
       const checkpointVersion = target["checkpointVersion"];
       const expectedTitle = target["expectedTitle"];
       if (
         typeof taskId !== "string" ||
         typeof hostId !== "string" ||
         typeof itemId !== "string" ||
+        typeof itemNumber !== "number" ||
         typeof checkpointVersion !== "number" ||
         typeof expectedTitle !== "string"
       ) {
@@ -328,13 +354,34 @@ async function handleDynaTaskSync(
         (mode === "missing-outcome" && offset === 0 && index === 0) ||
         (mode === "partial" && offset === 0 && index === 1);
       const succeeded = mode === "succeeded" || missingOutcome || taskId === "pipeline-task-3";
+      let nativeTitle = nativeTitles.titles.get(taskId);
+      if (nativeTitle === undefined) {
+        nativeTitle = `Current native title for ${taskId}`;
+        nativeTitles.titles.set(taskId, nativeTitle);
+      }
+      nativeTitles.operations.push({ kind: "read_thread", taskId, title: nativeTitle });
+      const nativeSuffix = nativeTitle.replace(/^(?::\d+:\s*)+/u, "").trim() || "Codex task";
+      const canonicalTitle = `:${String(itemNumber)}: ${nativeSuffix}`;
+      if (nativeTitle !== canonicalTitle) {
+        nativeTitles.operations.push({ kind: "set_thread_title", taskId, title: canonicalTitle });
+        nativeTitles.titles.set(taskId, canonicalTitle);
+        nativeTitle = nativeTitles.titles.get(taskId);
+        if (nativeTitle === undefined) {
+          throw new Error("The Dyna task title could not be read after synchronization.");
+        }
+        nativeTitles.operations.push({ kind: "read_thread", taskId, title: nativeTitle });
+      }
+      if (nativeTitle !== canonicalTitle) {
+        throw new Error("The Dyna task title did not match after synchronization.");
+      }
+      nativeTitles.operations.push({ kind: "submit_observation", taskId, title: nativeTitle });
       observations.push({
         taskId,
         checkpointVersion,
         task: {
           taskId,
           hostId,
-          title: expectedTitle,
+          title: nativeTitle,
           state: succeeded ? "succeeded" : "running",
           statusUpdatedAt: observedAt,
           observedAt,
@@ -389,7 +436,12 @@ async function handleDynaTaskSync(
   });
   if (completedCall.isError) throw new Error("Could not complete the Dyna task synchronization.");
   const completed = flowzoneResult(completedCall);
-  return { handled: true, state: resultRecord(completed["summary"])["state"] };
+  return {
+    handled: true,
+    runId,
+    state: resultRecord(completed["summary"])["state"],
+    titleOperations: nativeTitles.operations,
+  };
 }
 
 async function runDynaFixtureUpdate(

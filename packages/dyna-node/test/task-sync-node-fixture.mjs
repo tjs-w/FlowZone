@@ -48,7 +48,9 @@ try {
   service.updateTask(
     dashboard.id,
     created.itemId,
-    status(created.itemNumber, "task-release", "host-local", "running"),
+    status(created.itemNumber, "task-release", "host-local", "running", {
+      title: "Inspect the release pipeline",
+    }),
   );
   const rendered = service.render(dashboard.id);
   const initialRevision = rendered.snapshot.revision;
@@ -85,7 +87,10 @@ try {
   const claim = service.claimTaskSync(begun.summary.runId);
   assert.equal(claim.targets.length, 1);
   assert.equal(claim.targets[0].checkpointVersion, 0);
-  assert.equal(claim.targets[0].expectedTitle, `:${created.itemNumber}: Validate the release`);
+  assert.equal(
+    claim.targets[0].expectedTitle,
+    `:${created.itemNumber}: Inspect the release pipeline`,
+  );
   advance(16_000);
   assert.equal(
     service.beginTaskSyncForView(rendered.viewToken, { kind: "dashboard" }).deliveryRequired,
@@ -722,6 +727,74 @@ try {
   );
   assert.equal(service.snapshot(sharedDashboardB.id).cards[0]?.linkedTasks[0]?.state, "waiting");
 
+  const titleProjectionDashboard = service.createDashboard(
+    "Task title projection",
+    "Preserve native task suffixes while repairing Dyna prefixes",
+  );
+  const titleProjectionCases = [
+    {
+      taskId: "task-title-unprefixed",
+      itemTitle: "Unprefixed item title",
+      cachedTitle: "Preserve this unprefixed task suffix",
+      expectedSuffix: "Preserve this unprefixed task suffix",
+    },
+    {
+      taskId: "task-title-wrong-prefixes",
+      itemTitle: "Wrong-prefix item title",
+      cachedTitle: ":999991: :999992: Preserve this repaired task suffix",
+      expectedSuffix: "Preserve this repaired task suffix",
+    },
+    {
+      taskId: "task-title-canonical",
+      itemTitle: "Canonical item title",
+      cachedTitle: undefined,
+      expectedSuffix: "Keep this canonical task suffix",
+    },
+  ];
+  const expectedTitles = new Map();
+  let captureStabilityItem;
+  for (const titleCase of titleProjectionCases) {
+    const titleItem = createTodo(service, titleProjectionDashboard.id, titleCase.itemTitle);
+    const cachedTitle =
+      titleCase.cachedTitle ??
+      canonicalDynaTaskTitle(titleItem.itemNumber, titleCase.expectedSuffix);
+    const observedAt = advance();
+    service.compatibilityUpsertTaskStatus(titleItem.itemId, {
+      taskId: titleCase.taskId,
+      hostId: "host-title",
+      title: cachedTitle,
+      state: "running",
+      statusUpdatedAt: observedAt,
+      observedAt,
+    });
+    expectedTitles.set(
+      titleCase.taskId,
+      canonicalDynaTaskTitle(titleItem.itemNumber, titleCase.expectedSuffix),
+    );
+    if (titleCase.taskId === "task-title-canonical") captureStabilityItem = titleItem;
+  }
+  const titleProjectionView = service.render(titleProjectionDashboard.id);
+  const titleProjectionRun = service.beginTaskSyncForView(titleProjectionView.viewToken, {
+    kind: "dashboard",
+  });
+  assert.ok(captureStabilityItem);
+  service.updateTask(
+    titleProjectionDashboard.id,
+    captureStabilityItem.itemId,
+    status(captureStabilityItem.itemNumber, "task-title-canonical", "host-title", "running", {
+      title: "Changed after the sync run was captured",
+    }),
+  );
+  service.markTaskSyncDeliveredForView(
+    titleProjectionView.viewToken,
+    titleProjectionRun.summary.runId,
+  );
+  const titleProjectionClaim = service.claimTaskSync(titleProjectionRun.summary.runId);
+  assert.equal(titleProjectionClaim.targets.length, titleProjectionCases.length);
+  for (const target of titleProjectionClaim.targets) {
+    assert.equal(target.expectedTitle, expectedTitles.get(target.taskId));
+  }
+
   stdout.write(
     `${JSON.stringify({
       deduplicatedRun: true,
@@ -744,6 +817,7 @@ try {
       invalidCursorRecovery: true,
       incompleteOutcomeMetadata: true,
       stableEventIdentity: true,
+      taskTitlePrefixProjection: true,
       failClosedV9Ledger: true,
     })}\n`,
   );

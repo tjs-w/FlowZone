@@ -940,8 +940,41 @@ export const DynaAnnotationSchema = z
     itemId: z.uuid(),
     body: z.string().trim().min(1).max(1_000),
     createdAt: TimestampSchema,
+    updatedAt: TimestampSchema,
+    version: z.number().int().positive(),
   })
   .strict();
+export type DynaAnnotation = z.infer<typeof DynaAnnotationSchema>;
+
+const DynaAnnotationMutationBaseSchema = z
+  .object({
+    viewToken: z.string().min(32).max(128),
+    itemId: z.uuid(),
+    annotationId: z.uuid(),
+    clientRequestId: z.uuid(),
+    expectedVersion: z.number().int().positive(),
+  })
+  .strict();
+
+export const DynaAnnotationEditInputSchema = DynaAnnotationMutationBaseSchema.extend({
+  body: z.string().trim().min(1).max(1_000),
+}).strict();
+export type DynaAnnotationEditInput = z.infer<typeof DynaAnnotationEditInputSchema>;
+
+export const DynaAnnotationDeleteInputSchema = DynaAnnotationMutationBaseSchema;
+export type DynaAnnotationDeleteInput = z.infer<typeof DynaAnnotationDeleteInputSchema>;
+
+export const DynaAnnotationMutationResultSchema = z
+  .object({
+    schema: z.literal("dyna/annotation-mutation-result-v1"),
+    annotationId: z.uuid(),
+    version: z.number().int().positive(),
+    updatedAt: TimestampSchema,
+    deleted: z.boolean(),
+    deduplicated: z.boolean(),
+  })
+  .strict();
+export type DynaAnnotationMutationResult = z.infer<typeof DynaAnnotationMutationResultSchema>;
 
 export const DynaItemContextSchema = DynaMaterializedItemSchema.extend({
   id: z.uuid(),
@@ -1139,7 +1172,7 @@ export type DynaCard = z.infer<typeof DynaCardSchema>;
 
 export const DynaDashboardSnapshotSchema = z
   .object({
-    schema: z.literal("dyna/snapshot-v7"),
+    schema: z.literal("dyna/snapshot-v8"),
     dashboard: DynaDashboardSchema,
     generatedAt: TimestampSchema,
     query: z.string().max(500),
@@ -1165,7 +1198,7 @@ export type DynaDashboardSnapshot = z.infer<typeof DynaDashboardSnapshotSchema>;
 
 export const DynaUiPayloadSchema = z
   .object({
-    schema: z.literal("dyna/ui-v9"),
+    schema: z.literal("dyna/ui-v10"),
     viewToken: z.string().min(32).max(128),
     snapshot: DynaDashboardSnapshotSchema,
   })
@@ -1174,7 +1207,7 @@ export type DynaUiPayload = z.infer<typeof DynaUiPayloadSchema>;
 
 export const DynaItemShowResultSchema = z
   .object({
-    schema: z.literal("dyna/item-show-result-v3"),
+    schema: z.literal("dyna/item-show-result-v4"),
     dashboard: DynaDashboardSchema,
     revision: z.number().int().nonnegative(),
     enrichmentVersion: z.number().int().nonnegative(),

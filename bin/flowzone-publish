@@ -2,11 +2,76 @@
 
 set -eu
 
+FLOWZONE_PUBLISH_TTY_STATE=
+FLOWZONE_PUBLISH_CHILD_PID=
+
+flowzone_publish_restore_tty() {
+  if [ -n "$FLOWZONE_PUBLISH_TTY_STATE" ] && [ -t 0 ]; then
+    /bin/stty "$FLOWZONE_PUBLISH_TTY_STATE" 2>/dev/null || :
+  fi
+}
+
+flowzone_publish_finish() {
+  FLOWZONE_PUBLISH_EXIT_STATUS=$1
+  flowzone_publish_restore_tty
+  trap - 0
+  exit "$FLOWZONE_PUBLISH_EXIT_STATUS"
+}
+
+flowzone_publish_handle_signal() {
+  FLOWZONE_PUBLISH_SIGNAL=$1
+  FLOWZONE_PUBLISH_SIGNAL_STATUS=$2
+  trap - "$FLOWZONE_PUBLISH_SIGNAL"
+  if [ -n "$FLOWZONE_PUBLISH_CHILD_PID" ] && kill -0 "$FLOWZONE_PUBLISH_CHILD_PID" 2>/dev/null; then
+    kill -"$FLOWZONE_PUBLISH_SIGNAL" "$FLOWZONE_PUBLISH_CHILD_PID" 2>/dev/null || :
+    wait "$FLOWZONE_PUBLISH_CHILD_PID" 2>/dev/null || :
+  fi
+  flowzone_publish_finish "$FLOWZONE_PUBLISH_SIGNAL_STATUS"
+}
+
+flowzone_publish_handle_stop() {
+  trap - TSTP
+  flowzone_publish_restore_tty
+  if [ -n "$FLOWZONE_PUBLISH_CHILD_PID" ] && kill -0 "$FLOWZONE_PUBLISH_CHILD_PID" 2>/dev/null; then
+    kill -TERM "$FLOWZONE_PUBLISH_CHILD_PID" 2>/dev/null || :
+    kill -CONT "$FLOWZONE_PUBLISH_CHILD_PID" 2>/dev/null || :
+    wait "$FLOWZONE_PUBLISH_CHILD_PID" 2>/dev/null || :
+  fi
+  flowzone_publish_finish 148
+}
+
+flowzone_publish_run_node() {
+  FLOWZONE_PUBLISH_NODE=$1
+  shift
+  export FLOWZONE_PUBLISH_TTY_STATE
+  "$FLOWZONE_PUBLISH_NODE" "$FLOWZONE_PUBLISHER_PATH" "$@" <&0 &
+  FLOWZONE_PUBLISH_CHILD_PID=$!
+  if wait "$FLOWZONE_PUBLISH_CHILD_PID"; then
+    FLOWZONE_PUBLISH_CHILD_STATUS=0
+  else
+    FLOWZONE_PUBLISH_CHILD_STATUS=$?
+  fi
+  FLOWZONE_PUBLISH_CHILD_PID=
+  flowzone_publish_finish "$FLOWZONE_PUBLISH_CHILD_STATUS"
+}
+
 # Codex scheduled jobs feed the normalized run through a PTY so they can close
 # stdin with EOF. Disable terminal echo before the job writes the payload; the
-# source records must never be copied into terminal/tool output.
+# source records must never be copied into terminal/tool output. Disable
+# canonical line buffering too: a valid bounded snapshot can exceed the
+# platform's terminal line limit. The publisher treats the resulting EOT byte
+# as logical EOF.
 if [ -t 0 ]; then
-  if ! stty -echo -echonl 2>/dev/null; then
+  if ! FLOWZONE_PUBLISH_TTY_STATE=$(/bin/stty -g 2>/dev/null) || [ -z "$FLOWZONE_PUBLISH_TTY_STATE" ]; then
+    echo "FlowZone publish failed: unable to capture terminal input settings" >&2
+    exit 126
+  fi
+  trap 'flowzone_publish_restore_tty' 0
+  trap 'flowzone_publish_handle_signal HUP 129' HUP
+  trap 'flowzone_publish_handle_signal INT 130' INT
+  trap 'flowzone_publish_handle_signal TERM 143' TERM
+  trap 'flowzone_publish_handle_stop' TSTP
+  if ! /bin/stty -echo -echonl -icanon min 1 time 0 2>/dev/null; then
     echo "FlowZone publish failed: unable to disable terminal input echo" >&2
     exit 126
   fi
@@ -25,7 +90,7 @@ if [ -n "${FLOWZONE_NODE_PATH:-}" ]; then
     echo "FlowZone publish failed: FLOWZONE_NODE_PATH is not executable" >&2
     exit 127
   fi
-  exec "$FLOWZONE_NODE_PATH" "$FLOWZONE_PUBLISHER_PATH" "$@"
+  flowzone_publish_run_node "$FLOWZONE_NODE_PATH" "$@"
 fi
 
 for FLOWZONE_NODE_CANDIDATE in \
@@ -35,12 +100,13 @@ for FLOWZONE_NODE_CANDIDATE in \
   "/usr/bin/node"
 do
   if [ -x "$FLOWZONE_NODE_CANDIDATE" ]; then
-    exec "$FLOWZONE_NODE_CANDIDATE" "$FLOWZONE_PUBLISHER_PATH" "$@"
+    flowzone_publish_run_node "$FLOWZONE_NODE_CANDIDATE" "$@"
   fi
 done
 
 if command -v node >/dev/null 2>&1; then
-  exec node "$FLOWZONE_PUBLISHER_PATH" "$@"
+  FLOWZONE_NODE_CANDIDATE=$(command -v node)
+  flowzone_publish_run_node "$FLOWZONE_NODE_CANDIDATE" "$@"
 fi
 
 echo "FlowZone publish failed: Node.js is unavailable; set FLOWZONE_NODE_PATH to a trusted Node.js executable" >&2

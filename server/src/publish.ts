@@ -3,6 +3,7 @@ import {
   DynaScheduledPublishedItemSchema,
 } from "@flowzone/dyna-contracts";
 import { DynaApplicationService, type DynaApplicationActor } from "@flowzone/dyna-node";
+import { spawnSync } from "node:child_process";
 import { z } from "zod";
 
 const MAX_INPUT_BYTES = 256 * 1024;
@@ -23,6 +24,17 @@ const PublishEnvelopeSchema = z
   })
   .strict();
 
+function restoreLauncherTerminal(): void {
+  const state = process.env["FLOWZONE_PUBLISH_TTY_STATE"]?.trim();
+  if (!state || !process.stdin.isTTY) return;
+  spawnSync("/bin/stty", [state], { stdio: [process.stdin, "ignore", "ignore"] });
+}
+
+process.once("SIGTSTP", () => {
+  restoreLauncherTerminal();
+  process.exit(148);
+});
+
 function publisherIdFromArguments(arguments_: readonly string[]): string {
   if (arguments_.length !== 2 || arguments_[0] !== "--publisher") {
     throw new Error("usage");
@@ -39,9 +51,15 @@ async function readBoundedInput(): Promise<string> {
       throw new Error("invalid-input-chunk");
     }
     const bytes = Buffer.from(value);
-    size += bytes.length;
+    const endOfTransmission = process.stdin.isTTY ? bytes.indexOf(0x04) : -1;
+    if (endOfTransmission >= 0 && endOfTransmission !== bytes.length - 1) {
+      throw new Error("invalid-input-after-eot");
+    }
+    const inputBytes = endOfTransmission >= 0 ? bytes.subarray(0, endOfTransmission) : bytes;
+    size += inputBytes.length;
     if (size > MAX_INPUT_BYTES) throw new Error("input-too-large");
-    chunks.push(bytes);
+    chunks.push(inputBytes);
+    if (endOfTransmission >= 0) break;
   }
   return Buffer.concat(chunks).toString("utf8");
 }

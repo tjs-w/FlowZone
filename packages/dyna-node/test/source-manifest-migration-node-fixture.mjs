@@ -105,7 +105,7 @@ try {
   migrated.close();
 
   const versionThree = new DatabaseSync(databasePath, { readOnly: true });
-  assert.equal(versionThree.prepare("PRAGMA user_version").get().user_version, 9);
+  assert.equal(versionThree.prepare("PRAGMA user_version").get().user_version, 10);
   assert.ok(
     versionThree
       .prepare("PRAGMA table_info(publishers)")

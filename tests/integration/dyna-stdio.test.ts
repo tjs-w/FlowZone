@@ -41,10 +41,10 @@ describe("Dyna checked-in Node bundle", () => {
     try {
       const resources = await client.listResources();
       const dynaResource = resources.resources.find(
-        (resource) => resource.uri === "ui://flowzone/dyna/v17.html",
+        (resource) => resource.uri === "ui://flowzone/dyna/v18.html",
       );
       expect(resources.resources.map((resource) => resource.uri)).toContain(
-        "ui://flowzone/dyna/v16.html",
+        "ui://flowzone/dyna/v17.html",
       );
       expect(resources.resources.map((resource) => resource.uri)).toContain(
         "ui://flowzone/dyna/v14.html",
@@ -54,15 +54,15 @@ describe("Dyna checked-in Node bundle", () => {
         csp: { connectDomains: [], resourceDomains: [], frameDomains: [] },
         permissions: { clipboardWrite: {} },
       });
-      const dynaHtml = await client.readResource({ uri: "ui://flowzone/dyna/v17.html" });
+      const dynaHtml = await client.readResource({ uri: "ui://flowzone/dyna/v18.html" });
       const dynaContent = dynaHtml.contents[0];
       expect(dynaContent && "text" in dynaContent ? dynaContent.text : "").toContain(
         'id="dyna-root"',
       );
       const currentLegacyDynaHtml = await client.readResource({
-        uri: "ui://flowzone/dyna/v16.html",
+        uri: "ui://flowzone/dyna/v17.html",
       });
-      expect(currentLegacyDynaHtml.contents[0]?.uri).toBe("ui://flowzone/dyna/v16.html");
+      expect(currentLegacyDynaHtml.contents[0]?.uri).toBe("ui://flowzone/dyna/v17.html");
       const legacyDynaHtml = await client.readResource({ uri: "ui://flowzone/dyna/v14.html" });
       expect(legacyDynaHtml.contents[0]?.uri).toBe("ui://flowzone/dyna/v14.html");
 
@@ -281,7 +281,7 @@ describe("Dyna checked-in Node bundle", () => {
         "The MR is ready for review.",
       );
       const payload = record(record(rendered._meta)["dynaDashboard"]);
-      expect(payload["schema"]).toBe("dyna/ui-v9");
+      expect(payload["schema"]).toBe("dyna/ui-v10");
       expect("spec" in payload).toBe(false);
       const viewToken = payload["viewToken"];
       const snapshot = record(payload["snapshot"]);
@@ -332,9 +332,9 @@ describe("Dyna checked-in Node bundle", () => {
         name: "dyna_add_annotation",
         arguments: annotationArguments,
       });
-      expect(record(retriedAnnotation.structuredContent)["annotationId"]).toBe(
-        record(addedAnnotation.structuredContent)["annotationId"],
-      );
+      const annotationId = record(addedAnnotation.structuredContent)["annotationId"];
+      if (typeof annotationId !== "string") throw new Error("Missing Dyna annotation id");
+      expect(record(retriedAnnotation.structuredContent)["annotationId"]).toBe(annotationId);
       const conflictingAnnotation = await client.callTool({
         name: "dyna_add_annotation",
         arguments: { ...annotationArguments, body: "Different note content." },
@@ -432,7 +432,7 @@ describe("Dyna checked-in Node bundle", () => {
         arguments: { viewToken },
       });
       const refreshedPayload = record(record(refreshed._meta)["dynaDashboard"]);
-      expect(refreshedPayload["schema"]).toBe("dyna/ui-v9");
+      expect(refreshedPayload["schema"]).toBe("dyna/ui-v10");
       expect("spec" in refreshedPayload).toBe(false);
       const refreshedSnapshot = record(refreshedPayload["snapshot"]);
       expect(record(refreshedSnapshot["counts"])["critical"]).toBe(1);
@@ -648,6 +648,57 @@ describe("Dyna checked-in Node bundle", () => {
       expect(JSON.stringify(claimedItem["annotations"])).toContain(
         "Create a new Codex task to review this MR.",
       );
+      const editRequestId = "23c1a320-09c8-4ec4-93a1-daedec53aaad";
+      const editArguments = {
+        viewToken,
+        itemId,
+        annotationId,
+        clientRequestId: editRequestId,
+        expectedVersion: 1,
+        body: "Create a Codex task to review this release MR.",
+      };
+      const editedAnnotation = await client.callTool({
+        name: "dyna_edit_annotation",
+        arguments: editArguments,
+      });
+      expect(record(editedAnnotation.structuredContent)).toMatchObject({
+        annotationId,
+        version: 2,
+        deleted: false,
+        deduplicated: false,
+      });
+      const replayedEdit = await client.callTool({
+        name: "dyna_edit_annotation",
+        arguments: editArguments,
+      });
+      expect(record(replayedEdit.structuredContent)["deduplicated"]).toBe(true);
+      const staleEdit = await client.callTool({
+        name: "dyna_edit_annotation",
+        arguments: { ...editArguments, clientRequestId: randomUUID() },
+      });
+      expect(staleEdit.isError).toBe(true);
+      const deleteArguments = {
+        viewToken,
+        itemId,
+        annotationId,
+        clientRequestId: "9733bdea-2ea5-4f17-a10a-6191ca19c36b",
+        expectedVersion: 2,
+      };
+      const deletedAnnotation = await client.callTool({
+        name: "dyna_delete_annotation",
+        arguments: deleteArguments,
+      });
+      expect(record(deletedAnnotation.structuredContent)).toMatchObject({
+        annotationId,
+        version: 3,
+        deleted: true,
+        deduplicated: false,
+      });
+      const replayedDelete = await client.callTool({
+        name: "dyna_delete_annotation",
+        arguments: deleteArguments,
+      });
+      expect(record(replayedDelete.structuredContent)["deduplicated"]).toBe(true);
       const claimToken = claim["claimToken"];
       expect(typeof claimToken).toBe("string");
       const replay = await client.callTool({

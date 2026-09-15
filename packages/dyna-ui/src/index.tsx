@@ -76,6 +76,7 @@ const CheckSquare = dynaIcon(
 const ChevronRight = dynaIcon("m6 3 5 5-5 5");
 const Copy = dynaIcon("M5 5h9v9H5zM2 11V2h9");
 const ExternalLink = dynaIcon("M9 2h5v5m0-5L7 9m5 0v5H2V4h5");
+const MoreHorizontal = dynaIcon("M3 8h.01M8 8h.01M13 8h.01");
 const Plus = dynaIcon("M8 3v10M3 8h10");
 const RefreshCw = dynaIcon("M13 4V1h-3m2 2a6 6 0 1 0 2 6");
 const RestoreUntrash = dynaIcon("M3 8a5 5 0 1 0 2-4M3 2v4h4");
@@ -110,6 +111,14 @@ interface DynaBulkPlacementItem {
   readonly expectedFingerprint: string;
 }
 
+interface DynaAnnotationView {
+  readonly id: string;
+  readonly body: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly version: number;
+}
+
 type DynaHostContext = McpUiHostContext & {
   readonly locale?: string;
   readonly timeZone?: string;
@@ -121,6 +130,9 @@ type DynaHostContext = McpUiHostContext & {
 
 interface DynaUiController {
   annotate(itemId: string, trigger: HTMLElement): void;
+  openAnnotationActions(itemId: string, annotation: DynaAnnotationView, trigger: HTMLElement): void;
+  editAnnotation(itemId: string, annotation: DynaAnnotationView, trigger: HTMLElement): void;
+  deleteAnnotation(itemId: string, annotation: DynaAnnotationView, trigger: HTMLElement): void;
   closeDetails(): void;
   openDetails(itemId: string, trigger: HTMLElement): Promise<void>;
   startTodo(
@@ -208,6 +220,7 @@ interface DynaUiController {
   readonly query: string;
   readonly selectedItemId: string | undefined;
   readonly serverQuery: string;
+  readonly annotationActionId: string | undefined;
   readonly sourceFilter: string;
   readonly workflowFilter: WorkflowFilter;
   readonly externalLinks: boolean;
@@ -851,10 +864,7 @@ type CardViewProps = Omit<DynaCard, "id" | "annotations" | "linkedTasks"> &
     readonly dashboardName: string;
     readonly itemId: string;
     readonly searchText: string;
-    readonly annotationPreview: readonly {
-      readonly body: string;
-      readonly createdAt: string;
-    }[];
+    readonly annotations: readonly DynaAnnotationView[];
     readonly actions: readonly ActionDescriptor[];
     readonly linkedTasks: readonly DynaTask[];
     readonly workflowStage: WorkflowStage;
@@ -863,7 +873,7 @@ type CardViewProps = Omit<DynaCard, "id" | "annotations" | "linkedTasks"> &
     readonly sourceUrl?: string;
   };
 
-type DynaContextMenuKind = "selection" | "link" | "item" | "task" | "dashboard";
+type DynaContextMenuKind = "selection" | "link" | "item" | "task" | "note" | "dashboard";
 
 interface DynaContextMenuState {
   readonly kind: DynaContextMenuKind;
@@ -877,6 +887,7 @@ interface DynaContextMenuState {
   readonly selection?: string;
   readonly taskId?: string;
   readonly taskHostId?: string;
+  readonly annotation?: DynaAnnotationView;
 }
 
 function contextSelection(
@@ -1288,6 +1299,39 @@ function RefreshControl() {
   );
 }
 
+function NoteActions({
+  itemId,
+  annotation,
+}: {
+  readonly itemId: string;
+  readonly annotation: DynaAnnotationView;
+}) {
+  const controller = useController();
+  const timestamp = exactDateTime(annotation.createdAt, controller.locale);
+  const disabled = controller.busy || controller.blocked;
+  return (
+    <Button
+      className="dyna-note-menu-trigger"
+      data-dyna-annotation-item={itemId}
+      color="secondary"
+      size="xs"
+      variant="ghost"
+      uniform
+      aria-label={`Actions for note from ${timestamp}`}
+      aria-haspopup="menu"
+      aria-expanded={controller.annotationActionId === annotation.id}
+      title="Note actions"
+      disabled={disabled}
+      onClick={(event) => {
+        event.stopPropagation();
+        controller.openAnnotationActions(itemId, annotation, event.currentTarget);
+      }}
+    >
+      <MoreHorizontal className="dyna-icon" aria-hidden="true" />
+    </Button>
+  );
+}
+
 function InspectorActions({ card }: { readonly card: CardViewProps }) {
   const controller = useController();
   const primaryAction = card.actions.find(
@@ -1523,6 +1567,26 @@ function DynaContextMenu({
     add("copy-link", "Copy link", () => {
       void onCopy(state.linkUrl ?? "", "Link copied.");
     });
+  } else if (state.kind === "note" && card && state.annotation) {
+    const annotation = state.annotation;
+    add(
+      "edit-note",
+      "Edit note",
+      () => {
+        controller.editAnnotation(card.itemId, annotation, state.invoker);
+      },
+      controller.busy || controller.blocked,
+    );
+    divide();
+    add(
+      "delete-note",
+      "Delete note…",
+      () => {
+        controller.deleteAnnotation(card.itemId, annotation, state.invoker);
+      },
+      controller.busy || controller.blocked,
+      true,
+    );
   } else if (state.kind === "task" && card && task) {
     add(
       "open-task",
@@ -1712,9 +1776,11 @@ function DynaContextMenu({
         ? "Link actions"
         : state.kind === "task"
           ? `Actions for ${task?.title ?? "Codex task"}`
-          : state.kind === "item"
-            ? `Actions for ${card?.title ?? "item"}`
-            : "Dashboard actions";
+          : state.kind === "note"
+            ? "Note actions"
+            : state.kind === "item"
+              ? `Actions for ${card?.title ?? "item"}`
+              : "Dashboard actions";
   return createPortal(
     <div className="dyna-context-layer" role="region" aria-label="Context actions">
       <div
@@ -2917,6 +2983,7 @@ const dynaComponents: DynaComponentCatalog = {
     const controller = useController();
     const rowMoveTrigger = useRef<HTMLElement | null>(null);
     const [dropActive, setDropActive] = useState(false);
+    const [showAllNotes, setShowAllNotes] = useState(false);
     const presentation = controller.view;
     const selected = controller.selectedItemId === props.itemId;
     const inspectorTitleId = `dyna-inspector-title-${props.itemId}`;
@@ -2983,6 +3050,7 @@ const dynaComponents: DynaComponentCatalog = {
           : props.priority === "normal"
             ? "info"
             : "secondary";
+    const visibleAnnotations = showAllNotes ? props.annotations : props.annotations.slice(0, 3);
     return (
       <article
         className="dyna-card"
@@ -3428,19 +3496,41 @@ const dynaComponents: DynaComponentCatalog = {
                   </div>
                 </div>
               </details>
-              {props.annotationPreview.length > 0 ? (
+              {props.annotations.length > 0 ? (
                 <section className="dyna-inspector-section">
-                  <h3>Recent Notes</h3>
-                  <ul className="dyna-note-list" aria-label="Recent Notes">
-                    {props.annotationPreview.map((note, index) => (
-                      <li key={`${index}-${note.createdAt}-${note.body}`}>
-                        <time dateTime={note.createdAt} title={note.createdAt}>
-                          {exactDateTime(note.createdAt, controller.locale)}
-                        </time>
-                        <span>{note.body}</span>
+                  <h3>Notes</h3>
+                  <ul className="dyna-note-list" aria-label="Notes">
+                    {visibleAnnotations.map((note) => (
+                      <li key={note.id} data-dyna-note-id={note.id}>
+                        <div className="dyna-note-meta">
+                          <time dateTime={note.createdAt} title={note.createdAt}>
+                            {exactDateTime(note.createdAt, controller.locale)}
+                          </time>
+                          {note.updatedAt !== note.createdAt ? (
+                            <span title={exactDateTime(note.updatedAt, controller.locale)}>
+                              Edited {relativeTime(note.updatedAt, controller.locale)}
+                            </span>
+                          ) : null}
+                          <NoteActions itemId={props.itemId} annotation={note} />
+                        </div>
+                        <p>{note.body}</p>
                       </li>
                     ))}
                   </ul>
+                  {props.annotations.length > 3 ? (
+                    <button
+                      type="button"
+                      className="dyna-notes-toggle"
+                      aria-expanded={showAllNotes}
+                      onClick={() => {
+                        setShowAllNotes((visible) => !visible);
+                      }}
+                    >
+                      {showAllNotes
+                        ? "Show recent notes"
+                        : `Show all ${String(props.annotations.length)} notes`}
+                    </button>
+                  ) : null}
                 </section>
               ) : null}
             </div>
@@ -3806,11 +3896,12 @@ function workPrompt(card: CardViewProps, locale: string): string {
       ),
     );
   }
-  if (card.annotationPreview.length > 0) {
+  const promptAnnotations = card.annotations.slice(0, 3);
+  if (promptAnnotations.length > 0) {
     contextLines.push(
       "",
       "Recent notes:",
-      ...card.annotationPreview.map(
+      ...promptAnnotations.map(
         (note) => `- ${exactDateTime(note.createdAt, locale)} — ${note.body}`,
       ),
     );
@@ -4397,9 +4488,12 @@ function cardViewProps(
     dashboardName: dashboard.name,
     itemId: id,
     searchText: cardSearchText(card),
-    annotationPreview: annotations.slice(0, 3).map((annotation) => ({
+    annotations: annotations.map((annotation) => ({
+      id: annotation.id,
       body: annotation.body,
       createdAt: annotation.createdAt,
+      updatedAt: annotation.updatedAt,
+      version: annotation.version,
     })),
     actions: cardActions(cardWithUx, selection),
     linkedTasks,
@@ -4750,6 +4844,12 @@ function DynaApp({ app }: { readonly app: App }) {
   const [payload, setPayload] = useState<DynaUiPayload>();
   const [annotationItem, setAnnotationItem] = useState<string>();
   const [annotation, setAnnotation] = useState("");
+  const [annotationEditTarget, setAnnotationEditTarget] = useState<DynaAnnotationView>();
+  const [annotationDeleteTarget, setAnnotationDeleteTarget] = useState<{
+    readonly itemId: string;
+    readonly annotation: DynaAnnotationView;
+    readonly clientRequestId: string;
+  }>();
   const [todoOpen, setTodoOpen] = useState(false);
   const [todoTitle, setTodoTitle] = useState("");
   const [todoSummary, setTodoSummary] = useState("");
@@ -4842,6 +4942,7 @@ function DynaApp({ app }: { readonly app: App }) {
   const restoreRequestIds = useRef(new Map<string, string>());
   const statusRequestIds = useRef(new Map<string, string>());
   const annotationTrigger = useRef<HTMLElement | null>(null);
+  const annotationDeleteTrigger = useRef<HTMLElement | null>(null);
   const detailTrigger = useRef<HTMLElement | null>(null);
   const todoTrigger = useRef<HTMLElement | null>(null);
   const archiveTrigger = useRef<HTMLElement | null>(null);
@@ -4861,6 +4962,7 @@ function DynaApp({ app }: { readonly app: App }) {
   contextMenuRef.current = contextMenu;
   const backgroundLocked =
     annotationItem !== undefined ||
+    annotationDeleteTarget !== undefined ||
     todoOpen ||
     archiveTarget !== undefined ||
     restoreTarget !== undefined ||
@@ -4981,6 +5083,7 @@ function DynaApp({ app }: { readonly app: App }) {
       const inspector = Boolean(target.closest(".dyna-inspector"));
       const cardElement = target.closest<HTMLElement>(".dyna-card");
       const taskElement = target.closest<HTMLElement>(".dyna-task[data-dyna-task-id]");
+      const noteElement = target.closest<HTMLElement>("[data-dyna-note-id]");
       const itemId =
         taskElement?.dataset["dynaItemId"] ??
         cardElement?.dataset["itemId"] ??
@@ -5014,6 +5117,26 @@ function DynaApp({ app }: { readonly app: App }) {
       if (linkUrl) {
         show("link", { linkUrl });
         return true;
+      }
+      if (noteElement && itemId) {
+        const annotationId = noteElement.dataset["dynaNoteId"];
+        const source = current.current.snapshot.cards
+          .find((candidate) => candidate.id === itemId)
+          ?.annotations.find((candidate) => candidate.id === annotationId);
+        if (source) {
+          show("note", {
+            itemId,
+            inspector: true,
+            annotation: {
+              id: source.id,
+              body: source.body,
+              createdAt: source.createdAt,
+              updatedAt: source.updatedAt,
+              version: source.version,
+            },
+          });
+          return true;
+        }
       }
       const control = target.closest("button, select, summary");
       if (taskElement && (!control || keyboard) && itemId) {
@@ -5648,10 +5771,20 @@ function DynaApp({ app }: { readonly app: App }) {
 
   const closeAnnotation = useCallback(() => {
     setAnnotation("");
+    setAnnotationEditTarget(undefined);
     setAnnotationItem(undefined);
+    setOperationError(undefined);
     annotationRequestId.current = crypto.randomUUID();
     window.setTimeout(() => {
       annotationTrigger.current?.focus();
+    }, 0);
+  }, []);
+
+  const closeAnnotationDelete = useCallback(() => {
+    setAnnotationDeleteTarget(undefined);
+    setOperationError(undefined);
+    window.setTimeout(() => {
+      annotationDeleteTrigger.current?.focus();
     }, 0);
   }, []);
 
@@ -5972,7 +6105,14 @@ function DynaApp({ app }: { readonly app: App }) {
   }, [busy, payload, todoOpen]);
 
   useEffect(() => {
-    if (!annotationItem && !todoOpen && !archiveTarget && !restoreTarget && !completionTarget)
+    if (
+      !annotationItem &&
+      !annotationDeleteTarget &&
+      !todoOpen &&
+      !archiveTarget &&
+      !restoreTarget &&
+      !completionTarget
+    )
       return;
     const modal = dialog.current;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -5980,6 +6120,7 @@ function DynaApp({ app }: { readonly app: App }) {
       if (event.key === "Escape") {
         event.preventDefault();
         if (annotationItem) closeAnnotation();
+        else if (annotationDeleteTarget) closeAnnotationDelete();
         else if (archiveTarget) closeArchive();
         else if (restoreTarget) closeRestore();
         else if (completionTarget) closeCompletion();
@@ -6005,8 +6146,10 @@ function DynaApp({ app }: { readonly app: App }) {
     };
   }, [
     annotationItem,
+    annotationDeleteTarget,
     archiveTarget,
     closeAnnotation,
+    closeAnnotationDelete,
     closeArchive,
     closeCompletion,
     closeRestore,
@@ -6270,6 +6413,7 @@ function DynaApp({ app }: { readonly app: App }) {
       inspectorPresentation: wideLayout ? "split" : "route",
       modalOpen:
         annotationItem !== undefined ||
+        annotationDeleteTarget !== undefined ||
         todoOpen ||
         archiveTarget !== undefined ||
         restoreTarget !== undefined ||
@@ -6285,6 +6429,7 @@ function DynaApp({ app }: { readonly app: App }) {
       priorityFilter,
       query,
       serverQuery: payload?.snapshot.query ?? "",
+      annotationActionId: contextMenu?.kind === "note" ? contextMenu.annotation?.id : undefined,
       selectedItemId,
       sourceFilter,
       workflowFilter,
@@ -6329,7 +6474,40 @@ function DynaApp({ app }: { readonly app: App }) {
       annotate(itemId, trigger) {
         annotationTrigger.current = trigger;
         annotationRequestId.current = crypto.randomUUID();
+        setOperationError(undefined);
+        setAnnotation("");
+        setAnnotationEditTarget(undefined);
         setAnnotationItem(itemId);
+      },
+      openAnnotationActions(itemId, target, trigger) {
+        const rect = trigger.getBoundingClientRect();
+        setContextMenu({
+          kind: "note",
+          x: rect.right,
+          y: rect.bottom,
+          invoker: trigger,
+          keyboard: true,
+          itemId,
+          inspector: true,
+          annotation: target,
+        });
+      },
+      editAnnotation(itemId, target, trigger) {
+        annotationTrigger.current = trigger;
+        annotationRequestId.current = crypto.randomUUID();
+        setOperationError(undefined);
+        setAnnotation(target.body);
+        setAnnotationEditTarget(target);
+        setAnnotationItem(itemId);
+      },
+      deleteAnnotation(itemId, target, trigger) {
+        annotationDeleteTrigger.current = trigger;
+        setOperationError(undefined);
+        setAnnotationDeleteTarget({
+          itemId,
+          annotation: target,
+          clientRequestId: crypto.randomUUID(),
+        });
       },
       startTodo(trigger, title = "", summary = "", followUpOfItemId) {
         todoTrigger.current = trigger;
@@ -6635,6 +6813,7 @@ function DynaApp({ app }: { readonly app: App }) {
     [
       app,
       annotationItem,
+      annotationDeleteTarget,
       archiveTarget,
       bulkMode,
       bulkSelectedIds,
@@ -6642,6 +6821,7 @@ function DynaApp({ app }: { readonly app: App }) {
       busy,
       canExpand,
       connectionError,
+      contextMenu,
       hostCapabilities,
       displayMode,
       desktopInlineLayout,
@@ -6688,10 +6868,12 @@ function DynaApp({ app }: { readonly app: App }) {
 
   async function saveAnnotation(): Promise<void> {
     const active = current.current;
+    const nextBody = annotation.trim();
     if (
       !active ||
       !annotationItem ||
-      !annotation.trim() ||
+      !nextBody ||
+      nextBody === annotationEditTarget?.body ||
       busy ||
       connectionError ||
       !hostCapabilitiesRef.current.serverTools
@@ -6701,23 +6883,70 @@ function DynaApp({ app }: { readonly app: App }) {
     setBusy(true);
     try {
       const result = await app.callServerTool({
-        name: "dyna_add_annotation",
-        arguments: {
-          viewToken: active.viewToken,
-          itemId: annotationItem,
-          clientRequestId: annotationRequestId.current,
-          body: annotation.trim(),
-        },
+        name: annotationEditTarget ? "dyna_edit_annotation" : "dyna_add_annotation",
+        arguments: annotationEditTarget
+          ? {
+              viewToken: active.viewToken,
+              itemId: annotationItem,
+              annotationId: annotationEditTarget.id,
+              clientRequestId: annotationRequestId.current,
+              expectedVersion: annotationEditTarget.version,
+              body: nextBody,
+            }
+          : {
+              viewToken: active.viewToken,
+              itemId: annotationItem,
+              clientRequestId: annotationRequestId.current,
+              body: nextBody,
+            },
       });
       if (toolResultFailed(result)) throw new Error("Annotation save failed.");
+      const edited = Boolean(annotationEditTarget);
       annotationRequestId.current = crypto.randomUUID();
       setAnnotation("");
+      setAnnotationEditTarget(undefined);
       annotationFocusAfterSave.current = annotationItem;
       setAnnotationItem(undefined);
-      setToast("Note added.");
+      setToast(edited ? "Note updated." : "Note added.");
       await refresh(true);
     } catch {
-      setOperationError("Could not save the note. Reconnect to the Remote host and try again.");
+      setOperationError(
+        annotationEditTarget
+          ? "Could not save changes. The note may have changed in another session; refresh and try again."
+          : "Could not save the note. Reconnect to the Remote host and try again.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function executeAnnotationDelete(): Promise<void> {
+    const active = current.current;
+    const target = annotationDeleteTarget;
+    if (!active || !target || busy || connectionError || !hostCapabilitiesRef.current.serverTools)
+      return;
+    setOperationError(undefined);
+    setBusy(true);
+    try {
+      const result = await app.callServerTool({
+        name: "dyna_delete_annotation",
+        arguments: {
+          viewToken: active.viewToken,
+          itemId: target.itemId,
+          annotationId: target.annotation.id,
+          clientRequestId: target.clientRequestId,
+          expectedVersion: target.annotation.version,
+        },
+      });
+      if (toolResultFailed(result)) throw new Error("Annotation deletion failed.");
+      annotationFocusAfterSave.current = target.itemId;
+      setAnnotationDeleteTarget(undefined);
+      setToast("Note deleted.");
+      await refresh(true);
+    } catch {
+      setOperationError(
+        "Could not delete the note. It may have changed in another session; refresh and try again.",
+      );
     } finally {
       setBusy(false);
     }
@@ -6796,6 +7025,7 @@ function DynaApp({ app }: { readonly app: App }) {
     : undefined;
   const dashboardUnavailable =
     annotationItem !== undefined ||
+    annotationDeleteTarget !== undefined ||
     todoOpen ||
     archiveTarget !== undefined ||
     restoreTarget !== undefined ||
@@ -6834,7 +7064,7 @@ function DynaApp({ app }: { readonly app: App }) {
           />
         </div>
       ) : null}
-      {operationError ? (
+      {operationError && !annotationItem && !annotationDeleteTarget ? (
         <Alert
           className="dyna-alert"
           color="danger"
@@ -6873,9 +7103,14 @@ function DynaApp({ app }: { readonly app: App }) {
             }}
           >
             <div className="dyna-sheet-header">
-              <h2 id="annotation-title">Add Note</h2>
+              <h2 id="annotation-title">{annotationEditTarget ? "Edit Note" : "Add Note"}</h2>
             </div>
             <div className="dyna-sheet-body">
+              {operationError ? (
+                <p className="dyna-modal-error" role="alert">
+                  {operationError}
+                </p>
+              ) : null}
               <label htmlFor="dyna-annotation">Note</label>
               <Textarea
                 id="dyna-annotation"
@@ -6894,14 +7129,21 @@ function DynaApp({ app }: { readonly app: App }) {
                     return;
                   }
                   event.preventDefault();
-                  if (annotation.trim() && !busy && !connectionError) {
+                  if (
+                    annotation.trim() &&
+                    annotation.trim() !== annotationEditTarget?.body &&
+                    !busy &&
+                    !connectionError
+                  ) {
                     event.currentTarget.form?.requestSubmit();
                   }
                 }}
                 autoFocus
               />
               <p id="dyna-annotation-help" className="dyna-field-help">
-                Enter to add note · Shift+Enter for a new line
+                {annotationEditTarget
+                  ? "Enter to save · Shift+Enter for a new line"
+                  : "Enter to add note · Shift+Enter for a new line"}
               </p>
             </div>
             <div className="dyna-sheet-actions">
@@ -6919,12 +7161,69 @@ function DynaApp({ app }: { readonly app: App }) {
                 color="primary"
                 size="sm"
                 loading={busy}
-                disabled={!annotation.trim() || Boolean(connectionError) || busy}
+                disabled={
+                  !annotation.trim() ||
+                  Boolean(connectionError) ||
+                  busy ||
+                  annotation.trim() === annotationEditTarget?.body
+                }
               >
-                Save note
+                {annotationEditTarget ? "Save changes" : "Save note"}
               </Button>
             </div>
           </form>
+        </div>
+      ) : null}
+      {annotationDeleteTarget ? (
+        <div
+          ref={dialog}
+          className="dyna-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="annotation-delete-title"
+          aria-describedby="annotation-delete-description"
+        >
+          <div className="dyna-sheet dyna-confirm-sheet">
+            <div className="dyna-sheet-header">
+              <h2 id="annotation-delete-title">Delete Note?</h2>
+              <p>{exactDateTime(annotationDeleteTarget.annotation.createdAt, locale)}</p>
+            </div>
+            <div className="dyna-sheet-body">
+              {operationError ? (
+                <p className="dyna-modal-error" role="alert">
+                  {operationError}
+                </p>
+              ) : null}
+              <p id="annotation-delete-description" className="dyna-modal-note">
+                This removes the note from this item. This can’t be undone.
+              </p>
+              <blockquote className="dyna-note-delete-preview">
+                {compactLine(annotationDeleteTarget.annotation.body, 160)}
+              </blockquote>
+            </div>
+            <div className="dyna-sheet-actions">
+              <Button
+                type="button"
+                color="secondary"
+                size="sm"
+                variant="ghost"
+                onClick={closeAnnotationDelete}
+                autoFocus
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                color="danger"
+                size="sm"
+                loading={busy}
+                disabled={Boolean(connectionError) || busy}
+                onClick={() => void executeAnnotationDelete()}
+              >
+                Delete note
+              </Button>
+            </div>
+          </div>
         </div>
       ) : null}
       {todoOpen ? (

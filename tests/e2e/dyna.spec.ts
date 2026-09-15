@@ -360,6 +360,157 @@ test("adds an annotation and sends only an opaque Codex action request", async (
   expect(message).not.toContain("Create a new Codex task");
 });
 
+test("edits and deletes an exact note through compact guarded actions", async ({ page }) => {
+  await page.goto("/dyna?note-actions=1");
+  await expect(page.getByRole("heading", { name: "Executive Brief", level: 1 })).toBeVisible();
+  await openDetails(page, "Review the release merge request");
+
+  const originalBody = "Confirm the release owner before approval.";
+  const editedBody =
+    "Confirm the release owner and deployment window.\nCapture the approval decision.";
+  const originalNote = page.locator(".dyna-note-list li").filter({ hasText: originalBody });
+  await expect(originalNote).toBeVisible();
+  const noteActions = originalNote.getByRole("button", { name: /^Actions for note from /u });
+  await expect(originalNote.getByRole("button")).toHaveCount(1);
+  await expect(page.getByRole("menuitem", { name: "Edit note" })).toBeHidden();
+  await expect(page.getByRole("menuitem", { name: "Delete note…" })).toBeHidden();
+  await expect(noteActions).toBeEnabled();
+  await expect(noteActions).toHaveAttribute("aria-haspopup", "menu");
+  await expect(noteActions).toHaveAttribute("aria-expanded", "false");
+  expect(await touchTargetViolations(page, ".dyna-note-list")).toEqual([]);
+
+  const selectedContextMenu = await originalNote.locator("p").evaluate((node) => {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    const rect = range.getBoundingClientRect();
+    const allowed = node.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2,
+      }),
+    );
+    return { allowed, selected: selection?.toString() ?? "" };
+  });
+  expect(selectedContextMenu).toEqual({ allowed: false, selected: originalBody });
+  const selectionMenu = page.getByRole("menu", { name: "Selected text actions" });
+  await expect(selectionMenu.getByRole("menuitem")).toHaveText(["Copy selected text"]);
+  await selectionMenu.getByRole("menuitem", { name: "Copy selected text" }).click();
+  expect(
+    await page.evaluate(() =>
+      (
+        window as typeof window & { __dynaHost?: { clipboardWrites?: string[] } }
+      ).__dynaHost?.clipboardWrites?.at(-1),
+    ),
+  ).toBe(originalBody);
+  await page.evaluate(() => window.getSelection()?.removeAllRanges());
+
+  await noteActions.click();
+  await expect(noteActions).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("menuitem", { name: "Edit note" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Delete note…" })).toBeVisible();
+  await page.getByRole("menuitem", { name: "Edit note" }).click();
+
+  const editDialog = page.getByRole("dialog", { name: "Edit Note" });
+  const editor = editDialog.getByRole("textbox", { name: "Note" });
+  await expect(editor).toBeFocused();
+  await expect(editor).toHaveValue(originalBody);
+  await expect(editDialog).toContainText("Enter to save · Shift+Enter for a new line");
+  await editor.fill("Confirm the release owner and deployment window.");
+  await editor.press("Shift+Enter");
+  await editor.pressSequentially("Capture the approval decision.");
+  await expect(editor).toHaveValue(editedBody);
+  const editAccessibility = await new AxeBuilder({ page }).analyze();
+  expect(editAccessibility.violations).toEqual([]);
+  await editor.press("Enter");
+  await expect(editDialog).toBeHidden();
+  await expect(page.locator(".dyna-toast")).toContainText("Note updated.");
+
+  const editedNote = page.locator(".dyna-note-list li").filter({ hasText: editedBody });
+  await expect(editedNote).toBeVisible();
+  await expect(originalNote).toHaveCount(0);
+  const editCalls = await page.evaluate(() => {
+    const host = window as typeof window & {
+      __dynaHost?: {
+        toolCalls?: { name?: string; arguments?: Readonly<Record<string, unknown>> }[];
+      };
+    };
+    return (
+      host.__dynaHost?.toolCalls
+        ?.filter((call) => call.name === "dyna_edit_annotation")
+        .map((call) => call.arguments) ?? []
+    );
+  });
+  expect(editCalls).toHaveLength(1);
+  expect(Object.keys(editCalls[0] ?? {}).sort()).toEqual([
+    "annotationId",
+    "body",
+    "clientRequestId",
+    "expectedVersion",
+    "itemId",
+    "viewToken",
+  ]);
+  expect(editCalls[0]).toMatchObject({ body: editedBody, expectedVersion: 1 });
+  expect(editCalls[0]?.["viewToken"]).toMatch(/^[A-Za-z0-9_-]{32,128}$/u);
+  expect(editCalls[0]?.["itemId"]).toMatch(/^[0-9a-f-]{36}$/u);
+  expect(editCalls[0]?.["annotationId"]).toMatch(/^[0-9a-f-]{36}$/u);
+  expect(editCalls[0]?.["clientRequestId"]).toMatch(/^[0-9a-f-]{36}$/u);
+
+  const editedActions = editedNote.getByRole("button", { name: /^Actions for note from /u });
+  await editedActions.click();
+  await page.getByRole("menuitem", { name: "Delete note…" }).click();
+  const deleteDialog = page.getByRole("dialog", { name: "Delete Note?" });
+  await expect(deleteDialog).toContainText("Confirm the release owner and deployment window.");
+  await expect(deleteDialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+  await expect(page.locator(".dyna").locator("xpath=..")).toHaveAttribute("aria-hidden", "true");
+  const deleteAccessibility = await new AxeBuilder({ page }).analyze();
+  expect(deleteAccessibility.violations).toEqual([]);
+  await deleteDialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(deleteDialog).toBeHidden();
+  await expect(editedNote).toBeVisible();
+
+  await editedActions.click();
+  await page.getByRole("menuitem", { name: "Delete note…" }).click();
+  await page
+    .getByRole("dialog", { name: "Delete Note?" })
+    .getByRole("button", { name: "Delete note", exact: true })
+    .click();
+  await expect(page.getByRole("dialog", { name: "Delete Note?" })).toBeHidden();
+  await expect(page.locator(".dyna-toast")).toContainText("Note deleted.");
+  await expect(editedNote).toHaveCount(0);
+
+  const deleteCalls = await page.evaluate(() => {
+    const host = window as typeof window & {
+      __dynaHost?: {
+        toolCalls?: { name?: string; arguments?: Readonly<Record<string, unknown>> }[];
+      };
+    };
+    return (
+      host.__dynaHost?.toolCalls
+        ?.filter((call) => call.name === "dyna_delete_annotation")
+        .map((call) => call.arguments) ?? []
+    );
+  });
+  expect(deleteCalls).toHaveLength(1);
+  expect(Object.keys(deleteCalls[0] ?? {}).sort()).toEqual([
+    "annotationId",
+    "clientRequestId",
+    "expectedVersion",
+    "itemId",
+    "viewToken",
+  ]);
+  expect(deleteCalls[0]).toMatchObject({
+    annotationId: editCalls[0]?.["annotationId"],
+    itemId: editCalls[0]?.["itemId"],
+    expectedVersion: 2,
+  });
+  expect(deleteCalls[0]?.["clientRequestId"]).toMatch(/^[0-9a-f-]{36}$/u);
+});
+
 test("loads recent Codex sessions on demand and associates the exact selection", async ({
   page,
 }) => {
@@ -4184,7 +4335,7 @@ test("reports a rejected action preparation as definitely unsent", async ({ page
 test("falls back to an honest read-only dashboard without server-tool capability", async ({
   page,
 }) => {
-  await page.goto("/dyna?no-server-tools=1&many-items=1&inline-only=1");
+  await page.goto("/dyna?no-server-tools=1&many-items=1&inline-only=1&note-actions=1");
   await expect(page.getByRole("status", { name: "Read-only host notice" })).toContainText(
     "Dashboard is read-only",
   );
@@ -4198,6 +4349,8 @@ test("falls back to an honest read-only dashboard without server-tool capability
   await expect(page.locator('.dyna-visually-hidden[role="status"]')).toHaveText("1 matching item.");
   await openDetails(page, "Review the release merge request");
   await expect(page.getByRole("button", { name: "Add note" })).toBeDisabled();
+  await expect(page.getByText("Confirm the release owner before approval.")).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Actions for note from /u })).toBeDisabled();
   await expect(page.getByRole("link", { name: "Open source", exact: true })).toBeEnabled();
   await expect(page.getByRole("button", { name: "Start in Codex" })).toBeDisabled();
 });

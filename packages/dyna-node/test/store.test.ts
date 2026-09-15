@@ -365,6 +365,12 @@ describe("DynaStore lifecycle", () => {
       conflictRejected: true,
       scoped: true,
       membershipRace: true,
+      optimisticEdit: true,
+      sharedDashboardEdit: true,
+      softDelete: true,
+      appendOnlyEvents: true,
+      v9MigrationReplay: true,
+      corruptV10Rejected: true,
     });
   });
 

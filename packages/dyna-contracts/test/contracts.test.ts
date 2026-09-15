@@ -3,6 +3,10 @@ import { describe, expect, test } from "bun:test";
 import {
   DynaArtifactRefSchema,
   DynaActionKindSchema,
+  DynaAnnotationDeleteInputSchema,
+  DynaAnnotationEditInputSchema,
+  DynaAnnotationMutationResultSchema,
+  DynaAnnotationSchema,
   DynaCodexSessionCandidatesSchema,
   DynaPublishSourceSlicesSchema,
   DynaPublisherSchema,
@@ -49,10 +53,10 @@ describe("Dyna executive signal contracts", () => {
   test("accepts only the versioned snapshot-only UI payload", () => {
     const timestamp = "2026-09-04T12:00:00.000Z";
     const payload = {
-      schema: "dyna/ui-v9",
+      schema: "dyna/ui-v10",
       viewToken: "v".repeat(32),
       snapshot: {
-        schema: "dyna/snapshot-v7",
+        schema: "dyna/snapshot-v8",
         dashboard: {
           id: "bd9a11b5-fbf8-495a-a116-d3429496969f",
           name: "Morning brief",
@@ -72,8 +76,53 @@ describe("Dyna executive signal contracts", () => {
     } as const;
 
     expect(DynaUiPayloadSchema.safeParse(payload).success).toBe(true);
-    expect(DynaUiPayloadSchema.safeParse({ ...payload, schema: "dyna/ui-v8" }).success).toBe(false);
+    expect(DynaUiPayloadSchema.safeParse({ ...payload, schema: "dyna/ui-v9" }).success).toBe(false);
     expect(DynaUiPayloadSchema.safeParse({ ...payload, spec: {} }).success).toBe(false);
+  });
+
+  test("requires note-local versions and keeps deletion state out of public annotations", () => {
+    const timestamp = "2026-09-14T12:00:00.000Z";
+    const annotation = {
+      id: "7bfd389a-0374-4658-92cc-a2ba97407fcc",
+      itemId: "4ab587d0-a34a-43ea-95ce-75be06d4c244",
+      body: "Confirm the release owner.",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      version: 1,
+    };
+    expect(DynaAnnotationSchema.safeParse(annotation).success).toBe(true);
+    expect(DynaAnnotationSchema.safeParse({ ...annotation, deletedAt: timestamp }).success).toBe(
+      false,
+    );
+    expect(
+      DynaAnnotationEditInputSchema.safeParse({
+        viewToken: "v".repeat(32),
+        itemId: annotation.itemId,
+        annotationId: annotation.id,
+        clientRequestId: "bbfb8c66-974b-4d84-a7ae-bcdd1ad5907c",
+        expectedVersion: 1,
+        body: "Confirm the release owner and date.",
+      }).success,
+    ).toBe(true);
+    expect(
+      DynaAnnotationDeleteInputSchema.safeParse({
+        viewToken: "v".repeat(32),
+        itemId: annotation.itemId,
+        annotationId: annotation.id,
+        clientRequestId: "bbfb8c66-974b-4d84-a7ae-bcdd1ad5907c",
+        expectedVersion: 0,
+      }).success,
+    ).toBe(false);
+    expect(
+      DynaAnnotationMutationResultSchema.safeParse({
+        schema: "dyna/annotation-mutation-result-v1",
+        annotationId: annotation.id,
+        version: 2,
+        updatedAt: timestamp,
+        deleted: false,
+        deduplicated: false,
+      }).success,
+    ).toBe(true);
   });
 
   test("validates bounded cross-session work references and updates", () => {

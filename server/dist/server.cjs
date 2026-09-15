@@ -53509,7 +53509,28 @@ var DynaAnnotationSchema = external_exports.object({
   id: external_exports.uuid(),
   itemId: external_exports.uuid(),
   body: external_exports.string().trim().min(1).max(1e3),
-  createdAt: TimestampSchema2
+  createdAt: TimestampSchema2,
+  updatedAt: TimestampSchema2,
+  version: external_exports.number().int().positive()
+}).strict();
+var DynaAnnotationMutationBaseSchema = external_exports.object({
+  viewToken: external_exports.string().min(32).max(128),
+  itemId: external_exports.uuid(),
+  annotationId: external_exports.uuid(),
+  clientRequestId: external_exports.uuid(),
+  expectedVersion: external_exports.number().int().positive()
+}).strict();
+var DynaAnnotationEditInputSchema = DynaAnnotationMutationBaseSchema.extend({
+  body: external_exports.string().trim().min(1).max(1e3)
+}).strict();
+var DynaAnnotationDeleteInputSchema = DynaAnnotationMutationBaseSchema;
+var DynaAnnotationMutationResultSchema = external_exports.object({
+  schema: external_exports.literal("dyna/annotation-mutation-result-v1"),
+  annotationId: external_exports.uuid(),
+  version: external_exports.number().int().positive(),
+  updatedAt: TimestampSchema2,
+  deleted: external_exports.boolean(),
+  deduplicated: external_exports.boolean()
 }).strict();
 var DynaItemContextSchema = DynaMaterializedItemSchema.extend({
   id: external_exports.uuid(),
@@ -53665,7 +53686,7 @@ var DynaCardSchema = external_exports.object({
   archive: DynaArchiveStateSchema.optional()
 }).strict().superRefine(validateFollowUpReference);
 var DynaDashboardSnapshotSchema = external_exports.object({
-  schema: external_exports.literal("dyna/snapshot-v7"),
+  schema: external_exports.literal("dyna/snapshot-v8"),
   dashboard: DynaDashboardSchema,
   generatedAt: TimestampSchema2,
   query: external_exports.string().max(500),
@@ -53685,12 +53706,12 @@ var DynaDashboardSnapshotSchema = external_exports.object({
   taskSync: DynaTaskSyncSummarySchema.optional()
 }).strict();
 var DynaUiPayloadSchema = external_exports.object({
-  schema: external_exports.literal("dyna/ui-v9"),
+  schema: external_exports.literal("dyna/ui-v10"),
   viewToken: external_exports.string().min(32).max(128),
   snapshot: DynaDashboardSnapshotSchema
 }).strict();
 var DynaItemShowResultSchema = external_exports.object({
-  schema: external_exports.literal("dyna/item-show-result-v3"),
+  schema: external_exports.literal("dyna/item-show-result-v4"),
   dashboard: DynaDashboardSchema,
   revision: external_exports.number().int().nonnegative(),
   enrichmentVersion: external_exports.number().int().nonnegative(),
@@ -54077,7 +54098,7 @@ var ACTION_TTL_MS = 10 * 60 * 1e3;
 var CODEX_SESSION_CANDIDATE_TTL_MS = 10 * 60 * 1e3;
 var CLAIM_LEASE_MS = 5 * 60 * 1e3;
 var MAX_CLOCK_SKEW_MS = 5 * 60 * 1e3;
-var DYNA_SCHEMA_VERSION = 9;
+var DYNA_SCHEMA_VERSION = 10;
 var MAX_SAFE_ITEM_NUMBER = Number.MAX_SAFE_INTEGER;
 var MAX_DASHBOARDS = 100;
 var MAX_PUBLISHERS = 100;
@@ -54545,6 +54566,11 @@ var SqliteDynaRepository = class {
         insertAnnotation: (annotation) => {
           this.#insertAnnotation(annotation);
         },
+        updateAnnotation: (annotationId, expectedVersion, body, updatedAt) => this.#updateAnnotation(annotationId, expectedVersion, body, updatedAt),
+        deleteAnnotation: (annotationId, expectedVersion, deletedAt) => this.#deleteAnnotation(annotationId, expectedVersion, deletedAt),
+        insertAnnotationEvent: (event) => {
+          this.#insertAnnotationEvent(event);
+        },
         insertDashboard: (dashboard) => {
           this.#insertDashboard(dashboard);
         },
@@ -54665,6 +54691,7 @@ var SqliteDynaRepository = class {
       loadActionForView: (viewToken, requestId) => this.actionStatusForView(viewToken, requestId),
       loadAction: (requestId) => this.actionStatus(requestId),
       findAnnotation: (id) => this.#findAnnotation(id),
+      findAnnotationEvent: (id) => this.#findAnnotationEvent(id),
       listTaskSyncRuns: (dashboardId, limit) => this.#listTaskSyncRuns(dashboardId, limit),
       findTaskSyncRun: (runId) => this.#findTaskSyncRun(runId),
       listTaskSyncCandidates: (dashboardId, scope, limit) => this.#listTaskSyncCandidates(dashboardId, scope, limit),
@@ -54996,17 +55023,81 @@ var SqliteDynaRepository = class {
       Date.parse(update.createdAt)
     );
   }
-  #findAnnotation(id) {
-    const row = this.#one(this.#database.prepare("SELECT * FROM annotations WHERE id = ?"), id);
-    return row ? DynaAnnotationSchema.parse({
+  #annotationFromRow(row) {
+    const deletedAt = optionalString(row, "deleted_at");
+    const annotation = {
       id: requiredString(row, "id"),
       itemId: requiredString(row, "item_id"),
       body: requiredString(row, "body"),
-      createdAt: requiredString(row, "created_at")
-    }) : void 0;
+      createdAt: requiredString(row, "created_at"),
+      updatedAt: requiredString(row, "updated_at"),
+      version: requiredNumber(row, "version")
+    };
+    if (!deletedAt) return DynaAnnotationSchema.parse(annotation);
+    return { ...annotation, deletedAt };
+  }
+  #findAnnotation(id) {
+    const row = this.#one(this.#database.prepare("SELECT * FROM annotations WHERE id = ?"), id);
+    return row ? this.#annotationFromRow(row) : void 0;
+  }
+  #findAnnotationEvent(id) {
+    const row = this.#one(
+      this.#database.prepare("SELECT * FROM annotation_events WHERE id = ?"),
+      id
+    );
+    return row ? {
+      id: requiredString(row, "id"),
+      annotationId: requiredString(row, "annotation_id"),
+      itemId: requiredString(row, "item_id"),
+      operation: requiredString(row, "operation"),
+      requestHash: requiredString(row, "request_hash"),
+      resultVersion: requiredNumber(row, "result_version"),
+      occurredAt: requiredString(row, "occurred_at")
+    } : void 0;
   }
   #insertAnnotation(annotation) {
-    this.#database.prepare("INSERT INTO annotations (id, item_id, body, created_at) VALUES (?, ?, ?, ?)").run(annotation.id, annotation.itemId, annotation.body, annotation.createdAt);
+    this.#database.prepare(
+      `INSERT INTO annotations (
+           id, item_id, body, created_at, updated_at, version, deleted_at
+         ) VALUES (?, ?, ?, ?, ?, ?, NULL)`
+    ).run(
+      annotation.id,
+      annotation.itemId,
+      annotation.body,
+      annotation.createdAt,
+      annotation.updatedAt,
+      annotation.version
+    );
+  }
+  #updateAnnotation(annotationId, expectedVersion, body, updatedAt) {
+    return this.#database.prepare(
+      `UPDATE annotations SET body = ?, updated_at = ?, version = version + 1
+           WHERE id = ? AND version = ? AND deleted_at IS NULL`
+    ).run(body, updatedAt, annotationId, expectedVersion).changes === 1;
+  }
+  #deleteAnnotation(annotationId, expectedVersion, deletedAt) {
+    return this.#database.prepare(
+      `UPDATE annotations
+           SET body = '', updated_at = ?, deleted_at = ?, version = version + 1
+           WHERE id = ? AND version = ? AND deleted_at IS NULL`
+    ).run(deletedAt, deletedAt, annotationId, expectedVersion).changes === 1;
+  }
+  #insertAnnotationEvent(event) {
+    this.#database.prepare(
+      `INSERT INTO annotation_events (
+           id, annotation_id, item_id, operation, request_hash,
+           result_version, occurred_at, occurred_at_ms
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      event.id,
+      event.annotationId,
+      event.itemId,
+      event.operation,
+      event.requestHash,
+      event.resultVersion,
+      event.occurredAt,
+      Date.parse(event.occurredAt)
+    );
   }
   #replaceCliEnrichment(record2) {
     this.#database.prepare(
@@ -55386,7 +55477,15 @@ var SqliteDynaRepository = class {
       );
       CREATE TABLE IF NOT EXISTS annotations (
         id TEXT PRIMARY KEY, item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
-        body TEXT NOT NULL, created_at TEXT NOT NULL
+        body TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1), deleted_at TEXT
+      );
+      CREATE TABLE IF NOT EXISTS annotation_events (
+        id TEXT PRIMARY KEY, annotation_id TEXT NOT NULL, item_id TEXT NOT NULL,
+        operation TEXT NOT NULL CHECK (operation IN ('create', 'edit', 'delete')),
+        request_hash TEXT NOT NULL,
+        result_version INTEGER NOT NULL CHECK (result_version >= 1),
+        occurred_at TEXT NOT NULL, occurred_at_ms INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS work_updates (
         id TEXT PRIMARY KEY,
@@ -55547,6 +55646,18 @@ var SqliteDynaRepository = class {
         WHERE task_id IS NOT NULL AND kind IN (
           'progress', 'needs_input', 'blocked', 'completion_reported', 'handoff'
         );
+      CREATE INDEX IF NOT EXISTS idx_dyna_annotation_events_item_time
+        ON annotation_events(item_id, occurred_at_ms DESC, id DESC);
+      CREATE TRIGGER IF NOT EXISTS trg_dyna_annotation_events_immutable_update
+        BEFORE UPDATE ON annotation_events
+        BEGIN
+          SELECT RAISE(ABORT, 'Dyna annotation events are immutable');
+        END;
+      CREATE TRIGGER IF NOT EXISTS trg_dyna_annotation_events_immutable_delete
+        BEFORE DELETE ON annotation_events
+        BEGIN
+          SELECT RAISE(ABORT, 'Dyna annotation events are append-only');
+        END;
       CREATE UNIQUE INDEX IF NOT EXISTS idx_dyna_active_task_reservation
         ON task_association_reservations(task_id)
         WHERE state IN ('reserved', 'uncertain');
@@ -55565,6 +55676,19 @@ var SqliteDynaRepository = class {
         WHERE kind = 'observation' AND task_id IS NOT NULL;
     `);
     this.#createActionRequestIndexesWhenSupported();
+    this.#createAnnotationIndexWhenSupported();
+  }
+  #createAnnotationIndexWhenSupported() {
+    const columns = new Set(
+      this.#database.prepare("PRAGMA table_info(annotations)").all().map(
+        (row) => requiredString(row, "name")
+      )
+    );
+    if (!columns.has("deleted_at")) return;
+    this.#database.exec(
+      `CREATE INDEX IF NOT EXISTS idx_dyna_annotations_item_created
+       ON annotations(item_id, created_at DESC) WHERE deleted_at IS NULL`
+    );
   }
   #createActionRequestIndexesWhenSupported() {
     const columns = new Set(
@@ -55868,6 +55992,121 @@ var SqliteDynaRepository = class {
       }
     }
   }
+  #assertAnnotationSchemaCurrent() {
+    const expectedTables = /* @__PURE__ */ new Map([
+      [
+        "annotations",
+        `CREATE TABLE annotations (
+          id TEXT PRIMARY KEY, item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+          body TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+          version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1), deleted_at TEXT
+        )`
+      ],
+      [
+        "annotation_events",
+        `CREATE TABLE annotation_events (
+          id TEXT PRIMARY KEY, annotation_id TEXT NOT NULL, item_id TEXT NOT NULL,
+          operation TEXT NOT NULL CHECK (operation IN ('create', 'edit', 'delete')),
+          request_hash TEXT NOT NULL,
+          result_version INTEGER NOT NULL CHECK (result_version >= 1),
+          occurred_at TEXT NOT NULL, occurred_at_ms INTEGER NOT NULL
+        )`
+      ]
+    ]);
+    for (const [name, expected] of expectedTables) {
+      const actual = this.#schemaObjectSql("table", name);
+      if (!actual) throw new Error(`The Dyna annotation ledger ${name} is missing.`);
+      if (this.#normalizedSchemaSql(actual) !== this.#normalizedSchemaSql(expected)) {
+        throw new Error(`The Dyna annotation ledger ${name} is invalid.`);
+      }
+    }
+    const expectedObjects = /* @__PURE__ */ new Map([
+      [
+        "idx_dyna_annotations_item_created",
+        [
+          "index",
+          "CREATE INDEX idx_dyna_annotations_item_created ON annotations(item_id, created_at DESC) WHERE deleted_at IS NULL"
+        ]
+      ],
+      [
+        "idx_dyna_annotation_events_item_time",
+        [
+          "index",
+          "CREATE INDEX idx_dyna_annotation_events_item_time ON annotation_events(item_id, occurred_at_ms DESC, id DESC)"
+        ]
+      ],
+      [
+        "trg_dyna_annotation_events_immutable_update",
+        [
+          "trigger",
+          "CREATE TRIGGER trg_dyna_annotation_events_immutable_update BEFORE UPDATE ON annotation_events BEGIN SELECT RAISE(ABORT, 'Dyna annotation events are immutable'); END"
+        ]
+      ],
+      [
+        "trg_dyna_annotation_events_immutable_delete",
+        [
+          "trigger",
+          "CREATE TRIGGER trg_dyna_annotation_events_immutable_delete BEFORE DELETE ON annotation_events BEGIN SELECT RAISE(ABORT, 'Dyna annotation events are append-only'); END"
+        ]
+      ]
+    ]);
+    for (const [name, [type, expected]] of expectedObjects) {
+      const actual = this.#schemaObjectSql(type, name);
+      if (!actual || this.#normalizedSchemaSql(actual) !== this.#normalizedSchemaSql(expected)) {
+        throw new Error(`The Dyna annotation ledger object ${name} is invalid.`);
+      }
+    }
+  }
+  #migrateAnnotationsV10() {
+    const columns = new Set(
+      this.#database.prepare("PRAGMA table_info(annotations)").all().map(
+        (row) => requiredString(row, "name")
+      )
+    );
+    const alreadyCurrent = ["updated_at", "version", "deleted_at"].every(
+      (column) => columns.has(column)
+    );
+    if (!alreadyCurrent) {
+      this.#database.exec(`
+        DROP INDEX IF EXISTS idx_dyna_annotations_item_created;
+        ALTER TABLE annotations RENAME TO annotations_v9_migration;
+        CREATE TABLE annotations (
+          id TEXT PRIMARY KEY, item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+          body TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+          version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1), deleted_at TEXT
+        );
+        INSERT INTO annotations (
+          id, item_id, body, created_at, updated_at, version, deleted_at
+        )
+        SELECT id, item_id, body, created_at, created_at, 1, NULL
+        FROM annotations_v9_migration;
+        DROP TABLE annotations_v9_migration;
+      `);
+    }
+    this.#createSchema();
+    const annotations = this.#database.prepare("SELECT id, item_id, body, created_at FROM annotations ORDER BY created_at, id").all();
+    const insert = this.#database.prepare(
+      `INSERT OR IGNORE INTO annotation_events (
+         id, annotation_id, item_id, operation, request_hash,
+         result_version, occurred_at, occurred_at_ms
+       ) VALUES (?, ?, ?, 'create', ?, 1, ?, ?)`
+    );
+    for (const annotation of annotations) {
+      const annotationId = requiredString(annotation, "id");
+      const itemId = requiredString(annotation, "item_id");
+      const body = requiredString(annotation, "body");
+      const occurredAt = requiredString(annotation, "created_at");
+      insert.run(
+        scopedUuid(["annotation-create-request", annotationId]),
+        annotationId,
+        itemId,
+        sha256(canonicalJson({ operation: "create", annotationId, body })),
+        occurredAt,
+        Date.parse(occurredAt)
+      );
+    }
+    this.#assertAnnotationSchemaCurrent();
+  }
   #backfillItemNumbers() {
     const insert = this.#database.prepare("INSERT INTO item_numbers (item_id) VALUES (?)");
     const rows = this.#database.prepare(
@@ -56019,6 +56258,7 @@ var SqliteDynaRepository = class {
       this.#assertItemNumberTableSchema();
       this.#assertItemNumberIntegrity();
       this.#assertTaskSyncSchemaCurrent();
+      this.#assertAnnotationSchemaCurrent();
       const actionSchemaCurrent = this.#actionRequestsUseV6Constraints();
       const taskIdentityIndexCurrent = this.#namedIndexMatches(
         "task_bindings",
@@ -56157,7 +56397,7 @@ var SqliteDynaRepository = class {
         this.#assertDatabaseIntegrity();
         this.#database.exec("PRAGMA user_version = 2;");
       });
-    } else if (startingVersion !== 2 && startingVersion !== 3 && startingVersion !== 4 && startingVersion !== 5 && startingVersion !== 6 && startingVersion !== 7 && startingVersion !== 8) {
+    } else if (startingVersion !== 2 && startingVersion !== 3 && startingVersion !== 4 && startingVersion !== 5 && startingVersion !== 6 && startingVersion !== 7 && startingVersion !== 8 && startingVersion !== 9) {
       throw new Error("The Dyna database schema version is unsupported.");
     }
     const versionTwoRow = this.#one(this.#database.prepare("PRAGMA user_version"));
@@ -56245,7 +56485,7 @@ var SqliteDynaRepository = class {
         this.#assertDatabaseIntegrity();
         this.#database.exec("PRAGMA user_version = 5;");
       });
-    } else if (versionFour !== 5 && versionFour !== 6 && versionFour !== 7 && versionFour !== 8) {
+    } else if (versionFour !== 5 && versionFour !== 6 && versionFour !== 7 && versionFour !== 8 && versionFour !== 9) {
       throw new Error("Dyna could not complete its database schema migration.");
     }
     const versionFiveRow = this.#one(this.#database.prepare("PRAGMA user_version"));
@@ -56266,7 +56506,7 @@ var SqliteDynaRepository = class {
         this.#assertDatabaseIntegrity();
         this.#database.exec("PRAGMA user_version = 6;");
       });
-    } else if (versionFive !== 6 && versionFive !== 7 && versionFive !== 8) {
+    } else if (versionFive !== 6 && versionFive !== 7 && versionFive !== 8 && versionFive !== 9) {
       throw new Error("Dyna could not complete its database schema migration.");
     }
     const versionSixRow = this.#one(this.#database.prepare("PRAGMA user_version"));
@@ -56280,7 +56520,7 @@ var SqliteDynaRepository = class {
         this.#assertDatabaseIntegrity();
         this.#database.exec("PRAGMA user_version = 7;");
       });
-    } else if (versionSix !== 7 && versionSix !== 8) {
+    } else if (versionSix !== 7 && versionSix !== 8 && versionSix !== 9) {
       throw new Error("Dyna could not complete its database schema migration.");
     }
     const versionSevenRow = this.#one(this.#database.prepare("PRAGMA user_version"));
@@ -56316,20 +56556,35 @@ var SqliteDynaRepository = class {
         this.#assertItemNumberIntegrity();
         this.#database.exec("PRAGMA user_version = 8;");
       });
-    } else if (requiredNumber(versionSevenRow, "user_version") !== 8) {
+    } else if (requiredNumber(versionSevenRow, "user_version") !== 8 && requiredNumber(versionSevenRow, "user_version") !== 9) {
       throw new Error("Dyna could not complete its database schema migration.");
     }
     const versionEightRow = this.#one(this.#database.prepare("PRAGMA user_version"));
-    if (!versionEightRow || requiredNumber(versionEightRow, "user_version") !== 8) {
+    if (!versionEightRow) {
+      throw new Error("Dyna could not complete its database schema migration.");
+    }
+    const versionEight = requiredNumber(versionEightRow, "user_version");
+    if (versionEight === 8) {
+      this.#transaction(() => {
+        this.#createSchema();
+        this.#backfillTaskSyncCheckpoints();
+        this.#assertTaskSyncSchemaCurrent();
+        this.#assertDatabaseIntegrity();
+        this.#assertItemNumberIntegrity();
+        this.#database.exec("PRAGMA user_version = 9;");
+      });
+    } else if (versionEight !== 9) {
+      throw new Error("Dyna could not complete its database schema migration.");
+    }
+    const versionNineRow = this.#one(this.#database.prepare("PRAGMA user_version"));
+    if (!versionNineRow || requiredNumber(versionNineRow, "user_version") !== 9) {
       throw new Error("Dyna could not complete its database schema migration.");
     }
     this.#transaction(() => {
-      this.#createSchema();
-      this.#backfillTaskSyncCheckpoints();
-      this.#assertTaskSyncSchemaCurrent();
+      this.#migrateAnnotationsV10();
       this.#assertDatabaseIntegrity();
       this.#assertItemNumberIntegrity();
-      this.#database.exec("PRAGMA user_version = 9;");
+      this.#database.exec("PRAGMA user_version = 10;");
     });
     const migratedVersion = this.#one(this.#database.prepare("PRAGMA user_version"));
     if (!migratedVersion || requiredNumber(migratedVersion, "user_version") !== DYNA_SCHEMA_VERSION) {
@@ -57439,7 +57694,9 @@ var SqliteDynaRepository = class {
       id: clientRequestId,
       itemId,
       body,
-      createdAt: instant
+      createdAt: instant,
+      updatedAt: instant,
+      version: 1
     });
     const canonicalRequestId = input.id.toLowerCase();
     const requestHash = sha256(JSON.stringify({ body: input.body }));
@@ -57464,16 +57721,46 @@ var SqliteDynaRepository = class {
           id: annotationId,
           itemId,
           body: requiredString(existing, "body"),
-          createdAt: requiredString(existing, "created_at")
+          createdAt: requiredString(existing, "created_at"),
+          updatedAt: requiredString(existing, "updated_at"),
+          version: requiredNumber(existing, "version")
         });
       }
       const annotation = DynaAnnotationSchema.parse({
         id: annotationId,
         itemId,
         body: input.body,
-        createdAt: instant
+        createdAt: instant,
+        updatedAt: instant,
+        version: 1
       });
-      this.#database.prepare("INSERT INTO annotations (id, item_id, body, created_at) VALUES (?, ?, ?, ?)").run(annotation.id, annotation.itemId, annotation.body, annotation.createdAt);
+      this.#database.prepare(
+        `INSERT INTO annotations (
+             id, item_id, body, created_at, updated_at, version, deleted_at
+           ) VALUES (?, ?, ?, ?, ?, ?, NULL)`
+      ).run(
+        annotation.id,
+        annotation.itemId,
+        annotation.body,
+        annotation.createdAt,
+        annotation.updatedAt,
+        annotation.version
+      );
+      this.#insertAnnotationEvent({
+        id: scopedUuid(["annotation-create-request", annotation.id]),
+        annotationId: annotation.id,
+        itemId: annotation.itemId,
+        operation: "create",
+        requestHash: sha256(
+          canonicalJson({
+            operation: "create",
+            annotationId: annotation.id,
+            body: annotation.body
+          })
+        ),
+        resultVersion: annotation.version,
+        occurredAt: annotation.createdAt
+      });
       this.#touchDashboardsForItem(itemId);
       this.#audit("annotation.created", itemId);
       return annotation;
@@ -58595,7 +58882,8 @@ var SqliteDynaRepository = class {
           ELSE '' END
         ), ?) > 0
         OR EXISTS (SELECT 1 FROM annotations annotation
-          WHERE annotation.item_id = item.id AND instr(lower(annotation.body), ?) > 0)
+          WHERE annotation.item_id = item.id AND annotation.deleted_at IS NULL
+            AND instr(lower(annotation.body), ?) > 0)
         OR EXISTS (SELECT 1 FROM task_bindings task
           WHERE task.item_id = item.id AND instr(lower(
             task.title || ' ' || task.state || ' ' || COALESCE(task.outcome, '')
@@ -58619,7 +58907,8 @@ var SqliteDynaRepository = class {
            SELECT *, ROW_NUMBER() OVER (
              PARTITION BY item_id ORDER BY created_at DESC, id
            ) AS item_rank
-           FROM annotations WHERE item_id IN (${placeholders})
+           FROM annotations
+           WHERE item_id IN (${placeholders}) AND deleted_at IS NULL
          ) WHERE item_rank <= 20 ORDER BY item_id, created_at DESC`
     ).all(...itemIds);
     const taskRows = this.#database.prepare(
@@ -58664,7 +58953,9 @@ var SqliteDynaRepository = class {
           id: requiredString(row, "id"),
           itemId,
           body: requiredString(row, "body"),
-          createdAt: requiredString(row, "created_at")
+          createdAt: requiredString(row, "created_at"),
+          updatedAt: requiredString(row, "updated_at"),
+          version: requiredNumber(row, "version")
         })
       );
       annotations.set(itemId, values);
@@ -59899,12 +60190,18 @@ var SqliteDynaRepository = class {
     };
   }
   #annotations(itemId) {
-    return this.#database.prepare("SELECT * FROM annotations WHERE item_id = ? ORDER BY created_at DESC LIMIT 20").all(itemId).map(
+    return this.#database.prepare(
+      `SELECT * FROM annotations
+           WHERE item_id = ? AND deleted_at IS NULL
+           ORDER BY created_at DESC LIMIT 20`
+    ).all(itemId).map(
       (annotation) => DynaAnnotationSchema.parse({
         id: requiredString(annotation, "id"),
         itemId,
         body: requiredString(annotation, "body"),
-        createdAt: requiredString(annotation, "created_at")
+        createdAt: requiredString(annotation, "created_at"),
+        updatedAt: requiredString(annotation, "updated_at"),
+        version: requiredNumber(annotation, "version")
       })
     );
   }
@@ -60980,7 +61277,7 @@ var DynaApplicationService = class {
       const unscheduledAge = Number.isFinite(newest) ? Math.max(0, now.getTime() - newest) : Number.POSITIVE_INFINITY;
       const freshness = scheduleFreshness.includes("stale") ? "stale" : scheduleFreshness.includes("aging") ? "aging" : scheduleFreshness.length > 0 ? "fresh" : unscheduledAge <= 15 * 6e4 ? "fresh" : unscheduledAge <= 60 * 6e4 ? "aging" : "stale";
       return DynaDashboardSnapshotSchema.parse({
-        schema: "dyna/snapshot-v7",
+        schema: "dyna/snapshot-v8",
         dashboard,
         generatedAt: now.toISOString(),
         query: normalizedQuery,
@@ -61026,7 +61323,7 @@ var DynaApplicationService = class {
       (unitOfWork) => unitOfWork.persistCreateView(dashboardId)
     );
     return DynaUiPayloadSchema.parse({
-      schema: "dyna/ui-v9",
+      schema: "dyna/ui-v10",
       viewToken,
       snapshot
     });
@@ -61037,7 +61334,7 @@ var DynaApplicationService = class {
       (unitOfWork) => unitOfWork.authorizeViewToken(viewToken)
     );
     const snapshot = this.#materializeSnapshot(dashboardId, query, scope);
-    return DynaUiPayloadSchema.parse({ schema: "dyna/ui-v9", viewToken, snapshot });
+    return DynaUiPayloadSchema.parse({ schema: "dyna/ui-v10", viewToken, snapshot });
   }
   snapshot(dashboardId, query = "", scope = "active") {
     this.#requireCapability("dashboard:read");
@@ -61772,7 +62069,7 @@ var DynaApplicationService = class {
       const evidence = unitOfWork.loadCardEvidence([itemId])[0];
       if (!evidence) throw new Error("Dyna could not materialize the requested item.");
       return DynaItemShowResultSchema.parse({
-        schema: "dyna/item-show-result-v3",
+        schema: "dyna/item-show-result-v4",
         dashboard,
         revision: unitOfWork.findDashboardState(dashboardId)?.revision ?? dashboardState.revision,
         enrichmentVersion: value.fact.enrichment?.version ?? 0,
@@ -61892,11 +62189,14 @@ var DynaApplicationService = class {
     return this.#repository.write((unitOfWork) => {
       const dashboardId = unitOfWork.authorizeViewToken(viewToken, itemId);
       this.#assertItemMembership(unitOfWork, dashboardId, itemId);
+      const instant = this.#now();
       const input = DynaAnnotationSchema.parse({
         id: clientRequestId,
         itemId,
         body,
-        createdAt: this.#now()
+        createdAt: instant,
+        updatedAt: instant,
+        version: 1
       });
       const annotationId = scopedUuid2([
         "annotation-request",
@@ -61904,22 +62204,229 @@ var DynaApplicationService = class {
         itemId,
         input.id.toLowerCase()
       ]);
-      const existing = unitOfWork.findAnnotation(annotationId);
-      if (existing) {
-        if (existing.itemId !== itemId || existing.body !== input.body) {
+      const eventId = scopedUuid2(["annotation-create-request", annotationId]);
+      const requestHash = sha2562(
+        canonicalJson2({ operation: "create", annotationId, body: input.body })
+      );
+      const replay = unitOfWork.findAnnotationEvent(eventId);
+      if (replay) {
+        return this.#replayAnnotationMutation(
+          replay,
+          "create",
+          annotationId,
+          itemId,
+          requestHash,
+          false
+        );
+      }
+      const legacyAnnotation = unitOfWork.findAnnotation(annotationId);
+      if (legacyAnnotation) {
+        if (legacyAnnotation.itemId !== itemId || legacyAnnotation.deletedAt || legacyAnnotation.body !== input.body) {
           throw new DynaCliError(
             "request_conflict",
             "Dyna rejected an annotation request ID reused with different content."
           );
         }
-        return existing;
+        unitOfWork.insertAnnotationEvent({
+          id: eventId,
+          annotationId,
+          itemId,
+          operation: "create",
+          requestHash,
+          resultVersion: legacyAnnotation.version,
+          occurredAt: legacyAnnotation.createdAt
+        });
+        return DynaAnnotationMutationResultSchema.parse({
+          schema: "dyna/annotation-mutation-result-v1",
+          annotationId,
+          version: legacyAnnotation.version,
+          updatedAt: legacyAnnotation.createdAt,
+          deleted: false,
+          deduplicated: true
+        });
       }
       const annotation = DynaAnnotationSchema.parse({ ...input, id: annotationId });
       unitOfWork.insertAnnotation(annotation);
+      unitOfWork.insertAnnotationEvent({
+        id: eventId,
+        annotationId,
+        itemId,
+        operation: "create",
+        requestHash,
+        resultVersion: annotation.version,
+        occurredAt: annotation.updatedAt
+      });
       this.#touchItemDashboards(unitOfWork, itemId, annotation.createdAt);
       unitOfWork.appendAudit("annotation.created", itemId, annotation.createdAt);
-      return annotation;
+      return DynaAnnotationMutationResultSchema.parse({
+        schema: "dyna/annotation-mutation-result-v1",
+        annotationId,
+        version: annotation.version,
+        updatedAt: annotation.updatedAt,
+        deleted: false,
+        deduplicated: false
+      });
     });
+  }
+  editAnnotation(input) {
+    this.#requireCapability("view:interact");
+    const parsed = DynaAnnotationEditInputSchema.parse(input);
+    return this.#repository.write((unitOfWork) => {
+      const dashboardId = unitOfWork.authorizeViewToken(parsed.viewToken, parsed.itemId);
+      this.#assertItemMembership(unitOfWork, dashboardId, parsed.itemId);
+      const eventId = this.#annotationMutationEventId(
+        dashboardId,
+        parsed.itemId,
+        parsed.annotationId,
+        parsed.clientRequestId
+      );
+      const requestHash = sha2562(
+        canonicalJson2({
+          operation: "edit",
+          annotationId: parsed.annotationId,
+          expectedVersion: parsed.expectedVersion,
+          body: parsed.body
+        })
+      );
+      const replay = unitOfWork.findAnnotationEvent(eventId);
+      if (replay) {
+        return this.#replayAnnotationMutation(
+          replay,
+          "edit",
+          parsed.annotationId,
+          parsed.itemId,
+          requestHash,
+          false
+        );
+      }
+      const annotation = this.#editableAnnotation(
+        unitOfWork,
+        parsed.itemId,
+        parsed.annotationId,
+        parsed.expectedVersion
+      );
+      const updatedAt = this.#now();
+      if (!unitOfWork.updateAnnotation(annotation.id, parsed.expectedVersion, parsed.body, updatedAt)) {
+        throw new DynaCliError("request_conflict", "The note changed; refresh it before retrying.");
+      }
+      const resultVersion = parsed.expectedVersion + 1;
+      unitOfWork.insertAnnotationEvent({
+        id: eventId,
+        annotationId: annotation.id,
+        itemId: parsed.itemId,
+        operation: "edit",
+        requestHash,
+        resultVersion,
+        occurredAt: updatedAt
+      });
+      this.#touchItemDashboards(unitOfWork, parsed.itemId, updatedAt);
+      unitOfWork.appendAudit("annotation.edited", parsed.itemId, updatedAt);
+      return DynaAnnotationMutationResultSchema.parse({
+        schema: "dyna/annotation-mutation-result-v1",
+        annotationId: annotation.id,
+        version: resultVersion,
+        updatedAt,
+        deleted: false,
+        deduplicated: false
+      });
+    });
+  }
+  deleteAnnotation(input) {
+    this.#requireCapability("view:interact");
+    const parsed = DynaAnnotationDeleteInputSchema.parse(input);
+    return this.#repository.write((unitOfWork) => {
+      const dashboardId = unitOfWork.authorizeViewToken(parsed.viewToken, parsed.itemId);
+      this.#assertItemMembership(unitOfWork, dashboardId, parsed.itemId);
+      const eventId = this.#annotationMutationEventId(
+        dashboardId,
+        parsed.itemId,
+        parsed.annotationId,
+        parsed.clientRequestId
+      );
+      const requestHash = sha2562(
+        canonicalJson2({
+          operation: "delete",
+          annotationId: parsed.annotationId,
+          expectedVersion: parsed.expectedVersion
+        })
+      );
+      const replay = unitOfWork.findAnnotationEvent(eventId);
+      if (replay) {
+        return this.#replayAnnotationMutation(
+          replay,
+          "delete",
+          parsed.annotationId,
+          parsed.itemId,
+          requestHash,
+          true
+        );
+      }
+      const annotation = this.#editableAnnotation(
+        unitOfWork,
+        parsed.itemId,
+        parsed.annotationId,
+        parsed.expectedVersion
+      );
+      const deletedAt = this.#now();
+      if (!unitOfWork.deleteAnnotation(annotation.id, parsed.expectedVersion, deletedAt)) {
+        throw new DynaCliError("request_conflict", "The note changed; refresh it before retrying.");
+      }
+      const resultVersion = parsed.expectedVersion + 1;
+      unitOfWork.insertAnnotationEvent({
+        id: eventId,
+        annotationId: annotation.id,
+        itemId: parsed.itemId,
+        operation: "delete",
+        requestHash,
+        resultVersion,
+        occurredAt: deletedAt
+      });
+      this.#touchItemDashboards(unitOfWork, parsed.itemId, deletedAt);
+      unitOfWork.appendAudit("annotation.deleted", parsed.itemId, deletedAt);
+      return DynaAnnotationMutationResultSchema.parse({
+        schema: "dyna/annotation-mutation-result-v1",
+        annotationId: annotation.id,
+        version: resultVersion,
+        updatedAt: deletedAt,
+        deleted: true,
+        deduplicated: false
+      });
+    });
+  }
+  #annotationMutationEventId(dashboardId, itemId, annotationId, clientRequestId) {
+    return scopedUuid2([
+      "annotation-mutation-request",
+      dashboardId,
+      itemId,
+      annotationId,
+      clientRequestId.toLowerCase()
+    ]);
+  }
+  #replayAnnotationMutation(event, operation, annotationId, itemId, requestHash, deleted) {
+    if (event.operation !== operation || event.annotationId !== annotationId || event.itemId !== itemId || !secureDigestMatches(event.requestHash, requestHash)) {
+      throw new DynaCliError(
+        "request_conflict",
+        "Dyna rejected an annotation request ID reused with different content."
+      );
+    }
+    return DynaAnnotationMutationResultSchema.parse({
+      schema: "dyna/annotation-mutation-result-v1",
+      annotationId,
+      version: event.resultVersion,
+      updatedAt: event.occurredAt,
+      deleted,
+      deduplicated: true
+    });
+  }
+  #editableAnnotation(unitOfWork, itemId, annotationId, expectedVersion) {
+    const annotation = unitOfWork.findAnnotation(annotationId);
+    if (annotation?.itemId !== itemId || annotation.deletedAt) {
+      throw new DynaCliError("not_found", "Dyna could not find this note.");
+    }
+    if (annotation.version !== expectedVersion) {
+      throw new DynaCliError("request_conflict", "The note changed; refresh it before retrying.");
+    }
+    return annotation;
   }
   addTodo(viewToken, input, clientRequestId) {
     this.#requireCapability("view:interact");
@@ -62848,8 +63355,9 @@ var DynaApplicationService = class {
 
 // packages/mcp-server/src/plugins/dyna.ts
 var DYNA_PLUGIN_ID = "dyna";
-var DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v17.html";
+var DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v18.html";
 var LEGACY_DYNA_TEMPLATE_URIS = [
+  "ui://flowzone/dyna/v17.html",
   "ui://flowzone/dyna/v16.html",
   "ui://flowzone/dyna/v15.html",
   "ui://flowzone/dyna/v14.html"
@@ -63343,13 +63851,51 @@ function appTools(service) {
       },
       handler(input) {
         const parsed = AddAnnotationInputSchema.parse(input);
-        const annotation = service.addAnnotation(
+        const result = service.addAnnotation(
           parsed.viewToken,
           parsed.itemId,
           parsed.clientRequestId,
           parsed.body
         );
-        return { structuredContent: { annotationId: annotation.id }, content: [] };
+        return { structuredContent: { annotationId: result.annotationId }, content: [] };
+      }
+    },
+    {
+      name: "dyna_edit_annotation",
+      title: "Edit Dyna annotation",
+      description: "Retry-safely edit one exact note using its note-local version in the capability-bound Dyna view.",
+      inputSchema: DynaAnnotationEditInputSchema,
+      outputSchema: DynaAnnotationMutationResultSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+        idempotentHint: true
+      },
+      handler(input) {
+        return {
+          structuredContent: service.editAnnotation(DynaAnnotationEditInputSchema.parse(input)),
+          content: []
+        };
+      }
+    },
+    {
+      name: "dyna_delete_annotation",
+      title: "Delete Dyna annotation",
+      description: "Retry-safely remove one exact note using its note-local version while preserving body-free audit history.",
+      inputSchema: DynaAnnotationDeleteInputSchema,
+      outputSchema: DynaAnnotationMutationResultSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        openWorldHint: false,
+        idempotentHint: true
+      },
+      handler(input) {
+        return {
+          structuredContent: service.deleteAnnotation(DynaAnnotationDeleteInputSchema.parse(input)),
+          content: []
+        };
       }
     },
     {

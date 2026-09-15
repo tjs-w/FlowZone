@@ -493,7 +493,7 @@ async function runDynaFixtureUpdate(
   }
 }
 
-const dynaResource = await client.readResource({ uri: "ui://flowzone/dyna/v17.html" });
+const dynaResource = await client.readResource({ uri: "ui://flowzone/dyna/v18.html" });
 const dynaResourceContent = dynaResource.contents[0];
 if (!dynaResourceContent || !("text" in dynaResourceContent)) {
   throw new Error("The Dyna HTML resource was not returned");
@@ -512,6 +512,7 @@ async function createDynaFixture(
   revokedSchedule = false,
   workActivity = false,
   paginatedActivity = false,
+  includeAnnotation = false,
 ): Promise<unknown> {
   const fixtureId = randomUUID();
   const now = new Date().toISOString();
@@ -830,6 +831,33 @@ async function createDynaFixture(
     arguments: { dashboardId },
   });
   if (openedDyna.isError) throw new Error("Could not open the browser-harness Dyna fixture");
+  if (includeAnnotation) {
+    const metadata = resultRecord(openedDyna._meta);
+    const payload = resultRecord(metadata["dynaDashboard"]);
+    const viewToken = payload["viewToken"];
+    const snapshot = resultRecord(payload["snapshot"]);
+    const cards = Array.isArray(snapshot["cards"]) ? snapshot["cards"] : [];
+    const firstCard = cards[0] ? resultRecord(cards[0]) : undefined;
+    const itemId = firstCard?.["id"];
+    if (typeof viewToken !== "string" || typeof itemId !== "string") {
+      throw new Error("Could not resolve the Dyna note-actions fixture item");
+    }
+    const annotation = await client.callTool({
+      name: "dyna_add_annotation",
+      arguments: {
+        viewToken,
+        itemId,
+        clientRequestId: randomUUID(),
+        body: "Confirm the release owner before approval.",
+      },
+    });
+    if (annotation.isError) throw new Error("Could not add the Dyna note-actions fixture note");
+    openedDyna = await client.callTool({
+      name: "render_dyna_dashboard",
+      arguments: { dashboardId },
+    });
+    if (openedDyna.isError) throw new Error("Could not reopen the Dyna note-actions fixture");
+  }
   if (itemCount > 1) {
     const metadata = resultRecord(openedDyna._meta);
     const payload = resultRecord(metadata["dynaDashboard"]);
@@ -1685,6 +1713,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
         requestUrl.searchParams.get("work-activity") === "1" ||
           requestUrl.searchParams.get("activity-pages") === "1",
         requestUrl.searchParams.get("activity-pages") === "1",
+        requestUrl.searchParams.get("note-actions") === "1",
       );
       dynaFixtureDashboardIds.set(partition, dynaFixtureDashboardId(dynaFixture));
     }

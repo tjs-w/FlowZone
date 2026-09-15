@@ -90,6 +90,34 @@ async function validateSkill(): Promise<void> {
       "Dyna must route linked-task pull synchronization through its focused reference",
     );
   }
+  if (!dyna.includes("references/scheduled-collection.md")) {
+    throw new Error(
+      "Dyna must route parallel scheduled collection through its reliability reference",
+    );
+  }
+  const scheduledCollection = await readFile(
+    resolve(root, "skills/dyna/references/scheduled-collection.md"),
+    "utf8",
+  );
+  for (const requiredCollectionBoundary of [
+    "reserve at least one final minute",
+    "already the required operation sub-agent",
+    "returning that many records does not make the slice incomplete",
+    "`notLoaded` describes app loading state",
+    "mark only incomplete slices failed",
+    "required escalated-execution metadata",
+    "do not retry through wrappers",
+  ]) {
+    if (
+      !scheduledCollection
+        .toLocaleLowerCase()
+        .includes(requiredCollectionBoundary.toLocaleLowerCase())
+    ) {
+      throw new Error(
+        `Dyna scheduled collection guidance must preserve: ${requiredCollectionBoundary}`,
+      );
+    }
+  }
   for (const requiredTaskTitleBoundary of [
     "Before any task-originated mutation",
     "Do not attach a collector or administration task",

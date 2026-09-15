@@ -111,6 +111,8 @@ describe("checked-in Node stdio bundle", () => {
         "dyna_archive_item",
         "dyna_restore_item",
         "dyna_add_annotation",
+        "dyna_edit_annotation",
+        "dyna_delete_annotation",
         "dyna_add_todo",
         "dyna_organize_item",
         "dyna_prepare_action",

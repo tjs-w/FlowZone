@@ -46,6 +46,18 @@ try {
     openWorldHint: false,
     idempotentHint: true,
   });
+  assert.deepEqual(appTool(appTools, "dyna_edit_annotation").annotations, {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+    idempotentHint: true,
+  });
+  assert.deepEqual(appTool(appTools, "dyna_delete_annotation").annotations, {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+    idempotentHint: true,
+  });
   assert.deepEqual(action(actions, "search-items").risk, {
     readOnly: true,
     destructive: false,

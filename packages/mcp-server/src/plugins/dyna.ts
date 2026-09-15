@@ -3,6 +3,9 @@ import {
   DynaActionKindSchema,
   DynaActionRequestSchema,
   DynaActionStateSchema,
+  DynaAnnotationDeleteInputSchema,
+  DynaAnnotationEditInputSchema,
+  DynaAnnotationMutationResultSchema,
   DynaArchiveReasonSchema,
   DynaCodexSessionCandidatesSchema,
   DynaCredentialModeSchema,
@@ -39,8 +42,9 @@ import { z } from "zod";
 import type { FlowZoneAppTool, FlowZonePlugin } from "../plugin.js";
 
 export const DYNA_PLUGIN_ID = "dyna";
-export const DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v17.html";
+export const DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v18.html";
 export const LEGACY_DYNA_TEMPLATE_URIS = [
+  "ui://flowzone/dyna/v17.html",
   "ui://flowzone/dyna/v16.html",
   "ui://flowzone/dyna/v15.html",
   "ui://flowzone/dyna/v14.html",
@@ -618,13 +622,53 @@ function appTools(service: DynaApplicationService): readonly FlowZoneAppTool[] {
       },
       handler(input) {
         const parsed = AddAnnotationInputSchema.parse(input);
-        const annotation = service.addAnnotation(
+        const result = service.addAnnotation(
           parsed.viewToken,
           parsed.itemId,
           parsed.clientRequestId,
           parsed.body,
         );
-        return { structuredContent: { annotationId: annotation.id }, content: [] };
+        return { structuredContent: { annotationId: result.annotationId }, content: [] };
+      },
+    },
+    {
+      name: "dyna_edit_annotation",
+      title: "Edit Dyna annotation",
+      description:
+        "Retry-safely edit one exact note using its note-local version in the capability-bound Dyna view.",
+      inputSchema: DynaAnnotationEditInputSchema,
+      outputSchema: DynaAnnotationMutationResultSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+        idempotentHint: true,
+      },
+      handler(input) {
+        return {
+          structuredContent: service.editAnnotation(DynaAnnotationEditInputSchema.parse(input)),
+          content: [],
+        };
+      },
+    },
+    {
+      name: "dyna_delete_annotation",
+      title: "Delete Dyna annotation",
+      description:
+        "Retry-safely remove one exact note using its note-local version while preserving body-free audit history.",
+      inputSchema: DynaAnnotationDeleteInputSchema,
+      outputSchema: DynaAnnotationMutationResultSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        openWorldHint: false,
+        idempotentHint: true,
+      },
+      handler(input) {
+        return {
+          structuredContent: service.deleteAnnotation(DynaAnnotationDeleteInputSchema.parse(input)),
+          content: [],
+        };
       },
     },
     {

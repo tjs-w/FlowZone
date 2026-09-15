@@ -377,7 +377,7 @@ try {
   const showArguments = ["item", "show", "--dashboard-id", dashboard.id, "--item-id", item.id];
   result = invoke(showArguments);
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.json.schema, "dyna/item-show-result-v3");
+  assert.equal(result.json.schema, "dyna/item-show-result-v4");
   assert.equal(result.json.enrichmentVersion, 0);
 
   result = invoke(["item", "search", "--dashboard-id", dashboard.id, "--query", "Exercise"]);

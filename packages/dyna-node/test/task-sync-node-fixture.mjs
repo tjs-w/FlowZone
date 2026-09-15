@@ -853,7 +853,7 @@ try {
   migrationService.close();
   migrationService = undefined;
   const verified = new DatabaseSync(databasePath, { readOnly: true });
-  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 9);
+  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 10);
   assert.deepEqual(
     {
       ...verified

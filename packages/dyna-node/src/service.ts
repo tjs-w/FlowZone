@@ -3,6 +3,9 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import {
   type DynaActionItemContextSchema,
   type DynaActionRequestSchema,
+  DynaAnnotationDeleteInputSchema,
+  DynaAnnotationEditInputSchema,
+  DynaAnnotationMutationResultSchema,
   DynaAnnotationSchema,
   DynaArchiveReasonSchema,
   DynaDashboardListResultSchema,
@@ -47,6 +50,9 @@ import {
   type DynaDashboardSnapshot,
   type DynaDashboardShowResult,
   type DynaArchiveReason,
+  type DynaAnnotationDeleteInput,
+  type DynaAnnotationEditInput,
+  type DynaAnnotationMutationResult,
   type DynaCodexSessionCandidate,
   type DynaCliErrorCode,
   type DynaCredentialMode,
@@ -108,6 +114,7 @@ import {
   type DynaCliPlacementWrite,
   type DynaCliPositionedItem,
   type DynaRepositoryCardEvidence,
+  type DynaRepositoryAnnotationEvent,
   type DynaRepositoryProjectionItem,
   type DynaRepositoryTaskSyncRun,
   type DynaRepository,
@@ -1491,7 +1498,7 @@ export class DynaApplicationService {
                 ? "aging"
                 : "stale";
       return DynaDashboardSnapshotSchema.parse({
-        schema: "dyna/snapshot-v7",
+        schema: "dyna/snapshot-v8",
         dashboard,
         generatedAt: now.toISOString(),
         query: normalizedQuery,
@@ -1544,7 +1551,7 @@ export class DynaApplicationService {
       unitOfWork.persistCreateView(dashboardId),
     );
     return DynaUiPayloadSchema.parse({
-      schema: "dyna/ui-v9",
+      schema: "dyna/ui-v10",
       viewToken,
       snapshot,
     });
@@ -1556,7 +1563,7 @@ export class DynaApplicationService {
       unitOfWork.authorizeViewToken(viewToken),
     );
     const snapshot = this.#materializeSnapshot(dashboardId, query, scope);
-    return DynaUiPayloadSchema.parse({ schema: "dyna/ui-v9", viewToken, snapshot });
+    return DynaUiPayloadSchema.parse({ schema: "dyna/ui-v10", viewToken, snapshot });
   }
 
   snapshot(
@@ -2398,7 +2405,7 @@ export class DynaApplicationService {
       const evidence = unitOfWork.loadCardEvidence([itemId])[0];
       if (!evidence) throw new Error("Dyna could not materialize the requested item.");
       return DynaItemShowResultSchema.parse({
-        schema: "dyna/item-show-result-v3",
+        schema: "dyna/item-show-result-v4",
         dashboard,
         revision: unitOfWork.findDashboardState(dashboardId)?.revision ?? dashboardState.revision,
         enrichmentVersion: value.fact.enrichment?.version ?? 0,
@@ -2543,16 +2550,19 @@ export class DynaApplicationService {
     itemId: string,
     clientRequestId: string,
     body: string,
-  ): DynaAnnotation {
+  ): DynaAnnotationMutationResult {
     this.#requireCapability("view:interact");
     return this.#repository.write((unitOfWork) => {
       const dashboardId = unitOfWork.authorizeViewToken(viewToken, itemId);
       this.#assertItemMembership(unitOfWork, dashboardId, itemId);
+      const instant = this.#now();
       const input = DynaAnnotationSchema.parse({
         id: clientRequestId,
         itemId,
         body,
-        createdAt: this.#now(),
+        createdAt: instant,
+        updatedAt: instant,
+        version: 1,
       });
       const annotationId = scopedUuid([
         "annotation-request",
@@ -2560,22 +2570,262 @@ export class DynaApplicationService {
         itemId,
         input.id.toLowerCase(),
       ]);
-      const existing = unitOfWork.findAnnotation(annotationId);
-      if (existing) {
-        if (existing.itemId !== itemId || existing.body !== input.body) {
+      const eventId = scopedUuid(["annotation-create-request", annotationId]);
+      const requestHash = sha256(
+        canonicalJson({ operation: "create", annotationId, body: input.body }),
+      );
+      const replay = unitOfWork.findAnnotationEvent(eventId);
+      if (replay) {
+        return this.#replayAnnotationMutation(
+          replay,
+          "create",
+          annotationId,
+          itemId,
+          requestHash,
+          false,
+        );
+      }
+      const legacyAnnotation = unitOfWork.findAnnotation(annotationId);
+      if (legacyAnnotation) {
+        if (
+          legacyAnnotation.itemId !== itemId ||
+          legacyAnnotation.deletedAt ||
+          legacyAnnotation.body !== input.body
+        ) {
           throw new DynaCliError(
             "request_conflict",
             "Dyna rejected an annotation request ID reused with different content.",
           );
         }
-        return existing;
+        unitOfWork.insertAnnotationEvent({
+          id: eventId,
+          annotationId,
+          itemId,
+          operation: "create",
+          requestHash,
+          resultVersion: legacyAnnotation.version,
+          occurredAt: legacyAnnotation.createdAt,
+        });
+        return DynaAnnotationMutationResultSchema.parse({
+          schema: "dyna/annotation-mutation-result-v1",
+          annotationId,
+          version: legacyAnnotation.version,
+          updatedAt: legacyAnnotation.createdAt,
+          deleted: false,
+          deduplicated: true,
+        });
       }
       const annotation = DynaAnnotationSchema.parse({ ...input, id: annotationId });
       unitOfWork.insertAnnotation(annotation);
+      unitOfWork.insertAnnotationEvent({
+        id: eventId,
+        annotationId,
+        itemId,
+        operation: "create",
+        requestHash,
+        resultVersion: annotation.version,
+        occurredAt: annotation.updatedAt,
+      });
       this.#touchItemDashboards(unitOfWork, itemId, annotation.createdAt);
       unitOfWork.appendAudit("annotation.created", itemId, annotation.createdAt);
-      return annotation;
+      return DynaAnnotationMutationResultSchema.parse({
+        schema: "dyna/annotation-mutation-result-v1",
+        annotationId,
+        version: annotation.version,
+        updatedAt: annotation.updatedAt,
+        deleted: false,
+        deduplicated: false,
+      });
     });
+  }
+
+  editAnnotation(input: DynaAnnotationEditInput): DynaAnnotationMutationResult {
+    this.#requireCapability("view:interact");
+    const parsed = DynaAnnotationEditInputSchema.parse(input);
+    return this.#repository.write((unitOfWork) => {
+      const dashboardId = unitOfWork.authorizeViewToken(parsed.viewToken, parsed.itemId);
+      this.#assertItemMembership(unitOfWork, dashboardId, parsed.itemId);
+      const eventId = this.#annotationMutationEventId(
+        dashboardId,
+        parsed.itemId,
+        parsed.annotationId,
+        parsed.clientRequestId,
+      );
+      const requestHash = sha256(
+        canonicalJson({
+          operation: "edit",
+          annotationId: parsed.annotationId,
+          expectedVersion: parsed.expectedVersion,
+          body: parsed.body,
+        }),
+      );
+      const replay = unitOfWork.findAnnotationEvent(eventId);
+      if (replay) {
+        return this.#replayAnnotationMutation(
+          replay,
+          "edit",
+          parsed.annotationId,
+          parsed.itemId,
+          requestHash,
+          false,
+        );
+      }
+      const annotation = this.#editableAnnotation(
+        unitOfWork,
+        parsed.itemId,
+        parsed.annotationId,
+        parsed.expectedVersion,
+      );
+      const updatedAt = this.#now();
+      if (
+        !unitOfWork.updateAnnotation(annotation.id, parsed.expectedVersion, parsed.body, updatedAt)
+      ) {
+        throw new DynaCliError("request_conflict", "The note changed; refresh it before retrying.");
+      }
+      const resultVersion = parsed.expectedVersion + 1;
+      unitOfWork.insertAnnotationEvent({
+        id: eventId,
+        annotationId: annotation.id,
+        itemId: parsed.itemId,
+        operation: "edit",
+        requestHash,
+        resultVersion,
+        occurredAt: updatedAt,
+      });
+      this.#touchItemDashboards(unitOfWork, parsed.itemId, updatedAt);
+      unitOfWork.appendAudit("annotation.edited", parsed.itemId, updatedAt);
+      return DynaAnnotationMutationResultSchema.parse({
+        schema: "dyna/annotation-mutation-result-v1",
+        annotationId: annotation.id,
+        version: resultVersion,
+        updatedAt,
+        deleted: false,
+        deduplicated: false,
+      });
+    });
+  }
+
+  deleteAnnotation(input: DynaAnnotationDeleteInput): DynaAnnotationMutationResult {
+    this.#requireCapability("view:interact");
+    const parsed = DynaAnnotationDeleteInputSchema.parse(input);
+    return this.#repository.write((unitOfWork) => {
+      const dashboardId = unitOfWork.authorizeViewToken(parsed.viewToken, parsed.itemId);
+      this.#assertItemMembership(unitOfWork, dashboardId, parsed.itemId);
+      const eventId = this.#annotationMutationEventId(
+        dashboardId,
+        parsed.itemId,
+        parsed.annotationId,
+        parsed.clientRequestId,
+      );
+      const requestHash = sha256(
+        canonicalJson({
+          operation: "delete",
+          annotationId: parsed.annotationId,
+          expectedVersion: parsed.expectedVersion,
+        }),
+      );
+      const replay = unitOfWork.findAnnotationEvent(eventId);
+      if (replay) {
+        return this.#replayAnnotationMutation(
+          replay,
+          "delete",
+          parsed.annotationId,
+          parsed.itemId,
+          requestHash,
+          true,
+        );
+      }
+      const annotation = this.#editableAnnotation(
+        unitOfWork,
+        parsed.itemId,
+        parsed.annotationId,
+        parsed.expectedVersion,
+      );
+      const deletedAt = this.#now();
+      if (!unitOfWork.deleteAnnotation(annotation.id, parsed.expectedVersion, deletedAt)) {
+        throw new DynaCliError("request_conflict", "The note changed; refresh it before retrying.");
+      }
+      const resultVersion = parsed.expectedVersion + 1;
+      unitOfWork.insertAnnotationEvent({
+        id: eventId,
+        annotationId: annotation.id,
+        itemId: parsed.itemId,
+        operation: "delete",
+        requestHash,
+        resultVersion,
+        occurredAt: deletedAt,
+      });
+      this.#touchItemDashboards(unitOfWork, parsed.itemId, deletedAt);
+      unitOfWork.appendAudit("annotation.deleted", parsed.itemId, deletedAt);
+      return DynaAnnotationMutationResultSchema.parse({
+        schema: "dyna/annotation-mutation-result-v1",
+        annotationId: annotation.id,
+        version: resultVersion,
+        updatedAt: deletedAt,
+        deleted: true,
+        deduplicated: false,
+      });
+    });
+  }
+
+  #annotationMutationEventId(
+    dashboardId: string,
+    itemId: string,
+    annotationId: string,
+    clientRequestId: string,
+  ): string {
+    return scopedUuid([
+      "annotation-mutation-request",
+      dashboardId,
+      itemId,
+      annotationId,
+      clientRequestId.toLowerCase(),
+    ]);
+  }
+
+  #replayAnnotationMutation(
+    event: DynaRepositoryAnnotationEvent,
+    operation: DynaRepositoryAnnotationEvent["operation"],
+    annotationId: string,
+    itemId: string,
+    requestHash: string,
+    deleted: boolean,
+  ): DynaAnnotationMutationResult {
+    if (
+      event.operation !== operation ||
+      event.annotationId !== annotationId ||
+      event.itemId !== itemId ||
+      !secureDigestMatches(event.requestHash, requestHash)
+    ) {
+      throw new DynaCliError(
+        "request_conflict",
+        "Dyna rejected an annotation request ID reused with different content.",
+      );
+    }
+    return DynaAnnotationMutationResultSchema.parse({
+      schema: "dyna/annotation-mutation-result-v1",
+      annotationId,
+      version: event.resultVersion,
+      updatedAt: event.occurredAt,
+      deleted,
+      deduplicated: true,
+    });
+  }
+
+  #editableAnnotation(
+    unitOfWork: DynaWriteUnitOfWork,
+    itemId: string,
+    annotationId: string,
+    expectedVersion: number,
+  ): DynaAnnotation {
+    const annotation = unitOfWork.findAnnotation(annotationId);
+    if (annotation?.itemId !== itemId || annotation.deletedAt) {
+      throw new DynaCliError("not_found", "Dyna could not find this note.");
+    }
+    if (annotation.version !== expectedVersion) {
+      throw new DynaCliError("request_conflict", "The note changed; refresh it before retrying.");
+    }
+    return annotation;
   }
 
   addTodo(viewToken: string, input: DynaTodoInput, clientRequestId: string): string {

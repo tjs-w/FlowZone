@@ -713,6 +713,10 @@ function sourceSliceLabel(source: DynaSourceSlice["source"]): string {
   }[source];
 }
 
+function sourceSliceIsCurrent(slice: DynaSourceSlice): boolean {
+  return slice.status === "succeeded" && slice.freshness === "fresh";
+}
+
 function workUpdateKindLabel(kind: DynaWorkUpdate["kind"]): string {
   return {
     note: "Note",
@@ -967,6 +971,8 @@ interface DynaComponentCatalog {
       readonly emptyMessage: string;
       readonly count: number;
       readonly attention?: boolean;
+      readonly open?: boolean;
+      readonly sourceSummary?: string | undefined;
       readonly priority?: TodoPriority;
       readonly itemIds?: readonly string[];
     }>,
@@ -2710,14 +2716,18 @@ const dynaComponents: DynaComponentCatalog = {
         <details
           className="dyna-source-health"
           data-attention={Boolean(props.attention)}
-          open={props.attention ? true : undefined}
+          open={props.open ? true : undefined}
         >
           <summary>
             <ChevronRight className="dyna-disclosure" aria-hidden="true" />
-            {props.attention ? "Source Health Needs Attention" : "Source Health"}
-            <span className="dyna-meta">
-              {props.count} {props.count === 1 ? "run" : "runs"}
-            </span>
+            <span>Source coverage</span>
+            {props.attention ? (
+              <span className="dyna-meta">{props.sourceSummary}</span>
+            ) : (
+              <span className="dyna-meta">
+                {props.count} {props.count === 1 ? "run" : "runs"}
+              </span>
+            )}
           </summary>
           <div className="dyna-source-list">{children}</div>
         </details>
@@ -3520,68 +3530,72 @@ const dynaComponents: DynaComponentCatalog = {
     const controller = useController();
     const revoked = Boolean(props.revokedAt);
     const slices = props.lastSourceSlices ?? [];
-    const unhealthySlices = slices.filter(
-      (slice) => slice.status === "failed" || slice.freshness !== "fresh",
-    );
-    const healthySliceCount = slices.length - unhealthySlices.length;
+    const currentSlices = slices.filter(sourceSliceIsCurrent);
+    const notRefreshedSlices = slices.filter((slice) => !sourceSliceIsCurrent(slice));
+    const [scheduleLabel, scheduleColor]: readonly [
+      string,
+      "danger" | "secondary" | "warning" | "success",
+    ] = revoked
+      ? ["Revoked", "danger"]
+      : props.scheduleState === "unknown"
+        ? ["Offline", "danger"]
+        : props.scheduleState === "paused"
+          ? ["Paused", "secondary"]
+          : props.lastRunStatus === "failed"
+            ? ["Refresh failed", "danger"]
+            : props.lastRunStatus === "partial"
+              ? ["Partially refreshed", "warning"]
+              : props.lastRunStatus === "succeeded" && notRefreshedSlices.length === 0
+                ? ["Current", "success"]
+                : props.lastRunStatus === "never"
+                  ? ["Not yet refreshed", "secondary"]
+                  : ["Out of date", "warning"];
     return (
       <div className="dyna-schedule">
         <strong>{props.scheduleTitle ?? props.name}</strong>
-        <Badge
-          color={
-            revoked || props.lastRunStatus === "failed"
-              ? "danger"
-              : props.lastRunStatus === "partial"
-                ? "warning"
-                : props.lastRunStatus === "succeeded"
-                  ? "success"
-                  : "secondary"
-          }
-          variant="soft"
-        >
-          {revoked ? "revoked" : props.lastRunStatus}
+        <Badge color={scheduleColor} variant="soft">
+          {scheduleLabel}
         </Badge>
         <span className="dyna-meta">
           {revoked
             ? `Publisher revoked${props.lastRunAt ? ` · last run ${props.lastRunStatus} ${relativeTime(props.lastRunAt, controller.locale)}` : " · not run yet"}`
             : `${props.scheduleState}${props.lastRunAt ? ` · last run ${relativeTime(props.lastRunAt, controller.locale)}` : " · not run yet"}`}
         </span>
-        {props.lastRunError ? <span className="dyna-meta">{props.lastRunError}</span> : null}
         {slices.length > 0 ? (
-          unhealthySlices.length === 0 ? (
-            <span className="dyna-meta">
-              {slices.length} {slices.length === 1 ? "source" : "sources"} fresh
-            </span>
-          ) : (
-            <div className="dyna-slice-summary" role="list" aria-label="Latest source results">
-              {unhealthySlices.map((slice) => {
-                const state = slice.status === "failed" ? "failed" : slice.freshness;
-                return (
-                  <span
-                    key={`${slice.source}:${slice.sourceScope}`}
-                    className="dyna-slice"
-                    role="listitem"
-                    aria-label={`${sourceSliceLabel(slice.source)} ${slice.sourceScope}: ${state}`}
-                    title={slice.sourceScope}
-                  >
-                    <SourceFavicon kind={slice.source} />
-                    <Badge
-                      color={state === "failed" || state === "stale" ? "danger" : "warning"}
-                      variant="soft"
-                      aria-hidden="true"
+          <div className="dyna-slice-summary">
+            {notRefreshedSlices.length > 0 ? (
+              <>
+                <strong>Not refreshed {notRefreshedSlices.length}</strong>
+                <div role="list" aria-label="Not refreshed sources">
+                  {notRefreshedSlices.map((slice) => (
+                    <span
+                      key={`${slice.source}:${slice.sourceScope}`}
+                      className="dyna-slice"
+                      role="listitem"
+                      aria-label={`${sourceSliceLabel(slice.source)} ${slice.sourceScope}: Not refreshed`}
+                      title={slice.sourceScope}
                     >
-                      {state}
-                    </Badge>
-                  </span>
-                );
-              })}
-              {healthySliceCount > 0 ? (
-                <span className="dyna-meta">
-                  {healthySliceCount} {healthySliceCount === 1 ? "source" : "sources"} fresh
-                </span>
-              ) : null}
-            </div>
-          )
+                      <SourceFavicon kind={slice.source} />
+                      {sourceSliceLabel(slice.source)}
+                    </span>
+                  ))}
+                </div>
+              </>
+            ) : null}
+            {currentSlices.length > 0 ? (
+              <span className="dyna-meta">
+                {currentSlices.length} {currentSlices.length === 1 ? "source" : "sources"} current
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        {props.lastRunError ? (
+          <details className="dyna-meta">
+            <summary>
+              {revoked || props.lastRunStatus === "failed" ? "Refresh error" : "Refresh note"}
+            </summary>
+            <span>{props.lastRunError}</span>
+          </details>
         ) : null}
       </div>
     );
@@ -4018,7 +4032,8 @@ function executiveSummaryCoverage(
 
   for (const schedule of schedules) {
     const scheduleSources = new Set<string>();
-    for (const slice of schedule.lastSourceSlices ?? []) {
+    const observedSlices = schedule.lastSourceSlices ?? [];
+    for (const slice of observedSlices) {
       const label = sourceSliceLabel(slice.source);
       scheduleSources.add(label);
       sourceNames.add(label);
@@ -4034,7 +4049,7 @@ function executiveSummaryCoverage(
     const affected = scheduleSources.size > 0 ? scheduleSources : new Set([fallback]);
     if (schedule.revokedAt || schedule.lastRunStatus === "failed") {
       for (const label of affected) unavailable.add(label);
-    } else if (schedule.lastRunStatus === "partial") {
+    } else if (schedule.lastRunStatus === "partial" && observedSlices.length === 0) {
       for (const label of affected) {
         if (!unavailable.has(label)) delayed.add(label);
       }
@@ -4058,7 +4073,7 @@ function executiveSummaryCoverage(
   if (unavailable.size > 0) {
     return {
       coverage: "partial",
-      coverageText: `Partial coverage: ${executiveSummaryList([...unavailable], locale, 3)} unavailable. Last-known records remain included.`,
+      coverageText: `${executiveSummaryList([...unavailable], locale, 3)} not refreshed. Previous records remain included.`,
     };
   }
   if (pending.size > 0) {
@@ -4498,8 +4513,41 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
       schedule.lastRunStatus === "failed" ||
       schedule.lastRunStatus === "partial" ||
       schedule.scheduleState !== "active" ||
-      schedule.lastSourceSlices?.some((slice) => slice.freshness !== "fresh"),
+      schedule.lastSourceSlices?.some(
+        (slice) => slice.status === "failed" || slice.freshness !== "fresh",
+      ),
   );
+  const observedSources = snapshot.schedules.flatMap((schedule) => schedule.lastSourceSlices ?? []);
+  const currentSources = observedSources.filter(sourceSliceIsCurrent).length;
+  const notRefreshedSources = observedSources.length - currentSources;
+  const sourceStates = new Set(
+    unhealthySchedules.flatMap((schedule) => [
+      schedule.lastRunStatus,
+      schedule.scheduleState,
+      schedule.revokedAt ? "revoked" : "",
+    ]),
+  );
+  const sourceNeedsExpansion = ["failed", "revoked", "unknown"].some((state) =>
+    sourceStates.has(state),
+  );
+  const sourceStateLabel = sourceStates.has("failed")
+    ? "Refresh failed"
+    : sourceStates.has("revoked")
+      ? "Publisher revoked"
+      : sourceStates.has("unknown")
+        ? "Schedule offline"
+        : sourceStates.has("paused")
+          ? "Refresh paused"
+          : sourceStates.has("partial")
+            ? "Some sources not refreshed"
+            : sourceStates.has("never")
+              ? "Not yet refreshed"
+              : "Refresh not current";
+  const sourceSummary = notRefreshedSources
+    ? `${notRefreshedSources} not refreshed${currentSources > 0 ? ` · ${currentSources} current` : ""}`
+    : unhealthySchedules.length > 0
+      ? sourceStateLabel
+      : undefined;
   const stages = PIPELINE_STAGES.map(([state, title]) => ({
     state,
     title,
@@ -4576,6 +4624,8 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
             emptyMessage: "No schedules are attached.",
             count: snapshot.schedules.length,
             attention: unhealthySchedules.length > 0,
+            open: sourceNeedsExpansion,
+            sourceSummary,
           }}
         >
           {snapshot.schedules.map((schedule) => (
@@ -4613,13 +4663,14 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
         />
       ) : null}
       {compactInline && unhealthySchedules.length > 0 ? (
-        <Alert
-          className="dyna-source-alert"
-          color="warning"
-          variant="soft"
-          title="Source Refresh Needs Attention"
-          description={`${unhealthySchedules.length} ${unhealthySchedules.length === 1 ? "source is" : "sources are"} delayed or unavailable.`}
-        />
+        <div className="dyna-source-alert dyna-meta" role="status">
+          <strong>{sourceStateLabel}</strong>
+          <span>
+            {notRefreshedSources > 0
+              ? `${sourceSummary ?? "Not refreshed"} · Previous data retained`
+              : "See source coverage"}
+          </span>
+        </div>
       ) : null}
       {!controller.bulkMode &&
       !compactInline &&

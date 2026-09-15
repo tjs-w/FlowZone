@@ -1315,7 +1315,7 @@ test("discloses unavailable source coverage without presenting an all-clear", as
 
   await expect(brief).toHaveAttribute("data-coverage", "partial");
   await expect(brief.locator(".dyna-executive-summary-coverage")).toContainText(
-    /Partial coverage: .* unavailable/,
+    /not refreshed\. Previous records remain included\./,
   );
   await expect(brief).toContainText("No actionable items are present in the available data.");
   await expect(brief).not.toContainText("Current sources:");
@@ -3289,27 +3289,30 @@ test("keeps the compact queue and forms usable at narrow mobile widths", async (
   expect(await touchTargetViolations(page, ".dyna-inspector")).toEqual([]);
 });
 
-test("keeps a failed scheduled source readable at desktop and mobile widths", async ({ page }) => {
+test("reserves error treatment for a whole-run source refresh failure", async ({ page }) => {
   await page.setViewportSize({ width: 780, height: 1_024 });
   await page.goto("/dyna?failed-schedule=1");
   await openFullDashboard(page);
 
+  const sourceHealth = page.locator(".dyna-source-health");
   const schedule = page.locator(".dyna-schedule");
-  const title = schedule.locator("strong");
+  const title = schedule.locator(":scope > strong");
   const metadata = schedule.locator(":scope > .dyna-meta");
+  await expect(sourceHealth).toHaveAttribute("open", "");
+  await expect(sourceHealth.locator(":scope > summary")).toContainText("Source coverage");
   await expect(title).toHaveText("Browser fixture schedule");
-  await expect(schedule.getByText("failed", { exact: true }).first()).toBeVisible();
+  await expect(schedule.getByText("Refresh failed", { exact: true })).toBeVisible();
   await expect(metadata).toHaveCount(2);
   await expect(metadata.nth(1)).toContainText("Outlook unavailable");
-  await expect(schedule.getByRole("list", { name: "Latest source results" })).toBeVisible();
+  await expect(schedule.locator(".dyna-slice-summary")).toBeVisible();
+  await expect(schedule.getByRole("list", { name: "Not refreshed sources" })).toBeVisible();
   await expect(schedule.getByRole("listitem")).toHaveCount(7);
   await expect(
-    schedule.getByRole("listitem", { name: "Outlook team/project: failed" }),
+    schedule.getByRole("listitem", { name: "Outlook team/project: Not refreshed" }),
   ).toBeVisible();
   await expect(
-    schedule.getByRole("listitem", { name: "Source control team/project: failed" }),
+    schedule.getByRole("listitem", { name: "Source control team/project: Not refreshed" }),
   ).toBeVisible();
-
   const desktop = await schedule.evaluate((element) => {
     const titleElement = element.querySelector("strong");
     const metadataElements = [...element.querySelectorAll(":scope > .dyna-meta")];
@@ -3323,7 +3326,7 @@ test("keeps a failed scheduled source readable at desktop and mobile widths", as
   });
   expect(desktop.titleWidth).toBeGreaterThan(desktop.width / 2);
   expect(desktop.metadataWidths.every((width) => width > desktop.width * 0.9)).toBe(true);
-  expect(desktop.height).toBeLessThan(180);
+  expect(desktop.height).toBeLessThan(260);
 
   await page.setViewportSize({ width: 320, height: 720 });
   const sourceHealthHeight =
@@ -3347,8 +3350,87 @@ test("keeps a failed scheduled source readable at desktop and mobile widths", as
     };
   });
   expect(mobile.titleWidth).toBeGreaterThan(140);
-  expect(mobile.height).toBeLessThan(240);
+  expect(mobile.height).toBeLessThan(340);
   expect(mobile.pageScrollWidth).toBeLessThanOrEqual(mobile.pageClientWidth);
+});
+
+test("presents a partial refresh as retained coverage instead of repeated errors", async ({
+  page,
+}) => {
+  for (const theme of ["light", "dark"] as const) {
+    await page.setViewportSize({ width: 780, height: 1_024 });
+    await page.goto(`/dyna?partial-schedule=1&theme=${theme}`);
+    await openFullDashboard(page);
+
+    const sourceHealth = page.locator(".dyna-source-health");
+    const healthSummary = sourceHealth.locator(":scope > summary");
+    await expect(sourceHealth).not.toHaveAttribute("open", "");
+    await expect(healthSummary).toContainText("Source coverage");
+    await expect(healthSummary).toContainText("1 not refreshed");
+    await expect(healthSummary).toContainText("6 current");
+
+    await healthSummary.click();
+    const schedule = page.locator(".dyna-schedule");
+    await expect(schedule.getByText("Partially refreshed", { exact: true })).toBeVisible();
+    await expect(schedule.getByText("failed", { exact: true })).toHaveCount(0);
+    await expect(schedule.getByRole("list", { name: "Not refreshed sources" })).toContainText(
+      "Outlook",
+    );
+    await expect(schedule.getByRole("list", { name: "Not refreshed sources" })).toHaveCount(1);
+    await expect(schedule.getByText("6 sources current", { exact: true })).toBeVisible();
+
+    const coverage = page.locator(".dyna-executive-summary-coverage");
+    await expect(coverage).toHaveText("Outlook not refreshed. Previous records remain included.");
+    await expect(coverage).not.toContainText("Codex not refreshed");
+  }
+  await page.setViewportSize({ width: 320, height: 720 });
+  expect(await dashboardScrollViolations(page)).toEqual([]);
+});
+
+test("summarizes compact source refresh states without false failure alarms", async ({ page }) => {
+  const cases = [
+    {
+      query: "partial-schedule=1",
+      headline: "Some sources not refreshed",
+      detail: "1 not refreshed · 6 current · Previous data retained",
+    },
+    {
+      query: "failed-schedule=1",
+      headline: "Refresh failed",
+      detail: "7 not refreshed · Previous data retained",
+    },
+    {
+      query: "revoked-schedule=1",
+      headline: "Publisher revoked",
+      detail: "7 not refreshed · Previous data retained",
+    },
+    {
+      query: "schedule-state=unknown",
+      headline: "Schedule offline",
+      detail: "See source coverage",
+    },
+    {
+      query: "schedule-state=paused",
+      headline: "Refresh paused",
+      detail: "See source coverage",
+    },
+    {
+      query: "never-run-schedule=1",
+      headline: "Not yet refreshed",
+      detail: "See source coverage",
+    },
+  ] as const;
+
+  for (const fixture of cases) {
+    await page.goto(`/dyna?${fixture.query}&display-mode-result=inline`);
+    await expect(page.locator(".dyna")).toHaveAttribute("data-display-mode", "inline");
+    const sourceStatus = page.locator(".dyna-source-alert");
+    await expect(sourceStatus.locator("strong")).toHaveText(fixture.headline);
+    await expect(sourceStatus.locator("span")).toHaveText(fixture.detail);
+  }
+
+  await page.setViewportSize({ width: 320, height: 720 });
+  expect(await dashboardScrollViolations(page)).toEqual([]);
 });
 
 test("never presents a revoked scheduled source as live", async ({ page }) => {
@@ -3357,12 +3439,12 @@ test("never presents a revoked scheduled source as live", async ({ page }) => {
   await openFullDashboard(page);
 
   const revoked = page.locator(".dyna-schedule", { hasText: "Browser fixture schedule" });
-  await expect(revoked.getByText("revoked", { exact: true })).toBeVisible();
+  await expect(revoked.getByText("Revoked", { exact: true })).toBeVisible();
   await expect(revoked.locator(":scope > .dyna-meta").first()).toContainText(
     "Publisher revoked · last run succeeded",
   );
   await expect(
-    revoked.getByRole("listitem", { name: "Source control team/project: stale" }),
+    revoked.getByRole("listitem", { name: "Source control team/project: Not refreshed" }),
   ).toBeVisible();
   await expect(page.locator(".dyna-health-badge")).not.toHaveText("Live");
 });
@@ -3371,10 +3453,37 @@ test("never presents an active never-run scheduled source as live", async ({ pag
   await page.goto("/dyna?many-items=1&never-run-schedule=1");
   await expect(page.locator(".dyna-health-badge")).toHaveText("Delayed");
   await openFullDashboard(page);
+  const sourceHealth = page.locator(".dyna-source-health");
+  await expect(sourceHealth).not.toHaveAttribute("open", "");
+  await expect(sourceHealth.locator(":scope > summary")).toContainText("Not yet refreshed");
+  await sourceHealth.locator(":scope > summary").click();
   const neverRun = page.locator(".dyna-schedule", { hasText: "Never-run fixture schedule" });
-  await expect(neverRun.getByText("never", { exact: true })).toBeVisible();
+  await expect(neverRun.getByText("Not yet refreshed", { exact: true })).toBeVisible();
   await expect(neverRun.locator(":scope > .dyna-meta").first()).toHaveText("active · not run yet");
   await expect(page.locator(".dyna-health-badge")).not.toHaveText("Live");
+});
+
+test("describes paused and offline source coverage without calling it a failed run", async ({
+  page,
+}) => {
+  for (const fixture of [
+    { state: "paused", summary: "Refresh paused", badge: "Paused", expanded: false },
+    { state: "unknown", summary: "Schedule offline", badge: "Offline", expanded: true },
+  ] as const) {
+    await page.goto(`/dyna?schedule-state=${fixture.state}`);
+    await openFullDashboard(page);
+    const sourceHealth = page.locator(".dyna-source-health");
+    await expect(sourceHealth.locator(":scope > summary")).toContainText(fixture.summary);
+    if (fixture.expanded) await expect(sourceHealth).toHaveAttribute("open", "");
+    else {
+      await expect(sourceHealth).not.toHaveAttribute("open", "");
+      await sourceHealth.locator(":scope > summary").click();
+    }
+    await expect(
+      page.locator(".dyna-schedule").getByText(fixture.badge, { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText("Refresh failed", { exact: true })).toHaveCount(0);
+  }
 });
 
 test("requests the expanded Codex work surface automatically when the host supports it", async ({

@@ -454,6 +454,8 @@ async function createDynaFixture(
   longContent = false,
   olderAnnotationMatch = false,
   failedSchedule = false,
+  partialSchedule = false,
+  scheduleState: "active" | "paused" | "unknown" = "active",
   neverRunSchedule = false,
   revokedSchedule = false,
   workActivity = false,
@@ -603,7 +605,7 @@ async function createDynaFixture(
         publisherId,
         scheduleId: `browser-fixture-schedule-${fixtureId}`,
         scheduleTitle: "Browser fixture schedule",
-        scheduleState: "active",
+        scheduleState,
       },
     },
   });
@@ -619,101 +621,106 @@ async function createDynaFixture(
         runId: "browser-fixture-run",
         sourceCompletedAt: now,
         mode: "replace",
-        status: failedSchedule ? "failed" : "succeeded",
-        ...(failedSchedule
+        status: failedSchedule ? "failed" : partialSchedule ? "partial" : "succeeded",
+        ...(failedSchedule || partialSchedule
           ? {
-              failureMessage:
-                "Outlook unavailable: saved read-only session expired and unattended authentication is not authorized. TWG rollup was also partial: Jira and Confluence reads succeeded, but GraphStore count failures left cross-source coverage incomplete.",
+              failureMessage: partialSchedule
+                ? "Outlook collection did not finish in the bounded refresh window. Current Outlook records were retained. Other sources refreshed successfully."
+                : "Outlook unavailable: saved read-only session expired and unattended authentication is not authorized. TWG rollup was also partial: Jira and Confluence reads succeeded, but GraphStore count failures left cross-source coverage incomplete.",
             }
           : {}),
         sourceSlices: requiredSourceSlices.map((slice) => ({
           ...slice,
-          status: failedSchedule ? "failed" : "succeeded",
+          status:
+            failedSchedule || (partialSchedule && slice.source === "outlook")
+              ? "failed"
+              : "succeeded",
         })),
-        items: failedSchedule
-          ? []
-          : Array.from({ length: itemCount }, (_, index) => {
-              const source = sources[index % sources.length];
-              if (!source) throw new Error("Dyna fixture source was not found");
-              const sourceRef =
-                source.source === "scm"
-                  ? { ...source, entityId: `fixture-pr-${String(index)}` }
-                  : source.source === "outlook"
-                    ? { ...source, messageId: `quarterly-plan-${String(index)}` }
-                    : source.source === "messaging"
-                      ? { ...source, messageId: `decision-${String(index)}` }
-                      : source.source === "slack"
-                        ? { ...source, messageId: `175781160${String(index)}.123456` }
-                        : source.source === "gitlab"
-                          ? { ...source, iid: index + 1 }
-                          : source.source === "twg"
-                            ? { ...source, recordId: `record-${String(4_242 + index)}` }
-                            : { ...source, taskId: `fixture-codex-task-${String(index)}` };
-              return {
-                externalId: `fixture:${String(index)}`,
-                sourceRef,
-                sourceScope: "team/project",
-                title:
-                  index === 0
-                    ? longContent
-                      ? `Review-${"x".repeat(193)}`
-                      : "Review the release merge request"
-                    : `Additional priority ${String(index)}`,
-                summary:
-                  index === 0
-                    ? longContent
-                      ? `Context-${"y".repeat(992)}`
-                      : "The change is ready and waiting for an executive review."
-                    : "A cross-functional signal needs a clear owner and a bounded next move.",
-                priority: index === 0 ? "critical" : index === 3 ? "high" : "normal",
-                priorityReason: "The release window closes today.",
-                sourceUpdatedAt: now,
-                ...(index === 2
-                  ? {}
-                  : {
-                      dueAt: new Date(
-                        Date.parse(now) + (index === 0 ? 2 : index === 3 ? 4 : 24) * 60 * 60_000,
-                      ).toISOString(),
-                    }),
-                labels: ["release", "decision"],
-                people:
-                  index === 2
-                    ? [
-                        {
-                          displayName: "Architecture council",
-                          leadershipLevel: "architect",
-                          relationship: "neighboring_org",
-                          involvement: "mentioned",
-                          provenance: "source_metadata",
-                          confidence: "medium",
-                        },
-                      ]
-                    : [
-                        {
-                          displayName: index === 0 ? "Avery Chen" : "Morgan Lee",
-                          title: index === 0 ? "Chief Technology Officer" : "Senior Director",
-                          leadershipLevel: index === 0 ? "cto" : "senior_director",
-                          relationship: index === 0 ? "management_chain" : "neighboring_org",
-                          involvement: index === 0 ? "approver" : "sender",
-                          provenance: "declared_source",
-                          confidence: "high",
-                        },
-                      ],
-                attention:
-                  index === 0
-                    ? "Confirm the risk posture and either approve the release or name the blocker."
-                    : "Turn this signal into an owned decision before it becomes follow-up debt.",
-                plan: ["Validate the latest context", "Resolve the decision owner"],
-                nextSteps: [
-                  {
-                    label:
-                      index === 0 ? "Review the release diff" : "Confirm the accountable owner",
-                    owner: "You",
-                  },
-                  { label: "Record the decision in the source thread" },
-                ],
-              };
-            }),
+        items:
+          failedSchedule || partialSchedule
+            ? []
+            : Array.from({ length: itemCount }, (_, index) => {
+                const source = sources[index % sources.length];
+                if (!source) throw new Error("Dyna fixture source was not found");
+                const sourceRef =
+                  source.source === "scm"
+                    ? { ...source, entityId: `fixture-pr-${String(index)}` }
+                    : source.source === "outlook"
+                      ? { ...source, messageId: `quarterly-plan-${String(index)}` }
+                      : source.source === "messaging"
+                        ? { ...source, messageId: `decision-${String(index)}` }
+                        : source.source === "slack"
+                          ? { ...source, messageId: `175781160${String(index)}.123456` }
+                          : source.source === "gitlab"
+                            ? { ...source, iid: index + 1 }
+                            : source.source === "twg"
+                              ? { ...source, recordId: `record-${String(4_242 + index)}` }
+                              : { ...source, taskId: `fixture-codex-task-${String(index)}` };
+                return {
+                  externalId: `fixture:${String(index)}`,
+                  sourceRef,
+                  sourceScope: "team/project",
+                  title:
+                    index === 0
+                      ? longContent
+                        ? `Review-${"x".repeat(193)}`
+                        : "Review the release merge request"
+                      : `Additional priority ${String(index)}`,
+                  summary:
+                    index === 0
+                      ? longContent
+                        ? `Context-${"y".repeat(992)}`
+                        : "The change is ready and waiting for an executive review."
+                      : "A cross-functional signal needs a clear owner and a bounded next move.",
+                  priority: index === 0 ? "critical" : index === 3 ? "high" : "normal",
+                  priorityReason: "The release window closes today.",
+                  sourceUpdatedAt: now,
+                  ...(index === 2
+                    ? {}
+                    : {
+                        dueAt: new Date(
+                          Date.parse(now) + (index === 0 ? 2 : index === 3 ? 4 : 24) * 60 * 60_000,
+                        ).toISOString(),
+                      }),
+                  labels: ["release", "decision"],
+                  people:
+                    index === 2
+                      ? [
+                          {
+                            displayName: "Architecture council",
+                            leadershipLevel: "architect",
+                            relationship: "neighboring_org",
+                            involvement: "mentioned",
+                            provenance: "source_metadata",
+                            confidence: "medium",
+                          },
+                        ]
+                      : [
+                          {
+                            displayName: index === 0 ? "Avery Chen" : "Morgan Lee",
+                            title: index === 0 ? "Chief Technology Officer" : "Senior Director",
+                            leadershipLevel: index === 0 ? "cto" : "senior_director",
+                            relationship: index === 0 ? "management_chain" : "neighboring_org",
+                            involvement: index === 0 ? "approver" : "sender",
+                            provenance: "declared_source",
+                            confidence: "high",
+                          },
+                        ],
+                  attention:
+                    index === 0
+                      ? "Confirm the risk posture and either approve the release or name the blocker."
+                      : "Turn this signal into an owned decision before it becomes follow-up debt.",
+                  plan: ["Validate the latest context", "Resolve the decision owner"],
+                  nextSteps: [
+                    {
+                      label:
+                        index === 0 ? "Review the release diff" : "Confirm the accountable owner",
+                      owner: "You",
+                    },
+                    { label: "Record the decision in the source thread" },
+                  ],
+                };
+              }),
       },
     },
   });
@@ -1615,6 +1622,12 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
         requestUrl.searchParams.get("long-content") === "1",
         requestUrl.searchParams.get("older-match") === "1",
         requestUrl.searchParams.get("failed-schedule") === "1",
+        requestUrl.searchParams.get("partial-schedule") === "1",
+        requestUrl.searchParams.get("schedule-state") === "paused"
+          ? "paused"
+          : requestUrl.searchParams.get("schedule-state") === "unknown"
+            ? "unknown"
+            : "active",
         requestUrl.searchParams.get("never-run-schedule") === "1",
         requestUrl.searchParams.get("revoked-schedule") === "1",
         requestUrl.searchParams.get("work-activity") === "1" ||

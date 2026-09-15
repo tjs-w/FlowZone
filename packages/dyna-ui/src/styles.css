@@ -1524,7 +1524,7 @@ body {
 }
 
 .dyna-source-health[data-attention="true"] > summary {
-  color: var(--d-high);
+  color: var(--d-text);
 }
 
 .dyna-source-list {

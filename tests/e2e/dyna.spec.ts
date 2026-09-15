@@ -3959,6 +3959,7 @@ test("keeps cached content usable while linked Codex tasks synchronize", async (
 
 test("joins repeated dashboard refreshes without another controller message", async ({ page }) => {
   await page.goto("/dyna?pipeline=1&inline-only=1");
+  await awaitInitialDynaSnapshot(page);
   const refresh = page.locator('[data-dyna-refresh="true"]:visible');
   await refresh.click();
   await expect(page.getByRole("status").filter({ hasText: /^Syncing \d+\/\d+$/u })).toBeVisible();

@@ -1846,6 +1846,7 @@ function CodexWork({
   const [associating, setAssociating] = useState(false);
   const [error, setError] = useState<string>();
   const requestInFlight = useRef(false);
+  const pendingFocusAction = useRef<string | undefined>(undefined);
   const linkedKeys = useMemo(
     () => new Set(card.linkedTasks.map((task) => codexSessionKey(task))),
     [card.linkedTasks],
@@ -1875,6 +1876,17 @@ function CodexWork({
       setSelectedKey("");
     }
   }, [available, selectedKey]);
+
+  useLayoutEffect(() => {
+    if (associating) return;
+    const action = pendingFocusAction.current;
+    if (!action) return;
+    pendingFocusAction.current = undefined;
+    const target = [...document.querySelectorAll<HTMLElement>("[data-dyna-action]")].find(
+      (element) => element.dataset["dynaAction"] === action,
+    );
+    target?.focus({ preventScroll: true });
+  }, [associating, card.linkedTasks]);
 
   const load = async (trigger: HTMLElement) => {
     if (requestInFlight.current || loading || associating || atLimit || unavailable) return;
@@ -1918,6 +1930,7 @@ function CodexWork({
     setAssociating(true);
     setError(undefined);
     const taskAction = `${card.itemId}:open_codex_task:${selected.taskId}`;
+    pendingFocusAction.current = taskAction;
     try {
       await controller.associateCodexSession(
         card.itemId,
@@ -1931,14 +1944,8 @@ function CodexWork({
       setSelectedKey("");
       setQuery("");
       setLinking(false);
-      window.requestAnimationFrame(() => {
-        window.setTimeout(() => {
-          [...document.querySelectorAll<HTMLElement>("[data-dyna-action]")]
-            .find((element) => element.dataset["dynaAction"] === taskAction)
-            ?.focus();
-        }, 0);
-      });
     } catch {
+      pendingFocusAction.current = undefined;
       setError("Couldn’t associate this session. Refresh sessions and try again.");
     } finally {
       requestInFlight.current = false;

@@ -64,10 +64,10 @@ async function validateSkill(): Promise<void> {
       invocation: "$flowzone:dyna",
     },
     {
-      path: "plugins/callflow/skills/callflow/SKILL.md",
-      agentPath: "plugins/callflow/skills/callflow/agents/openai.yaml",
+      path: "skills/callflow/SKILL.md",
+      agentPath: "skills/callflow/agents/openai.yaml",
       name: "callflow",
-      invocation: "$callflow:callflow",
+      invocation: "$flowzone:callflow",
     },
   ] as const;
   for (const definition of skills) {
@@ -148,13 +148,12 @@ async function validateSkill(): Promise<void> {
       );
     }
   }
-  const callFlow = await readFile(
-    resolve(root, "plugins/callflow/skills/callflow/SKILL.md"),
-    "utf8",
-  );
+  const callFlow = await readFile(resolve(root, "skills/callflow/SKILL.md"), "utf8");
   for (const requiredBoundary of [
-    "callflow_discover",
-    "render_callflow",
+    "`flowzone` router",
+    '"plugin":"callflow"',
+    '"action":"discover"',
+    "complete graph remains server-to-component data",
     "Do not run `graft build` implicitly",
     "Source stays local",
     "AI may explain",
@@ -323,9 +322,6 @@ async function validatePlugin(): Promise<void> {
   if (manifest["skills"] !== "./skills/" || manifest["mcpServers"] !== "./.mcp.json") {
     throw new Error("Plugin manifest must expose the skill and MCP server manifest");
   }
-  if (JSON.stringify(manifest).toLocaleLowerCase().includes("callflow")) {
-    throw new Error("The root FlowZone plugin manifest must not register CallFlow");
-  }
   const interfaceMetadata = asRecord(manifest["interface"], "plugin interface");
   const defaultPrompts = interfaceMetadata["defaultPrompt"];
   if (
@@ -335,9 +331,12 @@ async function validatePlugin(): Promise<void> {
     ) ||
     !defaultPrompts.some((prompt) =>
       typeof prompt === "string" ? prompt.includes("$flowzone:dyna") : false,
+    ) ||
+    !defaultPrompts.some((prompt) =>
+      typeof prompt === "string" ? prompt.includes("$flowzone:callflow") : false,
     )
   ) {
-    throw new Error("Plugin starter prompts must expose both qualified FlowZone skills");
+    throw new Error("Plugin starter prompts must expose all qualified FlowZone skills");
   }
   const mcpManifest = asRecord(await readJson(".mcp.json"), "MCP manifest");
   const servers = asRecord(mcpManifest["mcpServers"], "mcpServers");
@@ -358,6 +357,8 @@ async function validatePlugin(): Promise<void> {
   const launcherPath = resolve(root, "bin/flowzone-mcp");
   const publisherLauncherPath = resolve(root, "bin/flowzone-publish");
   const dynaLauncherPath = resolve(root, "bin/dyna");
+  const callFlowLauncherPath = resolve(root, "bin/callflow");
+  const callFlowWindowsLauncherPath = resolve(root, "bin/callflow.cmd");
   const launcher = await readFile(launcherPath, "utf8");
   if (!launcher.includes("server/dist/server.cjs")) {
     throw new Error("The MCP launcher must resolve the checked-in Node bundle");
@@ -373,6 +374,17 @@ async function validatePlugin(): Promise<void> {
     throw new Error("The Dyna launcher must resolve the checked-in CLI bundle");
   }
   await access(dynaLauncherPath, constants.X_OK);
+  const [callFlowLauncher, callFlowWindowsLauncher] = await Promise.all([
+    readFile(callFlowLauncherPath, "utf8"),
+    readFile(callFlowWindowsLauncherPath, "utf8"),
+  ]);
+  if (!callFlowLauncher.includes("server/dist/callflow.cjs")) {
+    throw new Error("The CallFlow CLI launcher must resolve its checked-in Node bundle");
+  }
+  if (!callFlowWindowsLauncher.includes("server\\dist\\callflow.cjs")) {
+    throw new Error("The CallFlow Windows CLI launcher must resolve its checked-in Node bundle");
+  }
+  await access(callFlowLauncherPath, constants.X_OK);
   if (!(await stat(launcherPath)).isFile()) {
     throw new Error("The MCP launcher must be a regular executable file");
   }
@@ -382,6 +394,9 @@ async function validatePlugin(): Promise<void> {
   if (!(await stat(dynaLauncherPath)).isFile()) {
     throw new Error("The Dyna launcher must be a regular executable file");
   }
+  if (!(await stat(callFlowLauncherPath)).isFile()) {
+    throw new Error("The CallFlow launcher must be a regular executable file");
+  }
   await Promise.all([
     access(launcherPath),
     access(publisherLauncherPath),
@@ -389,111 +404,86 @@ async function validatePlugin(): Promise<void> {
     access(resolve(root, "server/dist/server.cjs")),
     access(resolve(root, "server/dist/flowzone-publish.cjs")),
     access(resolve(root, "server/dist/dyna.cjs")),
+    access(callFlowLauncherPath),
+    access(callFlowWindowsLauncherPath),
+    access(resolve(root, "server/dist/callflow.cjs")),
+    access(resolve(root, "server/dist/callflow-layout-worker.cjs")),
     access(resolve(root, "web/flowzone.html")),
     access(resolve(root, "web/dist/flowzone.js")),
     access(resolve(root, "web/dyna.html")),
     access(resolve(root, "web/dist/dyna.js")),
     access(resolve(root, "web/dist/dyna.css")),
+    access(resolve(root, "web/callflow.html")),
+    access(resolve(root, "web/dist/callflow.js")),
+    access(resolve(root, "web/dist/callflow.css")),
+    access(resolve(root, "licenses/callflow/THIRD_PARTY_NOTICES.md")),
+    access(resolve(root, "licenses/callflow/sbom.json")),
   ]);
 
-  const callFlowManifest = asRecord(
-    await readJson("plugins/callflow/.codex-plugin/plugin.json"),
-    "CallFlow plugin manifest",
-  );
-  if (callFlowManifest["name"] !== "callflow") {
-    throw new Error("CallFlow plugin name must be callflow");
-  }
-  if (
-    typeof callFlowManifest["version"] !== "string" ||
-    !callFlowManifest["version"].startsWith("0.1.0+codex.")
-  ) {
-    throw new Error("CallFlow plugin version must include the Codex cachebuster");
-  }
-  if (
-    callFlowManifest["skills"] !== "./skills/" ||
-    callFlowManifest["mcpServers"] !== "./.mcp.json" ||
-    callFlowManifest["apps"] !== undefined
-  ) {
-    throw new Error("CallFlow must expose its skill and MCP manifest without an app manifest");
-  }
-  await assertMissing(
-    "plugins/callflow/.app.json",
-    "CallFlow uses an MCP UI resource and must not ship a separate .app.json registration",
-  );
-  const callFlowInterface = asRecord(callFlowManifest["interface"], "CallFlow interface");
-  if (callFlowInterface["displayName"] !== "CallFlow") {
-    throw new Error("CallFlow must preserve its user-facing capitalization");
-  }
-  const callFlowPrompts = callFlowInterface["defaultPrompt"];
-  if (
-    !Array.isArray(callFlowPrompts) ||
-    !callFlowPrompts.some((prompt) =>
-      typeof prompt === "string" ? prompt.includes("$callflow:callflow") : false,
-    )
-  ) {
-    throw new Error("CallFlow starter prompts must use the qualified CallFlow skill");
-  }
-
-  const callFlowMcpManifest = asRecord(
-    await readJson("plugins/callflow/.mcp.json"),
-    "CallFlow MCP manifest",
-  );
-  const callFlowServers = asRecord(callFlowMcpManifest["mcpServers"], "CallFlow mcpServers");
-  if (Object.keys(callFlowServers).length !== 1) {
-    throw new Error("CallFlow must expose exactly one MCP server endpoint");
-  }
-  const callFlowServer = asRecord(callFlowServers["callflow"], "CallFlow MCP server");
-  if (
-    callFlowServer["command"] !== "./bin/callflow-mcp" ||
-    callFlowServer["args"] !== undefined ||
-    callFlowServer["cwd"] !== "." ||
-    callFlowServer["startup_timeout_sec"] !== 10 ||
-    callFlowServer["tool_timeout_sec"] !== 30
-  ) {
-    throw new Error("CallFlow MCP must use its bounded plugin-root-relative stdio registration");
-  }
-
-  const callFlowLauncherPath = resolve(root, "plugins/callflow/bin/callflow");
-  const callFlowMcpLauncherPath = resolve(root, "plugins/callflow/bin/callflow-mcp");
-  const callFlowWindowsLauncherPath = resolve(root, "plugins/callflow/bin/callflow.cmd");
-  const callFlowWindowsMcpLauncherPath = resolve(root, "plugins/callflow/bin/callflow-mcp.cmd");
-  const [
-    callFlowLauncher,
-    callFlowMcpLauncher,
-    callFlowWindowsLauncher,
-    callFlowWindowsMcpLauncher,
-  ] = await Promise.all([
-    readFile(callFlowLauncherPath, "utf8"),
-    readFile(callFlowMcpLauncherPath, "utf8"),
-    readFile(callFlowWindowsLauncherPath, "utf8"),
-    readFile(callFlowWindowsMcpLauncherPath, "utf8"),
-  ]);
-  if (!callFlowLauncher.includes("server/dist/callflow.cjs")) {
-    throw new Error("CallFlow CLI launcher must resolve its checked-in Node bundle");
-  }
-  if (!callFlowMcpLauncher.includes("server/dist/server.cjs")) {
-    throw new Error("CallFlow MCP launcher must resolve its checked-in Node bundle");
-  }
-  if (!callFlowWindowsLauncher.includes("server\\dist\\callflow.cjs")) {
-    throw new Error("CallFlow Windows CLI launcher must resolve its checked-in Node bundle");
-  }
-  if (!callFlowWindowsMcpLauncher.includes("server\\dist\\server.cjs")) {
-    throw new Error("CallFlow Windows MCP launcher must resolve its checked-in Node bundle");
-  }
   await Promise.all([
-    access(callFlowLauncherPath, constants.X_OK),
-    access(callFlowMcpLauncherPath, constants.X_OK),
-    access(callFlowWindowsLauncherPath),
-    access(callFlowWindowsMcpLauncherPath),
-    access(resolve(root, "plugins/callflow/server/dist/callflow.cjs")),
-    access(resolve(root, "plugins/callflow/server/dist/server.cjs")),
-    access(resolve(root, "plugins/callflow/server/dist/layout-worker.cjs")),
-    access(resolve(root, "plugins/callflow/web/callflow.html")),
-    access(resolve(root, "plugins/callflow/web/dist/callflow.js")),
-    access(resolve(root, "plugins/callflow/web/dist/callflow.css")),
-    access(resolve(root, "plugins/callflow/licenses/THIRD_PARTY_NOTICES.md")),
-    access(resolve(root, "plugins/callflow/licenses/sbom.json")),
+    assertMissing(
+      "plugins/callflow",
+      "CallFlow must be contained by FlowZone, not shipped as a separate plugin directory",
+    ),
+    assertMissing(
+      "packages/callflow-mcp/package.json",
+      "CallFlow must be an internal FlowZone module, not a separate MCP package",
+    ),
+    assertMissing(
+      "bin/callflow-mcp",
+      "CallFlow must use the shared FlowZone MCP launcher, not a dedicated server launcher",
+    ),
+    assertMissing(
+      "bin/callflow-mcp.cmd",
+      "CallFlow must not ship a dedicated Windows MCP launcher",
+    ),
   ]);
+
+  const callFlowPackage = asRecord(
+    await readJson("packages/callflow-flowzone/package.json"),
+    "contained CallFlow package",
+  );
+  if (callFlowPackage["name"] !== "@flowzone/callflow") {
+    throw new Error("CallFlow must ship as the internal @flowzone/callflow module");
+  }
+  const callFlowModule = await readFile(
+    resolve(root, "packages/callflow-flowzone/src/plugin.ts"),
+    "utf8",
+  );
+  for (const requiredBoundary of [
+    "createCallFlowPlugin",
+    'CALLFLOW_PLUGIN_ID = "callflow"',
+    'id: "discover"',
+    'id: "query"',
+    'id: "validate"',
+    'id: "diff"',
+    'id: "export"',
+    '"ui://flowzone/callflow/v1.html"',
+  ]) {
+    if (!callFlowModule.includes(requiredBoundary)) {
+      throw new Error(`Contained CallFlow module must retain: ${requiredBoundary}`);
+    }
+  }
+  for (const forbiddenStandaloneBoundary of [
+    "createCallFlowServer",
+    'name: "callflow_discover"',
+    'name: "render_callflow"',
+  ]) {
+    if (callFlowModule.includes(forbiddenStandaloneBoundary)) {
+      throw new Error(
+        `Contained CallFlow module must not retain standalone MCP boundary: ${forbiddenStandaloneBoundary}`,
+      );
+    }
+  }
+  const bundledRuntime = await readFile(resolve(root, "server/src/runtime.ts"), "utf8");
+  if (
+    !bundledRuntime.includes("createCallFlowPlugin") ||
+    !bundledRuntime.includes("CALLFLOW_TEMPLATE_URI")
+  ) {
+    throw new Error(
+      "The shared FlowZone runtime must statically register CallFlow and its UI resource",
+    );
+  }
 
   const marketplace = asRecord(
     await readJson(".agents/plugins/marketplace.json"),
@@ -501,6 +491,9 @@ async function validatePlugin(): Promise<void> {
   );
   const entries = marketplace["plugins"];
   if (!Array.isArray(entries)) throw new Error("Repository marketplace plugins must be an array");
+  if (entries.length !== 1) {
+    throw new Error("Repository marketplace must expose one FlowZone installation only");
+  }
   const flowZoneEntries = entries.filter((entry) => {
     return entry && typeof entry === "object" && !Array.isArray(entry)
       ? (entry as UnknownRecord)["name"] === "flowzone"
@@ -520,38 +513,6 @@ async function validatePlugin(): Promise<void> {
     flowZoneMarketplace["category"] !== "Productivity"
   ) {
     throw new Error("Repository marketplace must retain the FlowZone install policy");
-  }
-  const callFlowEntries = entries.filter((entry) => {
-    return entry && typeof entry === "object" && !Array.isArray(entry)
-      ? (entry as UnknownRecord)["name"] === "callflow"
-      : false;
-  });
-  if (callFlowEntries.length !== 1) {
-    throw new Error("Repository marketplace must contain exactly one CallFlow entry");
-  }
-  const callFlowMarketplace = asRecord(callFlowEntries[0], "CallFlow marketplace entry");
-  const callFlowSource = asRecord(callFlowMarketplace["source"], "CallFlow marketplace source");
-  const callFlowPolicy = asRecord(callFlowMarketplace["policy"], "CallFlow marketplace policy");
-  if (
-    callFlowSource["source"] !== "local" ||
-    callFlowSource["path"] !== "./plugins/callflow" ||
-    callFlowPolicy["installation"] !== "AVAILABLE" ||
-    callFlowPolicy["authentication"] !== "ON_INSTALL" ||
-    callFlowMarketplace["category"] !== "Productivity" ||
-    callFlowMarketplace["interface"] !== undefined
-  ) {
-    throw new Error("CallFlow marketplace entry must retain its canonical local install policy");
-  }
-  if (entries.indexOf(callFlowEntries[0]) <= entries.indexOf(flowZoneEntries[0])) {
-    throw new Error("CallFlow must remain a separate marketplace entry after FlowZone");
-  }
-
-  const callFlowResource = await readFile(
-    resolve(root, "packages/callflow-mcp/src/resource.ts"),
-    "utf8",
-  );
-  if (!callFlowResource.includes('"ui://callflow/workflow/v1.html"')) {
-    throw new Error("CallFlow must retain its v1 MCP UI resource identity");
   }
 }
 

@@ -221,7 +221,15 @@ function scriptData(value: unknown): string {
 function hostScript(payload: unknown = callFlowHarnessPayload): string {
   const initialResult = {
     content: [{ type: "text", text: "CallFlow fixture ready." }],
-    _meta: { callflowGraph: payload },
+    _meta: {
+      flowzone: {
+        schema: "flowzone/ui-v1",
+        plugin: "callflow",
+        action: "discover",
+        view: "workflow",
+        payload,
+      },
+    },
   };
   return `<script>
 (() => {
@@ -355,9 +363,9 @@ export async function createCallFlowBrowserHarnessPage(
   repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../.."),
 ): Promise<string> {
   const [template, script, stylesheet] = await Promise.all([
-    readFile(resolve(repositoryRoot, "plugins/callflow/web/callflow.html"), "utf8"),
-    readFile(resolve(repositoryRoot, "plugins/callflow/web/dist/callflow.js"), "utf8"),
-    readFile(resolve(repositoryRoot, "plugins/callflow/web/dist/callflow.css"), "utf8"),
+    readFile(resolve(repositoryRoot, "web/callflow.html"), "utf8"),
+    readFile(resolve(repositoryRoot, "web/dist/callflow.js"), "utf8"),
+    readFile(resolve(repositoryRoot, "web/dist/callflow.css"), "utf8"),
   ]);
   return template.replace(
     "<!-- CALLFLOW_APP -->",
@@ -393,9 +401,9 @@ export async function createCallFlowLargeBrowserHarnessPage(
     },
   };
   const [template, script, stylesheet] = await Promise.all([
-    readFile(resolve(repositoryRoot, "plugins/callflow/web/callflow.html"), "utf8"),
-    readFile(resolve(repositoryRoot, "plugins/callflow/web/dist/callflow.js"), "utf8"),
-    readFile(resolve(repositoryRoot, "plugins/callflow/web/dist/callflow.css"), "utf8"),
+    readFile(resolve(repositoryRoot, "web/callflow.html"), "utf8"),
+    readFile(resolve(repositoryRoot, "web/dist/callflow.js"), "utf8"),
+    readFile(resolve(repositoryRoot, "web/dist/callflow.css"), "utf8"),
   ]);
   return template.replace(
     "<!-- CALLFLOW_APP -->",
@@ -407,9 +415,9 @@ export async function createCallFlowStandaloneHarnessPage(
   repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../.."),
 ): Promise<string> {
   const [template, script, stylesheet] = await Promise.all([
-    readFile(resolve(repositoryRoot, "plugins/callflow/web/callflow.html"), "utf8"),
-    readFile(resolve(repositoryRoot, "plugins/callflow/web/dist/callflow.js"), "utf8"),
-    readFile(resolve(repositoryRoot, "plugins/callflow/web/dist/callflow.css"), "utf8"),
+    readFile(resolve(repositoryRoot, "web/callflow.html"), "utf8"),
+    readFile(resolve(repositoryRoot, "web/dist/callflow.js"), "utf8"),
+    readFile(resolve(repositoryRoot, "web/dist/callflow.css"), "utf8"),
   ]);
   const standalonePayload = {
     ...callFlowHarnessPayload,

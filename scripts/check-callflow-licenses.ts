@@ -6,12 +6,13 @@ import { build, type BuildOptions } from "esbuild";
 
 import {
   CALLFLOW_LICENSE_APPROVALS,
+  CALLFLOW_SHARED_FLOWZONE_LICENSE_IDS,
   createCallFlowLicenseArtifacts,
   type CallFlowBundleMetafile,
 } from "./callflow-license-approvals.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const licenseDirectory = resolve(root, "plugins/callflow/licenses");
+const licenseDirectory = resolve(root, "licenses/callflow");
 
 type JsonRecord = Record<string, unknown>;
 
@@ -48,13 +49,9 @@ const expectedManifestPins = [
     dependencies: { elkjs: "0.12.0", zod: "4.4.3" },
   },
   {
-    path: "packages/callflow-mcp/package.json",
-    workspace: "packages/callflow-mcp",
-    dependencies: {
-      "@modelcontextprotocol/ext-apps": "1.7.5",
-      "@modelcontextprotocol/sdk": "1.30.0",
-      zod: "4.4.3",
-    },
+    path: "packages/callflow-flowzone/package.json",
+    workspace: "packages/callflow-flowzone",
+    dependencies: { zod: "4.4.3" },
   },
   {
     path: "packages/callflow-ui/package.json",
@@ -70,32 +67,47 @@ const expectedManifestPins = [
   },
 ] as const;
 
-const bundles = [
+interface LicenseBundleSpec {
+  readonly source: string;
+  readonly destination: string;
+  readonly includePackageIds?: readonly string[];
+  readonly options: BuildOptions;
+}
+
+const bundles: readonly LicenseBundleSpec[] = [
   {
-    source: "packages/callflow-mcp/src/main.ts",
-    destination: "plugins/callflow/server/dist/server.cjs",
-    options: { platform: "node", format: "cjs", target: "node22", minify: false },
+    source: "packages/callflow-flowzone/src/plugin.ts",
+    destination: "server/dist/server.cjs",
+    options: {
+      platform: "node",
+      format: "cjs",
+      target: "node22",
+      minify: false,
+      external: ["@flowzone/mcp-server"],
+    },
   },
   {
     source: "packages/callflow-node/src/cli.ts",
-    destination: "plugins/callflow/server/dist/callflow.cjs",
+    destination: "server/dist/callflow.cjs",
     options: { platform: "node", format: "cjs", target: "node22", minify: true },
   },
   {
     source: "packages/callflow-node/src/layout-worker.ts",
-    destination: "plugins/callflow/server/dist/layout-worker.cjs",
+    destination: "server/dist/callflow-layout-worker.cjs",
     options: { platform: "node", format: "cjs", target: "node22", minify: true },
   },
   {
     source: "packages/callflow-ui/src/index.tsx",
-    destination: "plugins/callflow/web/dist/callflow.js",
+    destination: "web/dist/callflow.js",
     options: { platform: "browser", format: "iife", target: "es2022", minify: true },
   },
-] as const satisfies readonly {
-  source: string;
-  destination: string;
-  options: BuildOptions;
-}[];
+  {
+    source: "server/src/main.ts",
+    destination: "server/dist/server.cjs",
+    includePackageIds: CALLFLOW_SHARED_FLOWZONE_LICENSE_IDS,
+    options: { platform: "node", format: "cjs", target: "node22", minify: false },
+  },
+];
 
 async function listRelativeFiles(directory: string, relative = ""): Promise<string[]> {
   const entries = await readdir(resolve(directory, relative), { withFileTypes: true });
@@ -123,7 +135,11 @@ for (const bundle of bundles) {
     sourcemap: false,
     write: false,
   });
-  metafiles.push({ bundle: bundle.destination, metafile: result.metafile });
+  metafiles.push({
+    bundle: bundle.destination,
+    metafile: result.metafile,
+    ...(bundle.includePackageIds ? { includePackageIds: bundle.includePackageIds } : {}),
+  });
 }
 
 const expected = await createCallFlowLicenseArtifacts(root, metafiles);
@@ -138,9 +154,7 @@ if (JSON.stringify(actualPaths) !== JSON.stringify(expectedPaths)) {
 for (const artifact of expected) {
   const actual = await readFile(resolve(licenseDirectory, artifact.path));
   if (!actual.equals(Buffer.from(artifact.content))) {
-    throw new Error(
-      `plugins/callflow/licenses/${artifact.path} differs from its bundle inventory.`,
-    );
+    throw new Error(`licenses/callflow/${artifact.path} differs from its bundle inventory.`);
   }
 }
 
@@ -182,7 +196,7 @@ for (const expectedManifest of expectedManifestPins) {
 
 const notices = await readFile(resolve(root, "THIRD_PARTY_NOTICES.md"), "utf8");
 if (
-  !notices.includes("plugins/callflow/licenses/THIRD_PARTY_NOTICES.md") ||
+  !notices.includes("licenses/callflow/THIRD_PARTY_NOTICES.md") ||
   !notices.includes("EPL-2.0 option")
 ) {
   throw new Error(
@@ -191,7 +205,7 @@ if (
 }
 
 const layoutWorker = await readFile(
-  resolve(root, "plugins/callflow/server/dist/layout-worker.cjs"),
+  resolve(root, "server/dist/callflow-layout-worker.cjs"),
   "utf8",
 );
 const elkBundleSource = await readFile(

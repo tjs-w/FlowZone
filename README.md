@@ -1,18 +1,19 @@
 # FlowZone
 
-FlowZone is a local-first MCP plugin host and repository marketplace. Its primary plugin exposes one MCP server endpoint and bundles Markdown Review and Dyna. The same marketplace also ships CallFlow as a separate installable plugin for deterministic, evidence-backed code workflow maps.
+FlowZone is a local-first MCP plugin host and repository marketplace. Its one installable plugin exposes one MCP server endpoint and contains Markdown Review, Dyna, and CallFlow.
 
-Installing FlowZone installs the shared `flowzone` MCP server and both qualified skills. Invoke them explicitly as `$flowzone:markdown-review` and `$flowzone:dyna`; Codex renders their display names as **FlowZone**, **Markdown Review**, and **Dyna**.
+Installing FlowZone installs the shared `flowzone` MCP server and all three qualified skills. Invoke them explicitly as `$flowzone:markdown-review`, `$flowzone:dyna`, and `$flowzone:callflow`; Codex renders their display names as **FlowZone**, **Markdown Review**, **Dyna**, and **CallFlow**.
 
 > **Status:** early development. Dyna's vertical slice is implemented; physical iOS and Android Remote acceptance remains a release gate.
 
-## Separate plugin: CallFlow
+## Contained capability: CallFlow
 
 - Maps one selected entry-to-sink workflow rather than attempting a whole-repository diagram.
 - Uses external Graft `0.18.x` through its read-only drift check and bounded `--no-refresh` graph-reading commands, and reports stale, failed, ambiguous, and unavailable evidence explicitly.
 - Coordinates an accessible outline, hierarchical React Flow canvas, and evidence/source inspector while preserving selection, pins, viewport, filters, breadcrumbs, and history.
 - Keeps source local by default; model-visible output contains bounded summaries while full graphs and explicitly authorized source spans stay private to the component.
-- Provides the `$callflow:callflow` skill, a standalone Node CLI, six read-only MCP tools, and Markdown, JSON, Mermaid, SVG, and HTML exports.
+- Uses `$flowzone:callflow` and the existing model-visible `flowzone` router. Its Node CLI remains independently useful for explicit local writes and Markdown, JSON, Mermaid, SVG, and HTML exports.
+- Keeps routed discovery headless in current MCP Apps hosts because a single tool descriptor cannot dynamically select CallFlow's separate resource; use `callflow ui open --manifest PATH` for the local interactive view. No extra model-visible render tool is added.
 
 See [CallFlow workflow maps](./docs/callflow.md) for contracts, commands, privacy boundaries, and release gates.
 
@@ -57,13 +58,15 @@ Codex / MCP host
 FlowZone McpServer
        ├── flowzone(plugin, action, input) · data actions
        │      └── static plugin registry
-       │              └── markdown-review/open
+       │              ├── dyna/*
+       │              └── callflow/{discover,query,validate,diff,export}
        ├── typed app-only component tools
        ├── render_markdown_review → ui://flowzone/v5.html
-       └── render_dyna_dashboard → ui://flowzone/dyna/v18.html
+       ├── render_dyna_dashboard → ui://flowzone/dyna/v18.html
+       └── CallFlow resource       ui://flowzone/callflow/v1.html
 ```
 
-FlowZone exposes one model-visible `flowzone` data router plus a dedicated model-visible presentation tool for each rendered surface. The startup-built router union enumerates non-visual plugin/action/input combinations and validates both selected input and plugin-owned output. Dedicated presentation tools carry their own risk and MCP Apps resource metadata. Typed helpers used by a UI stay separate and are forcibly registered with `_meta.ui.visibility: ["app"]`.
+FlowZone exposes one model-visible `flowzone` data router. Its compact direct-object schema enumerates registered plugin and action names while keeping `input` generic; the server then validates `input` against the selected action's strict schema and validates the plugin-owned output. Markdown Review and Dyna retain their established presentation tools for compatibility; CallFlow adds no model-facing tool and is reached only through `flowzone`. Typed helpers used by a UI stay separate and are forcibly registered with `_meta.ui.visibility: ["app"]`.
 
 The Markdown Review plugin is intentionally narrow:
 
@@ -91,7 +94,7 @@ interface FlowZonePlugin {
 }
 ```
 
-Add the plugin factory to the static list in `server/src/main.ts`. Each action declares strict input/output schemas, risk metadata, and an in-process module, fixed allowlisted CLI/script, or fixed HTTPS backend executor. Runtime discovery, user-selected modules, model-controlled commands, and mutable destinations are unsupported. Skills explain how a model should invoke an action; they are not loaded as runtime backends. See [ARCHITECTURE.md](./ARCHITECTURE.md) and [plugin authoring](./docs/plugin-authoring.md).
+Add the plugin factory to the static list in `server/src/runtime.ts`. Each action declares strict input/output schemas, risk metadata, and an in-process module, fixed allowlisted CLI/script, or fixed HTTPS backend executor. Runtime discovery, user-selected modules, model-controlled commands, and mutable destinations are unsupported. Skills explain how a model should invoke an action; they are not loaded as runtime backends. See [ARCHITECTURE.md](./ARCHITECTURE.md) and [plugin authoring](./docs/plugin-authoring.md).
 
 ## Host support
 
@@ -119,7 +122,7 @@ Add this repository as a marketplace:
 codex plugin marketplace add tjs-w/FlowZone --ref main
 ```
 
-Restart the desktop app, open the Plugins Directory, and install **FlowZone**, **CallFlow**, or both. Start a new task after installation so the task receives the selected plugin registrations.
+Restart the desktop app, open the Plugins Directory, and install **FlowZone**. That one installation includes Markdown Review, Dyna, and CallFlow. Start a new task after installation so the task receives the updated registrations.
 
 To refresh an existing installation:
 
@@ -128,6 +131,8 @@ codex plugin marketplace upgrade flowzone
 ```
 
 Restart the desktop app and start a new task after an upgrade. Existing tasks retain the tool and skill registrations they started with.
+
+If the Plugins Directory still shows the legacy standalone **CallFlow** entry from an earlier `0.1.0` installation, uninstall that entry before restarting. Current releases contain CallFlow only inside **FlowZone**.
 
 ## Use
 
@@ -212,14 +217,14 @@ Review only files you intend to expose to the local FlowZone process. Submitted 
 | Path                               | Purpose                                                        |
 | ---------------------------------- | -------------------------------------------------------------- |
 | `.codex-plugin/plugin.json`        | FlowZone bundle identity and install-surface metadata          |
-| `.agents/plugins/marketplace.json` | FlowZone and CallFlow marketplace entries                      |
+| `.agents/plugins/marketplace.json` | Single FlowZone marketplace entry                              |
 | `.mcp.json`                        | Bundled local MCP server configuration                         |
-| `plugins/callflow/`                | Separately installable CallFlow bundle and checked artifacts   |
 | `packages/callflow-contracts/`     | CallFlow schemas, evidence invariants, limits, and redaction   |
 | `packages/callflow-core/`          | Deterministic graph construction, query, diff, and export      |
 | `packages/callflow-node/`          | Secure Graft adapter, repository policy, layout, and CLI       |
-| `packages/callflow-mcp/`           | Dedicated stdio tools, private sessions, and UI resource       |
+| `packages/callflow-flowzone/`      | Internal router actions, private sessions, and app helpers     |
 | `packages/callflow-ui/`            | Controlled React Flow outline, canvas, and inspector           |
+| `skills/callflow/`                 | Bounded discovery, evidence, and source-handling guidance      |
 | `skills/markdown-review/`          | Codex workflow and feedback-handling instructions              |
 | `skills/dyna/`                     | Schedule, publishing, dashboard, and Codex action workflow     |
 | `packages/dyna-contracts/`         | Dyna source, snapshot, action, and UI payload schemas          |
@@ -245,7 +250,7 @@ Review only files you intend to expose to the local FlowZone process. Submitted 
 
 **FlowZone is installed, but `flowzone` or a new action is not registered.** Restart the desktop app and start a new task. A task does not dynamically acquire tool schemas from a plugin installed or updated after that task began.
 
-**Codex says a cached skill path moved.** Upgrade or reinstall the marketplace plugin, restart the app, and invoke `$flowzone:markdown-review` or `$flowzone:dyna` in a new task. Do not depend on a versioned cache path.
+**Codex says a cached skill path moved.** Upgrade or reinstall the marketplace plugin, restart the app, and invoke `$flowzone:markdown-review`, `$flowzone:dyna`, or `$flowzone:callflow` in a new task. Do not depend on a versioned cache path.
 
 **The side panel is blank.** Run `bun run verify` in the plugin checkout, rebuild with `bun run build`, refresh the marketplace installation, and retry in a new task.
 

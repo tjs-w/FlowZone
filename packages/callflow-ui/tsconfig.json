@@ -9,5 +9,5 @@
     "tsBuildInfoFile": "../../.build/types/callflow-ui.tsbuildinfo"
   },
   "include": ["src/**/*"],
-  "references": [{ "path": "../callflow-contracts" }]
+  "references": [{ "path": "../callflow-contracts" }, { "path": "../flowzone-contracts" }]
 }

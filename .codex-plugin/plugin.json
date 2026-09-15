@@ -1,7 +1,7 @@
 {
   "name": "flowzone",
-  "version": "0.1.0+codex.20260915032352",
-  "description": "Run secure FlowZone apps, including Markdown Review and Dyna executive dashboards for scheduled signals.",
+  "version": "0.1.0+codex.20260915083916",
+  "description": "Run secure FlowZone capabilities for Markdown review, executive dashboards, and evidence-backed code workflow maps.",
   "author": {
     "name": "Tejas",
     "url": "https://github.com/tjs-w"
@@ -13,6 +13,8 @@
     "flowzone",
     "markdown",
     "dashboard",
+    "callflow",
+    "workflow",
     "automation",
     "review",
     "mcp-app"
@@ -20,8 +22,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "FlowZone",
-    "shortDescription": "Markdown review and scheduled executive dashboards.",
-    "longDescription": "Runs statically registered FlowZone apps through one local MCP server. Includes Markdown Review for line-anchored document feedback and Dyna for persistent executive priority queues, Codex progress pipelines, and safe cross-task work synchronization built from scheduled email, messaging, source-control, TWG, skill, and Codex signals.",
+    "shortDescription": "Markdown review, dashboards, and code workflow maps.",
+    "longDescription": "Runs statically registered FlowZone capabilities through one local MCP server and one model-visible data router. Includes Markdown Review for line-anchored document feedback, Dyna for persistent executive priority queues and safe cross-task work synchronization, and CallFlow for bounded evidence-backed code workflow maps.",
     "developerName": "Tejas",
     "category": "Productivity",
     "capabilities": [
@@ -31,7 +33,8 @@
     ],
     "defaultPrompt": [
       "Use $flowzone:markdown-review to review this Markdown file.",
-      "Use $flowzone:dyna to open my executive dashboard and keep its work items synchronized."
+      "Use $flowzone:dyna to open my executive dashboard and keep its work items synchronized.",
+      "Use $flowzone:callflow to map this entry point to its sink with verified evidence."
     ],
     "brandColor": "#7057D9"
   },

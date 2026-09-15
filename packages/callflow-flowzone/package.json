@@ -1,5 +1,5 @@
 {
-  "name": "@callflow/mcp",
+  "name": "@flowzone/callflow",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -13,8 +13,7 @@
     "@callflow/contracts": "workspace:*",
     "@callflow/core": "workspace:*",
     "@callflow/node": "workspace:*",
-    "@modelcontextprotocol/ext-apps": "1.7.5",
-    "@modelcontextprotocol/sdk": "1.30.0",
+    "@flowzone/mcp-server": "workspace:*",
     "zod": "4.4.3"
   },
   "devDependencies": {

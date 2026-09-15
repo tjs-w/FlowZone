@@ -1,6 +1,6 @@
 # CallFlow workflow maps
 
-CallFlow is a separate installable Codex plugin in this repository. It builds a bounded, deterministic graph for one selected code workflow and presents the same evidence through a headless CLI, read-only MCP tools, exports, and an interactive three-pane view.
+CallFlow is a contained FlowZone capability. It builds a bounded, deterministic graph for one selected code workflow and presents the same evidence through FlowZone's existing MCP router, a headless CLI, exports, and an interactive three-pane view. Installing FlowZone once installs CallFlow, Markdown Review, and Dyna; CallFlow does not start a second MCP server or add model-visible `callflow_*` tools.
 
 CallFlow does not generate whole-repository diagrams. Start from a function, route, table, queue, transaction, sink, or external integration and narrow the map to the path that answers the question.
 
@@ -23,11 +23,11 @@ CallFlow v1 supports an external Graft `0.18.x` executable. Discovery first runs
 
 The adapter invokes a canonical executable directly with a fixed subcommand allowlist and `shell: false`. Repository and source paths are realpath-checked against one Git worktree, output is bounded, and each process has cancellation and a 30-second timeout. Unexpected versions, malformed output, stale indexes, and missing evidence fail closed.
 
-`callflow adapter build` is the only index-building command. It is an explicit local mutation and is not exposed as an MCP tool.
+`callflow adapter build` is the only index-building command. It is an explicit local mutation and is not exposed through the FlowZone router.
 
 ## CLI
 
-The checked-in `plugins/callflow/bin/callflow` launcher uses Node.js and the bundled CLI. Commands emit stable JSON to stdout and bounded, sanitized diagnostics to stderr.
+The checked-in `bin/callflow` launcher is part of the FlowZone installation and uses Node.js with the bundled CLI. Commands emit stable JSON to stdout and bounded, sanitized diagnostics to stderr.
 
 ```text
 callflow adapter status --repo REPO
@@ -49,20 +49,29 @@ callflow workflow export --manifest PATH \
 
 Manifest creation consumes reviewed JSON from stdin. Query consumes a bounded query object from stdin. Refresh is a dry run unless `--write` is supplied. Generated snapshots never replace the human manifest.
 
-## MCP surface
+## FlowZone router surface
 
-The separate local stdio server exposes six model-visible, read-only tools:
+The model uses the existing `flowzone` tool. CallFlow contributes the read-only actions `discover`, `query`, `validate`, `diff`, and `export` to that router:
 
-- `callflow_discover`
-- `render_callflow`
-- `callflow_query`
-- `callflow_validate`
-- `callflow_diff`
-- `callflow_export`
+```json
+{
+  "plugin": "callflow",
+  "action": "discover",
+  "input": {
+    "repositoryPath": "/absolute/path/to/repository",
+    "entries": ["qualified.entryPoint"],
+    "sink": "qualified.sink"
+  }
+}
+```
 
-Component-only expansion, search, path, relayout, description, and source helpers are marked with `_meta.ui.visibility: ["app"]`. Public results contain only bounded summaries and identifiers. The complete graph and authorized source excerpt stay in private component metadata.
+Model-visible results contain bounded summaries and identifiers. Graft output and complete graphs remain in server-side session state; capability tokens and authorized source excerpts travel only through private component metadata. The router's `export` action returns format, size, and digest rather than the export body; a bounded sanitized body is available only in the private client envelope, and the CLI remains the path for an explicit local export file. This keeps CallFlow's graph size out of model context while preserving useful headless actions.
 
-The presentation tool binds to `ui://callflow/workflow/v1.html`. The resource has a closed network/resource/frame CSP and no source or network capability. Its private envelope is revision-bound and uses an expiring session capability.
+Interactive expansion, source loading, fixed-text search, path finding, relayout, and visible-graph description use capability-bound app-only helpers. FlowZone centrally marks them with `_meta.ui.visibility: ["app"]`; they are not model-facing alternatives to the router.
+
+The interactive resource is `ui://flowzone/callflow/v1.html`. It is registered by the one FlowZone MCP server with a closed network/resource/frame CSP and clipboard-only host permission. No separate `.app.json`, CallFlow plugin manifest, or CallFlow MCP registration is shipped.
+
+MCP Apps binds an output template statically to a tool descriptor, so the shared multi-capability `flowzone` router cannot select CallFlow's separate resource dynamically. Routed discovery is therefore headless in current Codex hosts. A host that explicitly presents the registered resource can use the private helpers; otherwise `callflow ui open --manifest PATH` provides the local interactive view. CallFlow does not add a `render_callflow` model tool to work around this protocol constraint.
 
 ## Interface
 
@@ -86,19 +95,18 @@ CallFlow is local code running with the current OS user's filesystem authority; 
 
 ## Build and release gates
 
-- Browser HTML, JavaScript, and CSS: at most 1.25 MiB uncompressed.
-- Combined CallFlow CLI and MCP bundles: at most 5 MiB.
+- Combined shared FlowZone server, publisher, and Dyna CLI bundles: at most 5 MiB.
+- Combined shared FlowZone MCP server, CallFlow CLI, and CallFlow layout worker: at most 5 MiB.
+- CallFlow browser HTML, JavaScript, and CSS: at most 1.25 MiB uncompressed.
 - Initial private graph payload: at most 8 MiB with no source bodies.
 - Initial useful paint: at most 250 ms in the browser harness.
 - Local selection and filtering: at most 100 ms.
 - Layout: at most 250 ms for 30 nodes and one second for 250 nodes.
 - Accessibility: WCAG 2.2 AA checks, complete keyboard access, visible focus, forced colors, reduced motion, and a usable 320-pixel reflow.
 
-React Flow is pinned to `12.11.6`. ELK is pinned to `0.12.0`, runs in a cancellable Node worker, and is used under its EPL-2.0 option. The shipped bundle retains third-party notices and the EPL-2.0 license. Release stops if license or bundle gates fail.
+React Flow is pinned to `12.11.6`. ELK is pinned to `0.12.0`, runs in a cancellable Node worker, and is used under its EPL-2.0 option. The FlowZone bundle retains third-party notices and the EPL-2.0 license. Release stops if license or bundle gates fail. Existing Markdown Review and Dyna behavior remains protected by compatibility tests even though the shared server bundle now includes CallFlow.
 
 `bun run license:check` compares the installed dependency metadata and notices with the exact approved pins, verifies the shipped license files byte-for-byte, and fails the release gate if either dependency changes its version or declared license.
-
-CallFlow's checked bundles retain byte-exact clean-build parity. The pre-existing FlowZone bundles are deliberately not regenerated as part of CallFlow verification: all ten legacy shipping artifacts are guarded by exact digests, and a separate reproducible digest covers their complete tracked source/static inputs, legacy build configuration, workspace manifests, and relevant resolved lockfile closure. CI and the Playwright harness build CallFlow only, then exercise those unchanged FlowZone artifacts. This is an immutable non-regression boundary; it does not claim to repair the older FlowZone bundle's known clean-install reproducibility debt.
 
 The Linus acceptance data under `tests/fixtures/callflow/linus-opensearch/` pins commit `cd2949c1e4a686359900a3f47e8dbd2e2b44b861`. Its reviewed manifest models `signalOpenSearch` to `Worker.Run` as a human-curated `async-handoff`; a direct-call edge between those anchors is explicitly forbidden. The fixture contains selectors and expectations only—no Linus source and no Linus-specific core behavior.
 
@@ -109,7 +117,7 @@ Build and validate the repository, then add this checkout as a marketplace if it
 ```sh
 bun run verify
 codex plugin marketplace add /absolute/path/to/flowzone
-codex plugin add callflow@flowzone
+codex plugin add flowzone@flowzone
 ```
 
-Restart Codex and start a new task so it receives CallFlow's tool and skill registrations. Invoke `$callflow:callflow` or call the headless tools directly.
+Restart Codex and start a new task so it receives the updated shared server and bundled skill. Invoke `$flowzone:callflow`, or call `flowzone` with `plugin: "callflow"` for headless use.

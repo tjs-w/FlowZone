@@ -61,7 +61,7 @@ describe("CallFlow standalone UI", () => {
         stageOrder: [],
       },
     });
-    const webRoot = resolve(import.meta.dir, "../../../plugins/callflow/web");
+    const webRoot = resolve(import.meta.dir, "../../../web");
 
     const html = await createStandaloneCallFlowHtml(snapshot, webRoot);
 

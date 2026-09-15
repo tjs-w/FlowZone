@@ -2,9 +2,7 @@
 .codex-plugin/
 server/dist/
 web/dist/
-plugins/callflow/server/dist/
-plugins/callflow/web/dist/
-plugins/callflow/licenses/
+licenses/callflow/
 coverage/
 playwright-report/
 test-results/

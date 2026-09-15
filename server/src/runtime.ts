@@ -1,6 +1,11 @@
 import { resolve } from "node:path";
 
 import {
+  CALLFLOW_TEMPLATE_URI,
+  LEGACY_CALLFLOW_TEMPLATE_URIS,
+  createCallFlowPlugin,
+} from "@flowzone/callflow";
+import {
   createFileFlowZoneUiAssetLoader,
   createFlowZoneServer,
   createMarkdownReviewPlugin,
@@ -24,6 +29,11 @@ export function createBundledFlowZoneServer() {
     bundlePath: resolve(pluginRoot, "web/dist/dyna.js"),
     stylesheetPath: resolve(pluginRoot, "web/dist/dyna.css"),
   });
+  const callFlowAssetLoader = createFileFlowZoneUiAssetLoader({
+    templatePath: resolve(pluginRoot, "web/callflow.html"),
+    bundlePath: resolve(pluginRoot, "web/dist/callflow.js"),
+    stylesheetPath: resolve(pluginRoot, "web/dist/callflow.css"),
+  });
   return createFlowZoneServer({
     assetLoader,
     allowNativeDevTools: developerModeEnabled(process.env["FLOWZONE_DEVTOOLS"]),
@@ -44,7 +54,21 @@ export function createBundledFlowZoneServer() {
           "Dyna is a responsive executive dashboard for prioritized scheduled signals and Codex actions.",
         permissions: { clipboardWrite: {} },
       })),
+      {
+        name: "FlowZone CallFlow UI",
+        resourceUri: CALLFLOW_TEMPLATE_URI,
+        assetLoader: callFlowAssetLoader,
+        description: "CallFlow explores one bounded, evidence-backed local source workflow.",
+        permissions: { clipboardWrite: {} },
+      },
+      ...LEGACY_CALLFLOW_TEMPLATE_URIS.map((resourceUri) => ({
+        name: `FlowZone CallFlow UI (legacy ${resourceUri})`,
+        resourceUri,
+        assetLoader: callFlowAssetLoader,
+        description: "CallFlow explores one bounded, evidence-backed local source workflow.",
+        permissions: { clipboardWrite: {} },
+      })),
     ],
-    plugins: [createMarkdownReviewPlugin(), createDynaPlugin()],
+    plugins: [createMarkdownReviewPlugin(), createDynaPlugin(), createCallFlowPlugin()],
   });
 }

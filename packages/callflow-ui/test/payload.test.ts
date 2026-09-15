@@ -60,9 +60,35 @@ const payload = {
 } as const;
 
 describe("CallFlow browser payload boundaries", () => {
-  test("accepts only the revision-bound private graph envelope", () => {
+  test("accepts the typed FlowZone envelope and legacy private graph metadata", () => {
+    expect(
+      metadataPayload({
+        _meta: {
+          flowzone: {
+            schema: "flowzone/ui-v1",
+            plugin: "callflow",
+            action: "discover",
+            view: "workflow",
+            payload,
+          },
+        },
+      })?.snapshot.id,
+    ).toBe("graph-1");
     expect(metadataPayload({ _meta: { callflowGraph: payload } })?.snapshot.id).toBe("graph-1");
     expect(metadataPayload({ structuredContent: { callflowGraph: payload } })).toBeUndefined();
+    expect(
+      metadataPayload({
+        _meta: {
+          flowzone: {
+            schema: "flowzone/ui-v1",
+            plugin: "dyna",
+            action: "discover",
+            view: "workflow",
+            payload,
+          },
+        },
+      }),
+    ).toBeUndefined();
     expect(
       metadataPayload({
         _meta: {

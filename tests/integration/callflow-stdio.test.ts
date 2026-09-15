@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFile } from "node:child_process";
-import { cp, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -58,8 +58,8 @@ function launcherInvocation(
   };
 }
 
-describe("CallFlow dedicated stdio server", () => {
-  test("keeps graphs and authorized source private while public tools stay headless", async () => {
+describe("CallFlow in the shared FlowZone stdio server", () => {
+  test("uses only the shared model router while graph and source data stay private", async () => {
     const repository = await mkdtemp(join(tmpdir(), "callflow-stdio-"));
     temporaryDirectories.push(repository);
     const canonicalRepository = await realpath(repository);
@@ -73,47 +73,37 @@ describe("CallFlow dedicated stdio server", () => {
     await git(["-C", repository, "add", "workflow.ts"]);
     await git(["-C", repository, "commit", "--quiet", "-m", "fixture"]);
 
-    const installationRoot = await mkdtemp(join(tmpdir(), "callflow-installation-"));
-    temporaryDirectories.push(installationRoot);
-    const installedPlugin = join(installationRoot, "callflow");
-    await cp(resolve(workspaceRoot, "plugins/callflow"), installedPlugin, { recursive: true });
-
-    const mcpLauncher = resolve(
-      installedPlugin,
-      "bin",
-      process.platform === "win32" ? "callflow-mcp.cmd" : "callflow-mcp",
-    );
-    const mcpInvocation = launcherInvocation(mcpLauncher);
+    const dataDirectory = await mkdtemp(join(tmpdir(), "callflow-flowzone-data-"));
+    temporaryDirectories.push(dataDirectory);
     const transport = new StdioClientTransport({
-      command: mcpInvocation.command,
-      args: [...mcpInvocation.args],
+      command: "node",
+      args: [resolve(workspaceRoot, "server/dist/server.cjs")],
       cwd: repository,
-      env: { PATH: process.env["PATH"] ?? "" },
+      env: { FLOWZONE_DATA_DIR: dataDirectory, PATH: process.env["PATH"] ?? "" },
       stderr: "pipe",
     });
     const client = new Client({ name: "callflow-stdio-test", version: "0.1.0" });
     await client.connect(transport);
 
     try {
-      expect(client.getServerVersion()?.name).toBe("callflow");
-      expect(client.getInstructions()).toContain("one bounded local workflow");
+      expect(client.getServerVersion()?.name).toBe("flowzone");
+      expect(client.getInstructions()).toContain("one router tool");
 
       const listed = await client.listTools();
-      expect(listed.tools.map((tool) => tool.name)).toEqual([
-        "callflow_discover",
-        "render_callflow",
-        "callflow_query",
-        "callflow_validate",
-        "callflow_diff",
-        "callflow_export",
-        "callflow_expand",
-        "callflow_get_source",
-        "callflow_search",
-        "callflow_find_path",
-        "callflow_relayout",
-        "callflow_describe_visible",
+      const modelTools = listed.tools.filter(
+        (tool) => JSON.stringify(toolVisibility(tool._meta)) === JSON.stringify(["model"]),
+      );
+      expect(modelTools.map((tool) => tool.name)).toEqual([
+        "flowzone",
+        "render_markdown_review",
+        "render_dyna_dashboard",
       ]);
-      for (const name of [
+      const routerSchema = JSON.stringify(
+        listed.tools.find((tool) => tool.name === "flowzone")?.inputSchema,
+      );
+      expect(routerSchema).toContain('"callflow"');
+      expect(Buffer.byteLength(routerSchema, "utf8")).toBeLessThanOrEqual(8 * 1024);
+      for (const removedName of [
         "callflow_discover",
         "render_callflow",
         "callflow_query",
@@ -121,14 +111,7 @@ describe("CallFlow dedicated stdio server", () => {
         "callflow_diff",
         "callflow_export",
       ]) {
-        const tool = listed.tools.find((candidate) => candidate.name === name);
-        expect(toolVisibility(tool?._meta)).toEqual(["model"]);
-        expect(tool?.annotations).toMatchObject({
-          readOnlyHint: true,
-          destructiveHint: false,
-          openWorldHint: false,
-          idempotentHint: true,
-        });
+        expect(listed.tools.some((tool) => tool.name === removedName)).toBe(false);
       }
       for (const name of [
         "callflow_expand",
@@ -144,9 +127,12 @@ describe("CallFlow dedicated stdio server", () => {
 
       const resources = await client.listResources();
       expect(resources.resources.map((resource) => resource.uri)).toContain(
+        "ui://flowzone/callflow/v1.html",
+      );
+      expect(resources.resources.map((resource) => resource.uri)).toContain(
         "ui://callflow/workflow/v1.html",
       );
-      const resource = await client.readResource({ uri: "ui://callflow/workflow/v1.html" });
+      const resource = await client.readResource({ uri: "ui://flowzone/callflow/v1.html" });
       const content = resource.contents[0];
       expect(content?.mimeType).toBe("text/html;profile=mcp-app");
       const html = content && "text" in content ? content.text : "";
@@ -174,18 +160,26 @@ describe("CallFlow dedicated stdio server", () => {
         presentation: { direction: "RIGHT", defaultOverlay: "none" },
       });
       const validated = await client.callTool({
-        name: "callflow_validate",
-        arguments: { manifest },
+        name: "flowzone",
+        arguments: { plugin: "callflow", action: "validate", input: { manifest } },
       });
       expect(validated.isError).toBeUndefined();
-      expect(record(validated.structuredContent)["valid"]).toBe(true);
+      const validatedEnvelope = record(validated.structuredContent);
+      expect(validatedEnvelope).toMatchObject({ plugin: "callflow", action: "validate" });
+      expect(record(validatedEnvelope["result"])["valid"]).toBe(true);
 
       const discovered = await client.callTool({
-        name: "callflow_discover",
-        arguments: { repositoryPath: repository, entries: ["selectedEntry"] },
+        name: "flowzone",
+        arguments: {
+          plugin: "callflow",
+          action: "discover",
+          input: { repositoryPath: repository, entries: ["selectedEntry"] },
+        },
       });
       expect(discovered.isError).toBeUndefined();
-      const summary = record(discovered.structuredContent);
+      const discoveredEnvelope = record(discovered.structuredContent);
+      expect(discoveredEnvelope).toMatchObject({ plugin: "callflow", action: "discover" });
+      const summary = record(discoveredEnvelope["result"]);
       const sessionId = summary["sessionId"];
       const graphRevision = summary["graphRevision"];
       if (typeof sessionId !== "string" || typeof graphRevision !== "string") {
@@ -201,20 +195,22 @@ describe("CallFlow dedicated stdio server", () => {
       expect(JSON.stringify(discovered.structuredContent)).not.toContain(repository);
       expect(JSON.stringify(discovered.structuredContent)).not.toContain(canonicalRepository);
       expect(JSON.stringify(discovered.content)).not.toContain("private-source-marker");
-      expect(discovered._meta).toBeUndefined();
-
-      const rendered = await client.callTool({
-        name: "render_callflow",
-        arguments: { sessionId, graphRevision },
+      const privateMetadata = record(discovered._meta);
+      const flowzoneEnvelope = record(privateMetadata["flowzone"]);
+      expect(flowzoneEnvelope).toMatchObject({
+        schema: "flowzone/ui-v1",
+        plugin: "callflow",
+        action: "discover",
+        view: "workflow",
       });
-      expect(rendered.isError).toBeUndefined();
-      const payload = CallFlowUiPayloadSchema.parse(record(rendered._meta)["callflowGraph"]);
+      const payload = CallFlowUiPayloadSchema.parse(flowzoneEnvelope["payload"]);
+      expect(privateMetadata["callflowGraph"]).toBeUndefined();
       expect(payload.sessionId).toBe(sessionId);
       expect(payload.snapshot.repository.identity).toBe(`local:${canonicalRepository}`);
-      expect(JSON.stringify(rendered.structuredContent)).not.toContain(repository);
-      expect(JSON.stringify(rendered.structuredContent)).not.toContain(canonicalRepository);
-      expect(JSON.stringify(rendered.content)).not.toContain(repository);
-      expect(JSON.stringify(rendered.content)).not.toContain(canonicalRepository);
+      expect(JSON.stringify(discovered.structuredContent)).not.toContain(repository);
+      expect(JSON.stringify(discovered.structuredContent)).not.toContain(canonicalRepository);
+      expect(JSON.stringify(discovered.content)).not.toContain(repository);
+      expect(JSON.stringify(discovered.content)).not.toContain(canonicalRepository);
 
       const sourceEvidence = payload.snapshot.evidence.find(
         (evidence) => evidence.source.type === "source-span",
@@ -295,21 +291,72 @@ describe("CallFlow dedicated stdio server", () => {
       expect(String(description)).not.toContain(canonicalRepository);
       expect(Buffer.byteLength(String(description), "utf8")).toBeLessThanOrEqual(8_192);
 
+      const queried = await client.callTool({
+        name: "flowzone",
+        arguments: {
+          plugin: "callflow",
+          action: "query",
+          input: { sessionId, graphRevision, query: { text: "selectedEntry" } },
+        },
+      });
+      expect(queried.isError).toBeUndefined();
+      const queryResult = record(record(queried.structuredContent)["result"]);
+      expect(queryResult["nodeIds"]).toBeArray();
+      expect(queryResult["nodes"]).toBeArray();
+      expect(JSON.stringify(queried)).not.toContain(canonicalRepository);
+
+      const diffed = await client.callTool({
+        name: "flowzone",
+        arguments: {
+          plugin: "callflow",
+          action: "diff",
+          input: { baseSessionId: sessionId, baseGraphRevision: graphRevision },
+        },
+      });
+      expect(diffed.isError).toBeUndefined();
+      expect(
+        record(record(record(diffed.structuredContent)["result"])["summary"])["unverified"],
+      ).toBeGreaterThan(0);
+
       const exported = await client.callTool({
-        name: "callflow_export",
-        arguments: { sessionId, graphRevision, format: "graph-json" },
+        name: "flowzone",
+        arguments: {
+          plugin: "callflow",
+          action: "export",
+          input: { sessionId, graphRevision, format: "graph-json" },
+        },
       });
       expect(exported.isError).toBeUndefined();
       expect(JSON.stringify(exported.structuredContent)).not.toContain(repository);
       expect(JSON.stringify(exported.structuredContent)).not.toContain(canonicalRepository);
       expect(JSON.stringify(exported.content)).not.toContain(repository);
       expect(JSON.stringify(exported.content)).not.toContain(canonicalRepository);
-      expect(record(exported.structuredContent)["content"]).toBeUndefined();
-      const privateExport = record(record(exported._meta)["callflowExport"]);
-      expect(privateExport["schema"]).toBe("callflow/export-payload-v1");
-      expect(typeof privateExport["content"]).toBe("string");
-      expect(String(privateExport["content"])).not.toContain(repository);
-      expect(String(privateExport["content"])).not.toContain(canonicalRepository);
+      const exportResult = record(record(exported.structuredContent)["result"]);
+      expect(exportResult["schema"]).toBe("callflow/export-result-v1");
+      expect(exportResult["content"]).toBeUndefined();
+      const exportEnvelope = record(record(exported._meta)["flowzone"]);
+      expect(exportEnvelope).toMatchObject({
+        schema: "flowzone/ui-v1",
+        plugin: "callflow",
+        action: "export",
+        view: "export",
+      });
+      const exportPayload = record(exportEnvelope["payload"]);
+      expect(exportPayload).toMatchObject({
+        schema: "callflow/export-payload-v1",
+        graphRevision,
+        format: "graph-json",
+        contentDigest: exportResult["contentDigest"],
+        byteLength: exportResult["byteLength"],
+      });
+      expect(typeof exportPayload["content"]).toBe("string");
+      const exportByteLength = exportResult["byteLength"];
+      if (typeof exportByteLength !== "number") {
+        throw new Error("CallFlow export did not return a byte length");
+      }
+      expect(Buffer.byteLength(String(exportPayload["content"]), "utf8")).toBe(exportByteLength);
+      expect(String(exportPayload["content"])).not.toContain(repository);
+      expect(String(exportPayload["content"])).not.toContain(canonicalRepository);
     } finally {
       await client.close();
     }
@@ -319,7 +366,7 @@ describe("CallFlow dedicated stdio server", () => {
 describe("CallFlow CLI process contract", () => {
   const cliLauncher = resolve(
     workspaceRoot,
-    "plugins/callflow/bin",
+    "bin",
     process.platform === "win32" ? "callflow.cmd" : "callflow",
   );
 
@@ -331,35 +378,24 @@ describe("CallFlow CLI process contract", () => {
     });
   }
 
-  test("ships hardened POSIX and Windows launchers for CLI and MCP", async () => {
-    const binRoot = resolve(workspaceRoot, "plugins/callflow/bin");
-    const [cliShell, mcpShell, cliCmd, mcpCmd, cliMode, mcpMode] = await Promise.all([
+  test("ships hardened POSIX and Windows launchers inside FlowZone", async () => {
+    const binRoot = resolve(workspaceRoot, "bin");
+    const [cliShell, cliCmd, cliMode] = await Promise.all([
       readFile(resolve(binRoot, "callflow"), "utf8"),
-      readFile(resolve(binRoot, "callflow-mcp"), "utf8"),
       readFile(resolve(binRoot, "callflow.cmd"), "utf8"),
-      readFile(resolve(binRoot, "callflow-mcp.cmd"), "utf8"),
       stat(resolve(binRoot, "callflow")),
-      stat(resolve(binRoot, "callflow-mcp")),
     ]);
 
     expect(cliShell).toContain("unset NODE_OPTIONS NODE_PATH");
-    expect(mcpShell).toContain("unset NODE_OPTIONS NODE_PATH");
     expect(cliShell).toContain("command -v node");
-    expect(mcpShell).toContain("command -v node");
     expect(cliCmd).toContain('set "NODE_OPTIONS="');
     expect(cliCmd).toContain('set "NODE_PATH="');
-    expect(mcpCmd).toContain('set "NODE_OPTIONS="');
-    expect(mcpCmd).toContain('set "NODE_PATH="');
     expect(cliCmd).toContain("where.exe node.exe");
-    expect(mcpCmd).toContain("where.exe node.exe");
     expect(cliCmd).toContain("..\\server\\dist\\callflow.cjs");
-    expect(mcpCmd).toContain("..\\server\\dist\\server.cjs");
     if (process.platform === "win32") {
       expect(cliMode.isFile()).toBe(true);
-      expect(mcpMode.isFile()).toBe(true);
     } else {
       expect(cliMode.mode & 0o111).not.toBe(0);
-      expect(mcpMode.mode & 0o111).not.toBe(0);
     }
   });
 

@@ -47,7 +47,7 @@ async function packageMetafile(root: string): Promise<Metafile> {
         await readFile(
           resolve(
             import.meta.dir,
-            "../plugins/callflow/licenses",
+            "../licenses/callflow",
             licenseFilename(approval.name, approval.version),
           ),
         ),
@@ -127,6 +127,16 @@ describe("CallFlow bundled-license inventory", () => {
           createCallFlowLicenseArtifacts(root, [{ bundle: "callflow.cjs", metafile: poisoned }]),
         ),
       ).toContain("unapproved dependency unknown-package@1.0.0");
+      const filteredArtifacts = await createCallFlowLicenseArtifacts(root, [
+        {
+          bundle: "server/dist/server.cjs",
+          metafile: poisoned,
+          includePackageIds: CALLFLOW_LICENSE_APPROVALS.map(
+            (approval) => `${approval.name}@${approval.version}`,
+          ),
+        },
+      ]);
+      expect(filteredArtifacts.find((artifact) => artifact.path === "sbom.json")).toBeDefined();
     } finally {
       await rm(root, { force: true, recursive: true });
     }

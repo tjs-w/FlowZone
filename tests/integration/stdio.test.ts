@@ -118,6 +118,12 @@ describe("checked-in Node stdio bundle", () => {
         "dyna_prepare_action",
         "dyna_mark_action_delivered",
         "dyna_action_status",
+        "callflow_expand",
+        "callflow_get_source",
+        "callflow_search",
+        "callflow_find_path",
+        "callflow_relayout",
+        "callflow_describe_visible",
       ]);
       for (const toolName of ["render_dyna_dashboard", "dyna_get_snapshot"] as const) {
         expect(tools.tools.find((tool) => tool.name === toolName)?.annotations).toMatchObject({

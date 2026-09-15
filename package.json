@@ -2,7 +2,7 @@
   "name": "flowzone",
   "version": "0.1.0",
   "private": true,
-  "description": "A single-endpoint MCP plugin host with Markdown Review and Dyna executive dashboards.",
+  "description": "A single-endpoint MCP plugin host with Markdown Review, Dyna executive dashboards, and CallFlow workflow maps.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/tjs-w/FlowZone.git"
@@ -14,6 +14,8 @@
   "keywords": [
     "codex",
     "flowzone",
+    "callflow",
+    "workflow",
     "markdown",
     "mcp",
     "mcp-apps",
@@ -32,8 +34,6 @@
   "scripts": {
     "build": "bun scripts/build.ts",
     "build:check": "bun scripts/build.ts --check",
-    "build:callflow": "bun scripts/build.ts --callflow-only",
-    "build:callflow:check": "bun scripts/build.ts --callflow-only --check",
     "browser:harness": "bun tests/harness/browser-harness.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

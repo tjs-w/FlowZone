@@ -6,22 +6,21 @@ import { fileURLToPath } from "node:url";
 import { build, type BuildOptions } from "esbuild";
 
 import {
+  CALLFLOW_SHARED_FLOWZONE_LICENSE_IDS,
   createCallFlowLicenseArtifacts,
   type CallFlowBundleMetafile,
 } from "./callflow-license-approvals.js";
-import { runLegacyBuildPipeline } from "./legacy-build-pipeline.js";
+import { runFlowZoneBuildPipeline } from "./flowzone-build-pipeline.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const checkOnly = process.argv.includes("--check");
-const callFlowOnly = process.argv.includes("--callflow-only");
-if (checkOnly && process.argv.includes("--write")) {
-  throw new Error("Build check mode cannot write artifacts.");
+const unsupportedOptions = process.argv.slice(2).filter((option) => option !== "--check");
+if (unsupportedOptions.length > 0) {
+  throw new Error(`Unsupported build option: ${unsupportedOptions[0]}.`);
 }
 const temporaryRoot = checkOnly ? await mkdtemp(join(tmpdir(), "flowzone-build-")) : root;
 const CALLFLOW_BROWSER_BUDGET_BYTES = Math.floor(1.25 * 1024 * 1024);
-const CALLFLOW_SERVER_BUDGET_BYTES = 5 * 1024 * 1024;
-const LOCKED_FLOWZONE_INPUT_CLOSURE_DIGEST =
-  "9c3a70c00e2b044e13a15ab15468a09de940414456b600010f6b1ca80cdd6b78";
+const CALLFLOW_RUNTIME_BUDGET_BYTES = 5 * 1024 * 1024;
 
 const CALLFLOW_BUILD_CONFIGURATION = {
   bundle: true,
@@ -30,7 +29,7 @@ const CALLFLOW_BUILD_CONFIGURATION = {
 } as const satisfies BuildOptions;
 
 interface CompiledBuild {
-  readonly callFlowDestinations: readonly string[];
+  readonly destinations: readonly string[];
 }
 
 function extractElkLicenseNotices(source: string): string[] {
@@ -50,18 +49,8 @@ function extractElkLicenseNotices(source: string): string[] {
 function callFlowOutputs(elkLicenseNoticeBanner: string) {
   return [
     {
-      source: resolve(root, "packages/callflow-mcp/src/main.ts"),
-      destination: "plugins/callflow/server/dist/server.cjs",
-      options: {
-        platform: "node",
-        format: "cjs",
-        target: "node22",
-        minify: false,
-      } satisfies BuildOptions,
-    },
-    {
       source: resolve(root, "packages/callflow-node/src/cli.ts"),
-      destination: "plugins/callflow/server/dist/callflow.cjs",
+      destination: "server/dist/callflow.cjs",
       options: {
         platform: "node",
         format: "cjs",
@@ -71,7 +60,7 @@ function callFlowOutputs(elkLicenseNoticeBanner: string) {
     },
     {
       source: resolve(root, "packages/callflow-node/src/layout-worker.ts"),
-      destination: "plugins/callflow/server/dist/layout-worker.cjs",
+      destination: "server/dist/callflow-layout-worker.cjs",
       options: {
         platform: "node",
         format: "cjs",
@@ -82,7 +71,7 @@ function callFlowOutputs(elkLicenseNoticeBanner: string) {
     },
     {
       source: resolve(root, "packages/callflow-ui/src/index.tsx"),
-      destination: "plugins/callflow/web/dist/callflow.js",
+      destination: "web/dist/callflow.js",
       options: {
         platform: "browser",
         format: "iife",
@@ -93,16 +82,30 @@ function callFlowOutputs(elkLicenseNoticeBanner: string) {
   ] as const;
 }
 
-async function compile(): Promise<CompiledBuild> {
-  if (!callFlowOnly) {
-    await runLegacyBuildPipeline({
-      checkOnly,
-      expectedInputClosureDigest: LOCKED_FLOWZONE_INPUT_CLOSURE_DIGEST,
-      outputRoot: temporaryRoot,
-      root,
-    });
-  }
+async function callFlowServerLicenseMetafile(): Promise<CallFlowBundleMetafile> {
+  // CallFlow runs inside the shared FlowZone server. Bundle its internal plugin
+  // entry separately for an exact dependency inventory while attributing those
+  // byte-contributing inputs to the actual shared server artifact.
+  const result = await build({
+    absWorkingDir: root,
+    ...CALLFLOW_BUILD_CONFIGURATION,
+    entryPoints: [resolve(root, "packages/callflow-flowzone/src/plugin.ts")],
+    legalComments: "eof",
+    logLevel: "silent",
+    metafile: true,
+    outfile: resolve(temporaryRoot, ".callflow-license-inventory/server.cjs"),
+    platform: "node",
+    format: "cjs",
+    target: "node22",
+    minify: false,
+    external: ["@flowzone/mcp-server"],
+    write: false,
+  });
+  return { bundle: "server/dist/server.cjs", metafile: result.metafile };
+}
 
+async function compile(): Promise<CompiledBuild> {
+  const flowZone = await runFlowZoneBuildPipeline({ outputRoot: temporaryRoot, root });
   const elkLicenseNoticeBanner = extractElkLicenseNotices(
     await readFile(resolve(root, "node_modules/elkjs/lib/elk.bundled.js"), "utf8"),
   ).join("\n");
@@ -120,20 +123,37 @@ async function compile(): Promise<CompiledBuild> {
       outfile: resolve(temporaryRoot, output.destination),
     });
     callFlowMetafiles.push({ bundle: output.destination, metafile: result.metafile });
-    if (output.destination === "plugins/callflow/server/dist/callflow.cjs") {
+    if (output.destination === "server/dist/callflow.cjs") {
       const cliPath = resolve(temporaryRoot, output.destination);
       const cli = await readFile(cliPath, "utf8");
       await writeFile(cliPath, cli.replace(/[ \t]+$/gm, ""));
     }
   }
+  callFlowMetafiles.push(await callFlowServerLicenseMetafile());
+  const sharedServerBundle = flowZone.bundles.find(
+    (bundle) => bundle.bundle === "server/dist/server.cjs",
+  );
+  if (!sharedServerBundle) {
+    throw new Error("The shared FlowZone server metafile is unavailable for licensing.");
+  }
+  callFlowMetafiles.push({
+    ...sharedServerBundle,
+    includePackageIds: CALLFLOW_SHARED_FLOWZONE_LICENSE_IDS,
+  });
 
-  const licenseDirectory = resolve(temporaryRoot, "plugins/callflow/licenses");
+  const licenseDirectory = resolve(temporaryRoot, "licenses/callflow");
   await rm(licenseDirectory, { force: true, recursive: true });
   await mkdir(licenseDirectory, { recursive: true });
   for (const artifact of await createCallFlowLicenseArtifacts(root, callFlowMetafiles)) {
     await writeFile(resolve(licenseDirectory, artifact.path), artifact.content);
   }
-  return { callFlowDestinations: outputs.map((output) => output.destination) };
+  return {
+    destinations: [
+      ...flowZone.destinations,
+      ...outputs.map((output) => output.destination),
+      "web/dist/callflow.css",
+    ],
+  };
 }
 
 async function listRelativeFiles(directory: string, relativePath = ""): Promise<string[]> {
@@ -158,18 +178,7 @@ async function assertArtifactParity(destinations: readonly string[]): Promise<vo
       throw new Error(`${destination} differs from a clean build. Run bun run build.`);
     }
   }
-  const expectedCallFlowCss = await readFile(
-    resolve(root, "plugins/callflow/web/dist/callflow.css"),
-  );
-  const actualCallFlowCss = await readFile(
-    resolve(temporaryRoot, "plugins/callflow/web/dist/callflow.css"),
-  );
-  if (!expectedCallFlowCss.equals(actualCallFlowCss)) {
-    throw new Error(
-      "plugins/callflow/web/dist/callflow.css differs from a clean build. Run bun run build.",
-    );
-  }
-  const licenseDirectory = "plugins/callflow/licenses";
+  const licenseDirectory = "licenses/callflow";
   const [expectedLicenseFiles, actualLicenseFiles] = await Promise.all([
     listRelativeFiles(resolve(root, licenseDirectory)),
     listRelativeFiles(resolve(temporaryRoot, licenseDirectory)),
@@ -187,20 +196,20 @@ async function assertArtifactParity(destinations: readonly string[]): Promise<vo
 }
 
 async function assertCallFlowBudgets(): Promise<void> {
-  const serverBytes = await Promise.all([
-    stat(resolve(temporaryRoot, "plugins/callflow/server/dist/server.cjs")),
-    stat(resolve(temporaryRoot, "plugins/callflow/server/dist/callflow.cjs")),
-    stat(resolve(temporaryRoot, "plugins/callflow/server/dist/layout-worker.cjs")),
+  const runtimeBytes = await Promise.all([
+    stat(resolve(temporaryRoot, "server/dist/server.cjs")),
+    stat(resolve(temporaryRoot, "server/dist/callflow.cjs")),
+    stat(resolve(temporaryRoot, "server/dist/callflow-layout-worker.cjs")),
   ]).then((values) => values.reduce((total, value) => total + value.size, 0));
   const browserBytes = await Promise.all([
-    stat(resolve(root, "plugins/callflow/web/callflow.html")),
-    stat(resolve(temporaryRoot, "plugins/callflow/web/dist/callflow.js")),
-    stat(resolve(temporaryRoot, "plugins/callflow/web/dist/callflow.css")),
+    stat(resolve(root, "web/callflow.html")),
+    stat(resolve(temporaryRoot, "web/dist/callflow.js")),
+    stat(resolve(temporaryRoot, "web/dist/callflow.css")),
   ]).then((values) => values.reduce((total, value) => total + value.size, 0));
 
-  if (serverBytes > CALLFLOW_SERVER_BUDGET_BYTES) {
+  if (runtimeBytes > CALLFLOW_RUNTIME_BUDGET_BYTES) {
     throw new Error(
-      `CallFlow server bundles are ${serverBytes} bytes; the combined limit is 5 MiB.`,
+      `The shared FlowZone MCP server and CallFlow CLI bundles are ${runtimeBytes} bytes; the combined limit is 5 MiB.`,
     );
   }
   if (browserBytes > CALLFLOW_BROWSER_BUDGET_BYTES) {
@@ -211,7 +220,7 @@ async function assertCallFlowBudgets(): Promise<void> {
 try {
   const compiled = await compile();
   await assertCallFlowBudgets();
-  if (checkOnly) await assertArtifactParity(compiled.callFlowDestinations);
+  if (checkOnly) await assertArtifactParity(compiled.destinations);
 } finally {
   if (checkOnly) await rm(temporaryRoot, { force: true, recursive: true });
 }

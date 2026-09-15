@@ -1,6 +1,6 @@
 # Third-party notices
 
-CallFlow's complete, bundle-derived package inventory and corresponding license texts ship in `plugins/callflow/licenses/THIRD_PARTY_NOTICES.md` and `plugins/callflow/licenses/sbom.json`. The release gate rejects undeclared packages, changed versions or licenses, missing notices, and stale generated inventory.
+CallFlow's complete, bundle-derived package inventory and corresponding license texts ship in `licenses/callflow/THIRD_PARTY_NOTICES.md` and `licenses/callflow/sbom.json` inside the FlowZone plugin. The release gate rejects undeclared packages, changed versions or licenses, missing notices, and stale generated inventory.
 
 CallFlow distributes `elkjs` 0.12.0 under its EPL-2.0 option, not the alternative GPL-3.0-or-later option. React Flow remains pinned to `@xyflow/react` 12.11.6 under MIT.
 

@@ -4,14 +4,15 @@
     "composite": true,
     "lib": ["ES2022"],
     "rootDir": ".",
-    "outDir": "../../.build/types/callflow-mcp",
-    "tsBuildInfoFile": "../../node_modules/.cache/callflow-mcp.tsbuildinfo",
+    "outDir": "../../.build/types/callflow-flowzone",
+    "tsBuildInfoFile": "../../node_modules/.cache/callflow-flowzone.tsbuildinfo",
     "types": ["node"]
   },
   "include": ["src/**/*.ts"],
   "references": [
     { "path": "../callflow-contracts" },
     { "path": "../callflow-core" },
-    { "path": "../callflow-node" }
+    { "path": "../callflow-node" },
+    { "path": "../mcp-server" }
   ]
 }

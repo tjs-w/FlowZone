@@ -9,6 +9,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   realpath,
   rm,
   stat,
@@ -28,6 +29,7 @@ async function installShippingArtifacts(pluginRoot: string): Promise<void> {
   await mkdir(join(pluginRoot, "bin"), { recursive: true });
   await mkdir(join(pluginRoot, "server", "dist"), { recursive: true });
   await mkdir(join(pluginRoot, "web", "dist"), { recursive: true });
+  await mkdir(join(pluginRoot, "licenses"), { recursive: true });
   await Promise.all([
     copyFile(
       join(sourceRoot, ".codex-plugin", "plugin.json"),
@@ -41,6 +43,8 @@ async function installShippingArtifacts(pluginRoot: string): Promise<void> {
       join(pluginRoot, "bin", "flowzone-publish"),
     ),
     copyFile(join(sourceRoot, "bin", "dyna"), join(pluginRoot, "bin", "dyna")),
+    copyFile(join(sourceRoot, "bin", "callflow"), join(pluginRoot, "bin", "callflow")),
+    copyFile(join(sourceRoot, "bin", "callflow.cmd"), join(pluginRoot, "bin", "callflow.cmd")),
     copyFile(
       join(sourceRoot, "server", "dist", "server.cjs"),
       join(pluginRoot, "server", "dist", "server.cjs"),
@@ -52,6 +56,14 @@ async function installShippingArtifacts(pluginRoot: string): Promise<void> {
     copyFile(
       join(sourceRoot, "server", "dist", "dyna.cjs"),
       join(pluginRoot, "server", "dist", "dyna.cjs"),
+    ),
+    copyFile(
+      join(sourceRoot, "server", "dist", "callflow.cjs"),
+      join(pluginRoot, "server", "dist", "callflow.cjs"),
+    ),
+    copyFile(
+      join(sourceRoot, "server", "dist", "callflow-layout-worker.cjs"),
+      join(pluginRoot, "server", "dist", "callflow-layout-worker.cjs"),
     ),
     copyFile(join(sourceRoot, "web", "flowzone.html"), join(pluginRoot, "web", "flowzone.html")),
     copyFile(
@@ -67,10 +79,28 @@ async function installShippingArtifacts(pluginRoot: string): Promise<void> {
       join(sourceRoot, "web", "dist", "dyna.css"),
       join(pluginRoot, "web", "dist", "dyna.css"),
     ),
+    copyFile(join(sourceRoot, "web", "callflow.html"), join(pluginRoot, "web", "callflow.html")),
+    copyFile(
+      join(sourceRoot, "web", "dist", "callflow.js"),
+      join(pluginRoot, "web", "dist", "callflow.js"),
+    ),
+    copyFile(
+      join(sourceRoot, "web", "dist", "callflow.css"),
+      join(pluginRoot, "web", "dist", "callflow.css"),
+    ),
+    cp(join(sourceRoot, "licenses", "callflow"), join(pluginRoot, "licenses", "callflow"), {
+      recursive: true,
+    }),
   ]);
+  const [sourceLicenseFiles, installedLicenseFiles] = await Promise.all([
+    readdir(join(sourceRoot, "licenses", "callflow")),
+    readdir(join(pluginRoot, "licenses", "callflow")),
+  ]);
+  expect(installedLicenseFiles.sort()).toEqual(sourceLicenseFiles.sort());
   await chmod(join(pluginRoot, "bin", "flowzone-mcp"), 0o755);
   await chmod(join(pluginRoot, "bin", "flowzone-publish"), 0o755);
   await chmod(join(pluginRoot, "bin", "dyna"), 0o755);
+  await chmod(join(pluginRoot, "bin", "callflow"), 0o755);
   await chmod(join(pluginRoot, "skills", "dyna", "scripts", "reconcile-cli-rule.sh"), 0o755);
 }
 
@@ -84,6 +114,7 @@ async function validateInstalledSkillReferences(pluginRoot: string): Promise<voi
   const pending = [
     join(pluginRoot, "skills", "dyna", "SKILL.md"),
     join(pluginRoot, "skills", "markdown-review", "SKILL.md"),
+    join(pluginRoot, "skills", "callflow", "SKILL.md"),
   ];
   const visited = new Set<string>();
   while (pending.length > 0) {
@@ -104,6 +135,19 @@ async function validateInstalledSkillReferences(pluginRoot: string): Promise<voi
   expect(visited).toContain(taskUpdatesPath);
   const taskPullSyncPath = join(pluginRoot, "skills", "dyna", "references", "task-pull-sync.md");
   expect(visited).toContain(taskPullSyncPath);
+  expect(visited).toContain(
+    join(pluginRoot, "skills", "callflow", "references", "evidence-policy.md"),
+  );
+  expect(visited).toContain(
+    join(pluginRoot, "skills", "callflow", "references", "workflow-authoring.md"),
+  );
+  expect(visited).toContain(
+    join(pluginRoot, "skills", "callflow", "references", "cli-reference.md"),
+  );
+  const callFlowSkill = await readFile(join(pluginRoot, "skills", "callflow", "SKILL.md"), "utf8");
+  expect(callFlowSkill).toContain("$flowzone:callflow");
+  expect(callFlowSkill).toContain('{"plugin":"callflow","action":"discover","input":{...}}');
+  expect(callFlowSkill).not.toContain("$callflow:callflow");
   const dynaSkill = await readFile(join(pluginRoot, "skills", "dyna", "SKILL.md"), "utf8");
   for (const contractMarker of [
     "Before any task-originated mutation",
@@ -473,7 +517,21 @@ describe("isolated shipping package", () => {
     await client.connect(transport);
     try {
       expect(client.getServerVersion()?.name).toBe("flowzone");
-      expect((await client.listTools()).tools).toHaveLength(23);
+      const tools = (await client.listTools()).tools;
+      expect(tools.filter((tool) => tool.name === "flowzone")).toHaveLength(1);
+      expect(tools.map((tool) => tool.name)).not.toContain("callflow_discover");
+      expect(tools.map((tool) => tool.name)).not.toContain("render_callflow");
+      for (const helperName of [
+        "callflow_expand",
+        "callflow_get_source",
+        "callflow_search",
+        "callflow_find_path",
+        "callflow_relayout",
+        "callflow_describe_visible",
+      ]) {
+        const helper = tools.find((tool) => tool.name === helperName);
+        expect(helper?._meta?.["ui"]).toEqual({ visibility: ["app"] });
+      }
       const resource = await client.readResource({ uri: "ui://flowzone/v5.html" });
       const content = resource.contents[0];
       expect(content && "text" in content ? content.text : "").toContain(">Submit<");

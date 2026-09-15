@@ -158,7 +158,7 @@ export async function layoutGraph(
     throw new CallFlowError("aborted", "The CallFlow layout was cancelled.", true);
   }
   const defaultWorkerPath =
-    typeof __dirname === "string" ? resolve(__dirname, "layout-worker.cjs") : undefined;
+    typeof __dirname === "string" ? resolve(__dirname, "callflow-layout-worker.cjs") : undefined;
   const workerPath = options.workerPath ?? defaultWorkerPath;
   if (!workerPath) return fallback(snapshot);
   try {

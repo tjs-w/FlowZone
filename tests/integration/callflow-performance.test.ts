@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 
 import { GraphSnapshotSchema, type GraphSnapshot } from "@callflow/contracts";
 import { computeVisibility, queryGraph, traverseGraph } from "@callflow/core";
-const workerPath = resolve(import.meta.dir, "../../plugins/callflow/server/dist/layout-worker.cjs");
+const workerPath = resolve(import.meta.dir, "../../server/dist/callflow-layout-worker.cjs");
 const benchmarkPath = resolve(import.meta.dir, "../fixtures/callflow/layout-benchmark.mjs");
 
 function graph(nodeCount: number): GraphSnapshot {

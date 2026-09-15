@@ -6,6 +6,7 @@ import type { Metafile } from "esbuild";
 
 export interface CallFlowBundleMetafile {
   readonly bundle: string;
+  readonly includePackageIds?: readonly string[];
   readonly metafile: Metafile;
 }
 
@@ -107,6 +108,17 @@ export const CALLFLOW_LICENSE_APPROVALS: readonly LicenseApproval[] = approvals.
   },
 );
 
+// These packages are part of the pre-existing shared FlowZone MCP runtime used
+// by CallFlow. Inventory them from the real shared server metafile without
+// attributing unrelated Markdown Review or Dyna dependencies to CallFlow.
+export const CALLFLOW_SHARED_FLOWZONE_LICENSE_IDS = [
+  "ajv@8.20.0",
+  "ajv-formats@3.0.1",
+  "fast-deep-equal@3.1.3",
+  "fast-uri@3.1.6",
+  "json-schema-traverse@1.0.0",
+] as const;
+
 function packageId(name: string, version: string): string {
   return `${name}@${version}`;
 }
@@ -181,7 +193,13 @@ export async function createCallFlowLicenseArtifacts(
     }
   >();
 
-  for (const { bundle, metafile } of bundleMetafiles) {
+  for (const { bundle, includePackageIds, metafile } of bundleMetafiles) {
+    const includedIds = includePackageIds ? new Set(includePackageIds) : undefined;
+    for (const id of includedIds ?? []) {
+      if (!approvedById.has(id)) {
+        throw new Error(`CallFlow shared-runtime filter contains unapproved dependency ${id}.`);
+      }
+    }
     for (const input of bundledInputs(metafile, bundle)) {
       const packageRoot = packageRootForInput(repositoryRoot, input);
       if (!packageRoot) continue;
@@ -192,6 +210,7 @@ export async function createCallFlowLicenseArtifacts(
         throw new Error(`Bundled package metadata is malformed at ${packageRoot}.`);
       }
       const id = packageId(metadata.name, metadata.version);
+      if (includedIds && !includedIds.has(id)) continue;
       const approval = approvedById.get(id);
       if (!approval) throw new Error(`CallFlow bundle contains unapproved dependency ${id}.`);
       if (metadata.license !== approval.declaredLicense) {

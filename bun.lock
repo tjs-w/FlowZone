@@ -58,15 +58,14 @@
         "@callflow/contracts": "workspace:*",
       },
     },
-    "packages/callflow-mcp": {
-      "name": "@callflow/mcp",
+    "packages/callflow-flowzone": {
+      "name": "@flowzone/callflow",
       "version": "0.1.0",
       "dependencies": {
         "@callflow/contracts": "workspace:*",
         "@callflow/core": "workspace:*",
         "@callflow/node": "workspace:*",
-        "@modelcontextprotocol/ext-apps": "1.7.5",
-        "@modelcontextprotocol/sdk": "1.30.0",
+        "@flowzone/mcp-server": "workspace:*",
         "zod": "4.4.3",
       },
       "devDependencies": {
@@ -93,6 +92,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@callflow/contracts": "workspace:*",
+        "@flowzone/contracts": "workspace:*",
         "@modelcontextprotocol/ext-apps": "1.7.5",
         "@modelcontextprotocol/sdk": "1.30.0",
         "@openai/apps-sdk-ui": "0.2.2",
@@ -238,8 +238,6 @@
 
     "@callflow/core": ["@callflow/core@workspace:packages/callflow-core"],
 
-    "@callflow/mcp": ["@callflow/mcp@workspace:packages/callflow-mcp"],
-
     "@callflow/node": ["@callflow/node@workspace:packages/callflow-node"],
 
     "@callflow/ui": ["@callflow/ui@workspace:packages/callflow-ui"],
@@ -323,6 +321,8 @@
     "@floating-ui/react-dom": ["@floating-ui/react-dom@2.1.9", "", { "dependencies": { "@floating-ui/dom": "^1.8.0" }, "peerDependencies": { "react": ">=16.8.0", "react-dom": ">=16.8.0" } }, "sha512-JDjEFGCpImxDCA7JJKviA0M9+RtmJdj0m/NVU5IMgBK+AmZouAQQ7/+2GLH0GXXY0YMw9oXPB8hKdbPYg5QLYg=="],
 
     "@floating-ui/utils": ["@floating-ui/utils@0.2.12", "", {}, "sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww=="],
+
+    "@flowzone/callflow": ["@flowzone/callflow@workspace:packages/callflow-flowzone"],
 
     "@flowzone/contracts": ["@flowzone/contracts@workspace:packages/flowzone-contracts"],
 

@@ -17,4 +17,4 @@ callflow ui serve --manifest PATH --listen 127.0.0.1 --port 0
 callflow ui open --manifest PATH
 ```
 
-`workflow create` consumes reviewed manifest JSON from stdin. `graph query` consumes a bounded query object from stdin. `workflow refresh` is read-only unless `--write` is present. `adapter build`, manifest writes, snapshot replacement, export files, and opening a browser are explicit local CLI effects and are not available through MCP tools.
+`workflow create` consumes reviewed manifest JSON from stdin. `graph query` consumes a bounded query object from stdin. `workflow refresh` is read-only unless `--write` is present. `adapter build`, manifest writes, snapshot replacement, export files, and opening a browser are explicit local CLI effects and are unavailable through FlowZone router actions or app-only helpers.

@@ -87,6 +87,18 @@ describe("createFlowZoneServer", () => {
         openWorldHint: true,
         idempotentHint: false,
       });
+      expect(tools.tools[0]?.inputSchema).toMatchObject({
+        type: "object",
+        properties: {
+          plugin: { enum: ["alpha", "beta"] },
+          action: { enum: ["echo"] },
+          input: { type: "object" },
+        },
+        required: ["plugin", "action", "input"],
+      });
+      expect(
+        Buffer.byteLength(JSON.stringify(tools.tools[0]?.inputSchema), "utf8"),
+      ).toBeLessThanOrEqual(8 * 1024);
 
       const result = await client.callTool({
         name: "flowzone",
@@ -210,6 +222,48 @@ describe("createFlowZoneServer", () => {
         'data-flowzone-developer-mode="true"',
       );
       expect(content && "text" in content ? content.text : "").toContain("<\\/script");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  test("registers a contained CallFlow app resource through the shared server", async () => {
+    const callflowUri = "ui://flowzone/callflow/v1.html";
+    const server = createFlowZoneServer({
+      assetLoader,
+      plugins: [modulePlugin("alpha")],
+      uiResources: [
+        {
+          name: "FlowZone CallFlow UI",
+          resourceUri: callflowUri,
+          description: "A bounded workflow map.",
+          permissions: { clipboardWrite: {} },
+          assetLoader: {
+            load() {
+              return Promise.resolve({
+                template: "<html><head></head><body><!-- CALLFLOW_APP --></body></html>",
+                bundle: "window.callflow = '</script>';",
+                stylesheet: ".callflow { color: CanvasText; }",
+              });
+            },
+          },
+        },
+      ],
+    });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "flowzone-test", version: "0.1.0" });
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    try {
+      const resources = await client.listResources();
+      expect(resources.resources.map((resource) => resource.uri)).toContain(callflowUri);
+      const loaded = await client.readResource({ uri: callflowUri });
+      const content = loaded.contents[0];
+      const html = content && "text" in content ? content.text : "";
+      expect(html).toContain(".callflow { color: CanvasText; }");
+      expect(html).toContain("window.callflow = '<\\/script>';");
+      expect(html).not.toContain("CALLFLOW_APP");
     } finally {
       await client.close();
       await server.close();

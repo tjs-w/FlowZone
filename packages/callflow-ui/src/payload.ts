@@ -5,6 +5,7 @@ import {
   type CallFlowSourceExcerpt,
   type CallFlowUiPayload,
 } from "@callflow/contracts";
+import { FlowZoneUiEnvelopeBaseSchema } from "@flowzone/contracts";
 
 const SOURCE_MAX_BYTES = 24 * 1024;
 const MAX_BOOTSTRAP_CHARS = 8 * 1024 * 1024;
@@ -37,8 +38,19 @@ export function toolFailed(result: unknown): boolean {
 
 export function metadataPayload(value: unknown): CallFlowUiPayload | undefined {
   if (!isRecord(value) || !isRecord(value["_meta"])) return undefined;
-  const parsed = CallFlowUiPayloadSchema.safeParse(value["_meta"]["callflowGraph"]);
-  return parsed.success ? parsed.data : undefined;
+  const metadata = value["_meta"];
+  const envelope = FlowZoneUiEnvelopeBaseSchema.safeParse(metadata["flowzone"]);
+  if (
+    envelope.success &&
+    envelope.data.plugin === "callflow" &&
+    envelope.data.action === "discover" &&
+    envelope.data.view === "workflow"
+  ) {
+    const parsed = CallFlowUiPayloadSchema.safeParse(envelope.data.payload);
+    if (parsed.success) return parsed.data;
+  }
+  const legacy = CallFlowUiPayloadSchema.safeParse(metadata["callflowGraph"]);
+  return legacy.success ? legacy.data : undefined;
 }
 
 export function structuredRecord(value: unknown): Readonly<Record<string, unknown>> | undefined {

@@ -4,19 +4,19 @@ Report suspected vulnerabilities privately through the repository owner's GitHub
 
 ## CallFlow boundaries
 
-CallFlow is a separate local stdio plugin. Repository data, Graft output, manifests, labels, and source are untrusted. Inputs use strict schemas and size limits; UI text is rendered through React text nodes rather than HTML injection. The resource has a closed CSP and no remote model or network access.
+CallFlow is an internal module in the shared local FlowZone stdio process. Repository data, Graft output, manifests, labels, and source are untrusted. Inputs use strict schemas and size limits; UI text is rendered through React text nodes rather than HTML injection. The resource has a closed CSP and no remote model or network access.
 
 The Graft adapter resolves one Git worktree through realpaths, rejects filesystem and user-home roots, prevents traversal and symlink escape, invokes a fixed canonical executable with `shell: false`, and bounds arguments, output, diagnostics, cancellation, and runtime. It never builds or refreshes an index implicitly.
 
-Source remains local unless a component request supplies an unexpired session capability bound to the repository revision, graph revision, exact relative span, purpose, and byte budget. The source digest is rechecked before the bounded read. Public MCP results and default exports omit source bodies and absolute paths. CallFlow runs as the current OS user and is not an OS sandbox.
+Source remains local unless a component request supplies an unexpired session capability bound to the repository revision, graph revision, exact relative span, purpose, and byte budget. The source digest is rechecked before the bounded read. Model-visible `flowzone` results and default exports omit source bodies and absolute paths. Complete graphs and Graft output stay in server-side state, while authorized source excerpts stay in private component metadata. Router exports return metadata rather than bodies; explicit file exports remain CLI-only. CallFlow runs as the current OS user and is not an OS sandbox.
 
-FlowZone ships a local stdio server, a scheduled-publication CLI, and an item-scoped Dyna work CLI, all running as the current OS user. None is a privilege boundary or an OS sandbox. Review plugins and CLI adapters before deployment.
+FlowZone ships one local stdio server, a scheduled-publication CLI, an item-scoped Dyna work CLI, and a CallFlow CLI for explicit local effects, all running as the current OS user. None is a privilege boundary or an OS sandbox. Review modules and CLI adapters before deployment.
 
 The public attack surface is one strict router tool. Registrations are static, copied at startup, bounded, and schema-validated. Component helpers are centrally marked app-only. Complete Markdown, image bytes, and UI payloads remain private MCP metadata. Stable errors omit request content, secrets, backend bodies, raw stderr, and unexpected exception text.
 
 CLI adapters use absolute canonical paths, fixed argv/cwd/environment configuration, `shell: false`, JSON stdin, bounded stdout/stderr, integrity checks, cancellation, and timeouts. Never register a shell executable or put model-controlled data in command fields. HTTP adapters use fixed HTTPS endpoints, runtime credentials, no redirects, bounded streaming, and strict response validation.
 
-The universal UI declares an empty network/resource/frame CSP allowlist and only clipboard-write permission. Each view validates its private payload before rendering. Plugin-specific policies—including path containment, file identity, authorization, and tenant access—remain mandatory and are not replaced by router validation.
+Each UI resource declares an empty network/resource/frame CSP allowlist and only its documented narrow host permissions. Every view validates its private payload before rendering. Module-specific policies—including path containment, file identity, authorization, and tenant access—remain mandatory and are not replaced by router validation.
 
 ## Dyna boundaries
 

@@ -73,6 +73,14 @@ try {
   );
   const item = seed.snapshot(dashboard.id).cards[0];
   assert.ok(item);
+  seed.upsertTaskStatusForDashboard(dashboard.id, item.id, {
+    taskId: "race-task",
+    hostId: "local",
+    title: `:${String(item.itemNumber)}: Race task`,
+    state: "running",
+    statusUpdatedAt: "2026-09-10T18:00:01.000Z",
+    observedAt: "2026-09-10T18:00:01.000Z",
+  });
   seed.close();
 
   const requestId = randomUUID();
@@ -113,6 +121,7 @@ try {
     kind: "note",
     body: "The failed transaction did not reserve this request ID.",
     artifacts: [],
+    task: { taskId: "race-task", hostId: "local" },
   });
   assert.equal(afterRollback.deduplicated, false);
   verify.close();

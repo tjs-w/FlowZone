@@ -42,8 +42,9 @@ import { z } from "zod";
 import type { FlowZoneAppTool, FlowZonePlugin } from "../plugin.js";
 
 export const DYNA_PLUGIN_ID = "dyna";
-export const DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v18.html";
+export const DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v19.html";
 export const LEGACY_DYNA_TEMPLATE_URIS = [
+  "ui://flowzone/dyna/v18.html",
   "ui://flowzone/dyna/v17.html",
   "ui://flowzone/dyna/v16.html",
   "ui://flowzone/dyna/v15.html",
@@ -56,7 +57,14 @@ const DYNA_MCP_ACTOR = {
     "dashboard:read",
     "dashboard:manage",
     "item:read",
-    "item:write",
+    "work:update",
+    "work:enrich",
+    "work:complete",
+    "annotation:manage",
+    "item:organize",
+    "item:lifecycle",
+    "follow-up:create",
+    "todo:create",
     "publisher:publish",
     "publisher:manage",
     "view:interact",

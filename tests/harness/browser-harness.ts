@@ -70,7 +70,7 @@ const dynaBackendPromises = new Map<string, Promise<DynaHarnessBackend>>();
 const dynaFixtureDashboardIds = new Map<string, string>();
 
 type DynaNativeTaskTitleOperation = Readonly<{
-  kind: "read_thread" | "set_thread_title" | "submit_observation";
+  kind: "read_thread" | "set_thread_title" | "complete_action" | "submit_observation";
   taskId: string;
   title: string;
 }>;
@@ -194,6 +194,32 @@ function canonicalDynaFixtureTaskTitle(itemNumber: unknown, title: string): stri
   return `${prefix}${boundedBody || "Codex task"}`;
 }
 
+function synchronizeDynaFixtureTaskTitle(
+  state: DynaNativeTaskTitleState,
+  taskId: string,
+  itemNumber: unknown,
+  fallbackTitle: string,
+  readBackFails = false,
+): Readonly<{ title: string; verified: boolean }> {
+  let nativeTitle = state.titles.get(taskId);
+  if (nativeTitle === undefined) {
+    nativeTitle = fallbackTitle;
+    state.titles.set(taskId, nativeTitle);
+  }
+  state.operations.push({ kind: "read_thread", taskId, title: nativeTitle });
+  const canonicalTitle = canonicalDynaFixtureTaskTitle(itemNumber, nativeTitle);
+  if (nativeTitle === canonicalTitle) return { title: nativeTitle, verified: true };
+
+  state.operations.push({ kind: "set_thread_title", taskId, title: canonicalTitle });
+  if (!readBackFails) state.titles.set(taskId, canonicalTitle);
+  const verifiedTitle = state.titles.get(taskId);
+  if (verifiedTitle === undefined) {
+    throw new Error("The Dyna task title could not be read after synchronization.");
+  }
+  state.operations.push({ kind: "read_thread", taskId, title: verifiedTitle });
+  return { title: verifiedTitle, verified: verifiedTitle === canonicalTitle };
+}
+
 const dynaSessionPickerCandidates = [
   {
     taskId: "picker-running-task",
@@ -225,8 +251,11 @@ function flowzoneResult(value: unknown): Readonly<Record<string, unknown>> {
 async function handleDynaControllerAction(
   request: IncomingMessage,
   requestId: string,
+  nativeTitleMode: "verified" | "readback-failure" = "verified",
 ): Promise<Readonly<Record<string, unknown>>> {
   const backend = await dynaBackend(request);
+  const nativeTitles = dynaNativeTaskTitleState(request);
+  const operationOffset = nativeTitles.operations.length;
   const claimedCall = await backend.client.callTool({
     name: "flowzone",
     arguments: {
@@ -265,20 +294,37 @@ async function handleDynaControllerAction(
     const context = resultRecord(claimed["context"]);
     const item = resultRecord(context["item"]);
     const observedAt = new Date().toISOString();
-    completionInput = {
-      requestId,
-      claimToken,
-      outcome: "succeeded",
-      task: {
-        taskId,
-        hostId,
-        ...("projectId" in candidate ? { projectId: candidate.projectId } : {}),
-        title: canonicalDynaFixtureTaskTitle(item["itemNumber"], candidate.title),
-        state: taskId === "picker-waiting-task" ? "waiting" : "running",
-        statusUpdatedAt: candidate.updatedAt,
-        observedAt,
-      },
-    };
+    const title = synchronizeDynaFixtureTaskTitle(
+      nativeTitles,
+      taskId,
+      item["itemNumber"],
+      candidate.title,
+      nativeTitleMode === "readback-failure",
+    );
+    if (!title.verified) {
+      completionInput = {
+        requestId,
+        claimToken,
+        outcome: "failed",
+        failureMessage: "The native Codex task title could not be verified after renaming.",
+      };
+    } else {
+      nativeTitles.operations.push({ kind: "complete_action", taskId, title: title.title });
+      completionInput = {
+        requestId,
+        claimToken,
+        outcome: "succeeded",
+        task: {
+          taskId,
+          hostId,
+          ...("projectId" in candidate ? { projectId: candidate.projectId } : {}),
+          title: title.title,
+          state: taskId === "picker-waiting-task" ? "waiting" : "running",
+          statusUpdatedAt: candidate.updatedAt,
+          observedAt,
+        },
+      };
+    }
   } else {
     return { handled: false, kind };
   }
@@ -293,7 +339,12 @@ async function handleDynaControllerAction(
   });
   if (completedCall.isError) throw new Error("Could not complete the Dyna browser action.");
   const completed = flowzoneResult(completedCall);
-  return { handled: true, kind, state: completed["state"] };
+  return {
+    handled: true,
+    kind,
+    state: completed["state"],
+    titleOperations: nativeTitles.operations.slice(operationOffset),
+  };
 }
 
 async function handleDynaTaskSync(
@@ -330,14 +381,12 @@ async function handleDynaTaskSync(
       const itemId = target["itemId"];
       const itemNumber = target["itemNumber"];
       const checkpointVersion = target["checkpointVersion"];
-      const expectedTitle = target["expectedTitle"];
       if (
         typeof taskId !== "string" ||
         typeof hostId !== "string" ||
         typeof itemId !== "string" ||
         typeof itemNumber !== "number" ||
-        typeof checkpointVersion !== "number" ||
-        typeof expectedTitle !== "string"
+        typeof checkpointVersion !== "number"
       ) {
         throw new Error("The Dyna task synchronization target is invalid.");
       }
@@ -354,34 +403,27 @@ async function handleDynaTaskSync(
         (mode === "missing-outcome" && offset === 0 && index === 0) ||
         (mode === "partial" && offset === 0 && index === 1);
       const succeeded = mode === "succeeded" || missingOutcome || taskId === "pipeline-task-3";
-      let nativeTitle = nativeTitles.titles.get(taskId);
-      if (nativeTitle === undefined) {
-        nativeTitle = `Current native title for ${taskId}`;
-        nativeTitles.titles.set(taskId, nativeTitle);
-      }
-      nativeTitles.operations.push({ kind: "read_thread", taskId, title: nativeTitle });
-      const nativeSuffix = nativeTitle.replace(/^(?::\d+:\s*)+/u, "").trim() || "Codex task";
-      const canonicalTitle = `:${String(itemNumber)}: ${nativeSuffix}`;
-      if (nativeTitle !== canonicalTitle) {
-        nativeTitles.operations.push({ kind: "set_thread_title", taskId, title: canonicalTitle });
-        nativeTitles.titles.set(taskId, canonicalTitle);
-        nativeTitle = nativeTitles.titles.get(taskId);
-        if (nativeTitle === undefined) {
-          throw new Error("The Dyna task title could not be read after synchronization.");
-        }
-        nativeTitles.operations.push({ kind: "read_thread", taskId, title: nativeTitle });
-      }
-      if (nativeTitle !== canonicalTitle) {
+      const nativeTitle = synchronizeDynaFixtureTaskTitle(
+        nativeTitles,
+        taskId,
+        itemNumber,
+        `Current native title for ${taskId}`,
+      );
+      if (!nativeTitle.verified) {
         throw new Error("The Dyna task title did not match after synchronization.");
       }
-      nativeTitles.operations.push({ kind: "submit_observation", taskId, title: nativeTitle });
+      nativeTitles.operations.push({
+        kind: "submit_observation",
+        taskId,
+        title: nativeTitle.title,
+      });
       observations.push({
         taskId,
         checkpointVersion,
         task: {
           taskId,
           hostId,
-          title: nativeTitle,
+          title: nativeTitle.title,
           state: succeeded ? "succeeded" : "running",
           statusUpdatedAt: observedAt,
           observedAt,
@@ -444,34 +486,18 @@ async function handleDynaTaskSync(
   };
 }
 
-async function runDynaFixtureUpdate(
+async function runDynaFixtureCli(
   dataDirectory: string,
-  dashboardId: string,
-  itemId: string,
-  fingerprint: string,
+  arguments_: readonly string[],
   input: Readonly<Record<string, unknown>>,
-): Promise<void> {
+): Promise<Readonly<Record<string, unknown>>> {
   // The shipping launcher intentionally strips store-selection variables. The harness runs the
   // generated adapter directly so this mutation stays inside its isolated test database.
-  const child = spawn(
-    "node",
-    [
-      resolve(pluginRoot, "server/dist/dyna.cjs"),
-      "work",
-      "update",
-      "--dashboard-id",
-      dashboardId,
-      "--item-id",
-      itemId,
-      "--expected-fingerprint",
-      fingerprint,
-    ],
-    {
-      cwd: pluginRoot,
-      env: { ...process.env, FLOWZONE_DATA_DIR: dataDirectory },
-      stdio: ["pipe", "pipe", "pipe"],
-    },
-  );
+  const child = spawn("node", [resolve(pluginRoot, "server/dist/dyna.cjs"), ...arguments_], {
+    cwd: pluginRoot,
+    env: { ...process.env, FLOWZONE_DATA_DIR: dataDirectory },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
   const stdout: Buffer[] = [];
   const stderr: Buffer[] = [];
   child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
@@ -487,13 +513,37 @@ async function runDynaFixtureUpdate(
       `Dyna fixture update failed (${String(exitCode)}): ${Buffer.concat(stderr).toString("utf8")}`,
     );
   }
-  const result = resultRecord(JSON.parse(output));
+  return resultRecord(JSON.parse(output));
+}
+
+async function runDynaFixtureUpdate(
+  dataDirectory: string,
+  dashboardId: string,
+  itemId: string,
+  fingerprint: string,
+  input: Readonly<Record<string, unknown>>,
+): Promise<Readonly<Record<string, unknown>>> {
+  const result = await runDynaFixtureCli(
+    dataDirectory,
+    [
+      "work",
+      "update",
+      "--dashboard-id",
+      dashboardId,
+      "--item-id",
+      itemId,
+      "--expected-fingerprint",
+      fingerprint,
+    ],
+    input,
+  );
   if (result["schema"] !== "dyna/item-update-result-v1" || result["itemId"] !== itemId) {
     throw new Error("Dyna fixture update returned an unexpected result.");
   }
+  return result;
 }
 
-const dynaResource = await client.readResource({ uri: "ui://flowzone/dyna/v18.html" });
+const dynaResource = await client.readResource({ uri: "ui://flowzone/dyna/v19.html" });
 const dynaResourceContent = dynaResource.contents[0];
 if (!dynaResourceContent || !("text" in dynaResourceContent)) {
   throw new Error("The Dyna HTML resource was not returned");
@@ -513,6 +563,7 @@ async function createDynaFixture(
   workActivity = false,
   paginatedActivity = false,
   includeAnnotation = false,
+  taskAttribution = false,
 ): Promise<unknown> {
   const fixtureId = randomUUID();
   const now = new Date().toISOString();
@@ -1027,6 +1078,7 @@ async function createDynaFixture(
         readonly kind: "progress" | "decision" | "needs_input" | "blocked" | "completion_reported";
         readonly body: string;
         readonly outcome?: string;
+        readonly supersedesWorkUpdateId?: string;
         readonly artifacts?: readonly {
           readonly kind: "pipeline" | "report" | "merge_request";
           readonly label: string;
@@ -1040,12 +1092,15 @@ async function createDynaFixture(
       if (typeof itemId !== "string" || typeof fingerprint !== "string") {
         throw new Error(`Dyna work activity item identity was not found: ${title}`);
       }
-      await runDynaFixtureUpdate(dataDirectory, dashboardId, itemId, fingerprint, {
+      return runDynaFixtureUpdate(dataDirectory, dashboardId, itemId, fingerprint, {
         requestId: randomUUID(),
         workAttemptId,
         kind: values.kind,
         body: values.body,
         ...(values.outcome ? { outcome: values.outcome } : {}),
+        ...(values.supersedesWorkUpdateId
+          ? { supersedesWorkUpdateId: values.supersedesWorkUpdateId }
+          : {}),
         artifacts: [...(values.artifacts ?? [])],
         task: { taskId, hostId: "local" },
       });
@@ -1076,25 +1131,35 @@ async function createDynaFixture(
       }
     }
     const progressAttempt = randomUUID();
-    await update("Review the release merge request", "activity-progress-task", progressAttempt, {
-      kind: "progress",
-      body: "Implemented the release guard and verified the focused matrix.",
-      artifacts: [
-        {
-          kind: "pipeline",
-          label: "Passing pipeline 8842",
-          url: "https://gitlab.com/team/project/-/pipelines/8842",
-        },
-        {
-          kind: "report",
-          label: "Release evidence packet",
-          url: "https://docs.example.test/release/evidence-8842",
-        },
-      ],
-    });
+    const progressUpdate = await update(
+      "Review the release merge request",
+      "activity-progress-task",
+      progressAttempt,
+      {
+        kind: "progress",
+        body: "Implemented the release guard and verified the focused matrix.",
+        artifacts: [
+          {
+            kind: "pipeline",
+            label: "Passing pipeline 8842",
+            url: "https://gitlab.com/team/project/-/pipelines/8842",
+          },
+          {
+            kind: "report",
+            label: "Release evidence packet",
+            url: "https://docs.example.test/release/evidence-8842",
+          },
+        ],
+      },
+    );
+    const supersededWorkUpdateId = progressUpdate["workUpdateId"];
+    if (typeof supersededWorkUpdateId !== "string") {
+      throw new Error("Dyna work activity correction target was not returned.");
+    }
     await update("Review the release merge request", "activity-progress-task", progressAttempt, {
       kind: "decision",
       body: "Kept the fail-closed release policy after security review.",
+      supersedesWorkUpdateId: supersededWorkUpdateId,
     });
     await update("Additional priority 1", "activity-input-task", randomUUID(), {
       kind: "needs_input",
@@ -1153,6 +1218,95 @@ async function createDynaFixture(
     });
     if (refreshedTask.isError) {
       throw new Error("Could not supersede the Dyna work activity state.");
+    }
+    openedDyna = await client.callTool({
+      name: "render_dyna_dashboard",
+      arguments: { dashboardId },
+    });
+  }
+  if (taskAttribution) {
+    const metadata = resultRecord(openedDyna._meta);
+    const payload = resultRecord(metadata["dynaDashboard"]);
+    const snapshot = resultRecord(payload["snapshot"]);
+    const cards = Array.isArray(snapshot["cards"]) ? snapshot["cards"].map(resultRecord) : [];
+    const card = cards[0];
+    const itemId = card?.["id"];
+    const fingerprint = card?.["fingerprint"];
+    if (!card || typeof itemId !== "string" || typeof fingerprint !== "string") {
+      throw new Error("Dyna task-attribution fixture item was not found.");
+    }
+    const task = {
+      taskId: "task-attribution-fixture",
+      hostId: "local",
+      title: "Task-authored Dyna completion",
+      state: "running",
+      statusUpdatedAt: now,
+      observedAt: now,
+    } as const;
+    await attachControllerTask(card, task);
+    const workAttemptId = randomUUID();
+    const taskAttribution = { taskId: task.taskId, hostId: task.hostId };
+    const annotationResult = await runDynaFixtureCli(
+      dataDirectory,
+      [
+        "annotation",
+        "add",
+        "--dashboard-id",
+        dashboardId,
+        "--item-id",
+        itemId,
+        "--expected-fingerprint",
+        fingerprint,
+      ],
+      {
+        requestId: randomUUID(),
+        workAttemptId,
+        task: taskAttribution,
+        body: "Decision context recorded by the assigned Codex task.",
+      },
+    );
+    if (annotationResult["schema"] !== "dyna/cli-annotation-mutation-result-v1") {
+      throw new Error("Dyna task-attribution annotation returned an unexpected result.");
+    }
+    openedDyna = await client.callTool({
+      name: "render_dyna_dashboard",
+      arguments: { dashboardId },
+    });
+    const refreshedMetadata = resultRecord(openedDyna._meta);
+    const refreshedPayload = resultRecord(refreshedMetadata["dynaDashboard"]);
+    const refreshedSnapshot = resultRecord(refreshedPayload["snapshot"]);
+    const revision = refreshedSnapshot["revision"];
+    if (typeof revision !== "number") {
+      throw new Error("Dyna task-attribution fixture revision was not found.");
+    }
+    const completionResult = await runDynaFixtureCli(
+      dataDirectory,
+      [
+        "work",
+        "complete",
+        "--dashboard-id",
+        dashboardId,
+        "--item-id",
+        itemId,
+        "--expected-fingerprint",
+        fingerprint,
+        "--expected-revision",
+        String(revision),
+      ],
+      {
+        requestId: randomUUID(),
+        workAttemptId,
+        task: taskAttribution,
+        body: "Closed the assigned Dyna work after recording the durable result.",
+        outcome: "Recorded the release decision and its verified evidence.",
+        artifacts: [],
+      },
+    );
+    if (
+      completionResult["schema"] !== "dyna/work-complete-result-v1" ||
+      completionResult["nativeTaskSuccessCertified"] !== false
+    ) {
+      throw new Error("Dyna task-attribution completion returned an unexpected result.");
     }
     openedDyna = await client.callTool({
       name: "render_dyna_dashboard",
@@ -1554,7 +1708,13 @@ const dynaHostScript = (dynaResult: unknown) => `<script>
             const controllerResponse = await fetch("/dyna-controller", {
               method: "POST",
               headers: { "content-type": "application/json" },
-              body: JSON.stringify({ requestId: actionMatch[1] })
+              body: JSON.stringify({
+                requestId: actionMatch[1],
+                nativeTitleMode:
+                  query.get("native-title-controller") === "readback-failure"
+                    ? "readback-failure"
+                    : "verified"
+              })
             });
             if (!controllerResponse.ok) throw new Error("Dyna fixture controller failed");
             const controllerResult = await controllerResponse.json();
@@ -1714,6 +1874,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
           requestUrl.searchParams.get("activity-pages") === "1",
         requestUrl.searchParams.get("activity-pages") === "1",
         requestUrl.searchParams.get("note-actions") === "1",
+        requestUrl.searchParams.get("task-attribution") === "1",
       );
       dynaFixtureDashboardIds.set(partition, dynaFixtureDashboardId(dynaFixture));
     }
@@ -1753,11 +1914,14 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
   }
   if (request.method === "POST" && request.url === "/dyna-controller") {
     try {
-      const { requestId } = z
-        .object({ requestId: z.uuid() })
+      const { requestId, nativeTitleMode } = z
+        .object({
+          requestId: z.uuid(),
+          nativeTitleMode: z.enum(["verified", "readback-failure"]).default("verified"),
+        })
         .strict()
         .parse(JSON.parse((await readRequestBody(request)).toString("utf8")));
-      json(response, 200, await handleDynaControllerAction(request, requestId));
+      json(response, 200, await handleDynaControllerAction(request, requestId, nativeTitleMode));
     } catch (error: unknown) {
       json(response, 400, { error: error instanceof Error ? error.message : String(error) });
     }

@@ -7,6 +7,11 @@ import {
   DynaAnnotationEditInputSchema,
   DynaAnnotationMutationResultSchema,
   DynaAnnotationSchema,
+  DynaAnnotationEventSchema,
+  DynaCliAnnotationAddInputSchema,
+  DynaCliAnnotationDeleteInputSchema,
+  DynaCliAnnotationEditInputSchema,
+  DynaCliAnnotationMutationResultSchema,
   DynaCodexSessionCandidatesSchema,
   DynaPublishSourceSlicesSchema,
   DynaPublisherSchema,
@@ -15,6 +20,7 @@ import {
   DynaUiPayloadSchema,
   DynaPublishedItemSchema,
   DynaTaskStatusSchema,
+  DynaTaskWorkEnrichInputSchema,
   DynaTaskSyncBeginResultSchema,
   DynaTaskTitleSchema,
   DynaCardSchema,
@@ -24,6 +30,8 @@ import {
   DynaSetItemStatusInputSchema,
   DynaUserWorkflowEventSchema,
   DynaWorkActivityPageSchema,
+  DynaWorkCompleteInputSchema,
+  DynaWorkCompleteResultSchema,
   DynaCompatibleWorkReferenceSchema,
   DynaItemNumberSchema,
   DynaWorkReferenceSchema,
@@ -53,10 +61,10 @@ describe("Dyna executive signal contracts", () => {
   test("accepts only the versioned snapshot-only UI payload", () => {
     const timestamp = "2026-09-04T12:00:00.000Z";
     const payload = {
-      schema: "dyna/ui-v10",
+      schema: "dyna/ui-v11",
       viewToken: "v".repeat(32),
       snapshot: {
-        schema: "dyna/snapshot-v8",
+        schema: "dyna/snapshot-v9",
         dashboard: {
           id: "bd9a11b5-fbf8-495a-a116-d3429496969f",
           name: "Morning brief",
@@ -76,7 +84,9 @@ describe("Dyna executive signal contracts", () => {
     } as const;
 
     expect(DynaUiPayloadSchema.safeParse(payload).success).toBe(true);
-    expect(DynaUiPayloadSchema.safeParse({ ...payload, schema: "dyna/ui-v9" }).success).toBe(false);
+    expect(DynaUiPayloadSchema.safeParse({ ...payload, schema: "dyna/ui-v10" }).success).toBe(
+      false,
+    );
     expect(DynaUiPayloadSchema.safeParse({ ...payload, spec: {} }).success).toBe(false);
   });
 
@@ -121,6 +131,124 @@ describe("Dyna executive signal contracts", () => {
         updatedAt: timestamp,
         deleted: false,
         deduplicated: false,
+      }).success,
+    ).toBe(true);
+
+    const task = { taskId: "task-42", hostId: "host-local" } as const;
+    const workAttemptId = "eb4909a3-14da-433a-908d-8771636be350";
+    expect(DynaAnnotationSchema.safeParse({ ...annotation, task, workAttemptId }).success).toBe(
+      true,
+    );
+    expect(DynaAnnotationSchema.safeParse({ ...annotation, task }).success).toBe(false);
+    expect(
+      DynaAnnotationEventSchema.safeParse({
+        id: "c849421a-c365-4d4a-9c19-6f0987f23f36",
+        annotationId: annotation.id,
+        itemId: annotation.itemId,
+        operation: "delete",
+        version: 3,
+        occurredAt: timestamp,
+        task,
+        workAttemptId,
+      }).success,
+    ).toBe(true);
+    expect(
+      DynaAnnotationEventSchema.safeParse({
+        id: "c849421a-c365-4d4a-9c19-6f0987f23f36",
+        annotationId: annotation.id,
+        itemId: annotation.itemId,
+        operation: "delete",
+        version: 3,
+        occurredAt: timestamp,
+        body: "Deleted note content must not leak into history.",
+      }).success,
+    ).toBe(false);
+  });
+
+  test("validates linked-task enrichment, completion, and annotation mutations", () => {
+    const common = {
+      requestId: "7bfd389a-0374-4658-92cc-a2ba97407fcc",
+      workAttemptId: "eb4909a3-14da-433a-908d-8771636be350",
+      task: { taskId: "task-42", hostId: "host-local" },
+    } as const;
+    expect(
+      DynaTaskWorkEnrichInputSchema.safeParse({
+        ...common,
+        set: { priority: "high", attention: "Review the release decision." },
+        clear: ["dueAt"],
+      }).success,
+    ).toBe(true);
+    expect(
+      DynaTaskWorkEnrichInputSchema.safeParse({
+        ...common,
+        set: { dueAt: null },
+      }).success,
+    ).toBe(false);
+    expect(
+      DynaTaskWorkEnrichInputSchema.safeParse({
+        ...common,
+        set: { priority: "high" },
+        clear: ["priority"],
+      }).success,
+    ).toBe(false);
+    expect(DynaTaskWorkEnrichInputSchema.safeParse(common).success).toBe(false);
+
+    expect(
+      DynaWorkCompleteInputSchema.safeParse({
+        ...common,
+        outcome: "Completed the bounded implementation and validation.",
+        artifacts: [{ kind: "report", label: "Test report", url: "https://example.com/report" }],
+      }).success,
+    ).toBe(true);
+    expect(
+      DynaWorkCompleteInputSchema.safeParse({
+        ...common,
+        outcome: "First line\nSecond line",
+      }).success,
+    ).toBe(false);
+
+    expect(
+      DynaCliAnnotationAddInputSchema.safeParse({ ...common, body: "Decision recorded." }).success,
+    ).toBe(true);
+    expect(
+      DynaCliAnnotationEditInputSchema.safeParse({ ...common, body: "Decision corrected." })
+        .success,
+    ).toBe(true);
+    expect(DynaCliAnnotationDeleteInputSchema.safeParse(common).success).toBe(true);
+
+    const control = {
+      itemNumber: 184,
+      fingerprint: "a".repeat(64),
+      dashboardRevision: 7,
+      enrichmentVersion: 2,
+      workflowState: "completed",
+      blocked: false,
+      archived: false,
+      deduplicated: false,
+    } as const;
+    expect(
+      DynaWorkCompleteResultSchema.safeParse({
+        schema: "dyna/work-complete-result-v1",
+        requestId: common.requestId,
+        itemId: "4ab587d0-a34a-43ea-95ce-75be06d4c244",
+        workUpdateId: "c849421a-c365-4d4a-9c19-6f0987f23f36",
+        workflowEventId: "04a06f75-2550-4cb2-b5a6-d47a1030327e",
+        nativeTaskSuccessCertified: false,
+        deduplicated: false,
+        control,
+      }).success,
+    ).toBe(true);
+    expect(
+      DynaCliAnnotationMutationResultSchema.safeParse({
+        schema: "dyna/cli-annotation-mutation-result-v1",
+        requestId: common.requestId,
+        itemId: "4ab587d0-a34a-43ea-95ce-75be06d4c244",
+        annotationId: "c849421a-c365-4d4a-9c19-6f0987f23f36",
+        version: 2,
+        updatedAt: "2026-09-14T12:00:00.000Z",
+        deleted: false,
+        deduplicated: false,
+        control,
       }).success,
     ).toBe(true);
   });
@@ -196,12 +324,17 @@ describe("Dyna executive signal contracts", () => {
       ).toBe(true);
     }
     for (const kind of ["note", "decision"] as const) {
+      const input = {
+        requestId: "7bfd389a-0374-4658-92cc-a2ba97407fcc",
+        workAttemptId: "eb4909a3-14da-433a-908d-8771636be350",
+        kind,
+        body: "Durable non-lifecycle context.",
+      } as const;
+      expect(DynaWorkUpdateInputSchema.safeParse(input).success).toBe(false);
       expect(
         DynaWorkUpdateInputSchema.safeParse({
-          requestId: "7bfd389a-0374-4658-92cc-a2ba97407fcc",
-          workAttemptId: "eb4909a3-14da-433a-908d-8771636be350",
-          kind,
-          body: "Durable non-lifecycle context.",
+          ...input,
+          task: { taskId: "task-42", hostId: "host-local" },
         }).success,
       ).toBe(true);
     }
@@ -342,6 +475,19 @@ describe("Dyna executive signal contracts", () => {
       createdAt: "2026-09-11T12:00:00.000Z",
     } as const;
     expect(DynaUserWorkflowEventSchema.safeParse(event).success).toBe(true);
+    expect(
+      DynaUserWorkflowEventSchema.safeParse({
+        ...event,
+        task: { taskId: "task-42", hostId: "host-local", title: ":184: Finish work" },
+        workAttemptId: "eb4909a3-14da-433a-908d-8771636be350",
+      }).success,
+    ).toBe(true);
+    expect(
+      DynaUserWorkflowEventSchema.safeParse({
+        ...event,
+        task: { taskId: "task-42", hostId: "host-local" },
+      }).success,
+    ).toBe(false);
     expect(DynaUserWorkflowEventSchema.safeParse({ ...event, targetStage: "todo" }).success).toBe(
       false,
     );
@@ -410,6 +556,21 @@ describe("Dyna executive signal contracts", () => {
       linkedTasks: [],
     } as const;
     expect(DynaCardSchema.safeParse(card).success).toBe(true);
+    expect(
+      DynaCardSchema.safeParse({
+        ...card,
+        workflowState: "completed",
+        completedAt: timestamp,
+        outcome: "Completed the review.",
+        completionAuthority: "dyna_task",
+        completionTask: {
+          taskId: "task-42",
+          hostId: "local",
+          title: ":184: Review MR 42",
+        },
+        completionWorkAttemptId: "eb4909a3-14da-433a-908d-8771636be350",
+      }).success,
+    ).toBe(true);
     expect(DynaCardSchema.parse({ ...card, titleSyncNeeded: true }).titleSyncNeeded).toBe(true);
     expect(DynaCardSchema.safeParse({ ...card, titleSyncNeeded: "yes" }).success).toBe(false);
     expect(
@@ -785,11 +946,31 @@ describe("Dyna executive signal contracts", () => {
             taskId: "task-184",
             hostId: "host-local",
             checkpointVersion: 0,
-            expectedTitle: ":184: Review release",
           },
         ],
       }).success,
     ).toBe(true);
+    expect(
+      DynaTaskSyncClaimSchema.safeParse({
+        schema: "dyna/task-sync-claim-v1",
+        runId,
+        dashboardId,
+        claimToken: "c".repeat(64),
+        leaseExpiresAt: timestamp,
+        totalTasks: 1,
+        remainingTasks: 1,
+        targets: [
+          {
+            itemId: "7bfd389a-0374-4658-92cc-a2ba97407fcc",
+            itemNumber: 184,
+            taskId: "task-184",
+            hostId: "host-local",
+            checkpointVersion: 0,
+            expectedTitle: ":184: Review release",
+          },
+        ],
+      }).success,
+    ).toBe(false);
     const observation = {
       taskId: "task-184",
       checkpointVersion: 0,

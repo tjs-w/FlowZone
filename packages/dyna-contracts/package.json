@@ -8,6 +8,10 @@
       "types": "./src/index.ts",
       "import": "./src/index.ts"
     },
+    "./browser": {
+      "types": "./src/browser.ts",
+      "import": "./src/browser.ts"
+    },
     "./controller": {
       "types": "./src/controller.ts",
       "import": "./src/controller.ts"

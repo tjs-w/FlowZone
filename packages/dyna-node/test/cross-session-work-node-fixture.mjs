@@ -242,16 +242,8 @@ try {
         body: "Lifecycle progress cannot be accepted before task identity is available.",
         artifacts: [],
       }),
-    (error) => error instanceof DynaCliStoreError && error.code === "invalid_input",
+    (error) => error?.name === "ZodError",
   );
-  const unattributed = store.recordWorkUpdate(dashboardA.id, itemId, fingerprint, {
-    requestId: request(),
-    workAttemptId: attemptA,
-    kind: "decision",
-    body: "The implementation path was selected before task identity was available.",
-    artifacts: [],
-  });
-  assert.equal(unattributed.deduplicated, false);
   assert.equal(store.showItem(dashboardA.id, itemId).item.workState, undefined);
 
   advance();
@@ -276,7 +268,7 @@ try {
         body: "An established task attribution cannot be dropped.",
         artifacts: [],
       }),
-    (error) => error instanceof DynaCliStoreError && error.code === "request_conflict",
+    (error) => error?.name === "ZodError",
   );
   advance();
   store.recordWorkUpdate(dashboardA.id, itemId, fingerprint, {
@@ -339,7 +331,7 @@ try {
   assert.equal(shown.item.workState, "progress");
   const sharedItem = store.showItem(dashboardB.id, itemId).item;
   assert.equal(sharedItem.workUpdates.length, 1);
-  assert.equal(sharedItem.workUpdateCount, 5);
+  assert.equal(sharedItem.workUpdateCount, 4);
 
   advance();
   store.upsertTaskStatus(itemId, status("task-a", "running", undefined, itemNumber));
@@ -417,11 +409,14 @@ try {
     kind: "note",
     body: "Historical note retained after completion.",
     artifacts: [],
+    task: { taskId: "task-a", hostId: "local" },
   });
 
   shown = store.showItem(dashboardA.id, itemId);
   const archiveInput = {
     requestId: request(),
+    workAttemptId: randomUUID(),
+    task: { taskId: "task-a", hostId: "local" },
     reason: "completed",
   };
   const archived = store.archiveItemFromCli(
@@ -482,6 +477,7 @@ try {
     kind: "note",
     body: "Archive remains searchable with this note.",
     artifacts: [],
+    task: { taskId: "task-a", hostId: "local" },
   });
   assert.equal(archivedNote.deduplicated, false);
   assert.equal(store.snapshot(dashboardA.id, "searchable", "archive").cards[0]?.id, itemId);
@@ -489,6 +485,8 @@ try {
   shown = store.showItem(dashboardA.id, itemId);
   const followUp = store.createFollowUpFromCli(dashboardA.id, itemId, shown.revision, fingerprint, {
     requestId: request(),
+    workAttemptId: randomUUID(),
+    task: { taskId: "task-a", hostId: "local" },
     title: "Follow up on MR 42",
     summary: "New active work linked to historical evidence.",
     priority: "normal",
@@ -497,17 +495,17 @@ try {
   assert.notEqual(followUp.itemId, itemId);
   const followUpShown = store.showItem(dashboardA.id, followUp.itemId);
   assert.equal(followUpShown.item.followUpOfItemId, itemId);
-  const enriched = store.enrichItemFromCli(
-    dashboardA.id,
+  store.upsertTaskStatus(
     followUp.itemId,
-    followUp.fingerprint,
-    0,
-    {
-      requestId: request(),
-      summary: "Evidence-bound follow-up summary.",
-      provenance: "codex-task",
-    },
+    status("follow-up-task", "running", undefined, followUp.itemNumber),
   );
+  const enriched = store.enrichItemPatch(dashboardA.id, followUp.itemId, followUp.fingerprint, 0, {
+    requestId: request(),
+    workAttemptId: randomUUID(),
+    task: { taskId: "follow-up-task", hostId: "local" },
+    set: { summary: "Evidence-bound follow-up summary." },
+    clear: [],
+  });
   assert.equal(enriched.enrichmentVersion, 1);
   const afterEnrich = store.showItem(dashboardA.id, followUp.itemId);
   const placed = store.placeItemFromCli(
@@ -515,19 +513,22 @@ try {
     followUp.itemId,
     afterEnrich.revision,
     followUp.fingerprint,
-    { requestId: request(), targetPriority: "high" },
+    {
+      requestId: request(),
+      workAttemptId: randomUUID(),
+      task: { taskId: "follow-up-task", hostId: "local" },
+      targetPriority: "high",
+    },
   );
   assert.equal(placed.changed, true);
   assert.equal(store.showItem(dashboardA.id, followUp.itemId).item.priority, "high");
 
   shown = store.showItem(dashboardA.id, itemId);
-  const restored = store.restoreItemFromCli(
-    dashboardA.id,
-    itemId,
-    shown.revision,
-    fingerprint,
-    request(),
-  );
+  const restored = store.restoreItemFromCli(dashboardA.id, itemId, shown.revision, fingerprint, {
+    requestId: request(),
+    workAttemptId: randomUUID(),
+    task: { taskId: "task-a", hostId: "local" },
+  });
   assert.equal(typeof restored.restoredAt, "string");
   assert.equal(store.itemHistory(dashboardA.id, itemId).workUpdates.length >= 7, true);
 } finally {
@@ -734,7 +735,7 @@ try {
   const migrated = new DynaStore({ databasePath });
   migrated.close();
   const verified = new DatabaseSync(databasePath, { readOnly: true });
-  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 10);
+  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 11);
   assert.equal(
     verified
       .prepare(

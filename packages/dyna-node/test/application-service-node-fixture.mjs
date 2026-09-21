@@ -100,6 +100,20 @@ try {
   const firstHigh = createTodo(orderingDashboard.id, "High A", "high");
   const secondHigh = createTodo(orderingDashboard.id, "High B", "high");
   const critical = createTodo(orderingDashboard.id, "Critical", "critical");
+  for (const [taskId, item] of [
+    ["ordering-high-a", firstHigh],
+    ["ordering-high-b", secondHigh],
+    ["ordering-critical", critical],
+  ]) {
+    service.updateTask(orderingDashboard.id, item.itemId, {
+      taskId,
+      hostId: "local",
+      title: canonicalDynaTaskTitle(item.itemNumber, item.itemId),
+      state: "running",
+      statusUpdatedAt: new Date(now).toISOString(),
+      observedAt: new Date(now).toISOString(),
+    });
+  }
   const [lexicalFirst, lexicalLast] = [firstHigh, secondHigh].sort((left, right) =>
     left.itemId.localeCompare(right.itemId),
   );
@@ -111,6 +125,11 @@ try {
     lexicalLast.fingerprint,
     {
       requestId: randomUUID(),
+      workAttemptId: randomUUID(),
+      task: {
+        taskId: lexicalLast.itemId === firstHigh.itemId ? "ordering-high-a" : "ordering-high-b",
+        hostId: "local",
+      },
       targetPriority: "high",
       beforeItemId: lexicalFirst.itemId,
     },
@@ -121,7 +140,12 @@ try {
     critical.itemId,
     orderingSnapshot.revision,
     critical.fingerprint,
-    { requestId: randomUUID(), targetPriority: "high" },
+    {
+      requestId: randomUUID(),
+      workAttemptId: randomUUID(),
+      task: { taskId: "ordering-critical", hostId: "local" },
+      targetPriority: "high",
+    },
   );
   orderingSnapshot = service.snapshot(orderingDashboard.id);
   service.placeItem(
@@ -129,7 +153,12 @@ try {
     critical.itemId,
     orderingSnapshot.revision,
     critical.fingerprint,
-    { requestId: randomUUID(), targetPriority: "critical" },
+    {
+      requestId: randomUUID(),
+      workAttemptId: randomUUID(),
+      task: { taskId: "ordering-critical", hostId: "local" },
+      targetPriority: "critical",
+    },
   );
   const preservedHighOrder = service
     .snapshot(orderingDashboard.id)
@@ -436,6 +465,15 @@ try {
       priority: "normal",
       labels: [],
     });
+    const receiptTaskId = "receipt-follow-up-task";
+    receiptService.updateTask(receiptDashboard.id, receiptSource.itemId, {
+      taskId: receiptTaskId,
+      hostId: "local",
+      title: canonicalDynaTaskTitle(receiptSource.itemNumber, "Receipt follow-up task"),
+      state: "running",
+      statusUpdatedAt: new Date(now).toISOString(),
+      observedAt: new Date(now).toISOString(),
+    });
     const receiptPayload = receiptService.render(receiptDashboard.id);
     receiptService.setItemStatus({
       viewToken: receiptPayload.viewToken,
@@ -448,8 +486,11 @@ try {
     });
     const completedSource = receiptService.showItem(receiptDashboard.id, receiptSource.itemId);
     const followUpRequestId = randomUUID();
+    const followUpWorkAttemptId = randomUUID();
     const followUpInput = {
       requestId: followUpRequestId,
+      workAttemptId: followUpWorkAttemptId,
+      task: { taskId: receiptTaskId, hostId: "local" },
       title: "Continue verified work",
       priority: "normal",
       labels: [],
@@ -465,6 +506,7 @@ try {
     receiptService = undefined;
 
     const receiptDatabase = new DatabaseSync(receiptDatabasePath);
+    receiptDatabase.exec("DROP TRIGGER trg_dyna_cli_requests_immutable_update;");
     receiptDatabase.prepare("UPDATE cli_requests SET result_json = ? WHERE request_id = ?").run(
       JSON.stringify({
         schema: "dyna/follow-up-create-result-v1",
@@ -476,6 +518,7 @@ try {
       }),
       followUpRequestId,
     );
+    receiptDatabase.exec("PRAGMA user_version = 10;");
     receiptDatabase.close();
 
     receiptService = new DynaApplicationService({ databasePath: receiptDatabasePath });
@@ -501,7 +544,7 @@ try {
     clock: () => new Date(reservationClockMs),
     actor: {
       kind: "mcp_host",
-      capabilities: ["dashboard:manage", "item:read", "item:write", "task:observe"],
+      capabilities: ["dashboard:manage", "item:read", "todo:create", "task:observe"],
     },
   });
   try {
@@ -627,22 +670,6 @@ try {
       priority: "normal",
       labels: [],
     });
-    const legacyUnattributedNote = {
-      requestId: randomUUID(),
-      workAttemptId: randomUUID(),
-      kind: "note",
-      body: "A durable note accepted before receiving-task attribution became mandatory.",
-      artifacts: [],
-    };
-    assert.equal(
-      taskActorSeed.recordWorkUpdate(
-        taskActorDashboard.id,
-        taskActorItem.itemId,
-        taskActorItem.fingerprint,
-        legacyUnattributedNote,
-      ).deduplicated,
-      false,
-    );
     now += 1_000;
     const unprefixedAt = new Date(now).toISOString();
     taskActorSeed.compatibilityUpsertTaskStatus(taskActorItem.itemId, {
@@ -658,18 +685,9 @@ try {
       clock: () => new Date(now),
       actor: {
         kind: "codex_task",
-        capabilities: ["dashboard:read", "item:read", "item:write"],
+        capabilities: ["dashboard:read", "item:read", "work:update"],
       },
     });
-    assert.equal(
-      taskActorWorker.recordWorkUpdate(
-        taskActorDashboard.id,
-        taskActorItem.itemId,
-        taskActorItem.fingerprint,
-        legacyUnattributedNote,
-      ).deduplicated,
-      true,
-    );
     const taskActorRequest = {
       requestId: randomUUID(),
       workAttemptId: randomUUID(),
@@ -685,10 +703,7 @@ try {
           taskActorItem.fingerprint,
           taskActorRequest,
         ),
-      (error) =>
-        error instanceof DynaCliStoreError &&
-        error.code === "invalid_input" &&
-        error.message.includes("receiving linked Codex task"),
+      (error) => error?.name === "ZodError",
     );
     assert.throws(
       () =>
@@ -704,7 +719,7 @@ try {
             artifacts: [],
           },
         ),
-      (error) => error instanceof DynaCliStoreError && error.code === "invalid_input",
+      (error) => error?.name === "ZodError",
     );
     const attributedTaskActorRequest = {
       ...taskActorRequest,

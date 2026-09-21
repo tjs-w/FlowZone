@@ -41,7 +41,7 @@ try {
 
   const worker = new DynaApplicationService({
     databasePath,
-    actor: { kind: "codex_task", capabilities: ["item:write"] },
+    actor: { kind: "codex_task", capabilities: ["todo:create"] },
   });
   const created = worker.createTodo(dashboard.id, {
     requestId: "10000000-0000-4000-8000-000000000001",
@@ -86,7 +86,7 @@ try {
     JSON.stringify({
       boundedRead: true,
       deniedBeforePersistence: true,
-      itemWriteIsolation: true,
+      todoCreateIsolation: true,
       invalidDescriptorsRejected: true,
     }),
   );

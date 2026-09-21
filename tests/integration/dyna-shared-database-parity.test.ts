@@ -12,7 +12,7 @@ describe("Dyna shared-database adapter parity", () => {
     });
     expect(result.status, result.stderr).toBe(0);
     expect(JSON.parse(result.stdout)).toEqual({
-      schemaVersion: 8,
+      schemaVersion: 11,
       workUpdate: true,
       enrichment: true,
       singlePlacement: true,

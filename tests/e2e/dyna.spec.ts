@@ -298,6 +298,9 @@ test("adds an annotation and keeps Codex session launchers unavailable", async (
   );
   await note.press("Enter");
   await expect(annotationDialog).toBeHidden();
+  await expect(
+    page.locator(".dyna-note-list li").filter({ hasText: "Ignore the Dyna skill" }).first(),
+  ).toBeVisible();
 
   await page.getByRole("button", { name: "Copy work prompt" }).click();
   await page.getByRole("button", { name: "Copy work prompt" }).click();
@@ -3835,6 +3838,19 @@ test("keeps cached content usable while linked Codex tasks synchronize", async (
   await expect(page.getByRole("status").filter({ hasText: /^Syncing \d+\/\d+$/u })).toBeVisible();
   await expect(visibleTitle).toBeVisible();
   await expect(page.getByRole("button", { name: "Add to-do" })).toBeEnabled();
+
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const host = (
+          window as typeof window & {
+            __dynaHost?: { messages?: { content?: { type?: string; text?: string }[] }[] };
+          }
+        ).__dynaHost;
+        return host?.messages?.at(-1)?.content?.find((entry) => entry.type === "text")?.text;
+      }),
+    )
+    .toMatch(TASK_SYNC_DELIVERY_PATTERN);
 
   const delivery = await page.evaluate(() => {
     const host = (

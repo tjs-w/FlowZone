@@ -1,0 +1,21 @@
+{
+  "file": "src/outbox.ts",
+  "entries": [
+    {
+      "name": "enqueueOpenSearchOutboxTx",
+      "kind": "function",
+      "span": "L6-L9",
+      "signature": "function enqueueOpenSearchOutboxTx(id: string): void"
+    },
+    {
+      "name": "processClaim",
+      "kind": "function",
+      "span": "L39-L51",
+      "signature": "function processClaim(claim: Claim): void"
+    }
+  ],
+  "saved": {
+    "files": 1,
+    "baselineChars": 2048
+  }
+}

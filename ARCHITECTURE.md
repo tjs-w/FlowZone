@@ -1,6 +1,17 @@
 # FlowZone architecture
 
-FlowZone is one MCP server process with one selected transport, one model-visible data router, and dedicated model-visible presentation tools. A fixed startup registry dispatches actions to independently owned plugins. Markdown Review and the Dyna executive dashboard are bundled.
+The repository marketplace contains one installable FlowZone plugin. Markdown Review, Dyna, and CallFlow are statically registered capabilities inside its shared runtime. CallFlow keeps its domain contracts, CLI, UI, and private session state in dedicated packages, but it does not own a transport or add model-visible tools.
+
+```text
+Codex / MCP client
+        │ local stdio
+        ▼
+flowzone MCP server → Markdown Review, Dyna, and CallFlow
+```
+
+CallFlow's human manifest and generated snapshot are distinct versioned documents. Its Graft adapter is a fixed direct subprocess boundary, all router actions are read-only, app helpers are component-only, and source disclosure requires a revision-bound expiring capability. See [docs/callflow.md](./docs/callflow.md).
+
+FlowZone is one MCP server process with one selected transport and one model-visible data router. A fixed startup registry dispatches actions to independently owned modules. Markdown Review and Dyna retain established presentation tools for compatibility; CallFlow is routed exclusively through `flowzone`.
 
 ```text
 Codex / MCP client
@@ -10,32 +21,36 @@ flowzone(plugin, action, input)        model-visible data actions
         │
         ▼
 static validated registry
-        ├── in-process module
+        ├── in-process module (including CallFlow)
         ├── fixed allowlisted CLI/script
         └── fixed HTTPS backend API
         │
         ▼
 render_markdown_review ──────────────> ui://flowzone/v5.html
 render_dyna_dashboard ───────────────> ui://flowzone/dyna/v19.html
+CallFlow private view data ──────────> ui://flowzone/callflow/v2.html
 
 plugin-owned typed helper tools       app-only
 ```
 
-The plugin transport is local stdio. Scheduled jobs publish separately through the installed plugin's absolute `<plugin-root>/bin/flowzone-publish --publisher <uuid>` launcher, which accepts one bounded JSON document on stdin and writes through the same validated Dyna store. Local tasks use the separate `<plugin-root>/bin/dyna` launcher for exact item-scoped synchronization after explicit one-time reconciliation of a user-layer rule bound to that installed launcher and its current verbs. Reconciliation replaces the obsolete cache path after an upgrade instead of allowing both versions. Both CLIs rely on the current OS-user boundary; they do not add OAuth, Keychain, a network listener, a database-path argument, or a model-visible secret.
+The plugin transport is local stdio. Scheduled jobs publish through the installed plugin's absolute `<plugin-root>/bin/flowzone-publish --publisher <uuid>` launcher, which accepts one bounded JSON document on stdin and writes through the same validated Dyna store. Local tasks use `<plugin-root>/bin/dyna` for exact item-scoped synchronization after explicit one-time reconciliation of a user-layer rule bound to that installed launcher and its current verbs. CallFlow's `<plugin-root>/bin/callflow` remains the only surface for explicit index building, manifest writes, snapshot replacement, or export-file writes. Reconciliation replaces obsolete cache paths after an upgrade instead of allowing both versions. The CLIs rely on the current OS-user boundary; they do not add OAuth, Keychain, a network listener, a database-path argument, or a model-visible secret.
 
 ## Public MCP surface
 
-The `flowzone` router is model-visible for non-visual actions:
+The `flowzone` router is model-visible for data actions, including CallFlow discovery:
 
 ```json
 {
-  "plugin": "dyna",
-  "action": "list-dashboards",
-  "input": {}
+  "plugin": "callflow",
+  "action": "discover",
+  "input": {
+    "repositoryPath": "/absolute/path/to/repository",
+    "entries": ["qualified.entryPoint"]
+  }
 }
 ```
 
-The router schema is a startup-built union of registered plugin/action/input branches. FlowZone validates the selected branch again before execution and validates the plugin-owned result schema before returning this public envelope:
+The router advertises one compact direct-object schema with enumerated registered plugin and action names plus a generic object `input`. After selecting the route, FlowZone privately validates `input` against that action's strict schema and validates the plugin-owned result schema before returning this public envelope:
 
 ```json
 {
@@ -46,9 +61,9 @@ The router schema is a startup-built union of registered plugin/action/input bra
 }
 ```
 
-Router annotations are deliberately conservative (`readOnly: false`, `destructive: true`, `openWorld: true`, `idempotent: false`) because a single MCP tool can reach actions with different risk. Each presentation action is registered as its own model-visible tool with action-specific risk metadata and a dedicated resource URI.
+Router annotations are deliberately conservative (`readOnly: false`, `destructive: true`, `openWorld: true`, `idempotent: false`) because a single MCP tool can reach actions with different risk. Existing presentation actions are registered as model-visible tools with action-specific risk metadata and dedicated resource URIs. CallFlow deliberately declares no presentation action, so it contributes no additional model-facing tool schema.
 
-Plugin-owned component helpers remain separate typed tools. FlowZone registers them centrally with `_meta.ui.visibility: ["app"]`, so a plugin cannot accidentally make one model-visible. Markdown Review retains its four helper names for document checks, document loading, recovery, and image chunks.
+Plugin-owned component helpers remain separate typed tools. FlowZone registers them centrally with `_meta.ui.visibility: ["app"]`, so a module cannot accidentally make one model-visible. Markdown Review retains its four helper names for document checks, document loading, recovery, and image chunks. CallFlow's expansion, source, search, path, relayout, and visible-description helpers are likewise app-only and capability-bound.
 
 ## Plugin contract
 
@@ -92,7 +107,7 @@ FlowZone retries only explicitly idempotent actions and only retryable failures,
 
 ## Presentation resources
 
-`ui://flowzone/v5.html` remains the Markdown Review output resource. `ui://flowzone/dyna/v19.html` is a separate, smaller Dyna resource with a closed network CSP and clipboard-write permission limited to explicit copy actions; v18 remains a compatibility alias. Public model output stays small; private UI data uses a typed metadata envelope. Treat each UI resource URI as a host cache key and bump its version whenever the shipped HTML, JavaScript, or CSS changes materially.
+`ui://flowzone/v5.html` remains the Markdown Review output resource. `ui://flowzone/dyna/v19.html` is a separate, smaller Dyna resource with a closed network CSP and clipboard-write permission limited to explicit copy actions; v18 remains a compatibility alias. `ui://flowzone/callflow/v2.html` is CallFlow's contained interactive resource, with v1 and the original standalone URI retained as compatibility aliases. Public model output stays small; Dyna payloads use typed private metadata, while complete CallFlow graphs and authorized excerpts travel only in typed private metadata. Treat each UI resource URI as a host cache key and bump its version whenever the shipped HTML, JavaScript, or CSS changes materially.
 
 ```json
 {
@@ -104,7 +119,7 @@ FlowZone retries only explicitly idempotent actions and only retryable failures,
 }
 ```
 
-Each presentation tool is bound to one fixed resource in the startup registry. Unknown routes and invalid payloads fail closed. Both resources permit no network, remote resource, or frame domains; only Markdown Review requests clipboard-write. Compatibility aliases for `ui://flowzone/v1.html` through `v4.html` and `ui://markdown-review/v30.html` serve the hardened Markdown shell for already cached views.
+Every resource is fixed in the startup registry. Unknown routes and invalid payloads fail closed. The resources permit no network, remote resource, or frame domains; requested host permissions remain narrowly scoped. Compatibility aliases for `ui://flowzone/v1.html` through `v4.html` and `ui://markdown-review/v30.html` serve the hardened Markdown shell for already cached views.
 
 ## Dyna
 
@@ -114,7 +129,7 @@ See [docs/dyna.md](./docs/dyna.md) for the full boundary, implementation plan, a
 
 ## Markdown Review compatibility
 
-The `$flowzone:markdown-review` skill invokes `render_markdown_review` with the absolute path. Data actions remain on the router; rendered actions no longer make the router carry a universal output resource. The companion `$flowzone:dyna` skill drives the Dyna router, presentation tool, native Codex task handoff, and absolute installed item CLI. It verifies task identity through native task tools before attaching task-authored activity; `CODEX_THREAD_ID` is only a lookup hint. Both skills and the shared `flowzone` MCP server ship in the same plugin manifest.
+The `$flowzone:markdown-review` skill invokes `render_markdown_review` with the absolute path. Data actions remain on the router; rendered actions no longer make the router carry a universal output resource. The companion `$flowzone:dyna` skill drives the Dyna router, presentation tool, native Codex task handoff, and absolute installed item CLI. It verifies task identity through native task tools before attaching task-authored activity; `CODEX_THREAD_ID` is only a lookup hint. `$flowzone:callflow` uses the `flowzone` router for every model action and the installed CallFlow CLI only for explicit local effects. All three skills and the shared `flowzone` MCP server ship in the same plugin manifest.
 
 The Markdown source remains canonical. Existing review submission schemas, state identity, document/image contracts, and app-only helper names are unchanged. A private legacy `document` metadata key accompanies the new FlowZone UI envelope during migration so cached v30 view code can hydrate safely.
 
@@ -122,7 +137,7 @@ The Markdown source remains canonical. Existing review submission schemas, state
 
 1. Implement a plugin-owned factory and schemas without importing another plugin's internal modules.
 2. Select one executor type and document its trust boundary. For CLI or HTTP, keep every destination and command field in static registration code.
-3. Register a dedicated presentation tool/resource for any UI view and keep helper tools typed and app-only.
+3. Register any UI resource statically and keep helper tools typed and app-only. Add a dedicated presentation tool only when its extra model-facing schema is deliberate and justified.
 4. Add the factory to the fixed `plugins` array in `server/src/runtime.ts`.
 5. Add schema, error, cancellation, size, privacy, and integration tests through the public `flowzone` call.
 6. Update the skill only for invocation guidance, rotate the plugin cachebuster, rebuild checked-in artifacts, and run `bun run verify` plus Firefox acceptance.

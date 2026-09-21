@@ -20,7 +20,7 @@ Use an HTTP adapter only for one fixed HTTPS endpoint. Inject authorization at r
 
 ## UI and app-only helpers
 
-An action may declare a `view` and `payloadSchema`. Add a matching handler to the browser view registry; never parse a private payload without its plugin schema. Actions without a plugin view use FlowZone's generic completion view. The universal resource is owned by FlowZone, not by the plugin.
+An action may declare a `view` and `payloadSchema`. Add a matching handler to the relevant browser resource; never parse a private payload without its plugin schema. Actions without a plugin view use FlowZone's generic completion view. Every resource is registered by the shared FlowZone runtime, not by a plugin-owned transport. A resource and app-only helpers do not require another model-visible presentation tool; add one only when its schema cost is deliberate.
 
 Use app-only helpers for interactive refresh, pagination, binary chunks, and view-local mutations. Helper names remain globally unique, but FlowZone centrally forces `_meta.ui.visibility: ["app"]`. Do not duplicate these helpers as model-visible actions unless there is a distinct user-authorized workflow.
 

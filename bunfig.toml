@@ -1,5 +1,6 @@
 [install]
 exact = true
+linker = "hoisted"
 
 [test]
 preload = ["./tests/setup/dom.ts"]

@@ -1,0 +1,178 @@
+{
+  "schemaVersion": "callflow/workflow-manifest-v1",
+  "id": "linus-opensearch-write-flow",
+  "name": "Linus OpenSearch outbox write flow",
+  "description": "Acceptance-only selectors for the pinned Linus Findings Service revision; no Linus behavior belongs in CallFlow core.",
+  "repository": {
+    "identity": "git:cd.splunkdev.com/linus/linus-findings-service"
+  },
+  "anchors": [
+    {
+      "id": "enqueue",
+      "label": "enqueueOpenSearchOutboxTx",
+      "role": "entry",
+      "nodeKind": "function",
+      "selector": { "type": "symbol", "value": "enqueueOpenSearchOutboxTx" },
+      "stageId": "commit"
+    },
+    {
+      "id": "outbox",
+      "label": "EnqueueOpenSearchOutboxTx",
+      "role": "queue",
+      "nodeKind": "queue",
+      "selector": { "type": "symbol", "value": "EnqueueOpenSearchOutboxTx" },
+      "stageId": "commit"
+    },
+    {
+      "id": "signal",
+      "label": "signalOpenSearch",
+      "role": "route",
+      "nodeKind": "function",
+      "selector": { "type": "symbol", "value": "Service.signalOpenSearch" },
+      "stageId": "handoff"
+    },
+    {
+      "id": "worker",
+      "label": "Worker.Run",
+      "role": "route",
+      "nodeKind": "function",
+      "selector": { "type": "symbol", "value": "Worker.Run" },
+      "stageId": "consume"
+    },
+    {
+      "id": "process-one",
+      "label": "ProcessOneRecord",
+      "role": "route",
+      "nodeKind": "function",
+      "selector": { "type": "symbol", "value": "Worker.ProcessOneRecord" },
+      "stageId": "consume"
+    },
+    {
+      "id": "claim",
+      "label": "SelectAndClaimOneOpenSearchRecordTx",
+      "role": "route",
+      "nodeKind": "transaction",
+      "selector": {
+        "type": "symbol",
+        "value": "SelectAndClaimOneOpenSearchRecordTx"
+      },
+      "stageId": "consume"
+    },
+    {
+      "id": "process",
+      "label": "processClaim",
+      "role": "route",
+      "nodeKind": "function",
+      "selector": { "type": "symbol", "value": "Worker.processClaim" },
+      "stageId": "project"
+    },
+    {
+      "id": "projection",
+      "label": "project",
+      "role": "route",
+      "nodeKind": "function",
+      "selector": { "type": "symbol", "value": "Worker.project" },
+      "stageId": "project"
+    },
+    {
+      "id": "deliver",
+      "label": "deliver",
+      "role": "route",
+      "nodeKind": "function",
+      "selector": { "type": "symbol", "value": "Worker.deliver" },
+      "stageId": "project"
+    },
+    {
+      "id": "reread-finding",
+      "label": "ReadFindingForProjectionTx",
+      "role": "route",
+      "nodeKind": "database",
+      "selector": { "type": "symbol", "value": "Store.ReadFindingForProjectionTx" },
+      "stageId": "project"
+    },
+    {
+      "id": "index-for",
+      "label": "IndexFor",
+      "role": "route",
+      "nodeKind": "function",
+      "selector": { "type": "symbol", "value": "IndexFor" },
+      "stageId": "deliver"
+    },
+    {
+      "id": "index",
+      "label": "IndexDoc",
+      "role": "sink",
+      "nodeKind": "external-system",
+      "selector": { "type": "symbol", "value": "Client.IndexDoc" },
+      "stageId": "deliver"
+    },
+    {
+      "id": "retry",
+      "label": "MarkRetrying",
+      "role": "route",
+      "nodeKind": "terminal",
+      "selector": { "type": "symbol", "value": "MarkRetrying" },
+      "stageId": "settle"
+    },
+    {
+      "id": "dead",
+      "label": "MarkDead",
+      "role": "route",
+      "nodeKind": "terminal",
+      "selector": { "type": "symbol", "value": "MarkDead" },
+      "stageId": "settle"
+    },
+    {
+      "id": "delivered",
+      "label": "DeleteDelivered",
+      "role": "sink",
+      "nodeKind": "terminal",
+      "selector": { "type": "symbol", "value": "DeleteDelivered" },
+      "stageId": "settle"
+    }
+  ],
+  "stages": [
+    { "id": "commit", "label": "Commit outbox record", "order": 0 },
+    { "id": "handoff", "label": "Signal async work", "order": 1 },
+    { "id": "consume", "label": "Poll and claim", "order": 2 },
+    { "id": "project", "label": "Reread and project", "order": 3 },
+    { "id": "deliver", "label": "Index document", "order": 4 },
+    { "id": "settle", "label": "Settle outcome", "order": 5 }
+  ],
+  "exclusions": ["**/*_test.go", "test/**"],
+  "acceptedSemanticLinks": [],
+  "acceptedRelationships": [
+    {
+      "sourceAnchorId": "outbox",
+      "targetAnchorId": "signal",
+      "kind": "transaction-commit",
+      "label": "signals after commit",
+      "rationale": "At the pinned revision, internal/app/service.go:L199-L213 documents and implements a post-commit wake-up. This is reviewed workflow sequencing, not a Graft static call."
+    },
+    {
+      "sourceAnchorId": "signal",
+      "targetAnchorId": "worker",
+      "kind": "async-handoff",
+      "label": "wakes outbox worker",
+      "rationale": "At the pinned revision, internal/app/service.go:L205-L213 sends on openSearchNotify and internal/search/outbox/worker.go:L227-L244 receives notifyCh before calling ProcessOneRecord. This is causal, not a direct Go call."
+    },
+    {
+      "sourceAnchorId": "deliver",
+      "targetAnchorId": "retry",
+      "kind": "retry",
+      "label": "retryable outcome",
+      "rationale": "At the pinned revision, internal/search/outbox/process.go:L239-L240 routes retryable index failures through scheduleRetry, which calls MarkRetrying at L285."
+    },
+    {
+      "sourceAnchorId": "deliver",
+      "targetAnchorId": "dead",
+      "kind": "failure-exit",
+      "label": "dead-letter outcome",
+      "rationale": "At the pinned revision, internal/search/outbox/process.go:L237-L238 routes a non-retryable index failure through logAndMarkDead, which calls MarkDead at L308."
+    }
+  ],
+  "presentation": {
+    "direction": "RIGHT",
+    "defaultOverlay": "retry"
+  }
+}

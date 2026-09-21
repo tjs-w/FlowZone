@@ -1,0 +1,410 @@
+{
+  "adapter": {
+    "indexRevision": "sha256:0009b6927028213e88035d025ce3adcaee54aca57263070a692ae883e7b7f7c9",
+    "name": "graft",
+    "version": "0.18.0"
+  },
+  "edges": [
+    {
+      "assertion": "static-possible",
+      "evidenceIds": [
+        "cf-evidence-853864e708f0b238ded639603b5607debbc0a7234e52cb9901a2dd42696ba9ee"
+      ],
+      "id": "cf-edge-13f67ea1850110a4712ee36e110d65b17f298bb2568a82c2e580f34537240d66",
+      "kind": "direct-call",
+      "source": "cf-node-31f3e5882510ffd37a6de0423538abbb6765c1251dcbe085e5595eba938eed87",
+      "target": "cf-node-1af859b3296293e1db6dd41333ec2f8079fbee98375aa86b2f103f2e2c0ff89f"
+    },
+    {
+      "assertion": "static-possible",
+      "evidenceIds": [
+        "cf-evidence-7f412ba1c1d3f365da173bc6a4cf5010e1c1f8acbd36ba50c86b8fbbcc1a19e0"
+      ],
+      "id": "cf-edge-3c54ce0dc007be24526e44bd30edd2607928731ada7fdee1c5e3df941fbbe1c5",
+      "kind": "direct-call",
+      "source": "cf-node-31f3e5882510ffd37a6de0423538abbb6765c1251dcbe085e5595eba938eed87",
+      "target": "cf-node-8c90f6649796cb6cbd005fa6d20a907c84567cf4b83144d5ceff93b06d01fa90"
+    },
+    {
+      "assertion": "static-possible",
+      "evidenceIds": [
+        "cf-evidence-113e7babca8bd585b721c2dcc39e2b6f533554d623a47961660739a797527a92"
+      ],
+      "id": "cf-edge-8b5cc5ff4c25a49d9805054b84e6b92d4007d5ed65670f7817104d549f9c40c9",
+      "kind": "direct-call",
+      "source": "cf-node-ea2082c79686ceb4d9e287305c2d557cea4fd326eaf2f16e05a8ae67f698792f",
+      "target": "cf-node-0ba4a1225bf1429c037ce0c5295ceb7f8bf284127033f3fc09c0bbcab6e90a4a"
+    },
+    {
+      "assertion": "static-possible",
+      "evidenceIds": [
+        "cf-evidence-bb836aaab80125efbd454ee542b3e255e68c71e7d5d6ea52c0bfaef6086c852f"
+      ],
+      "id": "cf-edge-f1c14c203b7d8296be432c669108a3804547f6cd391addd9812b49a64a2360a0",
+      "kind": "state-write",
+      "source": "cf-node-ea2082c79686ceb4d9e287305c2d557cea4fd326eaf2f16e05a8ae67f698792f",
+      "target": "cf-node-30efe511da691f63a6c74051c348143bca15849a0934908dde230c643efa0be1"
+    },
+    {
+      "assertion": "curated-workflow",
+      "evidenceIds": [
+        "cf-evidence-56f24b033f27ebc0dcc0f8be62fad4516dfc52072a28fc4870926fceae484a00"
+      ],
+      "id": "cf-edge-f74dd18f84a9c00cc5c0dc4ab38c4c1b345c3bddf162ed9952a6c08a20338a45",
+      "kind": "async-handoff",
+      "label": "consumed later",
+      "source": "cf-node-8c90f6649796cb6cbd005fa6d20a907c84567cf4b83144d5ceff93b06d01fa90",
+      "target": "cf-node-ea2082c79686ceb4d9e287305c2d557cea4fd326eaf2f16e05a8ae67f698792f"
+    }
+  ],
+  "evidence": [
+    {
+      "contentDigest": "sha256:895a4f3f5b20eaff23a824d0f82f51694cd5de599df6894d901f67495d964c93",
+      "id": "cf-evidence-0013d1290d4705d686ff1d4f872ee2566635198d535165b844eeae430b340291",
+      "kind": "human-curated",
+      "producer": { "name": "callflow-core", "version": "0.1.0" },
+      "revision": "generic-fixture-v1",
+      "source": {
+        "reference": "generic-request-workflow#stage:handoff",
+        "system": "callflow-manifest",
+        "type": "external-reference"
+      },
+      "state": "exact"
+    },
+    {
+      "contentDigest": "sha256:275dd734b865729cfc773bb28a75d2ce2add926e3668584ec13cddd71d8881ec",
+      "id": "cf-evidence-113e7babca8bd585b721c2dcc39e2b6f533554d623a47961660739a797527a92",
+      "kind": "graft-exact",
+      "producer": { "name": "graft", "version": "0.18.0" },
+      "revision": "generic-fixture-v1",
+      "source": {
+        "end": { "column": 10000000, "line": 31 },
+        "path": "src/workflow.ts",
+        "start": { "column": 1, "line": 31 },
+        "symbol": "process->notify",
+        "type": "source-span"
+      },
+      "state": "exact"
+    },
+    {
+      "contentDigest": "sha256:80c685f70900013de83f76f5df6e791850911f79a143ca6a0185435fd3f66a6d",
+      "id": "cf-evidence-18ece401cc1ac0bfe76bde92944f68e4c9b09707747331a2dfb700a13c1c8a9c",
+      "kind": "human-curated",
+      "producer": { "name": "callflow-core", "version": "0.1.0" },
+      "revision": "generic-fixture-v1",
+      "source": {
+        "reference": "generic-request-workflow#stage:accept",
+        "system": "callflow-manifest",
+        "type": "external-reference"
+      },
+      "state": "exact"
+    },
+    {
+      "contentDigest": "sha256:a9a525519e1d335c808689459d742daa3fdce6871bce0faa8cd77e12dae4a8bf",
+      "id": "cf-evidence-4ff2e41f9f8996f01b3f4e6b76eccfd497c4f6ba3eda3ec98ba2b9e9db891625",
+      "kind": "graft-exact",
+      "producer": { "name": "graft", "version": "0.18.0" },
+      "revision": "generic-fixture-v1",
+      "source": {
+        "end": { "column": 10000000, "line": 13 },
+        "path": "src/workflow.ts",
+        "start": { "column": 1, "line": 13 },
+        "symbol": "src/workflow.ts#handleRequest",
+        "type": "source-span"
+      },
+      "state": "exact"
+    },
+    {
+      "contentDigest": "sha256:468c855576318dd70967a896e42b691d2c30ae37fc38c1ac2b2f6847f1803bd6",
+      "id": "cf-evidence-56f24b033f27ebc0dcc0f8be62fad4516dfc52072a28fc4870926fceae484a00",
+      "kind": "human-curated",
+      "producer": { "name": "callflow-fixture", "version": "1" },
+      "revision": "generic-fixture-v1",
+      "source": {
+        "reference": "fixture:generic-workflow#queue-handoff",
+        "system": "callflow-fixture",
+        "type": "external-reference"
+      },
+      "state": "exact"
+    },
+    {
+      "contentDigest": "sha256:d23e5d1ddc335e48c36b88389ef072ca646c938bce2129a32fd1500ee98aef63",
+      "id": "cf-evidence-58c4bc946d9f0d8b3f07cb958f569d2dcb21d2c2feb5f2d8947313e87c086dca",
+      "kind": "human-curated",
+      "producer": { "name": "callflow-core", "version": "0.1.0" },
+      "revision": "generic-fixture-v1",
+      "source": {
+        "reference": "generic-request-workflow#stage:deliver",
+        "system": "callflow-manifest",
+        "type": "external-reference"
+      },
+      "state": "exact"
+    },
+    {
+      "contentDigest": "sha256:8478ebde118e5c328588707183564558603f3cec18ead761ed793ff17fc450d9",
+      "id": "cf-evidence-5a75bbc2fd2a798d9b4bb127b7c48cb00aec3bfa24bbd779ed1d52fc5d25f260",
+      "kind": "graft-exact",
+      "producer": { "name": "graft", "version": "0.18.0" },
+      "revision": "generic-fixture-v1",
+      "source": {
+        "end": { "column": 10000000, "line": 39 },
+        "path": "src/workflow.ts",
+        "start": { "column": 1, "line": 39 },
+        "symbol": "src/workflow.ts#notifyExternalSystem",
+        "type": "source-span"
+      },
+      "state": "exact"
+    },
+    {
+      "contentDigest": "sha256:737cd3a2017c0ed0e807c12bd19a2d8c0750530651d29b62d64ed8b7a84a0190",
+      "id": "cf-evidence-7f412ba1c1d3f365da173bc6a4cf5010e1c1f8acbd36ba50c86b8fbbcc1a19e0",
+      "kind": "graft-exact",
+      "producer": { "name": "graft", "version": "0.18.0" },
+      "revision": "generic-fixture-v1",
+      "source": {
+        "end": { "column": 10000000, "line": 15 },
+        "path": "src/workflow.ts",
+        "start": { "column": 1, "line": 15 },
+        "symbol": "handle->enqueue",
+        "type": "source-span"
+      },
+      "state": "exact"
+    },
+    {
+      "contentDigest": "sha256:7981dec7f3fcc347637e986f386ba9d1b179279386adb9a0a75d2279d0a922a4",
+      "id": "cf-evidence-853864e708f0b238ded639603b5607debbc0a7234e52cb9901a2dd42696ba9ee",
+      "kind": "graft-exact",
+      "producer": { "name": "graft", "version": "0.18.0" },
+      "revision": "generic-fixture-v1",
+      "source": {
+        "end": { "column": 10000000, "line": 14 },
+        "path": "src/workflow.ts",
+        "start": { "column": 1, "line": 14 },
+        "symbol": "handle->validate",
+        "type": "source-span"
+      },
+      "state": "exact"
+    },
+    {
+      "contentDigest": "sha256:830a5dfedfd1e78307f31e621072eaca081d2c71f92b7ea49a352767cc59d8f3",
+      "id": "cf-evidence-9ee85b70459a811d3278543f0b3c47327f5171b851243911d43ca7c5426884bf",
+      "kind": "graft-exact",
+      "producer": { "name": "graft", "version": "0.18.0" },
+      "revision": "generic-fixture-v1",
+      "source": {
+        "end": { "column": 10000000, "line": 23 },
+        "path": "src/workflow.ts",
+        "start": { "column": 1, "line": 23 },
+        "symbol": "src/workflow.ts#enqueueWork",
+        "type": "source-span"
+      },
+      "state": "exact"
+    },
+    {
+      "contentDigest": "sha256:18cd49e88017553644bedf11cc14d42cfe160396e8243cc094802f191a0b685f",
+      "id": "cf-evidence-aa570cde9abce32eb972ace5304aceb23125a41adc13257dd20afd2b7b8846ef",
+      "kind": "graft-exact",
+      "producer": { "name": "graft", "version": "0.18.0" },
+      "revision": "generic-fixture-v1",
+      "source": {
+        "end": { "column": 10000000, "line": 18 },
+        "path": "src/workflow.ts",
+        "start": { "column": 1, "line": 18 },
+        "symbol": "src/workflow.ts#validateRequest",
+        "type": "source-span"
+      },
+      "state": "exact"
+    },
+    {
+      "contentDigest": "sha256:36ae0b1c4d332a3ce0980a26468ee8c0c4f6da8129fc6eb89ae1ea503bad881d",
+      "id": "cf-evidence-b754a35ca60055cb297de0fafadc21f5925e66dda24131861e988a14b4cc81f9",
+      "kind": "graft-exact",
+      "producer": { "name": "graft", "version": "0.18.0" },
+      "revision": "generic-fixture-v1",
+      "source": {
+        "end": { "column": 10000000, "line": 27 },
+        "path": "src/workflow.ts",
+        "start": { "column": 1, "line": 27 },
+        "symbol": "src/workflow.ts#processNext",
+        "type": "source-span"
+      },
+      "state": "exact"
+    },
+    {
+      "contentDigest": "sha256:c3eb3081e508f0a9cfed415b96682814453b1f5913aeaef55054ed9450f9ed7f",
+      "id": "cf-evidence-bb836aaab80125efbd454ee542b3e255e68c71e7d5d6ea52c0bfaef6086c852f",
+      "kind": "graft-exact",
+      "producer": { "name": "graft", "version": "0.18.0" },
+      "revision": "generic-fixture-v1",
+      "source": {
+        "end": { "column": 10000000, "line": 30 },
+        "path": "src/workflow.ts",
+        "start": { "column": 1, "line": 30 },
+        "symbol": "process->persist",
+        "type": "source-span"
+      },
+      "state": "exact"
+    },
+    {
+      "contentDigest": "sha256:32a99b6f7efc27f5b3d560061f7540a9c9c6b2de19673ff23954cc641d2b2f99",
+      "id": "cf-evidence-ee1ca5e07a5ee3cdcf40335ffc81afaba05e37d7fc70ba78183ded95e9a670e0",
+      "kind": "graft-exact",
+      "producer": { "name": "graft", "version": "0.18.0" },
+      "revision": "generic-fixture-v1",
+      "source": {
+        "end": { "column": 10000000, "line": 35 },
+        "path": "src/workflow.ts",
+        "start": { "column": 1, "line": 35 },
+        "symbol": "src/workflow.ts#persistResult",
+        "type": "source-span"
+      },
+      "state": "exact"
+    }
+  ],
+  "extraction": {
+    "items": [
+      "cf-evidence-113e7babca8bd585b721c2dcc39e2b6f533554d623a47961660739a797527a92",
+      "cf-evidence-4ff2e41f9f8996f01b3f4e6b76eccfd497c4f6ba3eda3ec98ba2b9e9db891625",
+      "cf-evidence-56f24b033f27ebc0dcc0f8be62fad4516dfc52072a28fc4870926fceae484a00",
+      "cf-evidence-5a75bbc2fd2a798d9b4bb127b7c48cb00aec3bfa24bbd779ed1d52fc5d25f260",
+      "cf-evidence-7f412ba1c1d3f365da173bc6a4cf5010e1c1f8acbd36ba50c86b8fbbcc1a19e0",
+      "cf-evidence-853864e708f0b238ded639603b5607debbc0a7234e52cb9901a2dd42696ba9ee",
+      "cf-evidence-9ee85b70459a811d3278543f0b3c47327f5171b851243911d43ca7c5426884bf",
+      "cf-evidence-aa570cde9abce32eb972ace5304aceb23125a41adc13257dd20afd2b7b8846ef",
+      "cf-evidence-b754a35ca60055cb297de0fafadc21f5925e66dda24131861e988a14b4cc81f9",
+      "cf-evidence-bb836aaab80125efbd454ee542b3e255e68c71e7d5d6ea52c0bfaef6086c852f",
+      "cf-evidence-ee1ca5e07a5ee3cdcf40335ffc81afaba05e37d7fc70ba78183ded95e9a670e0"
+    ],
+    "status": "succeeded"
+  },
+  "id": "cf-graph-1c7dfb3daa1e59ee0a8fcc9097b7c6315c0b9f27d4dcc2de3fe976ed85a62a38",
+  "layoutHints": {
+    "schemaVersion": "callflow/graph-layout-hints-v1",
+    "stageOrder": [
+      "cf-node-fc30f2c4d3975f235c54398a808b2fd701021dd565c0958149e7086ff7c21a51",
+      "cf-node-045be0aff417e5fa1160d984f01eb2e97e448bf718a58d517cff4b622e5ed8f4",
+      "cf-node-57b092595bba9e39201315e31b27ec02d4ca60f6390174350edbb2864ddcd779"
+    ]
+  },
+  "nodes": [
+    {
+      "attributes": { "manifestStageId": "accept", "order": 0 },
+      "evidenceIds": [
+        "cf-evidence-18ece401cc1ac0bfe76bde92944f68e4c9b09707747331a2dfb700a13c1c8a9c"
+      ],
+      "id": "cf-node-fc30f2c4d3975f235c54398a808b2fd701021dd565c0958149e7086ff7c21a51",
+      "kind": "stage",
+      "label": "Accept",
+      "level": "L0"
+    },
+    {
+      "attributes": { "fixture": true },
+      "evidenceIds": [
+        "cf-evidence-4ff2e41f9f8996f01b3f4e6b76eccfd497c4f6ba3eda3ec98ba2b9e9db891625"
+      ],
+      "id": "cf-node-31f3e5882510ffd37a6de0423538abbb6765c1251dcbe085e5595eba938eed87",
+      "kind": "function",
+      "label": "handleRequest",
+      "level": "L1",
+      "qualifiedName": "src/workflow.ts#handleRequest",
+      "stageId": "cf-node-fc30f2c4d3975f235c54398a808b2fd701021dd565c0958149e7086ff7c21a51"
+    },
+    {
+      "attributes": { "fixture": true },
+      "evidenceIds": [
+        "cf-evidence-aa570cde9abce32eb972ace5304aceb23125a41adc13257dd20afd2b7b8846ef"
+      ],
+      "id": "cf-node-1af859b3296293e1db6dd41333ec2f8079fbee98375aa86b2f103f2e2c0ff89f",
+      "kind": "function",
+      "label": "validateRequest",
+      "level": "L1",
+      "qualifiedName": "src/workflow.ts#validateRequest",
+      "stageId": "cf-node-fc30f2c4d3975f235c54398a808b2fd701021dd565c0958149e7086ff7c21a51"
+    },
+    {
+      "attributes": { "manifestStageId": "handoff", "order": 1 },
+      "evidenceIds": [
+        "cf-evidence-0013d1290d4705d686ff1d4f872ee2566635198d535165b844eeae430b340291"
+      ],
+      "id": "cf-node-045be0aff417e5fa1160d984f01eb2e97e448bf718a58d517cff4b622e5ed8f4",
+      "kind": "stage",
+      "label": "Handoff",
+      "level": "L0"
+    },
+    {
+      "attributes": { "fixture": true },
+      "evidenceIds": [
+        "cf-evidence-9ee85b70459a811d3278543f0b3c47327f5171b851243911d43ca7c5426884bf"
+      ],
+      "id": "cf-node-8c90f6649796cb6cbd005fa6d20a907c84567cf4b83144d5ceff93b06d01fa90",
+      "kind": "queue",
+      "label": "enqueueWork",
+      "level": "L1",
+      "qualifiedName": "src/workflow.ts#enqueueWork",
+      "stageId": "cf-node-045be0aff417e5fa1160d984f01eb2e97e448bf718a58d517cff4b622e5ed8f4"
+    },
+    {
+      "attributes": { "fixture": true },
+      "evidenceIds": [
+        "cf-evidence-b754a35ca60055cb297de0fafadc21f5925e66dda24131861e988a14b4cc81f9"
+      ],
+      "id": "cf-node-ea2082c79686ceb4d9e287305c2d557cea4fd326eaf2f16e05a8ae67f698792f",
+      "kind": "function",
+      "label": "processNext",
+      "level": "L1",
+      "qualifiedName": "src/workflow.ts#processNext",
+      "stageId": "cf-node-045be0aff417e5fa1160d984f01eb2e97e448bf718a58d517cff4b622e5ed8f4"
+    },
+    {
+      "attributes": { "manifestStageId": "deliver", "order": 2 },
+      "evidenceIds": [
+        "cf-evidence-58c4bc946d9f0d8b3f07cb958f569d2dcb21d2c2feb5f2d8947313e87c086dca"
+      ],
+      "id": "cf-node-57b092595bba9e39201315e31b27ec02d4ca60f6390174350edbb2864ddcd779",
+      "kind": "stage",
+      "label": "Deliver",
+      "level": "L0"
+    },
+    {
+      "attributes": { "fixture": true },
+      "evidenceIds": [
+        "cf-evidence-5a75bbc2fd2a798d9b4bb127b7c48cb00aec3bfa24bbd779ed1d52fc5d25f260"
+      ],
+      "id": "cf-node-0ba4a1225bf1429c037ce0c5295ceb7f8bf284127033f3fc09c0bbcab6e90a4a",
+      "kind": "external-system",
+      "label": "notifyExternalSystem",
+      "level": "L1",
+      "qualifiedName": "src/workflow.ts#notifyExternalSystem",
+      "stageId": "cf-node-57b092595bba9e39201315e31b27ec02d4ca60f6390174350edbb2864ddcd779"
+    },
+    {
+      "attributes": { "fixture": true },
+      "evidenceIds": [
+        "cf-evidence-ee1ca5e07a5ee3cdcf40335ffc81afaba05e37d7fc70ba78183ded95e9a670e0"
+      ],
+      "id": "cf-node-30efe511da691f63a6c74051c348143bca15849a0934908dde230c643efa0be1",
+      "kind": "database",
+      "label": "persistResult",
+      "level": "L1",
+      "qualifiedName": "src/workflow.ts#persistResult",
+      "stageId": "cf-node-57b092595bba9e39201315e31b27ec02d4ca60f6390174350edbb2864ddcd779"
+    }
+  ],
+  "presentation": {
+    "defaultOverlay": "none",
+    "direction": "RIGHT",
+    "schemaVersion": "callflow/graph-presentation-v1"
+  },
+  "repository": {
+    "commit": "generic-fixture-v1",
+    "dirtyDigest": "sha256:131101c703d92799fcf9c18268ddef573d5b01480e9d63456e545a4ca33581d5",
+    "identity": "fixture:generic-workflow"
+  },
+  "runtimeEvidence": {
+    "reason": "Runtime evidence is disabled in CallFlow v1.",
+    "status": "unavailable"
+  },
+  "schemaVersion": "callflow/graph-snapshot-v1",
+  "warnings": [],
+  "workflowManifestId": "generic-request-workflow"
+}

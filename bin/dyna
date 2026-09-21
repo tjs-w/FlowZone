@@ -57,8 +57,12 @@ dyna_run_node() {
   shift
   FLOWZONE_DYNA_TTY_STATE=$DYNA_TTY_STATE
   export FLOWZONE_DYNA_TTY_STATE
-  "$DYNA_SELECTED_NODE" "$DYNA_BUNDLE_PATH" "$@" <&0 &
+  # dash redirects stdin for asynchronous commands unless it was captured
+  # before backgrounding. Preserve the caller's pipe or PTY explicitly.
+  exec 3<&0
+  "$DYNA_SELECTED_NODE" --disable-warning=ExperimentalWarning "$DYNA_BUNDLE_PATH" "$@" <&3 3<&- &
   DYNA_CHILD_PID=$!
+  exec 3<&-
   if wait "$DYNA_CHILD_PID"; then
     DYNA_CHILD_STATUS=0
   else

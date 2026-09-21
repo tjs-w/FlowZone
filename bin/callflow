@@ -1,0 +1,62 @@
+#!/bin/sh
+
+set -eu
+
+callflow_fail() {
+  printf '{"schema":"callflow/error-v1","code":"%s","message":"%s"}\n' "$1" "$2" >&2
+  exit "$3"
+}
+
+callflow_node_is_supported() {
+  "$1" -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 22 || (major === 22 && minor >= 13) ? 0 : 1)' </dev/null >/dev/null 2>&1
+}
+
+case "$0" in
+  */*) CALLFLOW_LAUNCHER_PARENT=${0%/*} ;;
+  *) callflow_fail "unavailable" "CallFlow's installed launcher path is invalid." 127 ;;
+esac
+
+CALLFLOW_LAUNCHER_DIR=$(CDPATH= cd -- "$CALLFLOW_LAUNCHER_PARENT" && pwd -P)
+CALLFLOW_BUNDLE_PATH="$CALLFLOW_LAUNCHER_DIR/../server/dist/callflow.cjs"
+
+if [ ! -f "$CALLFLOW_BUNDLE_PATH" ]; then
+  callflow_fail "unavailable" "CallFlow's bundled CLI is unavailable." 127
+fi
+
+# The launcher is a narrow executable boundary. Inherited JavaScript preload
+# hooks and module search paths must not be able to replace shipped code.
+unset NODE_OPTIONS NODE_PATH
+
+CALLFLOW_UNSUPPORTED_NODE_FOUND=0
+
+for CALLFLOW_NODE_CANDIDATE in \
+  "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node" \
+  "/opt/homebrew/bin/node" \
+  "/usr/local/bin/node" \
+  "/usr/bin/node"
+do
+  if [ -x "$CALLFLOW_NODE_CANDIDATE" ]; then
+    if callflow_node_is_supported "$CALLFLOW_NODE_CANDIDATE"; then
+      exec "$CALLFLOW_NODE_CANDIDATE" "$CALLFLOW_BUNDLE_PATH" "$@"
+    fi
+    CALLFLOW_UNSUPPORTED_NODE_FOUND=1
+  fi
+done
+
+CALLFLOW_PATH_NODE=$(command -v node 2>/dev/null || true)
+case "$CALLFLOW_PATH_NODE" in
+  /*)
+    if [ -x "$CALLFLOW_PATH_NODE" ]; then
+      if callflow_node_is_supported "$CALLFLOW_PATH_NODE"; then
+        exec "$CALLFLOW_PATH_NODE" "$CALLFLOW_BUNDLE_PATH" "$@"
+      fi
+      CALLFLOW_UNSUPPORTED_NODE_FOUND=1
+    fi
+    ;;
+esac
+
+if [ "$CALLFLOW_UNSUPPORTED_NODE_FOUND" -eq 1 ]; then
+  callflow_fail "unsupported_runtime" "CallFlow requires Node.js 22.13.0 or newer." 126
+fi
+
+callflow_fail "unavailable" "Node.js is unavailable for CallFlow." 127

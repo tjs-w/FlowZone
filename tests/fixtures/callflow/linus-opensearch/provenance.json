@@ -1,0 +1,173 @@
+{
+  "schema": "callflow/linus-provenance-v1",
+  "repositoryIdentity": "git:cd.splunkdev.com/linus/linus-findings-service",
+  "commit": "cd2949c1e4a686359900a3f47e8dbd2e2b44b861",
+  "graftVersion": "0.18.0",
+  "cleanBefore": true,
+  "cleanAfter": true,
+  "indexBefore": {
+    "files": 411,
+    "bytes": 28821077,
+    "digest": "sha256:8bc34ddd2c09255a38c29cd1bf899ec1eb6e47e558958c25da0e307225f6bcac"
+  },
+  "indexAfter": {
+    "files": 411,
+    "bytes": 28821077,
+    "digest": "sha256:8bc34ddd2c09255a38c29cd1bf899ec1eb6e47e558958c25da0e307225f6bcac"
+  },
+  "wiring": {
+    "path": "graft/.graph/wiring.json",
+    "bytes": 6783543,
+    "digest": "sha256:6112e64974d8503a601c1d971f620a86c20e1d04d3aa7bcdbcecffdb25e956e7"
+  },
+  "sources": [
+    {
+      "path": "internal/db/opensearch_outbox.go",
+      "bytes": 7185,
+      "digest": "sha256:01db649439fffa7d56029a03cddef8e27e2becb78aeda3389412fd0406627fa4"
+    },
+    {
+      "path": "internal/app/service.go",
+      "bytes": 18207,
+      "digest": "sha256:17e3bcc3c6715dfca9190ccba1ebf4e186205272fab17920671458effb42607d"
+    },
+    {
+      "path": "internal/search/outbox/worker.go",
+      "bytes": 9627,
+      "digest": "sha256:01f427cde5892cb95ad8f84e6496ceac31e9d8535f2a333bcaa56e145bf20ed2"
+    },
+    {
+      "path": "internal/search/outbox/process.go",
+      "bytes": 15636,
+      "digest": "sha256:2d17b3bc42bf3402054eb675cf3fae6014370fd13d156a363c8c1f57b2d21e17"
+    },
+    {
+      "path": "internal/db/opensearch_reread.go",
+      "bytes": 7692,
+      "digest": "sha256:a394d71fe058637ffdd6ffa201ed26d7b090b9c794de954c0350ee3ffa67d775"
+    },
+    {
+      "path": "internal/search/outbox/project.go",
+      "bytes": 3367,
+      "digest": "sha256:674987770585ebdac52836bf466f35aa7dccb33beff9b1b9df09290f62b0394d"
+    },
+    {
+      "path": "internal/search/service.go",
+      "bytes": 17465,
+      "digest": "sha256:943507439e0bc6fba4fc3e1ce77fb25bb99980e4225125f942867a438b2abc47"
+    },
+    {
+      "path": "internal/search/client.go",
+      "bytes": 32104,
+      "digest": "sha256:6c6e173c6953ac5d1150fb80f97b3b4fd2a99531bd6c656350b2576a45db0d14"
+    }
+  ],
+  "commands": [
+    {
+      "id": "check",
+      "stdoutDigest": "sha256:c4a53bb4aacc5ae35e7dbd2b90b60910d4a9a03073daf88c77dc36f94ae0eea7",
+      "observed": ["graph-index-readable"]
+    },
+    {
+      "id": "callers-enqueue",
+      "stdoutDigest": "sha256:0eee73af064d3fe987b39c369578dbac43859d5468f53627b30036a2ad08035e",
+      "observed": [
+        "internal/db/opensearch_outbox.go#Store.enqueueOpenSearchOutboxTx->internal/db/opensearch_outbox.go#Store.EnqueueOpenSearchOutboxTx"
+      ]
+    },
+    {
+      "id": "callers-process-one",
+      "stdoutDigest": "sha256:15cbdcdc274c39e7a575d7a531cad31bf154159aca2ba65e50d996d3f9b905e5",
+      "observed": [
+        "internal/search/outbox/process.go#Worker.ProcessOneRecord->internal/search/outbox/process.go#Worker.processClaim"
+      ]
+    },
+    {
+      "id": "callers-process-claim",
+      "stdoutDigest": "sha256:764fb36810265b63acc42b1913b4bcbea9ba0f209ed14d33ff18423d989de710",
+      "observed": [
+        "internal/search/outbox/process.go#Worker.processClaim->internal/search/outbox/process.go#Worker.deliver"
+      ]
+    },
+    {
+      "id": "callers-deliver",
+      "stdoutDigest": "sha256:762378ebb60f987b5ec09808117f42d030cb62de6c69540e1842fc0cd6e34d3c",
+      "observed": [
+        "internal/search/outbox/process.go#Worker.deliver->internal/search/outbox/process.go#Worker.project"
+      ]
+    },
+    {
+      "id": "callers-project",
+      "stdoutDigest": "sha256:bbfe1eacc6cead2fd19756936ea655f99ad21137598ea937dfcf69518ecc75c2",
+      "observed": [
+        "internal/search/outbox/process.go#Worker.project->internal/search/outbox/project.go#projectFinding",
+        "internal/search/outbox/process.go#Worker.project->internal/search/outbox/project.go#projectIncident"
+      ]
+    },
+    {
+      "id": "callers-worker-run-gap",
+      "stdoutDigest": "sha256:0b56400942ff445892ddb38a9a7f32d2412a6400ef6bbbbe973b5b9507f1801f",
+      "observed": []
+    },
+    {
+      "id": "callers-signal-gap",
+      "stdoutDigest": "sha256:3124fefda3bb307692742251a4b62d9e2caaca29d85a9b93e6f9a4848089004f",
+      "observed": []
+    },
+    {
+      "id": "grep-worker-process-one",
+      "stdoutDigest": "sha256:c1baf05e770977aa8002067ac8d3fd34a2722022980c7c73984ca085cc4c63c8",
+      "observed": ["internal/search/outbox/worker.go:244"]
+    },
+    {
+      "id": "grep-claim",
+      "stdoutDigest": "sha256:7aaec9137b2c33c30150575077af559d3720c02a0d1d63846648fac1857bcf4d",
+      "observed": ["internal/search/outbox/process.go:64"]
+    },
+    {
+      "id": "grep-reread-finding",
+      "stdoutDigest": "sha256:20487f6e73ea0c427ed4b9f1bd8b3c20907dfb13b4b38a9d5bdbd426ebb11fc7",
+      "observed": ["internal/search/outbox/process.go:249"]
+    },
+    {
+      "id": "grep-reread-incident",
+      "stdoutDigest": "sha256:3601225005de4af3f1681654b9ac82975c088ed4b3fdc0495945eb1070a5b80b",
+      "observed": ["internal/search/outbox/process.go:259"]
+    },
+    {
+      "id": "grep-index-for",
+      "stdoutDigest": "sha256:657397d455072841f25ed87bf29d295ecfe3f82ee235947e3ec8b977767ac3ba",
+      "observed": ["internal/search/outbox/process.go:198"]
+    },
+    {
+      "id": "grep-index-doc",
+      "stdoutDigest": "sha256:d93d6d26d351f61ebe21ab1296b9a447ab4ac946ec4b6eda79f00c0265b821eb",
+      "observed": ["internal/search/outbox/process.go:213"]
+    },
+    {
+      "id": "grep-delivered",
+      "stdoutDigest": "sha256:9f4cbb902c3753e96a85c0fde767d58a0abe5121e30aab367608476ed0c7f312",
+      "observed": ["internal/search/outbox/process.go:216"]
+    },
+    {
+      "id": "grep-retrying",
+      "stdoutDigest": "sha256:216662878248ef02207a9e3c317e68ec5e7929bd994518c41778c321d0599f15",
+      "observed": ["internal/search/outbox/process.go:285"]
+    },
+    {
+      "id": "grep-dead",
+      "stdoutDigest": "sha256:2502b6ead658db4c3140e6bc1316e757280c198360ae0ca353bab5b4b7c3cd3f",
+      "observed": ["internal/search/outbox/process.go:308"]
+    },
+    {
+      "id": "grep-signal-send",
+      "stdoutDigest": "sha256:7d62b3b98b4c98ddd7fac48e965ad0d9d0f497c7107b283524c7ea410eb26879",
+      "observed": ["internal/app/service.go:210"]
+    },
+    {
+      "id": "grep-signal-receive",
+      "stdoutDigest": "sha256:5908ed41298d8ff6f981198263705df9d67aa40e6a94ed9a0f34f13c46f8860f",
+      "observed": ["internal/search/outbox/worker.go:236"]
+    }
+  ]
+}

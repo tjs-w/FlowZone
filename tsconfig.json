@@ -1,6 +1,11 @@
 {
   "files": [],
   "references": [
+    { "path": "./packages/callflow-contracts" },
+    { "path": "./packages/callflow-core" },
+    { "path": "./packages/callflow-node" },
+    { "path": "./packages/callflow-flowzone" },
+    { "path": "./packages/callflow-ui" },
     { "path": "./packages/flowzone-contracts" },
     { "path": "./packages/contracts" },
     { "path": "./packages/core" },

@@ -46,7 +46,7 @@ buildSync({
   logLevel: "silent",
 });
 const executable = globalThis.process.execPath;
-const executablePrefix = [testBundle];
+const executablePrefix = ["--disable-warning=ExperimentalWarning", testBundle];
 const environment = {
   ...globalThis.process.env,
   PATH: "/usr/bin:/bin",

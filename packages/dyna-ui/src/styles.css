@@ -60,6 +60,7 @@
   --d-ring: var(--ring);
   --d-critical: var(--destructive);
   --d-critical-label: #a82f2c;
+  --color-text-danger-soft: var(--d-critical-label);
   --d-high: var(--color-text-warning, #a9571e);
   --d-normal: var(--chart-3);
   --d-low: var(--muted-foreground);
@@ -81,8 +82,9 @@
   --ring: #88c0d0;
   --destructive: #bf616a;
   --chart-3: #81a1c1;
-  --d-high: #d08770;
+  --d-high: #d58f7a;
   --d-critical-label: #f0a0a7;
+  --color-text-danger-soft: var(--d-critical-label);
   --d-low: var(--muted-foreground);
   --d-success: #a3be8c;
   --d-deadline: #ebcb8b;
@@ -227,6 +229,11 @@ body {
   align-items: center;
 }
 
+.dyna-task-actions button,
+.dyna-task-actions button * {
+  color: var(--d-text) !important;
+}
+
 .dyna-icon {
   width: 16px;
   height: 16px;
@@ -235,6 +242,10 @@ body {
 
 .dyna-health-badge {
   color: var(--d-text) !important;
+}
+
+[data-color="danger"][data-variant="soft"] {
+  color: var(--d-critical-label) !important;
 }
 
 .dyna-disclosure {
@@ -1816,6 +1827,10 @@ body {
   font-weight: 740;
 }
 
+.dyna-attention > span {
+  color: var(--d-text);
+}
+
 .dyna-attention p,
 .dyna-outcome p,
 .dyna-inspector-summary {
@@ -1856,6 +1871,20 @@ body {
   gap: 7px;
   padding-top: 12px;
   border-top: 1px solid var(--d-border);
+}
+
+.dyna-section-heading {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 4px 7px;
+  align-items: baseline;
+}
+
+.dyna-section-kind {
+  color: var(--d-muted);
+  font: 10.5px/1.2 var(--d-font-mono);
+  letter-spacing: 0.02em;
 }
 
 .dyna-codex-work {
@@ -2138,6 +2167,11 @@ body {
   font-size: 11px;
 }
 
+.dyna-note-meta > .dyna-note-task {
+  color: var(--d-normal);
+  font-weight: 620;
+}
+
 .dyna-note-menu-trigger {
   width: 26px;
   min-width: 26px;
@@ -2219,6 +2253,12 @@ body {
   font-weight: 620;
 }
 
+.dyna-work-correction {
+  color: var(--d-high);
+  font-size: 10.5px;
+  font-weight: 680;
+}
+
 .dyna-work-list > li > p {
   margin: 0;
   color: var(--d-text);
@@ -2263,9 +2303,15 @@ body {
 }
 
 .dyna-outcome > span {
-  color: var(--d-muted);
+  color: var(--d-text);
   font-size: 12px;
   font-weight: 720;
+}
+
+.dyna-outcome > .dyna-completion-attribution {
+  color: var(--d-text);
+  font: 11px/1.35 var(--d-font-sans);
+  font-weight: 520;
 }
 
 .dyna-task {
@@ -2640,12 +2686,10 @@ body {
 @keyframes dyna-inspector-enter {
   from {
     transform: translateX(16px);
-    opacity: 0;
   }
 
   to {
     transform: translateX(0);
-    opacity: 1;
   }
 }
 

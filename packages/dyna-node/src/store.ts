@@ -65,18 +65,7 @@ export class DynaStore {
         if (property === "placeItemFromCli") return target.placeItem.bind(target);
         if (property === "placeItemsFromCli") return target.placeMany.bind(target);
         if (property === "archiveItemFromCli") return target.archiveItem.bind(target);
-        if (property === "restoreItemFromCli") {
-          return (
-            dashboardId: string,
-            itemId: string,
-            expectedRevision: number,
-            expectedFingerprint: string,
-            requestId: string,
-          ) =>
-            target.restoreItem(dashboardId, itemId, expectedRevision, expectedFingerprint, {
-              requestId,
-            });
-        }
+        if (property === "restoreItemFromCli") return target.restoreItem.bind(target);
         if (property === "createTodoFromCli") return target.createTodo.bind(target);
         if (property === "createFollowUpFromCli") return target.createFollowUp.bind(target);
         const value: unknown = Reflect.get(target, property, target);

@@ -157,11 +157,13 @@ async function validateInstalledSkillReferences(pluginRoot: string): Promise<voi
   expect(callFlowSkill).not.toContain("$callflow:callflow");
   const dynaSkill = await readFile(join(pluginRoot, "skills", "dyna", "SKILL.md"), "utf8");
   for (const contractMarker of [
-    "Before any task-originated mutation",
+    "before the first mutation in its work attempt",
     "Do not attach a collector or administration task",
-    "`expectedTitle` is advisory stored state, neither evidence nor the full desired title",
+    "A newly copied or Dyna-created prompt explicitly requires a receiving-task preflight",
+    "no stored or expected task title",
     "canonicalize its controller-observed current suffix",
-    "never enforce or copy the stored expected suffix",
+    "never locally construct and submit a title as though it were native evidence",
+    "rejects a submitted title unless it is canonical",
     "submit that target as unavailable",
   ]) {
     expect(dynaSkill.toLocaleLowerCase()).toContain(contractMarker.toLocaleLowerCase());
@@ -179,6 +181,10 @@ async function validateInstalledSkillReferences(pluginRoot: string): Promise<voi
     "dyna item activity",
     "dyna work update",
     "dyna work enrich",
+    "dyna work complete",
+    "dyna annotation add",
+    "dyna annotation edit",
+    "dyna annotation delete",
     "dyna organize place",
     "dyna organize place-many",
     "dyna lifecycle archive",
@@ -194,32 +200,41 @@ async function validateInstalledSkillReferences(pluginRoot: string): Promise<voi
     "`lifecycle restore` accepts exactly",
     "`follow-up create` accepts",
     "old `item update`",
-    "omitted overlay fields are cleared",
+    "Omitted fields are preserved",
+    "control preamble explicitly requires this task to read its exact native title",
     "## Mandatory receiving-task preflight",
-    "Before any task-originated mutation of the referenced item",
-    "Notes and decisions are not exceptions",
-    "every bundled-CLI work update from the receiving task must include",
+    "Before the first task-originated mutation in a work attempt",
+    "every autonomous mutation includes the same exact",
     "exact code-point equality",
+    "only the exact native read-back is evidence",
+    "never submit locally constructed title text",
     "Only after `attach-codex-task` succeeds",
     "stop without running the mutation",
     "new to-do created to represent the current task",
     "Do not attach a collector or administration task",
-    "rejects an unattributed update before consuming its request ID",
+    "rejects an unattributed or unrelated task before consuming its request ID",
+    "supersedesWorkUpdateId",
+    "nativeTaskSuccessCertified",
+    "per-invocation approval",
   ]) {
     expect(taskUpdates.toLocaleLowerCase()).toContain(contractMarker.toLocaleLowerCase());
   }
   const taskPullSync = await readFile(taskPullSyncPath, "utf8");
   for (const contractMarker of [
-    "`expectedTitle` is an advisory, potentially stale baseline",
-    "Never enforce or copy `expectedTitle` into an observation",
+    "fixed control reminder",
+    "no stored or expected task title",
+    "never invent a descriptive suffix",
     "For every target, call `read_thread`",
     "using the target's `itemNumber`",
     "preserve the remaining current suffix",
-    "not to `expectedTitle`",
     "exact code-point equality",
     "submit the target as unavailable",
     "must come from the exact native read-back",
-    "never a locally copied expectation or the compact snapshot",
+    "never a locally constructed value or the compact snapshot",
+    "rejects a submitted title unless it is canonical",
+    '`thread.status.type: "notLoaded"` means only that the thread is not resident',
+    "archival is storage disposition, not completion evidence",
+    '`latestTurn.status: "completed"` with `latestTurn.error: null` maps to `succeeded`',
   ]) {
     expect(taskPullSync.toLocaleLowerCase()).toContain(contractMarker.toLocaleLowerCase());
   }
@@ -332,10 +347,12 @@ describe("isolated shipping package", () => {
     expect(rule).toContain(`"${join(canonicalPluginRoot, "bin", "dyna")}"`);
     expect(rule).toContain('["list", "show"]');
     expect(rule).toContain('["search", "show", "history", "activity"]');
-    expect(rule).toContain('["update", "enrich"]');
-    expect(rule).toContain('["place", "place-many"]');
+    expect(rule).toContain('["update", "enrich", "complete"]');
+    expect(rule).toContain('["add", "edit", "delete"]');
+    expect(rule).toContain('        "place",');
+    expect(rule).not.toContain('"place-many"');
     expect(rule).toContain('["archive", "restore"]');
-    expect(rule).toContain('"todo"');
+    expect(rule).not.toContain('"todo"');
     expect(rule).toContain('"follow-up"');
     expect(rule).toContain('"create"');
     expect(rule).toContain('"setup"');
@@ -466,6 +483,10 @@ describe("isolated shipping package", () => {
       "item activity",
       "work update",
       "work enrich",
+      "work complete",
+      "annotation add",
+      "annotation edit",
+      "annotation delete",
       "organize place",
       "organize place-many",
       "lifecycle archive",

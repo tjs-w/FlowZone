@@ -13,6 +13,7 @@ try {
     kind: "note",
     body: "One logical concurrent work update.",
     artifacts: [],
+    task: { taskId: "race-task", hostId: "local" },
   });
   globalThis.process.stdout.write(JSON.stringify(result));
 } finally {

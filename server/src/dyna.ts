@@ -1,4 +1,8 @@
 import {
+  DynaCliAnnotationAddInputSchema,
+  DynaCliAnnotationDeleteInputSchema,
+  DynaCliAnnotationEditInputSchema,
+  DynaCliAnnotationMutationResultSchema,
   DynaDashboardListResultSchema,
   DynaDashboardShowResultSchema,
   DynaFollowUpCreateInputSchema,
@@ -21,7 +25,9 @@ import {
   DynaPlaceManyResultSchema,
   DynaTodoCreateInputSchema,
   DynaTodoCreateResultSchema,
-  DynaWorkEnrichInputSchema,
+  DynaTaskWorkEnrichInputSchema,
+  DynaWorkCompleteInputSchema,
+  DynaWorkCompleteResultSchema,
   DynaWorkUpdateInputSchema,
   DynaCliHelpResultSchema,
   DynaCliSetupResultSchema,
@@ -43,7 +49,18 @@ const CLI_VERSION = "0.1.0";
 const MINIMUM_NODE_VERSION = "22.13.0";
 const DYNA_CLI_ACTOR = {
   kind: "codex_task",
-  capabilities: ["dashboard:read", "item:read", "item:write"],
+  capabilities: [
+    "dashboard:read",
+    "item:read",
+    "work:update",
+    "work:enrich",
+    "work:complete",
+    "annotation:manage",
+    "item:organize",
+    "item:lifecycle",
+    "follow-up:create",
+    "todo:create",
+  ],
 } as const satisfies DynaApplicationActor;
 
 function restoreLauncherTerminal(): void {
@@ -83,7 +100,7 @@ const CLI_COMMANDS = [
   },
   {
     command:
-      "dyna item history --dashboard-id D --item-id I [--limit N] [--archive-cursor C] [--order-cursor C] [--status-cursor C] [--work-cursor C]",
+      "dyna item history --dashboard-id D --item-id I [--limit N] [--archive-cursor C] [--order-cursor C] [--status-cursor C] [--annotation-cursor C] [--work-cursor C]",
     readsStdin: false,
     description: "Read paginated lifecycle, placement, status, and work history.",
   },
@@ -101,7 +118,30 @@ const CLI_COMMANDS = [
     command:
       "dyna work enrich --dashboard-id D --item-id I --expected-fingerprint F --expected-enrichment-version N",
     readsStdin: true,
-    description: "Replace the bounded evidence-based enrichment overlay.",
+    description: "Patch the bounded evidence-based enrichment overlay.",
+  },
+  {
+    command:
+      "dyna work complete --dashboard-id D --item-id I --expected-fingerprint F --expected-revision N",
+    readsStdin: true,
+    description: "Record an outcome and explicitly close the assigned Dyna item.",
+  },
+  {
+    command: "dyna annotation add --dashboard-id D --item-id I --expected-fingerprint F",
+    readsStdin: true,
+    description: "Add one editable task-attributed item annotation.",
+  },
+  {
+    command:
+      "dyna annotation edit --dashboard-id D --item-id I --expected-fingerprint F --annotation-id A --expected-version N",
+    readsStdin: true,
+    description: "Edit an item annotation at its exact version.",
+  },
+  {
+    command:
+      "dyna annotation delete --dashboard-id D --item-id I --expected-fingerprint F --annotation-id A --expected-version N",
+    readsStdin: true,
+    description: "Delete an item annotation at its exact version.",
   },
   {
     command:
@@ -186,6 +226,7 @@ type ParsedCommand =
       readonly archiveCursor?: string;
       readonly orderCursor?: string;
       readonly statusCursor?: string;
+      readonly annotationCursor?: string;
       readonly workCursor?: string;
     } & ItemIdentity)
   | ({
@@ -197,6 +238,13 @@ type ParsedCommand =
   | ({
       readonly kind: "work-enrich";
       readonly expectedEnrichmentVersion: number;
+    } & Omit<MutationPreconditions, "expectedRevision">)
+  | ({ readonly kind: "work-complete" } & MutationPreconditions)
+  | ({ readonly kind: "annotation-add" } & Omit<MutationPreconditions, "expectedRevision">)
+  | ({
+      readonly kind: "annotation-edit" | "annotation-delete";
+      readonly annotationId: string;
+      readonly expectedVersion: number;
     } & Omit<MutationPreconditions, "expectedRevision">)
   | ({
       readonly kind:
@@ -315,11 +363,13 @@ function parseCommand(arguments_: readonly string[]): ParsedCommand {
       "--archive-cursor",
       "--order-cursor",
       "--status-cursor",
+      "--annotation-cursor",
       "--work-cursor",
     ]);
     const archiveCursor = optionalCursor(flags.get("--archive-cursor"));
     const orderCursor = optionalCursor(flags.get("--order-cursor"));
     const statusCursor = optionalCursor(flags.get("--status-cursor"));
+    const annotationCursor = optionalCursor(flags.get("--annotation-cursor"));
     const workCursor = optionalCursor(flags.get("--work-cursor"));
     return {
       kind: "item-history",
@@ -328,6 +378,7 @@ function parseCommand(arguments_: readonly string[]): ParsedCommand {
       ...(archiveCursor ? { archiveCursor } : {}),
       ...(orderCursor ? { orderCursor } : {}),
       ...(statusCursor ? { statusCursor } : {}),
+      ...(annotationCursor ? { annotationCursor } : {}),
       ...(workCursor ? { workCursor } : {}),
     };
   }
@@ -360,6 +411,33 @@ function parseCommand(arguments_: readonly string[]): ParsedCommand {
       ...itemIdentity(flags),
       expectedFingerprint: FINGERPRINT.parse(flags.get("--expected-fingerprint")),
       expectedEnrichmentVersion: nonnegativeInteger(flags.get("--expected-enrichment-version")),
+    };
+  }
+  if (noun === "work" && verb === "complete") {
+    const flags = commandFlags(rest, preconditionFlags);
+    return { kind: "work-complete", ...mutationPreconditions(flags) };
+  }
+  if (noun === "annotation" && verb === "add") {
+    const flags = commandFlags(rest, [...common, "--expected-fingerprint"]);
+    return {
+      kind: "annotation-add",
+      ...itemIdentity(flags),
+      expectedFingerprint: FINGERPRINT.parse(flags.get("--expected-fingerprint")),
+    };
+  }
+  if (noun === "annotation" && (verb === "edit" || verb === "delete")) {
+    const flags = commandFlags(rest, [
+      ...common,
+      "--expected-fingerprint",
+      "--annotation-id",
+      "--expected-version",
+    ]);
+    return {
+      kind: verb === "edit" ? "annotation-edit" : "annotation-delete",
+      ...itemIdentity(flags),
+      expectedFingerprint: FINGERPRINT.parse(flags.get("--expected-fingerprint")),
+      annotationId: UUID.parse(flags.get("--annotation-id")),
+      expectedVersion: positiveInteger(flags.get("--expected-version"), Number.MAX_SAFE_INTEGER, 1),
     };
   }
   if (noun === "organize" && verb === "place") {
@@ -470,6 +548,7 @@ async function main(): Promise<void> {
           ...(command.archiveCursor ? { archiveCursor: command.archiveCursor } : {}),
           ...(command.orderCursor ? { orderCursor: command.orderCursor } : {}),
           ...(command.statusCursor ? { statusCursor: command.statusCursor } : {}),
+          ...(command.annotationCursor ? { annotationCursor: command.annotationCursor } : {}),
           ...(command.workCursor ? { workCursor: command.workCursor } : {}),
         });
         result = DynaItemHistoryResultSchema.parse({
@@ -504,13 +583,66 @@ async function main(): Promise<void> {
         break;
       }
       case "work-enrich": {
-        const input = DynaWorkEnrichInputSchema.parse(await readBoundedJson());
+        const input = DynaTaskWorkEnrichInputSchema.parse(await readBoundedJson());
         result = DynaItemEnrichResultSchema.parse(
-          service.enrichItem(
+          service.enrichItemPatch(
             command.dashboardId,
             command.itemId,
             command.expectedFingerprint,
             command.expectedEnrichmentVersion,
+            input,
+          ),
+        );
+        break;
+      }
+      case "work-complete": {
+        const input = DynaWorkCompleteInputSchema.parse(await readBoundedJson());
+        result = DynaWorkCompleteResultSchema.parse(
+          service.completeWork(
+            command.dashboardId,
+            command.itemId,
+            command.expectedRevision,
+            command.expectedFingerprint,
+            input,
+          ),
+        );
+        break;
+      }
+      case "annotation-add": {
+        const input = DynaCliAnnotationAddInputSchema.parse(await readBoundedJson());
+        result = DynaCliAnnotationMutationResultSchema.parse(
+          service.addTaskAnnotation(
+            command.dashboardId,
+            command.itemId,
+            command.expectedFingerprint,
+            input,
+          ),
+        );
+        break;
+      }
+      case "annotation-edit": {
+        const input = DynaCliAnnotationEditInputSchema.parse(await readBoundedJson());
+        result = DynaCliAnnotationMutationResultSchema.parse(
+          service.editTaskAnnotation(
+            command.dashboardId,
+            command.itemId,
+            command.annotationId,
+            command.expectedVersion,
+            command.expectedFingerprint,
+            input,
+          ),
+        );
+        break;
+      }
+      case "annotation-delete": {
+        const input = DynaCliAnnotationDeleteInputSchema.parse(await readBoundedJson());
+        result = DynaCliAnnotationMutationResultSchema.parse(
+          service.deleteTaskAnnotation(
+            command.dashboardId,
+            command.itemId,
+            command.annotationId,
+            command.expectedVersion,
+            command.expectedFingerprint,
             input,
           ),
         );

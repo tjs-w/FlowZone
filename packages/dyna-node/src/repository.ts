@@ -65,6 +65,7 @@ import {
   type DynaTodoInput,
   type DynaSetItemStatusInput,
   type DynaUserWorkflowEvent,
+  type DynaUserWorkflowStage,
   type DynaWorkActivityPage,
   type DynaWorkUpdate,
   type DynaCliErrorCode,
@@ -139,7 +140,7 @@ const ACTION_TTL_MS = 10 * 60 * 1_000;
 const CODEX_SESSION_CANDIDATE_TTL_MS = 10 * 60 * 1_000;
 const CLAIM_LEASE_MS = 5 * 60 * 1_000;
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1_000;
-const DYNA_SCHEMA_VERSION = 10;
+const DYNA_SCHEMA_VERSION = 11;
 const MAX_SAFE_ITEM_NUMBER = Number.MAX_SAFE_INTEGER;
 const MAX_DASHBOARDS = 100;
 const MAX_PUBLISHERS = 100;
@@ -221,6 +222,10 @@ function dynaProjectionMembershipCte(scope: "active" | "archive" = "active"): st
         user_workflow.outcome AS user_workflow_outcome,
         user_workflow.created_at AS user_workflow_created_at,
         user_workflow.created_at_ms AS user_workflow_created_ms,
+        user_workflow.task_id AS user_workflow_task_id,
+        user_workflow.host_id AS user_workflow_host_id,
+        user_workflow.task_title AS user_workflow_task_title,
+        user_workflow.work_attempt_id AS user_workflow_work_attempt_id,
         (SELECT MAX(history.restored_at_ms) FROM item_archive_events history
           WHERE history.dashboard_id = dp.dashboard_id AND history.item_id = i.id
         ) AS last_restored_at_ms
@@ -276,6 +281,7 @@ export interface DynaItemHistoryOptions {
   readonly archiveCursor?: string | undefined;
   readonly orderCursor?: string | undefined;
   readonly statusCursor?: string | undefined;
+  readonly annotationCursor?: string | undefined;
   readonly workCursor?: string | undefined;
 }
 
@@ -285,7 +291,7 @@ export interface DynaItemActivityOptions {
 }
 
 type DynaSnapshotScope = "active" | "archive";
-type DynaHistoryStream = "archive" | "order" | "status" | "work";
+type DynaHistoryStream = "archive" | "order" | "status" | "annotation" | "work";
 
 interface DynaHistoryCursor {
   readonly createdAtMs: number;
@@ -785,6 +791,12 @@ export interface DynaReadUnitOfWork {
   findDashboardState(dashboardId: string): DynaCliDashboardState | undefined;
   findItemBase(itemId: string): DynaCliItemBase | undefined;
   findTaskOwner(taskId: string): { readonly itemId: string; readonly hostId: string } | undefined;
+  findLinkedTaskTitle(itemId: string, taskId: string, hostId: string): string | undefined;
+  findWorkAttemptAttribution(
+    itemId: string,
+    workAttemptId: string,
+  ): DynaCliWorkAttemptAttribution | undefined;
+  currentEnrichmentVersion(itemId: string): number;
   countTaskBindingsForItem(itemId: string): number;
   findTaskAssociationReservation(requestId: string): DynaTaskAssociationReservation | undefined;
   findActiveTaskAssociationReservation(taskId: string): DynaTaskAssociationReservation | undefined;
@@ -817,6 +829,7 @@ export interface DynaReadUnitOfWork {
     itemId: string,
     options?: DynaItemActivityOptions,
   ): DynaWorkActivityPage;
+  findWorkUpdate(id: string): DynaWorkUpdate | undefined;
   loadActionForView(
     viewToken: string,
     requestId: string,
@@ -843,6 +856,10 @@ export interface DynaCliReceiptRecord {
   readonly operation: string;
   readonly itemId: string;
   readonly requestHash: string;
+  readonly taskId?: string | undefined;
+  readonly hostId?: string | undefined;
+  readonly workAttemptId?: string | undefined;
+  readonly resultTargetId?: string | undefined;
   readonly result: unknown;
 }
 
@@ -871,6 +888,7 @@ export interface DynaCliPositionedItem {
   readonly priorityPosition: number;
   readonly workflowState: DynaCard["workflowState"];
   readonly preferenceSequence?: number | undefined;
+  readonly userWorkflowStage?: DynaUserWorkflowStage | undefined;
   readonly userWorkflowOutcome?: string | undefined;
   readonly userWorkflowCreatedMs?: number | undefined;
 }
@@ -931,6 +949,8 @@ export interface DynaRepositoryProjectionItem {
     | {
         readonly stage: z.infer<typeof DynaUserWorkflowStageSchema>;
         readonly outcome?: string | undefined;
+        readonly task?: DynaWorkUpdate["task"] | undefined;
+        readonly workAttemptId?: string | undefined;
         readonly createdAt: string;
         readonly createdAtMs: number;
       }
@@ -950,13 +970,7 @@ export interface DynaRepositoryCardEvidence {
   readonly matchedActivity?: string | undefined;
 }
 
-export interface DynaRepositoryAnnotationRecord {
-  readonly id: string;
-  readonly itemId: string;
-  readonly body: string;
-  readonly createdAt: string;
-  readonly updatedAt: string;
-  readonly version: number;
+export interface DynaRepositoryAnnotationRecord extends DynaAnnotation {
   readonly deletedAt?: string | undefined;
 }
 
@@ -968,6 +982,10 @@ export interface DynaRepositoryAnnotationEvent {
   readonly requestHash: string;
   readonly resultVersion: number;
   readonly occurredAt: string;
+  readonly taskId?: string | undefined;
+  readonly hostId?: string | undefined;
+  readonly taskTitle?: string | undefined;
+  readonly workAttemptId?: string | undefined;
 }
 
 export interface DynaRepositoryTaskAttachmentBlocker {
@@ -992,6 +1010,12 @@ export interface DynaTaskAssociationReservation {
 export interface DynaCliWorkAttemptAttribution {
   readonly taskId?: string | undefined;
   readonly hostId?: string | undefined;
+}
+
+export interface DynaTaskMutationAttribution {
+  readonly taskId: string;
+  readonly hostId: string;
+  readonly workAttemptId: string;
 }
 
 export interface DynaCliCompletionEvidence {
@@ -1076,12 +1100,6 @@ export interface DynaWriteUnitOfWork extends DynaReadUnitOfWork {
     state: DynaTaskAssociationReservationState,
     updatedAt: string,
   ): void;
-  findLinkedTaskTitle(itemId: string, taskId: string, hostId: string): string | undefined;
-  findWorkAttemptAttribution(
-    itemId: string,
-    workAttemptId: string,
-  ): DynaCliWorkAttemptAttribution | undefined;
-  currentEnrichmentVersion(itemId: string): number;
   completionEvidence(itemId: string): DynaCliCompletionEvidence;
   findManualPublisher(dashboardId: string): string | undefined;
   countPublishers(): number;
@@ -1107,9 +1125,16 @@ export interface DynaWriteUnitOfWork extends DynaReadUnitOfWork {
     expectedVersion: number,
     body: string,
     updatedAt: string,
+    attribution?: DynaTaskMutationAttribution & { readonly taskTitle?: string | undefined },
   ): boolean;
-  deleteAnnotation(annotationId: string, expectedVersion: number, deletedAt: string): boolean;
+  deleteAnnotation(
+    annotationId: string,
+    expectedVersion: number,
+    deletedAt: string,
+    attribution?: DynaTaskMutationAttribution & { readonly taskTitle?: string | undefined },
+  ): boolean;
   insertAnnotationEvent(event: DynaRepositoryAnnotationEvent): void;
+  insertUserWorkflowEvent(event: DynaUserWorkflowEvent): void;
   insertDashboard(dashboard: DynaDashboard): void;
   updateDashboardRecord(dashboard: DynaDashboard): void;
   deleteDashboardRecord(id: string): void;
@@ -1334,12 +1359,15 @@ export class SqliteDynaRepository {
         insertAnnotation: (annotation) => {
           this.#insertAnnotation(annotation);
         },
-        updateAnnotation: (annotationId, expectedVersion, body, updatedAt) =>
-          this.#updateAnnotation(annotationId, expectedVersion, body, updatedAt),
-        deleteAnnotation: (annotationId, expectedVersion, deletedAt) =>
-          this.#deleteAnnotation(annotationId, expectedVersion, deletedAt),
+        updateAnnotation: (annotationId, expectedVersion, body, updatedAt, attribution) =>
+          this.#updateAnnotation(annotationId, expectedVersion, body, updatedAt, attribution),
+        deleteAnnotation: (annotationId, expectedVersion, deletedAt, attribution) =>
+          this.#deleteAnnotation(annotationId, expectedVersion, deletedAt, attribution),
         insertAnnotationEvent: (event) => {
           this.#insertAnnotationEvent(event);
+        },
+        insertUserWorkflowEvent: (event) => {
+          this.#insertUserWorkflowEvent(event);
         },
         insertDashboard: (dashboard) => {
           this.#insertDashboard(dashboard);
@@ -1463,6 +1491,11 @@ export class SqliteDynaRepository {
       findDashboardState: (dashboardId) => this.#findDashboardState(dashboardId),
       findItemBase: (itemId) => this.#findCliItemBase(itemId),
       findTaskOwner: (taskId) => this.#findTaskOwner(taskId),
+      findLinkedTaskTitle: (itemId, taskId, hostId) =>
+        this.#findLinkedTaskTitle(itemId, taskId, hostId),
+      findWorkAttemptAttribution: (itemId, workAttemptId) =>
+        this.#findWorkAttemptAttribution(itemId, workAttemptId),
+      currentEnrichmentVersion: (itemId) => this.#currentEnrichmentVersion(itemId),
       countTaskBindingsForItem: (itemId) => this.#countTaskBindingsForItem(itemId),
       findTaskAssociationReservation: (requestId) =>
         this.#findTaskAssociationReservation(requestId),
@@ -1483,6 +1516,7 @@ export class SqliteDynaRepository {
         this.itemHistory(dashboardId, itemId, options),
       loadItemActivityPage: (dashboardId, itemId, options) =>
         this.itemActivityPage(dashboardId, itemId, options),
+      findWorkUpdate: (id) => this.#findWorkUpdate(id),
       loadActionForView: (viewToken, requestId) => this.actionStatusForView(viewToken, requestId),
       loadAction: (requestId) => this.actionStatus(requestId),
       findAnnotation: (id) => this.#findAnnotation(id),
@@ -1500,16 +1534,26 @@ export class SqliteDynaRepository {
   #findCliReceipt(requestId: string): DynaCliReceiptRecord | undefined {
     const row = this.#one(
       this.#database.prepare(
-        "SELECT dashboard_id, operation, item_id, request_hash, result_json FROM cli_requests WHERE request_id = ?",
+        `SELECT dashboard_id, operation, item_id, request_hash, result_json,
+           task_id, host_id, work_attempt_id, result_target_id
+         FROM cli_requests WHERE request_id = ?`,
       ),
       requestId,
     );
     if (!row) return undefined;
+    const taskId = optionalString(row, "task_id");
+    const hostId = optionalString(row, "host_id");
+    const workAttemptId = optionalString(row, "work_attempt_id");
+    const resultTargetId = optionalString(row, "result_target_id");
     return {
       dashboardId: requiredString(row, "dashboard_id"),
       operation: requiredString(row, "operation"),
       itemId: requiredString(row, "item_id"),
       requestHash: requiredString(row, "request_hash"),
+      ...(taskId ? { taskId } : {}),
+      ...(hostId ? { hostId } : {}),
+      ...(workAttemptId ? { workAttemptId } : {}),
+      ...(resultTargetId ? { resultTargetId } : {}),
       result: parseJson(requiredString(row, "result_json")),
     };
   }
@@ -1522,8 +1566,9 @@ export class SqliteDynaRepository {
     this.#database
       .prepare(
         `INSERT INTO cli_requests (
-           dashboard_id, request_id, operation, item_id, request_hash, result_json, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+           dashboard_id, request_id, operation, item_id, request_hash, result_json, created_at,
+           task_id, host_id, work_attempt_id, result_target_id
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         record.dashboardId,
@@ -1533,6 +1578,10 @@ export class SqliteDynaRepository {
         record.requestHash,
         JSON.stringify(record.result),
         createdAt,
+        record.taskId ?? null,
+        record.hostId ?? null,
+        record.workAttemptId ?? null,
+        record.resultTargetId ?? null,
       );
   }
 
@@ -1806,10 +1855,18 @@ export class SqliteDynaRepository {
   ): DynaCliWorkAttemptAttribution | undefined {
     const row = this.#one(
       this.#database.prepare(
-        `SELECT task_id, host_id FROM work_updates
-         WHERE item_id = ? AND work_attempt_id = ? AND task_id IS NOT NULL
-         ORDER BY created_at_ms, rowid LIMIT 1`,
+        `SELECT task_id, host_id FROM (
+           SELECT task_id, host_id, created_at AS occurred_at, rowid AS insertion_sequence
+           FROM work_updates
+           WHERE item_id = ? AND work_attempt_id = ? AND task_id IS NOT NULL
+           UNION ALL
+           SELECT task_id, host_id, created_at AS occurred_at, rowid AS insertion_sequence
+           FROM cli_requests
+           WHERE item_id = ? AND work_attempt_id = ? AND task_id IS NOT NULL
+         ) ORDER BY occurred_at, insertion_sequence LIMIT 1`,
       ),
+      itemId,
+      workAttemptId,
       itemId,
       workAttemptId,
     );
@@ -1891,8 +1948,9 @@ export class SqliteDynaRepository {
       .prepare(
         `INSERT INTO work_updates (
            id, item_id, origin_dashboard_id, work_attempt_id, kind, body, outcome,
-           artifacts, task_id, host_id, task_title, created_at, created_at_ms
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           artifacts, task_id, host_id, task_title, supersedes_work_update_id,
+           created_at, created_at_ms
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         update.id,
@@ -1906,6 +1964,7 @@ export class SqliteDynaRepository {
         update.task?.taskId ?? null,
         update.task?.hostId ?? null,
         update.task?.title ?? null,
+        update.supersedesWorkUpdateId ?? null,
         update.createdAt,
         Date.parse(update.createdAt),
       );
@@ -1913,6 +1972,10 @@ export class SqliteDynaRepository {
 
   #annotationFromRow(row: SqlRow): DynaRepositoryAnnotationRecord {
     const deletedAt = optionalString(row, "deleted_at");
+    const taskId = optionalString(row, "task_id");
+    const hostId = optionalString(row, "host_id");
+    const taskTitle = optionalString(row, "task_title");
+    const workAttemptId = optionalString(row, "work_attempt_id");
     const annotation = {
       id: requiredString(row, "id"),
       itemId: requiredString(row, "item_id"),
@@ -1920,6 +1983,10 @@ export class SqliteDynaRepository {
       createdAt: requiredString(row, "created_at"),
       updatedAt: requiredString(row, "updated_at"),
       version: requiredNumber(row, "version"),
+      ...(taskId && hostId
+        ? { task: { taskId, hostId, ...(taskTitle ? { title: taskTitle } : {}) } }
+        : {}),
+      ...(workAttemptId ? { workAttemptId } : {}),
     };
     if (!deletedAt) return DynaAnnotationSchema.parse(annotation);
     return { ...annotation, deletedAt };
@@ -1935,25 +2002,33 @@ export class SqliteDynaRepository {
       this.#database.prepare("SELECT * FROM annotation_events WHERE id = ?"),
       id,
     );
-    return row
-      ? {
-          id: requiredString(row, "id"),
-          annotationId: requiredString(row, "annotation_id"),
-          itemId: requiredString(row, "item_id"),
-          operation: requiredString(row, "operation") as "create" | "edit" | "delete",
-          requestHash: requiredString(row, "request_hash"),
-          resultVersion: requiredNumber(row, "result_version"),
-          occurredAt: requiredString(row, "occurred_at"),
-        }
-      : undefined;
+    if (!row) return undefined;
+    const taskId = optionalString(row, "task_id");
+    const hostId = optionalString(row, "host_id");
+    const taskTitle = optionalString(row, "task_title");
+    const workAttemptId = optionalString(row, "work_attempt_id");
+    return {
+      id: requiredString(row, "id"),
+      annotationId: requiredString(row, "annotation_id"),
+      itemId: requiredString(row, "item_id"),
+      operation: requiredString(row, "operation") as "create" | "edit" | "delete",
+      requestHash: requiredString(row, "request_hash"),
+      resultVersion: requiredNumber(row, "result_version"),
+      occurredAt: requiredString(row, "occurred_at"),
+      ...(taskId ? { taskId } : {}),
+      ...(hostId ? { hostId } : {}),
+      ...(taskTitle ? { taskTitle } : {}),
+      ...(workAttemptId ? { workAttemptId } : {}),
+    };
   }
 
   #insertAnnotation(annotation: DynaAnnotation): void {
     this.#database
       .prepare(
         `INSERT INTO annotations (
-           id, item_id, body, created_at, updated_at, version, deleted_at
-         ) VALUES (?, ?, ?, ?, ?, ?, NULL)`,
+           id, item_id, body, created_at, updated_at, version, deleted_at,
+           task_id, host_id, task_title, work_attempt_id
+         ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`,
       )
       .run(
         annotation.id,
@@ -1962,6 +2037,10 @@ export class SqliteDynaRepository {
         annotation.createdAt,
         annotation.updatedAt,
         annotation.version,
+        annotation.task?.taskId ?? null,
+        annotation.task?.hostId ?? null,
+        annotation.task?.title ?? null,
+        annotation.workAttemptId ?? null,
       );
   }
 
@@ -1970,26 +2049,52 @@ export class SqliteDynaRepository {
     expectedVersion: number,
     body: string,
     updatedAt: string,
+    attribution?: DynaTaskMutationAttribution & { readonly taskTitle?: string | undefined },
   ): boolean {
     return (
       this.#database
         .prepare(
-          `UPDATE annotations SET body = ?, updated_at = ?, version = version + 1
+          `UPDATE annotations SET body = ?, updated_at = ?, version = version + 1,
+             task_id = ?, host_id = ?, task_title = ?, work_attempt_id = ?
            WHERE id = ? AND version = ? AND deleted_at IS NULL`,
         )
-        .run(body, updatedAt, annotationId, expectedVersion).changes === 1
+        .run(
+          body,
+          updatedAt,
+          attribution?.taskId ?? null,
+          attribution?.hostId ?? null,
+          attribution?.taskTitle ?? null,
+          attribution?.workAttemptId ?? null,
+          annotationId,
+          expectedVersion,
+        ).changes === 1
     );
   }
 
-  #deleteAnnotation(annotationId: string, expectedVersion: number, deletedAt: string): boolean {
+  #deleteAnnotation(
+    annotationId: string,
+    expectedVersion: number,
+    deletedAt: string,
+    attribution?: DynaTaskMutationAttribution & { readonly taskTitle?: string | undefined },
+  ): boolean {
     return (
       this.#database
         .prepare(
           `UPDATE annotations
-           SET body = '', updated_at = ?, deleted_at = ?, version = version + 1
+           SET body = '', updated_at = ?, deleted_at = ?, version = version + 1,
+             task_id = ?, host_id = ?, task_title = ?, work_attempt_id = ?
            WHERE id = ? AND version = ? AND deleted_at IS NULL`,
         )
-        .run(deletedAt, deletedAt, annotationId, expectedVersion).changes === 1
+        .run(
+          deletedAt,
+          deletedAt,
+          attribution?.taskId ?? null,
+          attribution?.hostId ?? null,
+          attribution?.taskTitle ?? null,
+          attribution?.workAttemptId ?? null,
+          annotationId,
+          expectedVersion,
+        ).changes === 1
     );
   }
 
@@ -1998,8 +2103,9 @@ export class SqliteDynaRepository {
       .prepare(
         `INSERT INTO annotation_events (
            id, annotation_id, item_id, operation, request_hash,
-           result_version, occurred_at, occurred_at_ms
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+           result_version, occurred_at, occurred_at_ms,
+           task_id, host_id, task_title, work_attempt_id
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         event.id,
@@ -2010,6 +2116,33 @@ export class SqliteDynaRepository {
         event.resultVersion,
         event.occurredAt,
         Date.parse(event.occurredAt),
+        event.taskId ?? null,
+        event.hostId ?? null,
+        event.taskTitle ?? null,
+        event.workAttemptId ?? null,
+      );
+  }
+
+  #insertUserWorkflowEvent(event: DynaUserWorkflowEvent): void {
+    this.#database
+      .prepare(
+        `INSERT INTO item_workflow_events (
+           id, item_id, origin_dashboard_id, target_stage, outcome,
+           created_at, created_at_ms, task_id, host_id, task_title, work_attempt_id
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        event.id,
+        event.itemId,
+        event.originDashboardId,
+        event.targetStage,
+        event.outcome ?? null,
+        event.createdAt,
+        Date.parse(event.createdAt),
+        event.task?.taskId ?? null,
+        event.task?.hostId ?? null,
+        event.task?.title ?? null,
+        event.workAttemptId ?? null,
       );
   }
 
@@ -2403,6 +2536,12 @@ export class SqliteDynaRepository {
         outcome TEXT,
         created_at TEXT NOT NULL,
         created_at_ms INTEGER NOT NULL,
+        task_id TEXT,
+        host_id TEXT,
+        task_title TEXT,
+        work_attempt_id TEXT,
+        CHECK ((task_id IS NULL) = (host_id IS NULL)),
+        CHECK ((task_id IS NULL) = (work_attempt_id IS NULL)),
         CHECK (
           (target_stage = 'done' AND outcome IS NOT NULL AND length(trim(outcome)) > 0) OR
           (target_stage <> 'done' AND outcome IS NULL)
@@ -2441,14 +2580,20 @@ export class SqliteDynaRepository {
       CREATE TABLE IF NOT EXISTS annotations (
         id TEXT PRIMARY KEY, item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
         body TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-        version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1), deleted_at TEXT
+        version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1), deleted_at TEXT,
+        task_id TEXT, host_id TEXT, task_title TEXT, work_attempt_id TEXT,
+        CHECK ((task_id IS NULL) = (host_id IS NULL)),
+        CHECK ((task_id IS NULL) = (work_attempt_id IS NULL))
       );
       CREATE TABLE IF NOT EXISTS annotation_events (
         id TEXT PRIMARY KEY, annotation_id TEXT NOT NULL, item_id TEXT NOT NULL,
         operation TEXT NOT NULL CHECK (operation IN ('create', 'edit', 'delete')),
         request_hash TEXT NOT NULL,
         result_version INTEGER NOT NULL CHECK (result_version >= 1),
-        occurred_at TEXT NOT NULL, occurred_at_ms INTEGER NOT NULL
+        occurred_at TEXT NOT NULL, occurred_at_ms INTEGER NOT NULL,
+        task_id TEXT, host_id TEXT, task_title TEXT, work_attempt_id TEXT,
+        CHECK ((task_id IS NULL) = (host_id IS NULL)),
+        CHECK ((task_id IS NULL) = (work_attempt_id IS NULL))
       );
       CREATE TABLE IF NOT EXISTS work_updates (
         id TEXT PRIMARY KEY,
@@ -2465,6 +2610,7 @@ export class SqliteDynaRepository {
         task_id TEXT,
         host_id TEXT,
         task_title TEXT,
+        supersedes_work_update_id TEXT REFERENCES work_updates(id),
         created_at TEXT NOT NULL,
         created_at_ms INTEGER NOT NULL,
         CHECK ((task_id IS NULL) = (host_id IS NULL))
@@ -2476,7 +2622,13 @@ export class SqliteDynaRepository {
         item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
         request_hash TEXT NOT NULL,
         result_json TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        task_id TEXT,
+        host_id TEXT,
+        work_attempt_id TEXT,
+        result_target_id TEXT,
+        CHECK ((task_id IS NULL) = (host_id IS NULL)),
+        CHECK ((task_id IS NULL) = (work_attempt_id IS NULL))
       );
       CREATE TABLE IF NOT EXISTS task_bindings (
         item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
@@ -2609,6 +2761,29 @@ export class SqliteDynaRepository {
         WHERE task_id IS NOT NULL AND kind IN (
           'progress', 'needs_input', 'blocked', 'completion_reported', 'handoff'
         );
+      CREATE INDEX IF NOT EXISTS idx_dyna_work_updates_supersedes
+        ON work_updates(supersedes_work_update_id)
+        WHERE supersedes_work_update_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_dyna_cli_requests_work_attempt
+        ON cli_requests(item_id, work_attempt_id, created_at)
+        WHERE work_attempt_id IS NOT NULL;
+      CREATE TRIGGER IF NOT EXISTS trg_dyna_cli_requests_attribution_insert
+        BEFORE INSERT ON cli_requests
+        WHEN ((NEW.task_id IS NULL) <> (NEW.host_id IS NULL)) OR
+             ((NEW.task_id IS NULL) <> (NEW.work_attempt_id IS NULL))
+        BEGIN
+          SELECT RAISE(ABORT, 'Dyna CLI receipt attribution is incomplete');
+        END;
+      CREATE TRIGGER IF NOT EXISTS trg_dyna_cli_requests_immutable_update
+        BEFORE UPDATE ON cli_requests
+        BEGIN
+          SELECT RAISE(ABORT, 'Dyna CLI receipts are immutable');
+        END;
+      CREATE TRIGGER IF NOT EXISTS trg_dyna_cli_requests_immutable_delete
+        BEFORE DELETE ON cli_requests
+        BEGIN
+          SELECT RAISE(ABORT, 'Dyna CLI receipts are append-only');
+        END;
       CREATE INDEX IF NOT EXISTS idx_dyna_annotation_events_item_time
         ON annotation_events(item_id, occurred_at_ms DESC, id DESC);
       CREATE TRIGGER IF NOT EXISTS trg_dyna_annotation_events_immutable_update
@@ -3017,30 +3192,48 @@ export class SqliteDynaRepository {
   }
 
   #assertAnnotationSchemaCurrent(): void {
-    const expectedTables = new Map<string, string>([
+    const expectedTables = new Map<string, readonly string[]>([
       [
         "annotations",
-        `CREATE TABLE annotations (
-          id TEXT PRIMARY KEY, item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
-          body TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-          version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1), deleted_at TEXT
-        )`,
+        [
+          "id",
+          "item_id",
+          "body",
+          "created_at",
+          "updated_at",
+          "version",
+          "deleted_at",
+          "task_id",
+          "host_id",
+          "task_title",
+          "work_attempt_id",
+        ],
       ],
       [
         "annotation_events",
-        `CREATE TABLE annotation_events (
-          id TEXT PRIMARY KEY, annotation_id TEXT NOT NULL, item_id TEXT NOT NULL,
-          operation TEXT NOT NULL CHECK (operation IN ('create', 'edit', 'delete')),
-          request_hash TEXT NOT NULL,
-          result_version INTEGER NOT NULL CHECK (result_version >= 1),
-          occurred_at TEXT NOT NULL, occurred_at_ms INTEGER NOT NULL
-        )`,
+        [
+          "id",
+          "annotation_id",
+          "item_id",
+          "operation",
+          "request_hash",
+          "result_version",
+          "occurred_at",
+          "occurred_at_ms",
+          "task_id",
+          "host_id",
+          "task_title",
+          "work_attempt_id",
+        ],
       ],
     ]);
     for (const [name, expected] of expectedTables) {
-      const actual = this.#schemaObjectSql("table", name);
-      if (!actual) throw new Error(`The Dyna annotation ledger ${name} is missing.`);
-      if (this.#normalizedSchemaSql(actual) !== this.#normalizedSchemaSql(expected)) {
+      const actual = new Set(
+        (this.#database.prepare(`PRAGMA table_info(${name})`).all() as SqlRow[]).map((row) =>
+          requiredString(row, "name"),
+        ),
+      );
+      if (!expected.every((column) => actual.has(column))) {
         throw new Error(`The Dyna annotation ledger ${name} is invalid.`);
       }
     }
@@ -3132,7 +3325,116 @@ export class SqliteDynaRepository {
         Date.parse(occurredAt),
       );
     }
-    this.#assertAnnotationSchemaCurrent();
+  }
+
+  #migrateFullControlV11(): void {
+    const addColumns = (table: string, columns: Readonly<Record<string, string>>): void => {
+      const existing = new Set(
+        (this.#database.prepare(`PRAGMA table_info(${table})`).all() as SqlRow[]).map((row) =>
+          requiredString(row, "name"),
+        ),
+      );
+      for (const [name, declaration] of Object.entries(columns)) {
+        if (!existing.has(name)) {
+          this.#database.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${declaration};`);
+        }
+      }
+    };
+    addColumns("cli_requests", {
+      task_id: "TEXT",
+      host_id: "TEXT",
+      work_attempt_id: "TEXT",
+      result_target_id: "TEXT",
+    });
+    addColumns("work_updates", {
+      supersedes_work_update_id: "TEXT REFERENCES work_updates(id)",
+    });
+    addColumns("annotations", {
+      task_id: "TEXT",
+      host_id: "TEXT",
+      task_title: "TEXT",
+      work_attempt_id: "TEXT",
+    });
+    addColumns("annotation_events", {
+      task_id: "TEXT",
+      host_id: "TEXT",
+      task_title: "TEXT",
+      work_attempt_id: "TEXT",
+    });
+    addColumns("item_workflow_events", {
+      task_id: "TEXT",
+      host_id: "TEXT",
+      task_title: "TEXT",
+      work_attempt_id: "TEXT",
+    });
+    this.#database.exec(`
+      CREATE INDEX IF NOT EXISTS idx_dyna_cli_requests_work_attempt
+        ON cli_requests(item_id, work_attempt_id, created_at)
+        WHERE work_attempt_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_dyna_work_updates_supersedes
+        ON work_updates(supersedes_work_update_id)
+        WHERE supersedes_work_update_id IS NOT NULL;
+    `);
+  }
+
+  #assertFullControlSchemaCurrent(): void {
+    const requiredColumns = new Map<string, readonly string[]>([
+      ["cli_requests", ["task_id", "host_id", "work_attempt_id", "result_target_id"]],
+      ["work_updates", ["supersedes_work_update_id"]],
+      ["annotations", ["task_id", "host_id", "task_title", "work_attempt_id"]],
+      ["annotation_events", ["task_id", "host_id", "task_title", "work_attempt_id"]],
+      ["item_workflow_events", ["task_id", "host_id", "task_title", "work_attempt_id"]],
+    ]);
+    for (const [table, columns] of requiredColumns) {
+      const actual = new Set(
+        (this.#database.prepare(`PRAGMA table_info(${table})`).all() as SqlRow[]).map((row) =>
+          requiredString(row, "name"),
+        ),
+      );
+      if (!columns.every((column) => actual.has(column))) {
+        throw new Error(`The Dyna full-control ledger ${table} is invalid.`);
+      }
+    }
+    if (
+      !this.#schemaObjectExists("index", "idx_dyna_cli_requests_work_attempt") ||
+      !this.#schemaObjectExists("index", "idx_dyna_work_updates_supersedes")
+    ) {
+      throw new Error("The Dyna full-control ledger indexes are incomplete.");
+    }
+    const expectedTriggers = new Map<string, string>([
+      [
+        "trg_dyna_cli_requests_attribution_insert",
+        `CREATE TRIGGER trg_dyna_cli_requests_attribution_insert
+          BEFORE INSERT ON cli_requests
+          WHEN ((NEW.task_id IS NULL) <> (NEW.host_id IS NULL)) OR
+               ((NEW.task_id IS NULL) <> (NEW.work_attempt_id IS NULL))
+          BEGIN
+            SELECT RAISE(ABORT, 'Dyna CLI receipt attribution is incomplete');
+          END`,
+      ],
+      [
+        "trg_dyna_cli_requests_immutable_update",
+        `CREATE TRIGGER trg_dyna_cli_requests_immutable_update
+          BEFORE UPDATE ON cli_requests
+          BEGIN
+            SELECT RAISE(ABORT, 'Dyna CLI receipts are immutable');
+          END`,
+      ],
+      [
+        "trg_dyna_cli_requests_immutable_delete",
+        `CREATE TRIGGER trg_dyna_cli_requests_immutable_delete
+          BEFORE DELETE ON cli_requests
+          BEGIN
+            SELECT RAISE(ABORT, 'Dyna CLI receipts are append-only');
+          END`,
+      ],
+    ]);
+    for (const [name, expected] of expectedTriggers) {
+      const actual = this.#schemaObjectSql("trigger", name);
+      if (!actual || this.#normalizedSchemaSql(actual) !== this.#normalizedSchemaSql(expected)) {
+        throw new Error(`The Dyna full-control ledger trigger ${name} is invalid.`);
+      }
+    }
   }
 
   #backfillItemNumbers(): void {
@@ -3313,6 +3615,7 @@ export class SqliteDynaRepository {
       this.#assertItemNumberIntegrity();
       this.#assertTaskSyncSchemaCurrent();
       this.#assertAnnotationSchemaCurrent();
+      this.#assertFullControlSchemaCurrent();
       const actionSchemaCurrent = this.#actionRequestsUseV6Constraints();
       const taskIdentityIndexCurrent = this.#namedIndexMatches(
         "task_bindings",
@@ -3400,6 +3703,18 @@ export class SqliteDynaRepository {
         }
         this.#assertDatabaseIntegrity();
         this.#assertItemNumberIntegrity();
+      });
+      return;
+    }
+    if (startingVersion === 10) {
+      this.#transaction(() => {
+        this.#migrateFullControlV11();
+        this.#createSchema();
+        this.#assertAnnotationSchemaCurrent();
+        this.#assertFullControlSchemaCurrent();
+        this.#assertDatabaseIntegrity();
+        this.#assertItemNumberIntegrity();
+        this.#database.exec("PRAGMA user_version = 11;");
       });
       return;
     }
@@ -3692,11 +4007,21 @@ export class SqliteDynaRepository {
       this.#assertItemNumberIntegrity();
       this.#database.exec("PRAGMA user_version = 10;");
     });
+    const versionTenRow = this.#one(this.#database.prepare("PRAGMA user_version"));
+    if (!versionTenRow || requiredNumber(versionTenRow, "user_version") !== 10) {
+      throw new Error("Dyna could not complete its database schema migration.");
+    }
+    this.#transaction(() => {
+      this.#migrateFullControlV11();
+      this.#createSchema();
+      this.#assertAnnotationSchemaCurrent();
+      this.#assertFullControlSchemaCurrent();
+      this.#assertDatabaseIntegrity();
+      this.#assertItemNumberIntegrity();
+      this.#database.exec("PRAGMA user_version = 11;");
+    });
     const migratedVersion = this.#one(this.#database.prepare("PRAGMA user_version"));
-    if (
-      !migratedVersion ||
-      requiredNumber(migratedVersion, "user_version") !== DYNA_SCHEMA_VERSION
-    ) {
+    if (!migratedVersion || requiredNumber(migratedVersion, "user_version") !== 11) {
       throw new Error("Dyna could not complete its database schema migration.");
     }
   }
@@ -5363,10 +5688,10 @@ export class SqliteDynaRepository {
             ),
             parsed.itemId,
           );
-          if (linkedTask) {
+          if (linkedTask && parsed.targetStage !== "done") {
             throw new DynaCliStoreError(
               "invalid_input",
-              "Linked Codex task status is controller-derived; use Start, Open, or Refresh instead.",
+              "To Do and Needs You follow the linked Codex task; use Start, Open, or Refresh instead.",
             );
           }
           if (parsed.targetStage === "done") {
@@ -5955,6 +6280,7 @@ export class SqliteDynaRepository {
     const archiveCursor = parseHistoryCursor(options.archiveCursor, "archive");
     const orderCursor = parseHistoryCursor(options.orderCursor, "order");
     const statusCursor = parseHistoryCursor(options.statusCursor, "status");
+    const annotationCursor = parseHistoryCursor(options.annotationCursor, "annotation");
     const workCursor = parseHistoryCursor(options.workCursor, "work");
     const archiveRows = this.#database
       .prepare(
@@ -6045,10 +6371,36 @@ export class SqliteDynaRepository {
         limit + 1,
       ) as SqlRow[];
     const statusPage = statusRows.slice(0, limit);
+    const annotationRows = this.#database
+      .prepare(
+        `SELECT *, rowid AS insertion_sequence FROM annotation_events
+         WHERE item_id = ?
+         ${
+           annotationCursor
+             ? `AND (occurred_at_ms < ? OR (
+                  occurred_at_ms = ? AND rowid < ?
+                ))`
+             : ""
+         }
+         ORDER BY occurred_at_ms DESC, rowid DESC LIMIT ?`,
+      )
+      .all(
+        itemId,
+        ...(annotationCursor
+          ? [
+              annotationCursor.createdAtMs,
+              annotationCursor.createdAtMs,
+              annotationCursor.insertionSequence,
+            ]
+          : []),
+        limit + 1,
+      ) as SqlRow[];
+    const annotationPage = annotationRows.slice(0, limit);
     const workPage = this.#workUpdatePage(itemId, limit, workCursor);
     const lastArchive = archivePage.at(-1);
     const lastOrganization = organizationPage.at(-1);
     const lastStatus = statusPage.at(-1);
+    const lastAnnotation = annotationPage.at(-1);
     const followUpOfItemId = followUpReferenceItemId(item);
     return DynaItemHistorySchema.parse({
       itemId,
@@ -6060,6 +6412,24 @@ export class SqliteDynaRepository {
       archives,
       organization,
       statusChanges: statusPage.map((row) => this.#userWorkflowEventFromRow(row)),
+      annotationEvents: annotationPage.map((row) => {
+        const taskId = optionalString(row, "task_id");
+        const hostId = optionalString(row, "host_id");
+        const taskTitle = optionalString(row, "task_title");
+        const workAttemptId = optionalString(row, "work_attempt_id");
+        return {
+          id: requiredString(row, "id"),
+          annotationId: requiredString(row, "annotation_id"),
+          itemId: requiredString(row, "item_id"),
+          operation: requiredString(row, "operation"),
+          version: requiredNumber(row, "result_version"),
+          occurredAt: requiredString(row, "occurred_at"),
+          ...(taskId && hostId
+            ? { task: { taskId, hostId, ...(taskTitle ? { title: taskTitle } : {}) } }
+            : {}),
+          ...(workAttemptId ? { workAttemptId } : {}),
+        };
+      }),
       workUpdates: workPage.updates,
       ...(archiveRows.length > limit && lastArchive
         ? {
@@ -6085,6 +6455,15 @@ export class SqliteDynaRepository {
               "status",
               requiredNumber(lastStatus, "created_at_ms"),
               requiredNumber(lastStatus, "insertion_sequence"),
+            ),
+          }
+        : {}),
+      ...(annotationRows.length > limit && lastAnnotation
+        ? {
+            annotationEventsNextCursor: historyCursor(
+              "annotation",
+              requiredNumber(lastAnnotation, "occurred_at_ms"),
+              requiredNumber(lastAnnotation, "insertion_sequence"),
             ),
           }
         : {}),
@@ -6214,9 +6593,12 @@ export class SqliteDynaRepository {
     const itemId = positioned.id;
     const workflowState = positioned.workflowState;
     const completion = this.#completionEvidence(itemId);
+    const manuallyCompleted = positioned.userWorkflowStage === "done";
     const completedAtMs =
       workflowState === "completed"
-        ? (completion.completedAtMs ?? positioned.userWorkflowCreatedMs)
+        ? manuallyCompleted
+          ? positioned.userWorkflowCreatedMs
+          : completion.completedAtMs
         : undefined;
     const archiveId = randomUUID();
     const archivedAt = this.#now();
@@ -6242,7 +6624,7 @@ export class SqliteDynaRepository {
         workflowState,
         completedAtMs === undefined ? null : new Date(completedAtMs).toISOString(),
         completedAtMs ?? null,
-        completion.outcome ?? positioned.userWorkflowOutcome ?? null,
+        (manuallyCompleted ? positioned.userWorkflowOutcome : completion.outcome) ?? null,
         positioned.effectivePriority,
         positioned.preferenceSequence ?? null,
         clientRequestId ?? null,
@@ -6476,6 +6858,10 @@ export class SqliteDynaRepository {
           }
         : undefined;
       const userWorkflowStage = optionalString(row, "user_workflow_stage");
+      const userWorkflowTaskId = optionalString(row, "user_workflow_task_id");
+      const userWorkflowHostId = optionalString(row, "user_workflow_host_id");
+      const userWorkflowTaskTitle = optionalString(row, "user_workflow_task_title");
+      const userWorkflowWorkAttemptId = optionalString(row, "user_workflow_work_attempt_id");
       const preferencePriority = optionalString(row, "preference_priority");
       const followUpOfItemId = followUpReferenceItemId(row);
       return {
@@ -6505,6 +6891,16 @@ export class SqliteDynaRepository {
                 ...(optionalString(row, "user_workflow_outcome")
                   ? { outcome: optionalString(row, "user_workflow_outcome") }
                   : {}),
+                ...(userWorkflowTaskId && userWorkflowHostId
+                  ? {
+                      task: {
+                        taskId: userWorkflowTaskId,
+                        hostId: userWorkflowHostId,
+                        ...(userWorkflowTaskTitle ? { title: userWorkflowTaskTitle } : {}),
+                      },
+                    }
+                  : {}),
+                ...(userWorkflowWorkAttemptId ? { workAttemptId: userWorkflowWorkAttemptId } : {}),
                 createdAt: requiredString(row, "user_workflow_created_at"),
                 createdAtMs: requiredNumber(row, "user_workflow_created_ms"),
               },
@@ -6637,16 +7033,7 @@ export class SqliteDynaRepository {
     for (const row of annotationRows) {
       const itemId = requiredString(row, "item_id");
       const values = annotations.get(itemId) ?? [];
-      values.push(
-        DynaAnnotationSchema.parse({
-          id: requiredString(row, "id"),
-          itemId,
-          body: requiredString(row, "body"),
-          createdAt: requiredString(row, "created_at"),
-          updatedAt: requiredString(row, "updated_at"),
-          version: requiredNumber(row, "version"),
-        }),
-      );
+      values.push(DynaAnnotationSchema.parse(this.#annotationFromRow(row)));
       annotations.set(itemId, values);
     }
     const tasks = new Map<string, DynaTaskStatus[]>();
@@ -8290,16 +8677,7 @@ export class SqliteDynaRepository {
            ORDER BY created_at DESC LIMIT 20`,
         )
         .all(itemId) as SqlRow[]
-    ).map((annotation) =>
-      DynaAnnotationSchema.parse({
-        id: requiredString(annotation, "id"),
-        itemId,
-        body: requiredString(annotation, "body"),
-        createdAt: requiredString(annotation, "created_at"),
-        updatedAt: requiredString(annotation, "updated_at"),
-        version: requiredNumber(annotation, "version"),
-      }),
-    );
+    ).map((annotation) => DynaAnnotationSchema.parse(this.#annotationFromRow(annotation)));
   }
 
   #workUpdates(itemId: string, limit = MAX_WORK_UPDATES_PER_CARD): DynaWorkUpdate[] {
@@ -8310,6 +8688,11 @@ export class SqliteDynaRepository {
         )
         .all(itemId, limit) as SqlRow[]
     ).map((row) => this.#workUpdateFromRow(row));
+  }
+
+  #findWorkUpdate(id: string): DynaWorkUpdate | undefined {
+    const row = this.#one(this.#database.prepare("SELECT * FROM work_updates WHERE id = ?"), id);
+    return row ? this.#workUpdateFromRow(row) : undefined;
   }
 
   #workUpdateCount(itemId: string): number {
@@ -8393,6 +8776,9 @@ export class SqliteDynaRepository {
       kind: requiredString(row, "kind"),
       body: requiredString(row, "body"),
       ...(optionalString(row, "outcome") ? { outcome: optionalString(row, "outcome") } : {}),
+      ...(optionalString(row, "supersedes_work_update_id")
+        ? { supersedesWorkUpdateId: optionalString(row, "supersedes_work_update_id") }
+        : {}),
       artifacts: parseJson(requiredString(row, "artifacts")),
       ...(optionalString(row, "task_id") && optionalString(row, "host_id")
         ? {
@@ -8416,6 +8802,20 @@ export class SqliteDynaRepository {
       originDashboardId: requiredString(row, "origin_dashboard_id"),
       targetStage: requiredString(row, "target_stage"),
       ...(optionalString(row, "outcome") ? { outcome: optionalString(row, "outcome") } : {}),
+      ...(optionalString(row, "task_id") && optionalString(row, "host_id")
+        ? {
+            task: {
+              taskId: optionalString(row, "task_id"),
+              hostId: optionalString(row, "host_id"),
+              ...(optionalString(row, "task_title")
+                ? { title: optionalString(row, "task_title") }
+                : {}),
+            },
+          }
+        : {}),
+      ...(optionalString(row, "work_attempt_id")
+        ? { workAttemptId: optionalString(row, "work_attempt_id") }
+        : {}),
       createdAt: requiredString(row, "created_at"),
     });
   }

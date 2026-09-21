@@ -24,7 +24,7 @@ For native Codex inventory:
 
 - Call `list_threads` once with the chosen bound and filter exact project or working-directory scope before evaluating task state.
 - The requested list bound defines the slice; returning that many records does not make the slice incomplete.
-- `notLoaded` describes app loading state, not a native task failure or a task waiting for input. Skip it unless an exact in-scope task must be resolved.
+- `notLoaded` describes app loading state, not a native task failure or a task waiting for input. Skip it unless an exact in-scope task must be resolved. For an exact task, use the latest native turn result: `latestTurn.status: "completed"` with `latestTurn.error: null` is succeeded even when the thread is unloaded or archived; archive metadata alone is not completion evidence.
 - Use `unavailableHosts`, `unavailableSources`, or a failed native call as coverage failures. If exact in-scope task status is required, inspect only a small bounded set with the native metadata/status tools; do not read transcripts or outputs.
 
 ## Publish honest partial results

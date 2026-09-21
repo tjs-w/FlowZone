@@ -41,10 +41,10 @@ describe("Dyna checked-in Node bundle", () => {
     try {
       const resources = await client.listResources();
       const dynaResource = resources.resources.find(
-        (resource) => resource.uri === "ui://flowzone/dyna/v18.html",
+        (resource) => resource.uri === "ui://flowzone/dyna/v19.html",
       );
       expect(resources.resources.map((resource) => resource.uri)).toContain(
-        "ui://flowzone/dyna/v17.html",
+        "ui://flowzone/dyna/v18.html",
       );
       expect(resources.resources.map((resource) => resource.uri)).toContain(
         "ui://flowzone/dyna/v14.html",
@@ -54,15 +54,15 @@ describe("Dyna checked-in Node bundle", () => {
         csp: { connectDomains: [], resourceDomains: [], frameDomains: [] },
         permissions: { clipboardWrite: {} },
       });
-      const dynaHtml = await client.readResource({ uri: "ui://flowzone/dyna/v18.html" });
+      const dynaHtml = await client.readResource({ uri: "ui://flowzone/dyna/v19.html" });
       const dynaContent = dynaHtml.contents[0];
       expect(dynaContent && "text" in dynaContent ? dynaContent.text : "").toContain(
         'id="dyna-root"',
       );
       const currentLegacyDynaHtml = await client.readResource({
-        uri: "ui://flowzone/dyna/v17.html",
+        uri: "ui://flowzone/dyna/v18.html",
       });
-      expect(currentLegacyDynaHtml.contents[0]?.uri).toBe("ui://flowzone/dyna/v17.html");
+      expect(currentLegacyDynaHtml.contents[0]?.uri).toBe("ui://flowzone/dyna/v18.html");
       const legacyDynaHtml = await client.readResource({ uri: "ui://flowzone/dyna/v14.html" });
       expect(legacyDynaHtml.contents[0]?.uri).toBe("ui://flowzone/dyna/v14.html");
 
@@ -281,7 +281,7 @@ describe("Dyna checked-in Node bundle", () => {
         "The MR is ready for review.",
       );
       const payload = record(record(rendered._meta)["dynaDashboard"]);
-      expect(payload["schema"]).toBe("dyna/ui-v10");
+      expect(payload["schema"]).toBe("dyna/ui-v11");
       expect("spec" in payload).toBe(false);
       const viewToken = payload["viewToken"];
       const snapshot = record(payload["snapshot"]);
@@ -432,7 +432,7 @@ describe("Dyna checked-in Node bundle", () => {
         arguments: { viewToken },
       });
       const refreshedPayload = record(record(refreshed._meta)["dynaDashboard"]);
-      expect(refreshedPayload["schema"]).toBe("dyna/ui-v10");
+      expect(refreshedPayload["schema"]).toBe("dyna/ui-v11");
       expect("spec" in refreshedPayload).toBe(false);
       const refreshedSnapshot = record(refreshedPayload["snapshot"]);
       expect(record(refreshedSnapshot["counts"])["critical"]).toBe(1);

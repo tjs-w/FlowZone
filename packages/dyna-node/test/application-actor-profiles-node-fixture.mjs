@@ -40,7 +40,7 @@ try {
 
   const worker = new DynaApplicationService({
     databasePath,
-    actor: { kind: "codex_task", capabilities: ["item:write"] },
+    actor: { kind: "codex_task", capabilities: ["work:update"] },
   });
   try {
     worker.updateTask(dashboard.id, item.itemId, {

@@ -18,7 +18,7 @@ describe("Dyna application authority", () => {
     expect(JSON.parse(result.stdout)).toEqual({
       boundedRead: true,
       deniedBeforePersistence: true,
-      itemWriteIsolation: true,
+      todoCreateIsolation: true,
       invalidDescriptorsRejected: true,
     });
   });

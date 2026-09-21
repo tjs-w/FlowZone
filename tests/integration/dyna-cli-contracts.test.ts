@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
+  DynaCliAnnotationAddInputSchema,
   DynaDashboardListResultSchema,
   DynaDashboardShowResultSchema,
   DynaItemSearchResultSchema,
   DynaLifecycleArchiveInputSchema,
   DynaOrganizePlaceManyInputSchema,
   DynaTodoCreateInputSchema,
+  DynaTaskWorkEnrichInputSchema,
+  DynaWorkCompleteInputSchema,
   DynaWorkEnrichInputSchema,
   DynaWorkUpdateInputSchema,
 } from "@flowzone/dyna-contracts";
@@ -14,6 +17,11 @@ const UUID = "123e4567-e89b-42d3-a456-426614174000";
 const SECOND_UUID = "223e4567-e89b-42d3-a456-426614174000";
 const FINGERPRINT = "a".repeat(64);
 const NOW = "2026-09-13T12:00:00.000Z";
+const TASK_MUTATION = {
+  requestId: UUID,
+  workAttemptId: SECOND_UUID,
+  task: { taskId: "task-42", hostId: "host-local" },
+} as const;
 
 const dashboard = {
   id: UUID,
@@ -135,8 +143,7 @@ describe("Dyna canonical CLI contracts", () => {
       {
         schema: DynaWorkUpdateInputSchema,
         value: {
-          requestId: UUID,
-          workAttemptId: SECOND_UUID,
+          ...TASK_MUTATION,
           kind: "note",
           body: "Durable note",
           artifacts: [],
@@ -148,7 +155,19 @@ describe("Dyna canonical CLI contracts", () => {
       },
       {
         schema: DynaLifecycleArchiveInputSchema,
-        value: { requestId: UUID, reason: "invalid" },
+        value: { ...TASK_MUTATION, reason: "invalid" },
+      },
+      {
+        schema: DynaTaskWorkEnrichInputSchema,
+        value: { ...TASK_MUTATION, set: { summary: "Evidence-based summary" }, clear: [] },
+      },
+      {
+        schema: DynaWorkCompleteInputSchema,
+        value: { ...TASK_MUTATION, outcome: "Completed the bounded work.", artifacts: [] },
+      },
+      {
+        schema: DynaCliAnnotationAddInputSchema,
+        value: { ...TASK_MUTATION, body: "Editable task annotation." },
       },
       {
         schema: DynaTodoCreateInputSchema,

@@ -84,13 +84,7 @@ const Search = dynaIcon("M7 2a5 5 0 1 0 0 10A5 5 0 0 0 7 2m4 9 3 3");
 const X = dynaIcon("M3 3l10 10M13 3 3 13");
 
 type ActionName =
-  | "annotate"
-  | "open_source"
-  | "create_codex_task"
-  | "open_codex_task"
-  | "refresh_codex_status"
-  | "list_codex_sessions"
-  | "attach_codex_task";
+  "annotate" | "open_source" | "refresh_codex_status" | "list_codex_sessions" | "attach_codex_task";
 
 type TodoPriority = "critical" | "high" | "normal" | "low";
 type WorkflowStage = "todo" | "executing" | "needs_you" | "completed";
@@ -851,13 +845,6 @@ function readDragItem(dataTransfer: DataTransfer):
   }
 }
 
-interface ActionDescriptor {
-  readonly name: ActionName;
-  readonly label: string;
-  readonly taskId?: string;
-  readonly taskHostId?: string;
-}
-
 type CardViewProps = Omit<DynaCard, "id" | "annotations" | "linkedTasks"> &
   DynaCardUxFields & {
     readonly dashboardId: string;
@@ -865,7 +852,6 @@ type CardViewProps = Omit<DynaCard, "id" | "annotations" | "linkedTasks"> &
     readonly itemId: string;
     readonly searchText: string;
     readonly annotations: readonly DynaAnnotationView[];
-    readonly actions: readonly ActionDescriptor[];
     readonly linkedTasks: readonly DynaTask[];
     readonly workflowStage: WorkflowStage;
     readonly workflowCondition?: string;
@@ -1184,9 +1170,14 @@ function StatusSelect({ card }: { readonly card: CardViewProps }) {
   // keep their options mounted for deterministic keyboard and test behavior.
   const showOptions =
     engaged || controller.view !== "queue" || controller.selectedItemId === card.itemId;
-  return card.archive ? (
-    <span className="dyna-row-status">Archived</span>
-  ) : (
+  if (card.archive || linked) {
+    return (
+      <span className="dyna-row-status" data-dyna-status-item={card.itemId}>
+        {card.archive ? "Archived" : workflowStageLabel(card.workflowStage)}
+      </span>
+    );
+  }
+  return (
     <label className="dyna-status-control">
       <span className="dyna-row-status" aria-hidden="true">
         {workflowStageLabel(card.workflowStage)}
@@ -1214,21 +1205,14 @@ function StatusSelect({ card }: { readonly card: CardViewProps }) {
       >
         {showOptions ? (
           <>
-            <option value="todo" disabled={linked || completed}>
-              {linked ? "To Do — linked to Codex" : "To Do"}
+            <option value="todo" disabled={completed}>
+              To Do
             </option>
-            <option value="executing" disabled={completed}>
-              {linked
-                ? card.workflowStage === "needs_you"
-                  ? "Open in Codex…"
-                  : "In Codex"
-                : "Start in Codex…"}
-            </option>
-            <option value="needs_you" disabled={linked || completed}>
-              {linked ? "Needs You — set by Codex" : "Needs You"}
+            <option value="needs_you" disabled={completed}>
+              Needs You
             </option>
             <option value="completed" disabled={completed}>
-              {linked ? "Verify Done…" : "Done…"}
+              Done…
             </option>
             {completed ? <option value="follow_up">Create follow-up…</option> : null}
           </>
@@ -1334,26 +1318,7 @@ function NoteActions({
 
 function InspectorActions({ card }: { readonly card: CardViewProps }) {
   const controller = useController();
-  const primaryAction = card.actions.find(
-    (action) => action.name === "create_codex_task" || action.name === "open_codex_task",
-  );
-  const sourceAction = card.actions.find((action) => action.name === "open_source");
-  const noteAction = card.actions.find((action) => action.name === "annotate");
-
-  const runAction = (action: ActionDescriptor, trigger: HTMLElement) => {
-    if (action.name === "annotate") {
-      controller.annotate(card.itemId, trigger);
-      return;
-    }
-    void controller.request(
-      card.itemId,
-      card.fingerprint,
-      action.name,
-      action.taskId,
-      action.taskHostId,
-      trigger,
-    );
-  };
+  const hasSourceAction = card.source !== "manual";
 
   return (
     <div className="dyna-inspector-actions">
@@ -1376,26 +1341,8 @@ function InspectorActions({ card }: { readonly card: CardViewProps }) {
             <Plus className="dyna-icon" aria-hidden="true" />
             Create follow-up
           </Button>
-        ) : primaryAction ? (
-          <Button
-            className="dyna-primary-action"
-            data-dyna-action={`${card.itemId}:${primaryAction.name}`}
-            color="primary"
-            size="xs"
-            onClick={(event) => {
-              runAction(primaryAction, event.currentTarget);
-            }}
-            disabled={controller.busy || controller.codexActionsBlocked}
-          >
-            {primaryAction.name === "create_codex_task" ? (
-              <Plus className="dyna-icon" aria-hidden="true" />
-            ) : (
-              <ExternalLink className="dyna-icon" aria-hidden="true" />
-            )}
-            {primaryAction.label}
-          </Button>
         ) : null}
-        {sourceAction && card.sourceUrl ? (
+        {hasSourceAction && card.sourceUrl ? (
           <ExternalResourceLink
             className="dyna-action-link"
             sourceLinkId={card.itemId}
@@ -1404,37 +1351,42 @@ function InspectorActions({ card }: { readonly card: CardViewProps }) {
             <ExternalLink className="dyna-icon" aria-hidden="true" />
             Open source
           </ExternalResourceLink>
-        ) : sourceAction ? (
+        ) : hasSourceAction ? (
           <Button
-            data-dyna-action={`${card.itemId}:${sourceAction.name}`}
+            data-dyna-action={`${card.itemId}:open_source`}
             color="secondary"
             size="xs"
             variant="outline"
             onClick={(event) => {
-              runAction(sourceAction, event.currentTarget);
+              void controller.request(
+                card.itemId,
+                card.fingerprint,
+                "open_source",
+                undefined,
+                undefined,
+                event.currentTarget,
+              );
             }}
             disabled={controller.busy || controller.codexActionsBlocked}
           >
             <ExternalLink className="dyna-icon" aria-hidden="true" />
-            {sourceAction.label}
+            Open source
           </Button>
         ) : null}
-        {noteAction ? (
-          <Button
-            className="dyna-note-action"
-            data-dyna-action={`${card.itemId}:${noteAction.name}`}
-            data-dyna-annotation-item={card.itemId}
-            color="secondary"
-            size="xs"
-            variant="ghost"
-            onClick={(event) => {
-              runAction(noteAction, event.currentTarget);
-            }}
-            disabled={controller.busy || controller.blocked}
-          >
-            Add note
-          </Button>
-        ) : null}
+        <Button
+          className="dyna-note-action"
+          data-dyna-action={`${card.itemId}:annotate`}
+          data-dyna-annotation-item={card.itemId}
+          color="secondary"
+          size="xs"
+          variant="ghost"
+          onClick={(event) => {
+            controller.annotate(card.itemId, event.currentTarget);
+          }}
+          disabled={controller.busy || controller.blocked}
+        >
+          Add note
+        </Button>
       </div>
       <div className="dyna-utility-actions">
         <Button
@@ -1510,11 +1462,7 @@ function DynaContextMenu({
   const controller = useController();
   const menu = useRef<HTMLDivElement | null>(null);
   const actions: ReactNode[] = [];
-  const primaryAction = card?.actions.find(
-    (action) => action.name === "create_codex_task" || action.name === "open_codex_task",
-  );
-  const sourceAction = card?.actions.find((action) => action.name === "open_source");
-  const noteAction = card?.actions.find((action) => action.name === "annotate");
+  const hasSourceAction = card !== undefined && card.source !== "manual";
   const task = card?.linkedTasks.find(
     (candidate) => candidate.taskId === state.taskId && candidate.hostId === state.taskHostId,
   );
@@ -1589,21 +1537,6 @@ function DynaContextMenu({
     );
   } else if (state.kind === "task" && card && task) {
     add(
-      "open-task",
-      "Open task",
-      () => {
-        void controller.request(
-          card.itemId,
-          card.fingerprint,
-          "open_codex_task",
-          task.taskId,
-          task.hostId,
-          state.invoker,
-        );
-      },
-      controller.busy || controller.codexActionsBlocked,
-    );
-    add(
       "refresh-task",
       "Refresh task status",
       () => {
@@ -1638,27 +1571,11 @@ function DynaContextMenu({
         },
         controller.busy || controller.blocked,
       );
-    } else if (primaryAction) {
-      add(
-        "codex",
-        primaryAction.label,
-        () => {
-          void controller.request(
-            card.itemId,
-            card.fingerprint,
-            primaryAction.name as Exclude<ActionName, "annotate">,
-            primaryAction.taskId,
-            primaryAction.taskHostId,
-            state.invoker,
-          );
-        },
-        controller.busy || controller.codexActionsBlocked,
-      );
     }
     add("copy-work", "Copy work prompt", () => {
       void controller.copyContext(card);
     });
-    if (sourceAction) {
+    if (hasSourceAction) {
       add(
         "source",
         "Open source",
@@ -1668,7 +1585,7 @@ function DynaContextMenu({
             void controller.request(
               card.itemId,
               card.fingerprint,
-              sourceAction.name as Exclude<ActionName, "annotate">,
+              "open_source",
               undefined,
               undefined,
               state.invoker,
@@ -1679,16 +1596,14 @@ function DynaContextMenu({
           : controller.busy || controller.codexActionsBlocked,
       );
     }
-    if (noteAction) {
-      add(
-        "note",
-        "Add note",
-        () => {
-          controller.annotate(card.itemId, state.invoker);
-        },
-        controller.busy || controller.blocked,
-      );
-    }
+    add(
+      "note",
+      "Add note",
+      () => {
+        controller.annotate(card.itemId, state.invoker);
+      },
+      controller.busy || controller.blocked,
+    );
     divide();
     if (card.archive) {
       add(
@@ -1929,7 +1844,7 @@ function CodexWork({
     requestInFlight.current = true;
     setAssociating(true);
     setError(undefined);
-    const taskAction = `${card.itemId}:open_codex_task:${selected.taskId}`;
+    const taskAction = `${card.itemId}:refresh_codex_status:${selected.taskId}`;
     pendingFocusAction.current = taskAction;
     try {
       await controller.associateCodexSession(
@@ -3580,26 +3495,6 @@ const dynaComponents: DynaComponentCatalog = {
         </span>
         <div className="dyna-task-actions">
           <Button
-            data-dyna-action={`${props.itemId}:open_codex_task:${props.taskId}`}
-            color="secondary"
-            variant="ghost"
-            size="xs"
-            onClick={(event) => {
-              void controller.request(
-                props.itemId,
-                props.itemFingerprint,
-                "open_codex_task",
-                props.taskId,
-                props.hostId,
-                event.currentTarget,
-              );
-            }}
-            disabled={controller.busy || controller.codexActionsBlocked}
-          >
-            <ExternalLink className="dyna-icon" aria-hidden="true" />
-            Open task
-          </Button>
-          <Button
             data-dyna-action={`${props.itemId}:refresh_codex_status:${props.taskId}`}
             aria-label={`Refresh status for ${props.title}`}
             color="secondary"
@@ -4388,31 +4283,6 @@ function buildExecutiveSummary(
   };
 }
 
-function cardActions(
-  card: DynaCard & DynaCardUxFields,
-  selection: ActionableTaskSelection,
-): readonly ActionDescriptor[] {
-  const linkedTask = selection.task;
-  const sourceActions =
-    card.source === "manual" ? [] : [{ name: "open_source" as const, label: "Open source" }];
-  return linkedTask
-    ? [
-        {
-          name: "open_codex_task",
-          label: selection.condition === "Input needed" ? "Respond in Codex" : "Open Codex",
-          taskId: linkedTask.taskId,
-          taskHostId: linkedTask.hostId,
-        },
-        ...sourceActions,
-        { name: "annotate", label: "Add note" },
-      ]
-    : [
-        { name: "create_codex_task", label: "Start in Codex" },
-        ...sourceActions,
-        { name: "annotate", label: "Add note" },
-      ];
-}
-
 function cardSearchText(card: DynaCard): string {
   const ux = card as DynaCard & DynaCardUxFields;
   return [
@@ -4502,7 +4372,6 @@ function cardViewProps(
       updatedAt: annotation.updatedAt,
       version: annotation.version,
     })),
-    actions: cardActions(cardWithUx, selection),
     linkedTasks,
     workflowStage: cardWorkflowStage(card),
     ...(selection.condition ? { workflowCondition: selection.condition } : {}),
@@ -6698,54 +6567,7 @@ function DynaApp({ app }: { readonly app: App }) {
           return;
         }
 
-        const linked = card.linkedTasks.length > 0;
-        if (linked) {
-          if (target === "todo" || target === "needs_you") {
-            setOperationError(
-              "This status follows the linked Codex task. Open that task to change what happens next.",
-            );
-            return;
-          }
-          const selectedTask = actionableTaskSelection(card).task;
-          if (target === "executing") {
-            if (!selectedTask) {
-              setOperationError("No linked Codex task is available to open.");
-              return;
-            }
-            await dispatchAction(
-              itemId,
-              fingerprint,
-              "open_codex_task",
-              selectedTask.taskId,
-              selectedTask.hostId,
-              trigger,
-            );
-            return;
-          }
-          const unfinishedTask =
-            selectedTask && selectedTask.state !== "succeeded"
-              ? selectedTask
-              : card.linkedTasks.find((task) => task.state !== "succeeded");
-          if (!unfinishedTask) {
-            await refresh(true);
-            setToast("All linked tasks are complete. Status refreshed.");
-            return;
-          }
-          await syncTask(itemId, unfinishedTask.taskId, unfinishedTask.hostId, trigger);
-          return;
-        }
-
-        if (target === "executing") {
-          await dispatchAction(
-            itemId,
-            fingerprint,
-            "create_codex_task",
-            undefined,
-            undefined,
-            trigger,
-          );
-          return;
-        }
+        if (card.linkedTasks.length > 0 || target === "executing") return;
         if (target === "completed") {
           statusTrigger.current = trigger;
           setCompletionOutcome("");

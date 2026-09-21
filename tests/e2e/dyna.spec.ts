@@ -195,7 +195,8 @@ test("opens the complete executive dashboard in the expanded work surface", asyn
   await openDetails(page, "Review the release merge request");
   await expect(page.getByText("Immediate Next Steps", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Open source", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Start in Codex" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start in Codex" })).toHaveCount(0);
+  await expect(page.locator('.dyna-inspector option[value="executing"]')).toHaveCount(0);
   await expect(page.locator(".dyna-inspector")).toBeVisible();
   await expect(page.locator("html")).toHaveAttribute(
     "data-dyna-advertised-display-modes",
@@ -224,7 +225,7 @@ test("opens the complete executive dashboard in the expanded work surface", asyn
   expect(accessibility.violations).toEqual([]);
 });
 
-test("adds an annotation and sends only an opaque Codex action request", async ({ page }) => {
+test("adds an annotation and keeps Codex session launchers unavailable", async ({ page }) => {
   await openDetails(page, "Review the release merge request");
   const detailTrigger = page.locator('[data-dyna-details-item][aria-expanded="true"]');
   const controlledInspector = await detailTrigger.getAttribute("aria-controls");
@@ -360,13 +361,14 @@ test("adds an annotation and sends only an opaque Codex action request", async (
   expect(copiedPrompt).toContain("Recent notes:");
   expect(copiedPrompt).not.toMatch(/viewToken|claimToken|publisherSecret|databasePath|requestId/i);
 
-  await page.getByRole("button", { name: "Start in Codex" }).click();
-  await expect(page.getByRole("button", { name: "Start in Codex" })).toBeFocused();
-  await expect.poll(() => page.locator("html").getAttribute("data-dyna-message-count")).toBe("1");
-  const message = await page.locator("html").getAttribute("data-dyna-last-message");
-  expect(message).toMatch(/Handle Dyna action request [0-9a-f-]{36} with \$flowzone:dyna\./);
-  expect(message).not.toContain("release merge request");
-  expect(message).not.toContain("Create a new Codex task");
+  await expect(
+    page.getByRole("button", {
+      name: /^(Open Codex|Respond in Codex|Start in Codex|Open task)$/u,
+    }),
+  ).toHaveCount(0);
+  await expect(page.locator('[data-dyna-action*="create_codex_task"]')).toHaveCount(0);
+  await expect(page.locator('[data-dyna-action*="open_codex_task"]')).toHaveCount(0);
+  await expect(page.locator("html")).not.toHaveAttribute("data-dyna-message-count", /.+/u);
 });
 
 test("edits and deletes an exact note through compact guarded actions", async ({ page }) => {
@@ -555,7 +557,11 @@ test("loads recent Codex sessions on demand and associates the exact selection",
   });
   await picker.getByRole("button", { name: "Load sessions" }).click();
   await expect(picker).toHaveAttribute("aria-busy", "true");
-  await expect(inspector.getByRole("button", { name: "Start in Codex" })).toBeEnabled();
+  await expect(
+    inspector.getByRole("button", {
+      name: /^(Open Codex|Respond in Codex|Start in Codex|Open task)$/u,
+    }),
+  ).toHaveCount(0);
   await expect(inspector.getByRole("button", { name: "Add note" })).toBeEnabled();
   await expect(inspector.getByRole("button", { name: "Archive item" })).toBeEnabled();
   const sessionSelect = picker.getByRole("combobox", { name: "Codex session" });
@@ -580,7 +586,11 @@ test("loads recent Codex sessions on demand and associates the exact selection",
   await expect(linkedTask.locator("strong")).toHaveText(`${itemNumberPrefix} Review release guard`);
   await expect(codexWork.locator(".dyna-session-picker")).toHaveCount(0);
   await expect(codexWork.getByRole("button", { name: "Link existing session" })).toBeVisible();
-  await expect(linkedTask.getByRole("button", { name: "Open task" })).toBeFocused();
+  await expect(
+    linkedTask.getByRole("button", {
+      name: `Refresh status for ${itemNumberPrefix} Review release guard`,
+    }),
+  ).toBeFocused();
   await expect(page.locator("html")).toHaveAttribute("data-dyna-message-count", "2");
 
   const actionCalls = await page.evaluate(() => {
@@ -933,7 +943,6 @@ test("offers deliberate context actions without replacing native field editing",
   });
   await expect(itemMenu.getByRole("menuitem")).toHaveText([
     "Open details",
-    "Start in Codex",
     "Copy work prompt",
     "Open source",
     "Add note",
@@ -996,7 +1005,7 @@ test("offers deliberate context actions without replacing native field editing",
   ).toBe(false);
   await expect(itemMenu.getByRole("menuitem", { name: "Open details" })).toBeFocused();
   await page.keyboard.press("ArrowDown");
-  await expect(itemMenu.getByRole("menuitem", { name: "Start in Codex" })).toBeFocused();
+  await expect(itemMenu.getByRole("menuitem", { name: "Copy work prompt" })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(detailButton).toBeFocused();
 
@@ -1034,7 +1043,7 @@ test("tailors context actions to Progress tasks and archived items", async ({ pa
   const task = page.locator(".dyna-task").filter({ hasText: "Codex execution 1" });
   await task.locator(":scope > span").click({ button: "right" });
   const taskMenu = page.getByRole("menu", { name: "Actions for :2: Codex execution 1" });
-  await expect(taskMenu.getByRole("menuitem")).toHaveText(["Open task", "Refresh task status"]);
+  await expect(taskMenu.getByRole("menuitem")).toHaveText(["Refresh task status"]);
   await page.keyboard.press("Escape");
   await closeDetails(page);
 
@@ -1677,7 +1686,7 @@ test("keeps Apps SDK actions proportionate while preserving touch targets", asyn
   await page.setViewportSize({ width: 433, height: 800 });
   const firstTitle = (await page.locator(".dyna-row-title").first().textContent()) ?? "";
   await openDetails(page, firstTitle);
-  expectActionScale(await measure('.dyna-inspector button[data-color="primary"]'));
+  expectActionScale(await measure(".dyna-inspector-actions button, .dyna-inspector-actions a"));
   await expect(page.locator(".dyna-inspector h2")).toHaveCSS("font-size", "16px");
   const inspectorActionHeights = await page
     .locator(".dyna-inspector-actions:visible")
@@ -1748,7 +1757,7 @@ test("adds, searches, reprioritizes, and sequences queue items", async ({ page }
     manualInspector.getByRole("button", { name: "Open source", exact: true }),
   ).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Add note" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Start in Codex" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start in Codex" })).toHaveCount(0);
   await openContextDetails(page);
   await expect(page.getByText("Created in Dyna", { exact: true })).toBeVisible();
   await expect(page.getByText("Stored source record", { exact: true })).toHaveCount(0);
@@ -2431,7 +2440,8 @@ test("projects the same items through the Codex progress pipeline and creates fo
   await expect(executing).toBeVisible();
   await expect(executing.getByText("Running", { exact: true })).toBeVisible();
   await expect(executing.getByText(/^Observed /)).toBeVisible();
-  await expect(executing.getByRole("button", { name: "Open task" })).toBeVisible();
+  await expect(executing.getByRole("button", { name: "Open task" })).toHaveCount(0);
+  await expect(executing.getByRole("button", { name: /^Refresh status for /u })).toBeVisible();
 
   await closeDetails(page);
   const needsYouStage = page.locator('.dyna-pipeline-stage[data-workflow-stage="needs_you"]');
@@ -2457,7 +2467,8 @@ test("projects the same items through the Codex progress pipeline and creates fo
       .getByText("Approved the release path and documented the remaining risk."),
   ).toBeVisible();
   await expect(completed.locator(".dyna-session-picker")).toHaveCount(0);
-  await expect(completed.getByRole("button", { name: "Open task" })).toBeVisible();
+  await expect(completed.getByRole("button", { name: "Open task" })).toHaveCount(0);
+  await expect(completed.getByRole("button", { name: /^Refresh status for /u })).toBeVisible();
 
   await page.getByRole("button", { name: "Create follow-up" }).click();
   const followupDialog = page.getByRole("dialog", { name: "Add to the Priority Queue" });
@@ -2582,21 +2593,16 @@ test("requires a one-line outcome before a taskless item can move to Done", asyn
   );
 });
 
-test("keeps linked Codex status controller-owned when Done is selected", async ({ page }) => {
-  await page.goto("/dyna?pipeline=1&task-sync-controller=succeeded");
+test("keeps linked Codex status read-only in the Progress pipeline", async ({ page }) => {
+  await page.goto("/dyna?pipeline=1");
   await openFullDashboard(page);
   await page.getByRole("tab", { name: "Progress pipeline" }).click();
 
   const title = "Additional priority 1";
   const executing = page.locator('.dyna-pipeline-stage[data-workflow-stage="executing"]');
   const card = executing.locator(".dyna-card").filter({ hasText: title });
-  const status = card.getByRole("combobox", { name: `Change status for ${title}` });
-  await expect(status.locator('option[value="todo"]')).toHaveAttribute("disabled", "");
-  await expect(status.locator('option[value="needs_you"]')).toHaveAttribute("disabled", "");
-  await status.selectOption("completed");
-
-  await expect(page.getByRole("dialog", { name: "Mark Item Done" })).toHaveCount(0);
-  await expect(card).toBeVisible();
+  await expect(card.getByRole("combobox", { name: `Change status for ${title}` })).toHaveCount(0);
+  await expect(card.locator(".dyna-status-control")).toHaveCount(0);
   await expect(card.locator(".dyna-row-status")).toHaveText("In Codex");
   const calls = await page.evaluate(() => {
     const host = (
@@ -2606,29 +2612,23 @@ test("keeps linked Codex status controller-owned when Done is selected", async (
     ).__dynaHost;
     return host?.toolCalls ?? [];
   });
-  expect(calls).toContainEqual(
-    expect.objectContaining({
-      name: "dyna_begin_task_sync",
-      arguments: expect.objectContaining({
-        scope: {
-          kind: "task",
-          itemId: expect.any(String),
-          taskId: "pipeline-task-1",
-          hostId: "local",
-        },
-      }),
-    }),
+  expect(calls.some((call) => call.name === "dyna_prepare_action")).toBe(false);
+  expect(calls.some((call) => call.name === "dyna_begin_task_sync")).toBe(false);
+});
+
+test("keeps Queue linked Codex status read-only", async ({ page }) => {
+  await page.goto("/dyna?pipeline=1");
+  await openFullDashboard(page);
+
+  const title = "Additional priority 1";
+  const queueCard = page
+    .locator('.dyna-card[data-presentation="queue"]')
+    .filter({ hasText: title });
+  await expect(queueCard.getByRole("combobox", { name: `Change status for ${title}` })).toHaveCount(
+    0,
   );
-  expect(
-    calls.some(
-      (call) => call.name === "dyna_set_item_status" && call.arguments?.["targetStage"] === "done",
-    ),
-  ).toBe(false);
-  await expect(
-    page
-      .locator('.dyna-pipeline-stage[data-workflow-stage="completed"] .dyna-card')
-      .filter({ hasText: title }),
-  ).toBeVisible({ timeout: 5_000 });
+  await expect(queueCard.locator(".dyna-status-control")).toHaveCount(0);
+  await expect(queueCard.locator(".dyna-row-status")).toHaveText("In Codex");
 });
 
 for (const theme of ["light", "dark"] as const) {
@@ -3155,7 +3155,7 @@ test("keeps mixed-task completion reports in Needs You when another task fails o
   await expect(stage("completed").getByText(title, { exact: true })).toHaveCount(0);
 });
 
-test("routes the primary Codex action to the task that is waiting for input", async ({ page }) => {
+test("does not expose a session launcher for a task waiting for input", async ({ page }) => {
   await page.goto("/dyna?work-activity=1");
   await openFullDashboard(page);
   await expect
@@ -3219,28 +3219,17 @@ test("routes the primary Codex action to the task that is waiting for input", as
   await expect(page.locator("html")).toHaveAttribute("data-dyna-replayed-tool-result-count", "1");
 
   await openDetails(page, title);
-  const respond = page.getByRole("button", { name: "Respond in Codex" });
-  await expect(respond).toBeVisible();
-  await respond.click();
-  await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const host = (
-          window as typeof window & {
-            __dynaHost?: {
-              toolCalls?: { name?: string; arguments?: Record<string, unknown> }[];
-            };
-          }
-        ).__dynaHost;
-        return host?.toolCalls?.find((call) => call.name === "dyna_prepare_action")?.arguments;
-      }),
-    )
-    .toMatchObject({ taskId: "older-waiting-task", taskHostId: "local" });
+  await expect(page.getByRole("button", { name: "Respond in Codex" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Open Codex" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Open task" })).toHaveCount(0);
+  const calls = await page.evaluate(() => {
+    const host = (window as typeof window & { __dynaHost?: { toolCalls?: unknown[] } }).__dynaHost;
+    return host?.toolCalls ?? [];
+  });
+  expect(calls.some((call) => JSON.stringify(call).includes("open_codex_task"))).toBe(false);
 });
 
-test("keeps a reported input request coherent when another linked task has failed", async ({
-  page,
-}) => {
+test("keeps a reported input request visible without a session launcher", async ({ page }) => {
   await page.goto("/dyna?work-activity=1");
   await openFullDashboard(page);
   await expect
@@ -3307,23 +3296,14 @@ test("keeps a reported input request coherent when another linked task has faile
   );
 
   await openDetails(page, title);
-  const respond = page.getByRole("button", { name: "Respond in Codex" });
-  await expect(respond).toBeVisible();
-  await respond.click();
-  await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const host = (
-          window as typeof window & {
-            __dynaHost?: {
-              toolCalls?: { name?: string; arguments?: Record<string, unknown> }[];
-            };
-          }
-        ).__dynaHost;
-        return host?.toolCalls?.find((call) => call.name === "dyna_prepare_action")?.arguments;
-      }),
-    )
-    .toMatchObject({ taskId: "activity-input-task", taskHostId: "local" });
+  await expect(page.getByRole("button", { name: "Respond in Codex" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Open Codex" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Open task" })).toHaveCount(0);
+  const calls = await page.evaluate(() => {
+    const host = (window as typeof window & { __dynaHost?: { toolCalls?: unknown[] } }).__dynaHost;
+    return host?.toolCalls ?? [];
+  });
+  expect(calls.some((call) => JSON.stringify(call).includes("open_codex_task"))).toBe(false);
 });
 
 test("retains searchable work activity and artifacts after archive", async ({ page }) => {
@@ -4333,16 +4313,15 @@ test("pauses mutations when snapshot connectivity is lost", async ({ page }) => 
   await expect(refresh).toBeFocused();
   await openDetails(page, "Review the release merge request");
   await expect(page.getByRole("button", { name: "Add note" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Start in Codex" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Start in Codex" })).toHaveCount(0);
 });
 
-test("reports a rejected action preparation as definitely unsent", async ({ page }) => {
+test("does not prepare removed Codex launchers", async ({ page }) => {
   await page.goto("/dyna?tool-error=dyna_prepare_action");
   await openDetails(page, "Review the release merge request");
-  const createTask = page.getByRole("button", { name: "Start in Codex" });
-  await createTask.click();
-  await expect(page.getByRole("alert")).toContainText("Request was not sent");
-  await expect(createTask).toBeFocused();
+  await expect(
+    page.getByRole("button", { name: /^(Open Codex|Respond in Codex|Start in Codex|Open task)$/u }),
+  ).toHaveCount(0);
   const messages = await page.evaluate(() => {
     const host = (window as typeof window & { __dynaHost?: { messages?: unknown[] } }).__dynaHost;
     return host?.messages ?? [];
@@ -4370,7 +4349,7 @@ test("falls back to an honest read-only dashboard without server-tool capability
   await expect(page.getByText("Confirm the release owner before approval.")).toBeVisible();
   await expect(page.getByRole("button", { name: /^Actions for note from /u })).toBeDisabled();
   await expect(page.getByRole("link", { name: "Open source", exact: true })).toBeEnabled();
-  await expect(page.getByRole("button", { name: "Start in Codex" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Start in Codex" })).toHaveCount(0);
 });
 
 test("disables only Codex-triggering actions when text-message capability is absent", async ({
@@ -4384,21 +4363,5 @@ test("disables only Codex-triggering actions when text-message capability is abs
   await openDetails(page, "Review the release merge request");
   await expect(page.getByRole("button", { name: "Add note" })).toBeEnabled();
   await expect(page.getByRole("link", { name: "Open source", exact: true })).toBeEnabled();
-  await expect(page.getByRole("button", { name: "Start in Codex" })).toBeDisabled();
-});
-
-test("retries an uncertain delivery with the same idempotent request", async ({ page }) => {
-  await page.goto("/dyna?action-error=1");
-  await expect(page.getByRole("heading", { name: "Executive Brief", level: 1 })).toBeVisible();
-  await openDetails(page, "Review the release merge request");
-  await page.getByRole("button", { name: "Start in Codex" }).click();
-  await expect(page.getByRole("alert")).toContainText("delivery is uncertain");
-  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await expect(page.getByRole("alert")).toContainText("delivery is uncertain");
-  const messages = await page.evaluate(() => {
-    const host = (window as typeof window & { __dynaHost?: { messages?: unknown[] } }).__dynaHost;
-    return host?.messages?.map((message) => JSON.stringify(message)) ?? [];
-  });
-  expect(messages).toHaveLength(2);
-  expect(messages[0]).toBe(messages[1]);
+  await expect(page.getByRole("button", { name: "Start in Codex" })).toHaveCount(0);
 });

@@ -87,10 +87,7 @@ try {
   const claim = service.claimTaskSync(begun.summary.runId);
   assert.equal(claim.targets.length, 1);
   assert.equal(claim.targets[0].checkpointVersion, 0);
-  assert.equal(
-    claim.targets[0].expectedTitle,
-    `:${created.itemNumber}: Inspect the release pipeline`,
-  );
+  assert.equal(Object.hasOwn(claim.targets[0], "expectedTitle"), false);
   advance(16_000);
   assert.equal(
     service.beginTaskSyncForView(rendered.viewToken, { kind: "dashboard" }).deliveryRequired,
@@ -545,6 +542,8 @@ try {
     archiveCard.fingerprint,
     {
       requestId: randomUUID(),
+      workAttemptId: randomUUID(),
+      task: { taskId: "task-archive", hostId: "host-local" },
       reason: "no_action_needed",
     },
   );
@@ -566,13 +565,17 @@ try {
     "Shared sync B",
     "Second dashboard observing a shared item",
   );
+  const sharedDashboardC = service.createDashboard(
+    "Shared sync C",
+    "Archived dashboard membership must not reuse a task observation receipt",
+  );
   const { publisher: sharedPublisher, secret: sharedSecret } = service.createPublisher(
     "Shared sync source",
     undefined,
     undefined,
     "local_preview",
   );
-  for (const sharedDashboard of [sharedDashboardA, sharedDashboardB]) {
+  for (const sharedDashboard of [sharedDashboardA, sharedDashboardB, sharedDashboardC]) {
     service.bindSchedule(sharedDashboard.id, sharedPublisher.id, {
       id: "shared-sync-schedule",
       title: "Shared task synchronization",
@@ -626,6 +629,7 @@ try {
 
   const sharedClaimA = beginSharedSync(sharedDashboardA.id);
   const sharedClaimB = beginSharedSync(sharedDashboardB.id);
+  const sharedClaimC = beginSharedSync(sharedDashboardC.id);
   const identicalObservation = {
     taskId: "task-shared",
     checkpointVersion: 0,
@@ -664,11 +668,37 @@ try {
     ],
     unavailable: [],
   });
+  service.submitTaskSyncBatch(sharedClaimC.runId, sharedClaimC.claimToken, {
+    requestId: randomUUID(),
+    observations: [identicalObservation],
+    unavailable: [],
+  });
   assert.equal(
     service.completeTaskSync(sharedClaimA.runId, sharedClaimA.claimToken, {
       requestId: randomUUID(),
     }).summary.state,
     "updated",
+  );
+  const sharedSnapshotC = service.snapshot(sharedDashboardC.id);
+  const sharedCardC = sharedSnapshotC.cards[0];
+  assert.ok(sharedCardC);
+  service.archiveItem(
+    sharedDashboardC.id,
+    sharedCardC.id,
+    sharedSnapshotC.revision,
+    sharedCardC.fingerprint,
+    {
+      requestId: randomUUID(),
+      workAttemptId: randomUUID(),
+      task: { taskId: "task-shared", hostId: "host-shared" },
+      reason: "no_action_needed",
+    },
+  );
+  assert.equal(
+    service.completeTaskSync(sharedClaimC.runId, sharedClaimC.claimToken, {
+      requestId: randomUUID(),
+    }).summary.state,
+    "partial",
   );
   assert.equal(
     service.completeTaskSync(sharedClaimB.runId, sharedClaimB.claimToken, {
@@ -751,7 +781,7 @@ try {
       expectedSuffix: "Keep this canonical task suffix",
     },
   ];
-  const expectedTitles = new Map();
+  const expectedItemNumbers = new Map();
   let captureStabilityItem;
   for (const titleCase of titleProjectionCases) {
     const titleItem = createTodo(service, titleProjectionDashboard.id, titleCase.itemTitle);
@@ -767,10 +797,7 @@ try {
       statusUpdatedAt: observedAt,
       observedAt,
     });
-    expectedTitles.set(
-      titleCase.taskId,
-      canonicalDynaTaskTitle(titleItem.itemNumber, titleCase.expectedSuffix),
-    );
+    expectedItemNumbers.set(titleCase.taskId, titleItem.itemNumber);
     if (titleCase.taskId === "task-title-canonical") captureStabilityItem = titleItem;
   }
   const titleProjectionView = service.render(titleProjectionDashboard.id);
@@ -792,8 +819,66 @@ try {
   const titleProjectionClaim = service.claimTaskSync(titleProjectionRun.summary.runId);
   assert.equal(titleProjectionClaim.targets.length, titleProjectionCases.length);
   for (const target of titleProjectionClaim.targets) {
-    assert.equal(target.expectedTitle, expectedTitles.get(target.taskId));
+    assert.equal(target.itemNumber, expectedItemNumbers.get(target.taskId));
+    assert.equal(Object.hasOwn(target, "expectedTitle"), false);
+    assert.equal(Object.hasOwn(target, "title"), false);
   }
+
+  const unprefixedTarget = titleProjectionClaim.targets.find(
+    (target) => target.taskId === "task-title-unprefixed",
+  );
+  assert.ok(unprefixedTarget);
+  const beforeRejectedTitle = service.snapshot(titleProjectionDashboard.id);
+  const rawObservedAt = advance();
+  assert.throws(
+    () =>
+      service.submitTaskSyncBatch(titleProjectionClaim.runId, titleProjectionClaim.claimToken, {
+        requestId: randomUUID(),
+        observations: [
+          {
+            taskId: unprefixedTarget.taskId,
+            checkpointVersion: unprefixedTarget.checkpointVersion,
+            task: {
+              taskId: unprefixedTarget.taskId,
+              hostId: unprefixedTarget.hostId,
+              title: "Preserve this unprefixed task suffix",
+              state: "running",
+              statusUpdatedAt: rawObservedAt,
+              observedAt: rawObservedAt,
+            },
+            summaryCoverage: "available",
+          },
+        ],
+        unavailable: [],
+      }),
+    (error) => error?.code === "invalid_input",
+  );
+  assert.equal(
+    service.taskSyncStatusForView(titleProjectionView.viewToken, titleProjectionRun.summary.runId)
+      .summary.processedTasks,
+    0,
+  );
+  const afterRejectedTitle = service.snapshot(titleProjectionDashboard.id);
+  assert.equal(afterRejectedTitle.revision, beforeRejectedTitle.revision);
+  assert.equal(
+    afterRejectedTitle.cards.find((card) => card.id === unprefixedTarget.itemId)?.linkedTasks[0]
+      ?.title,
+    "Preserve this unprefixed task suffix",
+  );
+
+  service.submitTaskSyncBatch(titleProjectionClaim.runId, titleProjectionClaim.claimToken, {
+    requestId: randomUUID(),
+    observations: titleProjectionClaim.targets.map((target) => ({
+      taskId: target.taskId,
+      checkpointVersion: target.checkpointVersion,
+      task: status(target.itemNumber, target.taskId, target.hostId, "running"),
+      summaryCoverage: "available",
+    })),
+    unavailable: [],
+  });
+  service.completeTaskSync(titleProjectionClaim.runId, titleProjectionClaim.claimToken, {
+    requestId: randomUUID(),
+  });
 
   stdout.write(
     `${JSON.stringify({
@@ -853,7 +938,7 @@ try {
   migrationService.close();
   migrationService = undefined;
   const verified = new DatabaseSync(databasePath, { readOnly: true });
-  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 10);
+  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 11);
   assert.deepEqual(
     {
       ...verified

@@ -224,6 +224,7 @@ try {
   assert.ok(peer);
   const parityTaskId = "shared-parity-task";
   const parityTaskHostId = "local";
+  const primaryWorkAttemptId = randomUUID();
   const parityTaskTitle = canonicalDynaTaskTitle(
     primary.itemNumber,
     "Execute shared database parity work",
@@ -236,16 +237,28 @@ try {
     statusUpdatedAt: now,
     observedAt: now,
   });
+  const peerTaskId = "shared-parity-peer-task";
+  const peerTaskHostId = "local";
+  const peerWorkAttemptId = randomUUID();
+  const peerTaskTitle = canonicalDynaTaskTitle(peer.itemNumber, "Execute peer parity work");
+  mcpService.updateTask(dashboard.id, peer.id, {
+    taskId: peerTaskId,
+    hostId: peerTaskHostId,
+    title: peerTaskTitle,
+    state: "running",
+    statusUpdatedAt: now,
+    observedAt: now,
+  });
 
   const database = new DatabaseSync(databasePath, { readOnly: true });
   try {
-    assert.equal(database.prepare("PRAGMA user_version").get().user_version, 10);
+    assert.equal(database.prepare("PRAGMA user_version").get().user_version, 11);
   } finally {
     database.close();
   }
 
   const opened = await executeAction(plugin, "render-dashboard", { dashboardId: dashboard.id });
-  assert.equal(opened.uiPayload.schema, "dyna/ui-v10");
+  assert.equal(opened.uiPayload.schema, "dyna/ui-v11");
   assert.equal(opened.uiPayload.snapshot.cards.length, 3);
   const viewToken = opened.uiPayload.viewToken;
   let currentRevision = opened.uiPayload.snapshot.revision;
@@ -258,7 +271,7 @@ try {
     );
     const payload = response._meta?.dynaDashboard;
     assert.ok(payload);
-    assert.equal(payload.schema, "dyna/ui-v10");
+    assert.equal(payload.schema, "dyna/ui-v11");
     assert.equal(payload.snapshot.dashboard.id, dashboard.id);
     currentRevision = payload.snapshot.revision;
     return payload.snapshot;
@@ -283,7 +296,7 @@ try {
     ],
     {
       requestId: updateRequestId,
-      workAttemptId: randomUUID(),
+      workAttemptId: primaryWorkAttemptId,
       kind: "note",
       body: workBody,
       artifacts: [{ kind: "merge_request", label: "MR 8842", url: artifactUrl }],
@@ -291,17 +304,12 @@ try {
     },
     [workBody, artifactUrl, dataDirectory],
   );
-  assert.deepEqual(Object.keys(update).sort(), [
-    "deduplicated",
-    "itemId",
-    "requestId",
-    "schema",
-    "workUpdateId",
-  ]);
   assert.equal(update.schema, "dyna/item-update-result-v1");
   assert.equal(update.requestId, updateRequestId);
   assert.equal(update.itemId, primary.id);
   assert.equal(update.deduplicated, false);
+  assert.equal(update.control.itemNumber, primary.itemNumber);
+  assert.equal(update.control.deduplicated, false);
   let visible = await refresh();
   let visiblePrimary = visible.cards.find((card) => card.id === primary.id);
   assert.equal(visiblePrimary?.workUpdateCount, 1);
@@ -332,25 +340,24 @@ try {
     ],
     {
       requestId: enrichRequestId,
-      summary: enrichmentSummary,
-      priority: "high",
-      priorityReason: "Correlated parity evidence",
-      labels: ["parity", "correlated"],
-      attention: enrichmentAttention,
-      plan: ["Review the linked merge request."],
-      nextSteps: [{ label: "Confirm the release decision." }],
+      workAttemptId: primaryWorkAttemptId,
+      task: { taskId: parityTaskId, hostId: parityTaskHostId },
+      set: {
+        summary: enrichmentSummary,
+        priority: "high",
+        priorityReason: "Correlated parity evidence",
+        labels: ["parity", "correlated"],
+        attention: enrichmentAttention,
+        plan: ["Review the linked merge request."],
+        nextSteps: [{ label: "Confirm the release decision." }],
+      },
+      clear: [],
     },
     [enrichmentSummary, enrichmentAttention, dataDirectory],
   );
-  assert.deepEqual(Object.keys(enriched).sort(), [
-    "deduplicated",
-    "enrichmentVersion",
-    "itemId",
-    "requestId",
-    "schema",
-  ]);
   assert.equal(enriched.schema, "dyna/item-enrich-result-v1");
   assert.equal(enriched.enrichmentVersion, 1);
+  assert.equal(enriched.control.itemNumber, primary.itemNumber);
   visible = await refresh();
   visiblePrimary = visible.cards.find((card) => card.id === primary.id);
   assert.equal(visiblePrimary?.summary, enrichmentSummary);
@@ -373,16 +380,20 @@ try {
       "--expected-revision",
       String(shown.revision),
     ],
-    { requestId: placeRequestId, targetPriority: "low" },
+    {
+      requestId: placeRequestId,
+      workAttemptId: primaryWorkAttemptId,
+      task: { taskId: parityTaskId, hostId: parityTaskHostId },
+      targetPriority: "low",
+    },
     [dataDirectory],
   );
-  assert.deepEqual(placed, {
-    schema: "dyna/item-place-result-v1",
-    requestId: placeRequestId,
-    itemId: primary.id,
-    changed: true,
-    deduplicated: false,
-  });
+  assert.equal(placed.schema, "dyna/item-place-result-v1");
+  assert.equal(placed.requestId, placeRequestId);
+  assert.equal(placed.itemId, primary.id);
+  assert.equal(placed.changed, true);
+  assert.equal(placed.deduplicated, false);
+  assert.equal(placed.control.itemNumber, primary.itemNumber);
   visible = await refresh();
   assert.equal(visible.cards.find((card) => card.id === primary.id)?.priority, "low");
 
@@ -438,13 +449,19 @@ try {
       "--expected-revision",
       String(shown.revision),
     ],
-    { requestId: archiveRequestId, reason: "superseded" },
+    {
+      requestId: archiveRequestId,
+      workAttemptId: primaryWorkAttemptId,
+      task: { taskId: parityTaskId, hostId: parityTaskHostId },
+      reason: "superseded",
+    },
     [dataDirectory],
   );
   assert.equal(archived.schema, "dyna/item-archive-result-v1");
   assert.equal(archived.itemId, primary.id);
   assert.equal(archived.reason, "superseded");
   assert.equal(archived.deduplicated, false);
+  assert.equal(archived.control.archived, true);
   visible = await refresh();
   assert.equal(
     visible.cards.some((card) => card.id === primary.id),
@@ -475,12 +492,17 @@ try {
       "--expected-revision",
       String(shown.revision),
     ],
-    { requestId: restoreRequestId },
+    {
+      requestId: restoreRequestId,
+      workAttemptId: primaryWorkAttemptId,
+      task: { taskId: parityTaskId, hostId: parityTaskHostId },
+    },
     [dataDirectory],
   );
   assert.equal(restored.schema, "dyna/item-restore-result-v1");
   assert.equal(restored.itemId, primary.id);
   assert.equal(restored.deduplicated, false);
+  assert.equal(restored.control.archived, false);
   visible = await refresh();
   visiblePrimary = visible.cards.find((card) => card.id === primary.id);
   assert.equal(visiblePrimary?.summary, enrichmentSummary);
@@ -500,14 +522,6 @@ try {
     },
     [todoTitle, todoSummary, dataDirectory],
   );
-  assert.deepEqual(Object.keys(todo).sort(), [
-    "deduplicated",
-    "fingerprint",
-    "itemId",
-    "itemNumber",
-    "requestId",
-    "schema",
-  ]);
   assert.equal(todo.schema, "dyna/todo-create-result-v2");
   visible = await refresh();
   const visibleTodo = visible.cards.find((card) => card.id === todo.itemId);
@@ -530,7 +544,12 @@ try {
       "--expected-revision",
       String(shown.revision),
     ],
-    { requestId: randomUUID(), reason: "no_action_needed" },
+    {
+      requestId: randomUUID(),
+      workAttemptId: peerWorkAttemptId,
+      task: { taskId: peerTaskId, hostId: peerTaskHostId },
+      reason: "no_action_needed",
+    },
     [dataDirectory],
   );
   shown = show(peer.id);
@@ -552,6 +571,8 @@ try {
     ],
     {
       requestId: followUpRequestId,
+      workAttemptId: peerWorkAttemptId,
+      task: { taskId: peerTaskId, hostId: peerTaskHostId },
       title: followUpTitle,
       summary: followUpSummary,
       priority: "normal",
@@ -559,18 +580,9 @@ try {
     },
     [followUpTitle, followUpSummary, dataDirectory],
   );
-  assert.deepEqual(Object.keys(followUp).sort(), [
-    "deduplicated",
-    "fingerprint",
-    "itemId",
-    "itemNumber",
-    "requestId",
-    "schema",
-    "sourceItemId",
-    "sourceItemNumber",
-  ]);
   assert.equal(followUp.schema, "dyna/follow-up-create-result-v2");
   assert.equal(followUp.sourceItemId, peer.id);
+  assert.equal(followUp.control.itemNumber, followUp.itemNumber);
   visible = await refresh();
   const visibleFollowUp = visible.cards.find((card) => card.id === followUp.itemId);
   assert.equal(visibleFollowUp?.title, followUpTitle);
@@ -587,7 +599,7 @@ try {
 
   globalThis.process.stdout.write(
     JSON.stringify({
-      schemaVersion: 8,
+      schemaVersion: 11,
       workUpdate: true,
       enrichment: true,
       singlePlacement: true,

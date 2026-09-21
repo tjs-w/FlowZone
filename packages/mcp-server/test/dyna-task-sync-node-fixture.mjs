@@ -29,7 +29,6 @@ const target = {
   hostId: "local",
   checkpointVersion: 0,
   afterCursor: "opaque-cursor",
-  expectedTitle: ":184: Restore release path",
 };
 const calls = [];
 const service = {

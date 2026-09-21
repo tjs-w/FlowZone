@@ -263,6 +263,8 @@ try {
   const beforeArchive = store.showItem(dashboard.id, item.id);
   store.archiveItemFromCli(dashboard.id, item.id, beforeArchive.revision, item.fingerprint, {
     requestId: randomUUID(),
+    workAttemptId: randomUUID(),
+    task: { taskId: "inside-task", hostId: "local" },
     reason: "invalid",
   });
   const archivedArtifactMatch = store.snapshot(dashboard.id, "evidence-8842", "archive").cards[0];

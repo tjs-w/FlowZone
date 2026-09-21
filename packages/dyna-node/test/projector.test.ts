@@ -49,7 +49,7 @@ function update(
 }
 
 describe("Dyna lifecycle projection", () => {
-  test("maps manual lifecycle only when no Codex task is linked", () => {
+  test("maps manual lifecycle when no Codex task is linked", () => {
     expect(projectDynaItemState(input()).workflowState).toBe("todo");
     expect(projectDynaItemState(input({ userWorkflowStage: "needs_you" })).workflowState).toBe(
       "attention",
@@ -57,6 +57,44 @@ describe("Dyna lifecycle projection", () => {
     expect(projectDynaItemState(input({ userWorkflowStage: "done" })).workflowState).toBe(
       "completed",
     );
+  });
+
+  test("lets an explicit manual Done close the item without certifying linked tasks", () => {
+    const projected = projectDynaItemState(
+      input({
+        userWorkflow: {
+          stage: "done",
+          outcome: "The release decision was recorded manually.",
+          createdAt: "2026-09-16T18:30:00.000Z",
+          createdAtMs: Date.parse("2026-09-16T18:30:00.000Z"),
+        },
+        tasks: [
+          task("succeeded", {
+            taskId: "task-old",
+            outcome: "An older task completed.",
+            statusUpdatedAt: "2026-09-01T12:00:00.000Z",
+            statusUpdatedAtMs: Date.parse("2026-09-01T12:00:00.000Z"),
+          }),
+          task("failed", { taskId: "task-current" }),
+        ],
+        workUpdates: [
+          update("blocked", {
+            taskId: "task-current",
+            body: "The linked task is still blocked.",
+          }),
+        ],
+      }),
+    );
+
+    expect(projected).toEqual({
+      effectivePriority: "normal",
+      effectiveLeadershipScore: 0,
+      workflowState: "completed",
+      blocked: false,
+      completedAt: "2026-09-16T18:30:00.000Z",
+      completedAtMs: Date.parse("2026-09-16T18:30:00.000Z"),
+      outcome: "The release decision was recorded manually.",
+    });
   });
 
   test.each([

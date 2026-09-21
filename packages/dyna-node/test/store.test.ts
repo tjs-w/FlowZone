@@ -28,7 +28,7 @@ describe("DynaStore lifecycle", () => {
     });
   });
 
-  test("changes taskless workflow status without fabricating linked Codex state", () => {
+  test("changes workflow status without fabricating linked Codex state", () => {
     const fixture = resolve(import.meta.dir, "manual-workflow-node-fixture.mjs");
     const result = spawnSync("node", [fixture], { encoding: "utf8" });
     expect(result.status, result.stderr).toBe(0);
@@ -37,6 +37,8 @@ describe("DynaStore lifecycle", () => {
       exactReplay: true,
       staleAndConflictGuards: true,
       linkedTaskAuthority: true,
+      linkedManualCompletion: true,
+      linkedManualRetention: true,
       creationRaceGuard: true,
       manualCompletion: true,
       terminalCompletion: true,

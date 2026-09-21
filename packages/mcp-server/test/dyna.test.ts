@@ -74,7 +74,19 @@ describe("Dyna architecture boundaries", () => {
     expect(cliActor).toContain('kind: "codex_task"');
     expect(cliActor).toContain('"dashboard:read"');
     expect(cliActor).toContain('"item:read"');
-    expect(cliActor).toContain('"item:write"');
+    for (const capability of [
+      "work:update",
+      "work:enrich",
+      "work:complete",
+      "annotation:manage",
+      "item:organize",
+      "item:lifecycle",
+      "follow-up:create",
+      "todo:create",
+    ]) {
+      expect(cliActor).toContain(`"${capability}"`);
+    }
+    expect(cliActor).not.toContain('"item:write"');
     expect(cliActor).not.toMatch(
       /publisher:|dashboard:manage|view:interact|action:execute|backup/u,
     );
@@ -94,7 +106,14 @@ describe("Dyna architecture boundaries", () => {
       "dashboard:read",
       "dashboard:manage",
       "item:read",
-      "item:write",
+      "work:update",
+      "work:enrich",
+      "work:complete",
+      "annotation:manage",
+      "item:organize",
+      "item:lifecycle",
+      "follow-up:create",
+      "todo:create",
       "publisher:publish",
       "publisher:manage",
       "view:interact",
@@ -102,6 +121,7 @@ describe("Dyna architecture boundaries", () => {
     ]) {
       expect(mcpActor).toContain(`"${capability}"`);
     }
+    expect(mcpActor).not.toContain('"item:write"');
     expect(mcpActor).not.toContain('"maintenance:backup"');
 
     const applicationService = readFileSync(

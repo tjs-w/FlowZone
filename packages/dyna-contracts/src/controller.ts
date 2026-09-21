@@ -5,7 +5,6 @@ import {
   DynaItemNumberSchema,
   DynaTaskStatusSchema,
   DynaTaskSyncSummarySchema,
-  DynaTaskTitleSchema,
 } from "@flowzone/dyna-contracts";
 
 const IdentifierSchema = z.string().trim().min(1).max(512);
@@ -21,7 +20,6 @@ export const DynaTaskSyncTargetSchema = z
     checkpointVersion: z.number().int().nonnegative(),
     afterCursor: z.string().trim().min(1).max(2_048).optional(),
     lastTurnId: IdentifierSchema.optional(),
-    expectedTitle: DynaTaskTitleSchema,
   })
   .strict();
 export type DynaTaskSyncTarget = z.infer<typeof DynaTaskSyncTargetSchema>;

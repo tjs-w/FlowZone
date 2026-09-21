@@ -291,7 +291,7 @@ if (!isMainThread) {
     assert.equal(legacyRetry.deduplicated, true);
     migrated.close();
     const migratedDatabase = new DatabaseSync(migrationPath, { readOnly: true });
-    assert.equal(migratedDatabase.prepare("PRAGMA user_version").get().user_version, 10);
+    assert.equal(migratedDatabase.prepare("PRAGMA user_version").get().user_version, 11);
     assert.deepEqual(
       {
         ...migratedDatabase

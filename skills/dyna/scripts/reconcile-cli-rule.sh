@@ -89,7 +89,7 @@ dyna_render_rule() {
     '    pattern = [' \
     "        \"$DYNA_RULE_LAUNCHER_LITERAL\"," \
     '        "work",' \
-    '        ["update", "enrich"],' \
+    '        ["update", "enrich", "complete"],' \
     '    ],' \
     '    decision = "allow",' \
     '    justification = "Allow the installed bounded Dyna CLI to record durable item work.",' \
@@ -98,8 +98,18 @@ dyna_render_rule() {
     'prefix_rule(' \
     '    pattern = [' \
     "        \"$DYNA_RULE_LAUNCHER_LITERAL\"," \
+    '        "annotation",' \
+    '        ["add", "edit", "delete"],' \
+    '    ],' \
+    '    decision = "allow",' \
+    '    justification = "Allow the installed bounded Dyna CLI to manage task-attributed item annotations.",' \
+    ')' \
+    '' \
+    'prefix_rule(' \
+    '    pattern = [' \
+    "        \"$DYNA_RULE_LAUNCHER_LITERAL\"," \
     '        "organize",' \
-    '        ["place", "place-many"],' \
+    '        "place",' \
     '    ],' \
     '    decision = "allow",' \
     '    justification = "Allow the installed bounded Dyna CLI to apply explicitly requested queue placement.",' \
@@ -113,16 +123,6 @@ dyna_render_rule() {
     '    ],' \
     '    decision = "allow",' \
     '    justification = "Allow the installed bounded Dyna CLI to apply explicitly requested archive lifecycle changes.",' \
-    ')' \
-    '' \
-    'prefix_rule(' \
-    '    pattern = [' \
-    "        \"$DYNA_RULE_LAUNCHER_LITERAL\"," \
-    '        "todo",' \
-    '        "create",' \
-    '    ],' \
-    '    decision = "allow",' \
-    '    justification = "Allow the installed bounded Dyna CLI to create an explicitly requested active to-do.",' \
     ')' \
     '' \
     'prefix_rule(' \

@@ -58247,6 +58247,13 @@ var DynaTaskStatusBaseSchema = external_exports.object({
   observedAt: TimestampSchema3
 }).strict();
 var DynaOneLineOutcomeSchema = external_exports.string().trim().min(1).max(200).regex(/^[^\r\n]+$/, "A Codex task outcome must be exactly one line.");
+var DynaWorkTaskAttributionSchema = external_exports.object({
+  taskId: IdentifierSchema3,
+  hostId: IdentifierSchema3
+}).strict();
+var DynaAttributedTaskSchema = DynaWorkTaskAttributionSchema.extend({
+  title: DynaTaskTitleSchema.optional()
+}).strict();
 var DynaUserWorkflowStageSchema = external_exports.enum(["todo", "needs_you", "done"]);
 var DynaSetItemStatusInputSchema = external_exports.object({
   viewToken: external_exports.string().min(32).max(128),
@@ -58278,6 +58285,8 @@ var DynaUserWorkflowEventSchema = external_exports.object({
   originDashboardId: external_exports.uuid(),
   targetStage: DynaUserWorkflowStageSchema,
   outcome: DynaOneLineOutcomeSchema.optional(),
+  task: DynaAttributedTaskSchema.optional(),
+  workAttemptId: external_exports.uuid().optional(),
   createdAt: TimestampSchema3
 }).strict().superRefine((event, context) => {
   if (event.targetStage === "done" && !event.outcome) {
@@ -58292,6 +58301,13 @@ var DynaUserWorkflowEventSchema = external_exports.object({
       code: "custom",
       message: "Only a completed Dyna workflow event can carry an outcome.",
       path: ["outcome"]
+    });
+  }
+  if (event.task === void 0 !== (event.workAttemptId === void 0)) {
+    context.addIssue({
+      code: "custom",
+      message: "Task-attributed workflow events require both task and work-attempt identity.",
+      path: event.task ? ["workAttemptId"] : ["task"]
     });
   }
 });
@@ -58403,10 +58419,32 @@ var DynaWorkStateSchema = external_exports.enum([
   "completion_reported",
   "handoff"
 ]);
-var DynaWorkTaskAttributionSchema = external_exports.object({
-  taskId: IdentifierSchema3,
-  hostId: IdentifierSchema3
+var DynaTaskMutationAttributionSchema = external_exports.object({
+  requestId: external_exports.uuid(),
+  workAttemptId: external_exports.uuid(),
+  task: DynaWorkTaskAttributionSchema
 }).strict();
+function validateCompletionAttribution(value, context) {
+  const hasTask = value.completionTask !== void 0;
+  const hasAttempt = value.completionWorkAttemptId !== void 0;
+  if (value.completionAuthority === "dyna_task") {
+    if (!hasTask || !hasAttempt) {
+      context.addIssue({
+        code: "custom",
+        message: "Task-authored Dyna completion requires task and work-attempt attribution.",
+        path: !hasTask ? ["completionTask"] : ["completionWorkAttemptId"]
+      });
+    }
+    return;
+  }
+  if (hasTask || hasAttempt) {
+    context.addIssue({
+      code: "custom",
+      message: "Only task-authored Dyna completion can carry task attribution.",
+      path: hasTask ? ["completionTask"] : ["completionWorkAttemptId"]
+    });
+  }
+}
 var DynaWorkUpdateInputSchema = external_exports.object({
   requestId: external_exports.uuid(),
   workAttemptId: external_exports.uuid(),
@@ -58414,17 +58452,9 @@ var DynaWorkUpdateInputSchema = external_exports.object({
   body: external_exports.string().trim().min(1).max(1e3),
   outcome: DynaOneLineOutcomeSchema.optional(),
   artifacts: external_exports.array(DynaArtifactRefSchema).max(4).default([]),
-  task: DynaWorkTaskAttributionSchema.optional()
+  task: DynaWorkTaskAttributionSchema,
+  supersedesWorkUpdateId: external_exports.uuid().optional()
 }).strict().superRefine((input, context) => {
-  if (["progress", "needs_input", "blocked", "completion_reported", "handoff"].includes(
-    input.kind
-  ) && !input.task) {
-    context.addIssue({
-      code: "custom",
-      message: "A lifecycle work update requires a controller-verified linked task.",
-      path: ["task"]
-    });
-  }
   if (input.kind === "completion_reported" && !input.outcome) {
     context.addIssue({
       code: "custom",
@@ -58450,9 +58480,8 @@ var DynaWorkUpdateSchema = external_exports.object({
   body: external_exports.string().trim().min(1).max(1e3),
   outcome: DynaOneLineOutcomeSchema.optional(),
   artifacts: external_exports.array(DynaArtifactRefSchema).max(4),
-  task: DynaWorkTaskAttributionSchema.extend({
-    title: DynaTaskTitleSchema.optional()
-  }).strict().optional(),
+  task: DynaAttributedTaskSchema.optional(),
+  supersedesWorkUpdateId: external_exports.uuid().optional(),
   createdAt: TimestampSchema3
 }).strict().superRefine((update, context) => {
   if (update.kind === "completion_reported" && !update.outcome) {
@@ -58507,8 +58536,36 @@ var DynaAnnotationSchema = external_exports.object({
   body: external_exports.string().trim().min(1).max(1e3),
   createdAt: TimestampSchema3,
   updatedAt: TimestampSchema3,
-  version: external_exports.number().int().positive()
-}).strict();
+  version: external_exports.number().int().positive(),
+  task: DynaAttributedTaskSchema.optional(),
+  workAttemptId: external_exports.uuid().optional()
+}).strict().superRefine((annotation, context) => {
+  if (annotation.task === void 0 !== (annotation.workAttemptId === void 0)) {
+    context.addIssue({
+      code: "custom",
+      message: "Task-attributed annotations require both task and work-attempt identity.",
+      path: annotation.task ? ["workAttemptId"] : ["task"]
+    });
+  }
+});
+var DynaAnnotationEventSchema = external_exports.object({
+  id: external_exports.uuid(),
+  annotationId: external_exports.uuid(),
+  itemId: external_exports.uuid(),
+  operation: external_exports.enum(["create", "edit", "delete"]),
+  version: external_exports.number().int().positive(),
+  occurredAt: TimestampSchema3,
+  task: DynaAttributedTaskSchema.optional(),
+  workAttemptId: external_exports.uuid().optional()
+}).strict().superRefine((event, context) => {
+  if (event.task === void 0 !== (event.workAttemptId === void 0)) {
+    context.addIssue({
+      code: "custom",
+      message: "Task-attributed annotation events require both task and work-attempt identity.",
+      path: event.task ? ["workAttemptId"] : ["task"]
+    });
+  }
+});
 var DynaAnnotationMutationBaseSchema = external_exports.object({
   viewToken: external_exports.string().min(32).max(128),
   itemId: external_exports.uuid(),
@@ -58587,10 +58644,12 @@ var DynaItemHistorySchema = external_exports.object({
     }).strict()
   ).max(50),
   statusChanges: external_exports.array(DynaUserWorkflowEventSchema).max(50),
+  annotationEvents: external_exports.array(DynaAnnotationEventSchema).max(50).default([]),
   workUpdates: external_exports.array(DynaWorkUpdateSchema).max(50),
   archiveEventsNextCursor: DynaPageCursorSchema.optional(),
   orderHistoryNextCursor: DynaPageCursorSchema.optional(),
   statusHistoryNextCursor: DynaPageCursorSchema.optional(),
+  annotationEventsNextCursor: DynaPageCursorSchema.optional(),
   workUpdatesNextCursor: DynaPageCursorSchema.optional()
 }).strict().superRefine(validateFollowUpReference);
 var DynaWorkActivityPageSchema = external_exports.object({
@@ -58663,6 +58722,9 @@ var DynaCardSchema = external_exports.object({
   workflowState: external_exports.enum(["todo", "executing", "paused", "attention", "completed"]),
   completedAt: TimestampSchema3.optional(),
   outcome: external_exports.string().trim().min(1).max(200).optional(),
+  completionAuthority: external_exports.enum(["dyna_user", "dyna_task", "native_controller"]).optional(),
+  completionTask: DynaAttributedTaskSchema.optional(),
+  completionWorkAttemptId: external_exports.uuid().optional(),
   followUpOfItemId: external_exports.uuid().optional(),
   followUpOfItemNumber: DynaItemNumberSchema.optional(),
   attention: external_exports.string().trim().min(1).max(500).optional(),
@@ -58680,9 +58742,9 @@ var DynaCardSchema = external_exports.object({
   titleSyncNeeded: external_exports.boolean().default(false),
   linkedTasks: external_exports.array(DynaTaskStatusSchema).max(8),
   archive: DynaArchiveStateSchema.optional()
-}).strict().superRefine(validateFollowUpReference);
+}).strict().superRefine(validateFollowUpReference).superRefine(validateCompletionAttribution);
 var DynaDashboardSnapshotSchema = external_exports.object({
-  schema: external_exports.literal("dyna/snapshot-v8"),
+  schema: external_exports.literal("dyna/snapshot-v9"),
   dashboard: DynaDashboardSchema,
   generatedAt: TimestampSchema3,
   query: external_exports.string().max(500),
@@ -58702,7 +58764,7 @@ var DynaDashboardSnapshotSchema = external_exports.object({
   taskSync: DynaTaskSyncSummarySchema.optional()
 }).strict();
 var DynaUiPayloadSchema = external_exports.object({
-  schema: external_exports.literal("dyna/ui-v10"),
+  schema: external_exports.literal("dyna/ui-v11"),
   viewToken: external_exports.string().min(32).max(128),
   snapshot: DynaDashboardSnapshotSchema
 }).strict();
@@ -58764,6 +58826,9 @@ var DynaItemSearchBriefSchema = external_exports.object({
   plan: external_exports.array(external_exports.string().trim().min(1).max(200)).max(4),
   nextSteps: external_exports.array(DynaNextStepSchema).max(4),
   outcome: external_exports.string().trim().min(1).max(200).optional(),
+  completionAuthority: external_exports.enum(["dyna_user", "dyna_task", "native_controller"]).optional(),
+  completionTask: DynaAttributedTaskSchema.optional(),
+  completionWorkAttemptId: external_exports.uuid().optional(),
   workState: DynaWorkStateSchema.optional(),
   workUpdates: external_exports.array(DynaWorkUpdateSchema).max(1),
   workUpdateCount: external_exports.number().int().nonnegative(),
@@ -58773,7 +58838,7 @@ var DynaItemSearchBriefSchema = external_exports.object({
   titleSyncNeeded: external_exports.boolean().default(false),
   linkedTasks: external_exports.array(DynaTaskStatusSchema).max(8),
   archive: DynaArchiveStateSchema.optional()
-}).strict().superRefine(validateFollowUpReference);
+}).strict().superRefine(validateFollowUpReference).superRefine(validateCompletionAttribution);
 var DynaItemSearchResultSchema = external_exports.object({
   schema: external_exports.literal("dyna/item-search-result-v3"),
   dashboardId: external_exports.uuid(),
@@ -58809,8 +58874,65 @@ var DynaWorkEnrichInputSchema = external_exports.object({
 }).strict().refine((input) => Object.keys(input).some((key) => key !== "requestId"), {
   message: "An enrichment must include at least one replacement field."
 });
-var DynaOrganizePlaceInputSchema = external_exports.object({
-  requestId: external_exports.uuid(),
+var DynaEnrichmentFieldSchema = external_exports.enum([
+  "summary",
+  "priority",
+  "priorityReason",
+  "dueAt",
+  "labels",
+  "people",
+  "attention",
+  "plan",
+  "nextSteps"
+]);
+var DynaTaskEnrichmentSetSchema = external_exports.object({
+  summary: DynaPublishedItemSchema.shape.summary.optional(),
+  priority: DynaPrioritySchema.optional(),
+  priorityReason: DynaPublishedItemSchema.shape.priorityReason.optional(),
+  dueAt: DynaPublishedItemSchema.shape.dueAt.optional(),
+  labels: DynaPublishedItemSchema.shape.labels.optional(),
+  people: external_exports.array(DynaPersonSignalSchema).max(8).optional(),
+  attention: DynaPublishedItemSchema.shape.attention.optional(),
+  plan: DynaPublishedItemSchema.shape.plan.optional(),
+  nextSteps: external_exports.array(DynaNextStepSchema).max(4).optional()
+}).strict().refine((value) => Object.keys(value).length > 0, {
+  message: "An enrichment set must contain at least one field."
+});
+var DynaTaskWorkEnrichInputSchema = DynaTaskMutationAttributionSchema.extend({
+  set: DynaTaskEnrichmentSetSchema.optional(),
+  clear: external_exports.array(DynaEnrichmentFieldSchema).max(DynaEnrichmentFieldSchema.options.length).default([]).superRefine((fields, context) => {
+    const seen = /* @__PURE__ */ new Set();
+    for (const [index, field] of fields.entries()) {
+      if (seen.has(field)) {
+        context.addIssue({
+          code: "custom",
+          message: "An enrichment field can be cleared only once.",
+          path: [index]
+        });
+      }
+      seen.add(field);
+    }
+  })
+}).strict().superRefine((input, context) => {
+  if (!input.set && input.clear.length === 0) {
+    context.addIssue({
+      code: "custom",
+      message: "A task enrichment must set or clear at least one field.",
+      path: ["set"]
+    });
+    return;
+  }
+  for (const field of input.clear) {
+    if (input.set && Object.hasOwn(input.set, field)) {
+      context.addIssue({
+        code: "custom",
+        message: "An enrichment field cannot be set and cleared together.",
+        path: ["clear"]
+      });
+    }
+  }
+});
+var DynaOrganizePlaceInputSchema = DynaTaskMutationAttributionSchema.extend({
   targetPriority: DynaPrioritySchema,
   beforeItemId: external_exports.uuid().optional()
 }).strict();
@@ -58835,8 +58957,7 @@ var DynaOrganizePlaceManyInputSchema = external_exports.object({
   }),
   targetPriority: DynaPrioritySchema
 }).strict();
-var DynaLifecycleArchiveInputSchema = external_exports.object({
-  requestId: external_exports.uuid(),
+var DynaLifecycleArchiveInputSchema = DynaTaskMutationAttributionSchema.extend({
   reason: DynaArchiveReasonSchema,
   reasonDetail: external_exports.string().trim().min(1).max(500).optional()
 }).strict().superRefine((input, context) => {
@@ -58855,17 +58976,60 @@ var DynaLifecycleArchiveInputSchema = external_exports.object({
     });
   }
 });
-var DynaLifecycleRestoreInputSchema = external_exports.object({ requestId: external_exports.uuid() }).strict();
+var DynaLifecycleRestoreInputSchema = DynaTaskMutationAttributionSchema;
 var DynaTodoCreateInputSchema = DynaTodoInputSchema.omit({ followUpOfItemId: true }).extend({ requestId: external_exports.uuid() }).strict();
-var DynaFollowUpCreateInputSchema = DynaTodoInputSchema.omit({ followUpOfItemId: true }).extend({ requestId: external_exports.uuid() }).strict();
+var DynaFollowUpCreateInputSchema = DynaTodoInputSchema.omit({ followUpOfItemId: true }).extend(DynaTaskMutationAttributionSchema.shape).strict();
+var DynaWorkCompleteInputSchema = DynaTaskMutationAttributionSchema.extend({
+  outcome: DynaOneLineOutcomeSchema,
+  body: external_exports.string().trim().min(1).max(1e3).optional(),
+  artifacts: external_exports.array(DynaArtifactRefSchema).max(4).default([])
+}).strict();
+var DynaCliAnnotationAddInputSchema = DynaTaskMutationAttributionSchema.extend({
+  body: external_exports.string().trim().min(1).max(1e3)
+}).strict();
+var DynaCliAnnotationEditInputSchema = DynaTaskMutationAttributionSchema.extend({
+  body: external_exports.string().trim().min(1).max(1e3)
+}).strict();
+var DynaCliAnnotationDeleteInputSchema = DynaTaskMutationAttributionSchema;
+var DynaMutationControlSchema = external_exports.object({
+  itemNumber: DynaItemNumberSchema,
+  fingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/),
+  dashboardRevision: external_exports.number().int().nonnegative(),
+  enrichmentVersion: external_exports.number().int().nonnegative(),
+  workflowState: external_exports.enum(["todo", "executing", "paused", "attention", "completed"]),
+  workState: DynaWorkStateSchema.optional(),
+  workConditionSummary: external_exports.string().trim().min(1).max(200).optional(),
+  blocked: external_exports.boolean(),
+  archived: external_exports.boolean(),
+  archiveReason: DynaArchiveReasonSchema.optional(),
+  deduplicated: external_exports.boolean()
+}).strict();
 var DynaMutationResultBaseSchema = external_exports.object({
   requestId: external_exports.uuid(),
   itemId: external_exports.uuid(),
-  deduplicated: external_exports.boolean()
+  deduplicated: external_exports.boolean(),
+  // Legacy v10 receipts do not contain this block. New writes and replayed
+  // results enriched by schema-v11 services include it for safe chaining.
+  control: DynaMutationControlSchema.optional()
 });
 var DynaItemUpdateResultSchema = DynaMutationResultBaseSchema.extend({
   schema: external_exports.literal("dyna/item-update-result-v1"),
   workUpdateId: external_exports.uuid()
+}).strict();
+var DynaWorkCompleteResultSchema = DynaMutationResultBaseSchema.extend({
+  schema: external_exports.literal("dyna/work-complete-result-v1"),
+  workUpdateId: external_exports.uuid(),
+  workflowEventId: external_exports.uuid(),
+  nativeTaskSuccessCertified: external_exports.literal(false),
+  control: DynaMutationControlSchema
+}).strict();
+var DynaCliAnnotationMutationResultSchema = DynaMutationResultBaseSchema.extend({
+  schema: external_exports.literal("dyna/cli-annotation-mutation-result-v1"),
+  annotationId: external_exports.uuid(),
+  version: external_exports.number().int().positive(),
+  updatedAt: TimestampSchema3,
+  deleted: external_exports.boolean(),
+  control: DynaMutationControlSchema
 }).strict();
 var DynaItemEnrichResultSchema = DynaMutationResultBaseSchema.extend({
   schema: external_exports.literal("dyna/item-enrich-result-v1"),
@@ -58919,7 +59083,7 @@ var DynaCliHelpResultSchema = external_exports.object({
       readsStdin: external_exports.boolean(),
       description: external_exports.string().trim().min(1).max(200)
     }).strict()
-  ).min(1).max(17)
+  ).min(1).max(24)
 }).strict();
 var DynaCliVersionResultSchema = external_exports.object({
   schema: external_exports.literal("dyna/version-v1"),
@@ -58966,8 +59130,7 @@ var DynaTaskSyncTargetSchema = external_exports.object({
   hostId: IdentifierSchema4,
   checkpointVersion: external_exports.number().int().nonnegative(),
   afterCursor: external_exports.string().trim().min(1).max(2048).optional(),
-  lastTurnId: IdentifierSchema4.optional(),
-  expectedTitle: DynaTaskTitleSchema
+  lastTurnId: IdentifierSchema4.optional()
 }).strict();
 var DynaTaskSyncClaimSchema = external_exports.object({
   schema: external_exports.literal("dyna/task-sync-claim-v1"),
@@ -59094,7 +59257,7 @@ var ACTION_TTL_MS = 10 * 60 * 1e3;
 var CODEX_SESSION_CANDIDATE_TTL_MS = 10 * 60 * 1e3;
 var CLAIM_LEASE_MS = 5 * 60 * 1e3;
 var MAX_CLOCK_SKEW_MS = 5 * 60 * 1e3;
-var DYNA_SCHEMA_VERSION = 10;
+var DYNA_SCHEMA_VERSION = 11;
 var MAX_SAFE_ITEM_NUMBER = Number.MAX_SAFE_INTEGER;
 var MAX_DASHBOARDS = 100;
 var MAX_PUBLISHERS = 100;
@@ -59163,6 +59326,10 @@ function dynaProjectionMembershipCte(scope = "active") {
         user_workflow.outcome AS user_workflow_outcome,
         user_workflow.created_at AS user_workflow_created_at,
         user_workflow.created_at_ms AS user_workflow_created_ms,
+        user_workflow.task_id AS user_workflow_task_id,
+        user_workflow.host_id AS user_workflow_host_id,
+        user_workflow.task_title AS user_workflow_task_title,
+        user_workflow.work_attempt_id AS user_workflow_work_attempt_id,
         (SELECT MAX(history.restored_at_ms) FROM item_archive_events history
           WHERE history.dashboard_id = dp.dashboard_id AND history.item_id = i.id
         ) AS last_restored_at_ms
@@ -59562,10 +59729,13 @@ var SqliteDynaRepository = class {
         insertAnnotation: (annotation) => {
           this.#insertAnnotation(annotation);
         },
-        updateAnnotation: (annotationId, expectedVersion, body, updatedAt) => this.#updateAnnotation(annotationId, expectedVersion, body, updatedAt),
-        deleteAnnotation: (annotationId, expectedVersion, deletedAt) => this.#deleteAnnotation(annotationId, expectedVersion, deletedAt),
+        updateAnnotation: (annotationId, expectedVersion, body, updatedAt, attribution) => this.#updateAnnotation(annotationId, expectedVersion, body, updatedAt, attribution),
+        deleteAnnotation: (annotationId, expectedVersion, deletedAt, attribution) => this.#deleteAnnotation(annotationId, expectedVersion, deletedAt, attribution),
         insertAnnotationEvent: (event) => {
           this.#insertAnnotationEvent(event);
+        },
+        insertUserWorkflowEvent: (event) => {
+          this.#insertUserWorkflowEvent(event);
         },
         insertDashboard: (dashboard) => {
           this.#insertDashboard(dashboard);
@@ -59672,6 +59842,9 @@ var SqliteDynaRepository = class {
       findDashboardState: (dashboardId) => this.#findDashboardState(dashboardId),
       findItemBase: (itemId) => this.#findCliItemBase(itemId),
       findTaskOwner: (taskId) => this.#findTaskOwner(taskId),
+      findLinkedTaskTitle: (itemId, taskId, hostId) => this.#findLinkedTaskTitle(itemId, taskId, hostId),
+      findWorkAttemptAttribution: (itemId, workAttemptId) => this.#findWorkAttemptAttribution(itemId, workAttemptId),
+      currentEnrichmentVersion: (itemId) => this.#currentEnrichmentVersion(itemId),
       countTaskBindingsForItem: (itemId) => this.#countTaskBindingsForItem(itemId),
       findTaskAssociationReservation: (requestId) => this.#findTaskAssociationReservation(requestId),
       findActiveTaskAssociationReservation: (taskId) => this.#findActiveTaskAssociationReservation(taskId),
@@ -59684,6 +59857,7 @@ var SqliteDynaRepository = class {
       loadItemContext: (itemId) => this.itemContext(itemId),
       loadItemHistory: (dashboardId, itemId, options) => this.itemHistory(dashboardId, itemId, options),
       loadItemActivityPage: (dashboardId, itemId, options) => this.itemActivityPage(dashboardId, itemId, options),
+      findWorkUpdate: (id) => this.#findWorkUpdate(id),
       loadActionForView: (viewToken, requestId) => this.actionStatusForView(viewToken, requestId),
       loadAction: (requestId) => this.actionStatus(requestId),
       findAnnotation: (id) => this.#findAnnotation(id),
@@ -59699,24 +59873,35 @@ var SqliteDynaRepository = class {
   #findCliReceipt(requestId) {
     const row = this.#one(
       this.#database.prepare(
-        "SELECT dashboard_id, operation, item_id, request_hash, result_json FROM cli_requests WHERE request_id = ?"
+        `SELECT dashboard_id, operation, item_id, request_hash, result_json,
+           task_id, host_id, work_attempt_id, result_target_id
+         FROM cli_requests WHERE request_id = ?`
       ),
       requestId
     );
     if (!row) return void 0;
+    const taskId = optionalString(row, "task_id");
+    const hostId = optionalString(row, "host_id");
+    const workAttemptId = optionalString(row, "work_attempt_id");
+    const resultTargetId = optionalString(row, "result_target_id");
     return {
       dashboardId: requiredString(row, "dashboard_id"),
       operation: requiredString(row, "operation"),
       itemId: requiredString(row, "item_id"),
       requestHash: requiredString(row, "request_hash"),
+      ...taskId ? { taskId } : {},
+      ...hostId ? { hostId } : {},
+      ...workAttemptId ? { workAttemptId } : {},
+      ...resultTargetId ? { resultTargetId } : {},
       result: parseJson2(requiredString(row, "result_json"))
     };
   }
   #insertCliReceipt(requestId, record2, createdAt) {
     this.#database.prepare(
       `INSERT INTO cli_requests (
-           dashboard_id, request_id, operation, item_id, request_hash, result_json, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+           dashboard_id, request_id, operation, item_id, request_hash, result_json, created_at,
+           task_id, host_id, work_attempt_id, result_target_id
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       record2.dashboardId,
       requestId,
@@ -59724,7 +59909,11 @@ var SqliteDynaRepository = class {
       record2.itemId,
       record2.requestHash,
       JSON.stringify(record2.result),
-      createdAt
+      createdAt,
+      record2.taskId ?? null,
+      record2.hostId ?? null,
+      record2.workAttemptId ?? null,
+      record2.resultTargetId ?? null
     );
   }
   #findTodoReceipt(dashboardId, requestId) {
@@ -59929,10 +60118,18 @@ var SqliteDynaRepository = class {
   #findWorkAttemptAttribution(itemId, workAttemptId) {
     const row = this.#one(
       this.#database.prepare(
-        `SELECT task_id, host_id FROM work_updates
-         WHERE item_id = ? AND work_attempt_id = ? AND task_id IS NOT NULL
-         ORDER BY created_at_ms, rowid LIMIT 1`
+        `SELECT task_id, host_id FROM (
+           SELECT task_id, host_id, created_at AS occurred_at, rowid AS insertion_sequence
+           FROM work_updates
+           WHERE item_id = ? AND work_attempt_id = ? AND task_id IS NOT NULL
+           UNION ALL
+           SELECT task_id, host_id, created_at AS occurred_at, rowid AS insertion_sequence
+           FROM cli_requests
+           WHERE item_id = ? AND work_attempt_id = ? AND task_id IS NOT NULL
+         ) ORDER BY occurred_at, insertion_sequence LIMIT 1`
       ),
+      itemId,
+      workAttemptId,
       itemId,
       workAttemptId
     );
@@ -60001,8 +60198,9 @@ var SqliteDynaRepository = class {
     this.#database.prepare(
       `INSERT INTO work_updates (
            id, item_id, origin_dashboard_id, work_attempt_id, kind, body, outcome,
-           artifacts, task_id, host_id, task_title, created_at, created_at_ms
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           artifacts, task_id, host_id, task_title, supersedes_work_update_id,
+           created_at, created_at_ms
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       update.id,
       update.itemId,
@@ -60015,19 +60213,26 @@ var SqliteDynaRepository = class {
       update.task?.taskId ?? null,
       update.task?.hostId ?? null,
       update.task?.title ?? null,
+      update.supersedesWorkUpdateId ?? null,
       update.createdAt,
       Date.parse(update.createdAt)
     );
   }
   #annotationFromRow(row) {
     const deletedAt = optionalString(row, "deleted_at");
+    const taskId = optionalString(row, "task_id");
+    const hostId = optionalString(row, "host_id");
+    const taskTitle = optionalString(row, "task_title");
+    const workAttemptId = optionalString(row, "work_attempt_id");
     const annotation = {
       id: requiredString(row, "id"),
       itemId: requiredString(row, "item_id"),
       body: requiredString(row, "body"),
       createdAt: requiredString(row, "created_at"),
       updatedAt: requiredString(row, "updated_at"),
-      version: requiredNumber(row, "version")
+      version: requiredNumber(row, "version"),
+      ...taskId && hostId ? { task: { taskId, hostId, ...taskTitle ? { title: taskTitle } : {} } } : {},
+      ...workAttemptId ? { workAttemptId } : {}
     };
     if (!deletedAt) return DynaAnnotationSchema.parse(annotation);
     return { ...annotation, deletedAt };
@@ -60041,49 +60246,84 @@ var SqliteDynaRepository = class {
       this.#database.prepare("SELECT * FROM annotation_events WHERE id = ?"),
       id
     );
-    return row ? {
+    if (!row) return void 0;
+    const taskId = optionalString(row, "task_id");
+    const hostId = optionalString(row, "host_id");
+    const taskTitle = optionalString(row, "task_title");
+    const workAttemptId = optionalString(row, "work_attempt_id");
+    return {
       id: requiredString(row, "id"),
       annotationId: requiredString(row, "annotation_id"),
       itemId: requiredString(row, "item_id"),
       operation: requiredString(row, "operation"),
       requestHash: requiredString(row, "request_hash"),
       resultVersion: requiredNumber(row, "result_version"),
-      occurredAt: requiredString(row, "occurred_at")
-    } : void 0;
+      occurredAt: requiredString(row, "occurred_at"),
+      ...taskId ? { taskId } : {},
+      ...hostId ? { hostId } : {},
+      ...taskTitle ? { taskTitle } : {},
+      ...workAttemptId ? { workAttemptId } : {}
+    };
   }
   #insertAnnotation(annotation) {
     this.#database.prepare(
       `INSERT INTO annotations (
-           id, item_id, body, created_at, updated_at, version, deleted_at
-         ) VALUES (?, ?, ?, ?, ?, ?, NULL)`
+           id, item_id, body, created_at, updated_at, version, deleted_at,
+           task_id, host_id, task_title, work_attempt_id
+         ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`
     ).run(
       annotation.id,
       annotation.itemId,
       annotation.body,
       annotation.createdAt,
       annotation.updatedAt,
-      annotation.version
+      annotation.version,
+      annotation.task?.taskId ?? null,
+      annotation.task?.hostId ?? null,
+      annotation.task?.title ?? null,
+      annotation.workAttemptId ?? null
     );
   }
-  #updateAnnotation(annotationId, expectedVersion, body, updatedAt) {
+  #updateAnnotation(annotationId, expectedVersion, body, updatedAt, attribution) {
     return this.#database.prepare(
-      `UPDATE annotations SET body = ?, updated_at = ?, version = version + 1
+      `UPDATE annotations SET body = ?, updated_at = ?, version = version + 1,
+             task_id = ?, host_id = ?, task_title = ?, work_attempt_id = ?
            WHERE id = ? AND version = ? AND deleted_at IS NULL`
-    ).run(body, updatedAt, annotationId, expectedVersion).changes === 1;
+    ).run(
+      body,
+      updatedAt,
+      attribution?.taskId ?? null,
+      attribution?.hostId ?? null,
+      attribution?.taskTitle ?? null,
+      attribution?.workAttemptId ?? null,
+      annotationId,
+      expectedVersion
+    ).changes === 1;
   }
-  #deleteAnnotation(annotationId, expectedVersion, deletedAt) {
+  #deleteAnnotation(annotationId, expectedVersion, deletedAt, attribution) {
     return this.#database.prepare(
       `UPDATE annotations
-           SET body = '', updated_at = ?, deleted_at = ?, version = version + 1
+           SET body = '', updated_at = ?, deleted_at = ?, version = version + 1,
+             task_id = ?, host_id = ?, task_title = ?, work_attempt_id = ?
            WHERE id = ? AND version = ? AND deleted_at IS NULL`
-    ).run(deletedAt, deletedAt, annotationId, expectedVersion).changes === 1;
+    ).run(
+      deletedAt,
+      deletedAt,
+      attribution?.taskId ?? null,
+      attribution?.hostId ?? null,
+      attribution?.taskTitle ?? null,
+      attribution?.workAttemptId ?? null,
+      annotationId,
+      expectedVersion
+    ).changes === 1;
   }
   #insertAnnotationEvent(event) {
     this.#database.prepare(
       `INSERT INTO annotation_events (
            id, annotation_id, item_id, operation, request_hash,
-           result_version, occurred_at, occurred_at_ms
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+           result_version, occurred_at, occurred_at_ms,
+           task_id, host_id, task_title, work_attempt_id
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       event.id,
       event.annotationId,
@@ -60092,7 +60332,31 @@ var SqliteDynaRepository = class {
       event.requestHash,
       event.resultVersion,
       event.occurredAt,
-      Date.parse(event.occurredAt)
+      Date.parse(event.occurredAt),
+      event.taskId ?? null,
+      event.hostId ?? null,
+      event.taskTitle ?? null,
+      event.workAttemptId ?? null
+    );
+  }
+  #insertUserWorkflowEvent(event) {
+    this.#database.prepare(
+      `INSERT INTO item_workflow_events (
+           id, item_id, origin_dashboard_id, target_stage, outcome,
+           created_at, created_at_ms, task_id, host_id, task_title, work_attempt_id
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      event.id,
+      event.itemId,
+      event.originDashboardId,
+      event.targetStage,
+      event.outcome ?? null,
+      event.createdAt,
+      Date.parse(event.createdAt),
+      event.task?.taskId ?? null,
+      event.task?.hostId ?? null,
+      event.task?.title ?? null,
+      event.workAttemptId ?? null
     );
   }
   #replaceCliEnrichment(record2) {
@@ -60436,6 +60700,12 @@ var SqliteDynaRepository = class {
         outcome TEXT,
         created_at TEXT NOT NULL,
         created_at_ms INTEGER NOT NULL,
+        task_id TEXT,
+        host_id TEXT,
+        task_title TEXT,
+        work_attempt_id TEXT,
+        CHECK ((task_id IS NULL) = (host_id IS NULL)),
+        CHECK ((task_id IS NULL) = (work_attempt_id IS NULL)),
         CHECK (
           (target_stage = 'done' AND outcome IS NOT NULL AND length(trim(outcome)) > 0) OR
           (target_stage <> 'done' AND outcome IS NULL)
@@ -60474,14 +60744,20 @@ var SqliteDynaRepository = class {
       CREATE TABLE IF NOT EXISTS annotations (
         id TEXT PRIMARY KEY, item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
         body TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-        version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1), deleted_at TEXT
+        version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1), deleted_at TEXT,
+        task_id TEXT, host_id TEXT, task_title TEXT, work_attempt_id TEXT,
+        CHECK ((task_id IS NULL) = (host_id IS NULL)),
+        CHECK ((task_id IS NULL) = (work_attempt_id IS NULL))
       );
       CREATE TABLE IF NOT EXISTS annotation_events (
         id TEXT PRIMARY KEY, annotation_id TEXT NOT NULL, item_id TEXT NOT NULL,
         operation TEXT NOT NULL CHECK (operation IN ('create', 'edit', 'delete')),
         request_hash TEXT NOT NULL,
         result_version INTEGER NOT NULL CHECK (result_version >= 1),
-        occurred_at TEXT NOT NULL, occurred_at_ms INTEGER NOT NULL
+        occurred_at TEXT NOT NULL, occurred_at_ms INTEGER NOT NULL,
+        task_id TEXT, host_id TEXT, task_title TEXT, work_attempt_id TEXT,
+        CHECK ((task_id IS NULL) = (host_id IS NULL)),
+        CHECK ((task_id IS NULL) = (work_attempt_id IS NULL))
       );
       CREATE TABLE IF NOT EXISTS work_updates (
         id TEXT PRIMARY KEY,
@@ -60498,6 +60774,7 @@ var SqliteDynaRepository = class {
         task_id TEXT,
         host_id TEXT,
         task_title TEXT,
+        supersedes_work_update_id TEXT REFERENCES work_updates(id),
         created_at TEXT NOT NULL,
         created_at_ms INTEGER NOT NULL,
         CHECK ((task_id IS NULL) = (host_id IS NULL))
@@ -60509,7 +60786,13 @@ var SqliteDynaRepository = class {
         item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
         request_hash TEXT NOT NULL,
         result_json TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        task_id TEXT,
+        host_id TEXT,
+        work_attempt_id TEXT,
+        result_target_id TEXT,
+        CHECK ((task_id IS NULL) = (host_id IS NULL)),
+        CHECK ((task_id IS NULL) = (work_attempt_id IS NULL))
       );
       CREATE TABLE IF NOT EXISTS task_bindings (
         item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
@@ -60642,6 +60925,29 @@ var SqliteDynaRepository = class {
         WHERE task_id IS NOT NULL AND kind IN (
           'progress', 'needs_input', 'blocked', 'completion_reported', 'handoff'
         );
+      CREATE INDEX IF NOT EXISTS idx_dyna_work_updates_supersedes
+        ON work_updates(supersedes_work_update_id)
+        WHERE supersedes_work_update_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_dyna_cli_requests_work_attempt
+        ON cli_requests(item_id, work_attempt_id, created_at)
+        WHERE work_attempt_id IS NOT NULL;
+      CREATE TRIGGER IF NOT EXISTS trg_dyna_cli_requests_attribution_insert
+        BEFORE INSERT ON cli_requests
+        WHEN ((NEW.task_id IS NULL) <> (NEW.host_id IS NULL)) OR
+             ((NEW.task_id IS NULL) <> (NEW.work_attempt_id IS NULL))
+        BEGIN
+          SELECT RAISE(ABORT, 'Dyna CLI receipt attribution is incomplete');
+        END;
+      CREATE TRIGGER IF NOT EXISTS trg_dyna_cli_requests_immutable_update
+        BEFORE UPDATE ON cli_requests
+        BEGIN
+          SELECT RAISE(ABORT, 'Dyna CLI receipts are immutable');
+        END;
+      CREATE TRIGGER IF NOT EXISTS trg_dyna_cli_requests_immutable_delete
+        BEFORE DELETE ON cli_requests
+        BEGIN
+          SELECT RAISE(ABORT, 'Dyna CLI receipts are append-only');
+        END;
       CREATE INDEX IF NOT EXISTS idx_dyna_annotation_events_item_time
         ON annotation_events(item_id, occurred_at_ms DESC, id DESC);
       CREATE TRIGGER IF NOT EXISTS trg_dyna_annotation_events_immutable_update
@@ -60992,27 +61298,45 @@ var SqliteDynaRepository = class {
     const expectedTables = /* @__PURE__ */ new Map([
       [
         "annotations",
-        `CREATE TABLE annotations (
-          id TEXT PRIMARY KEY, item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
-          body TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-          version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1), deleted_at TEXT
-        )`
+        [
+          "id",
+          "item_id",
+          "body",
+          "created_at",
+          "updated_at",
+          "version",
+          "deleted_at",
+          "task_id",
+          "host_id",
+          "task_title",
+          "work_attempt_id"
+        ]
       ],
       [
         "annotation_events",
-        `CREATE TABLE annotation_events (
-          id TEXT PRIMARY KEY, annotation_id TEXT NOT NULL, item_id TEXT NOT NULL,
-          operation TEXT NOT NULL CHECK (operation IN ('create', 'edit', 'delete')),
-          request_hash TEXT NOT NULL,
-          result_version INTEGER NOT NULL CHECK (result_version >= 1),
-          occurred_at TEXT NOT NULL, occurred_at_ms INTEGER NOT NULL
-        )`
+        [
+          "id",
+          "annotation_id",
+          "item_id",
+          "operation",
+          "request_hash",
+          "result_version",
+          "occurred_at",
+          "occurred_at_ms",
+          "task_id",
+          "host_id",
+          "task_title",
+          "work_attempt_id"
+        ]
       ]
     ]);
     for (const [name, expected] of expectedTables) {
-      const actual = this.#schemaObjectSql("table", name);
-      if (!actual) throw new Error(`The Dyna annotation ledger ${name} is missing.`);
-      if (this.#normalizedSchemaSql(actual) !== this.#normalizedSchemaSql(expected)) {
+      const actual = new Set(
+        this.#database.prepare(`PRAGMA table_info(${name})`).all().map(
+          (row) => requiredString(row, "name")
+        )
+      );
+      if (!expected.every((column) => actual.has(column))) {
         throw new Error(`The Dyna annotation ledger ${name} is invalid.`);
       }
     }
@@ -61101,7 +61425,111 @@ var SqliteDynaRepository = class {
         Date.parse(occurredAt)
       );
     }
-    this.#assertAnnotationSchemaCurrent();
+  }
+  #migrateFullControlV11() {
+    const addColumns = (table, columns) => {
+      const existing = new Set(
+        this.#database.prepare(`PRAGMA table_info(${table})`).all().map(
+          (row) => requiredString(row, "name")
+        )
+      );
+      for (const [name, declaration] of Object.entries(columns)) {
+        if (!existing.has(name)) {
+          this.#database.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${declaration};`);
+        }
+      }
+    };
+    addColumns("cli_requests", {
+      task_id: "TEXT",
+      host_id: "TEXT",
+      work_attempt_id: "TEXT",
+      result_target_id: "TEXT"
+    });
+    addColumns("work_updates", {
+      supersedes_work_update_id: "TEXT REFERENCES work_updates(id)"
+    });
+    addColumns("annotations", {
+      task_id: "TEXT",
+      host_id: "TEXT",
+      task_title: "TEXT",
+      work_attempt_id: "TEXT"
+    });
+    addColumns("annotation_events", {
+      task_id: "TEXT",
+      host_id: "TEXT",
+      task_title: "TEXT",
+      work_attempt_id: "TEXT"
+    });
+    addColumns("item_workflow_events", {
+      task_id: "TEXT",
+      host_id: "TEXT",
+      task_title: "TEXT",
+      work_attempt_id: "TEXT"
+    });
+    this.#database.exec(`
+      CREATE INDEX IF NOT EXISTS idx_dyna_cli_requests_work_attempt
+        ON cli_requests(item_id, work_attempt_id, created_at)
+        WHERE work_attempt_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_dyna_work_updates_supersedes
+        ON work_updates(supersedes_work_update_id)
+        WHERE supersedes_work_update_id IS NOT NULL;
+    `);
+  }
+  #assertFullControlSchemaCurrent() {
+    const requiredColumns = /* @__PURE__ */ new Map([
+      ["cli_requests", ["task_id", "host_id", "work_attempt_id", "result_target_id"]],
+      ["work_updates", ["supersedes_work_update_id"]],
+      ["annotations", ["task_id", "host_id", "task_title", "work_attempt_id"]],
+      ["annotation_events", ["task_id", "host_id", "task_title", "work_attempt_id"]],
+      ["item_workflow_events", ["task_id", "host_id", "task_title", "work_attempt_id"]]
+    ]);
+    for (const [table, columns] of requiredColumns) {
+      const actual = new Set(
+        this.#database.prepare(`PRAGMA table_info(${table})`).all().map(
+          (row) => requiredString(row, "name")
+        )
+      );
+      if (!columns.every((column) => actual.has(column))) {
+        throw new Error(`The Dyna full-control ledger ${table} is invalid.`);
+      }
+    }
+    if (!this.#schemaObjectExists("index", "idx_dyna_cli_requests_work_attempt") || !this.#schemaObjectExists("index", "idx_dyna_work_updates_supersedes")) {
+      throw new Error("The Dyna full-control ledger indexes are incomplete.");
+    }
+    const expectedTriggers = /* @__PURE__ */ new Map([
+      [
+        "trg_dyna_cli_requests_attribution_insert",
+        `CREATE TRIGGER trg_dyna_cli_requests_attribution_insert
+          BEFORE INSERT ON cli_requests
+          WHEN ((NEW.task_id IS NULL) <> (NEW.host_id IS NULL)) OR
+               ((NEW.task_id IS NULL) <> (NEW.work_attempt_id IS NULL))
+          BEGIN
+            SELECT RAISE(ABORT, 'Dyna CLI receipt attribution is incomplete');
+          END`
+      ],
+      [
+        "trg_dyna_cli_requests_immutable_update",
+        `CREATE TRIGGER trg_dyna_cli_requests_immutable_update
+          BEFORE UPDATE ON cli_requests
+          BEGIN
+            SELECT RAISE(ABORT, 'Dyna CLI receipts are immutable');
+          END`
+      ],
+      [
+        "trg_dyna_cli_requests_immutable_delete",
+        `CREATE TRIGGER trg_dyna_cli_requests_immutable_delete
+          BEFORE DELETE ON cli_requests
+          BEGIN
+            SELECT RAISE(ABORT, 'Dyna CLI receipts are append-only');
+          END`
+      ]
+    ]);
+    for (const [name, expected] of expectedTriggers) {
+      const actual = this.#schemaObjectSql("trigger", name);
+      if (!actual || this.#normalizedSchemaSql(actual) !== this.#normalizedSchemaSql(expected)) {
+        throw new Error(`The Dyna full-control ledger trigger ${name} is invalid.`);
+      }
+    }
   }
   #backfillItemNumbers() {
     const insert = this.#database.prepare("INSERT INTO item_numbers (item_id) VALUES (?)");
@@ -61255,6 +61683,7 @@ var SqliteDynaRepository = class {
       this.#assertItemNumberIntegrity();
       this.#assertTaskSyncSchemaCurrent();
       this.#assertAnnotationSchemaCurrent();
+      this.#assertFullControlSchemaCurrent();
       const actionSchemaCurrent = this.#actionRequestsUseV6Constraints();
       const taskIdentityIndexCurrent = this.#namedIndexMatches(
         "task_bindings",
@@ -61321,6 +61750,18 @@ var SqliteDynaRepository = class {
         }
         this.#assertDatabaseIntegrity();
         this.#assertItemNumberIntegrity();
+      });
+      return;
+    }
+    if (startingVersion === 10) {
+      this.#transaction(() => {
+        this.#migrateFullControlV11();
+        this.#createSchema();
+        this.#assertAnnotationSchemaCurrent();
+        this.#assertFullControlSchemaCurrent();
+        this.#assertDatabaseIntegrity();
+        this.#assertItemNumberIntegrity();
+        this.#database.exec("PRAGMA user_version = 11;");
       });
       return;
     }
@@ -61582,8 +62023,21 @@ var SqliteDynaRepository = class {
       this.#assertItemNumberIntegrity();
       this.#database.exec("PRAGMA user_version = 10;");
     });
+    const versionTenRow = this.#one(this.#database.prepare("PRAGMA user_version"));
+    if (!versionTenRow || requiredNumber(versionTenRow, "user_version") !== 10) {
+      throw new Error("Dyna could not complete its database schema migration.");
+    }
+    this.#transaction(() => {
+      this.#migrateFullControlV11();
+      this.#createSchema();
+      this.#assertAnnotationSchemaCurrent();
+      this.#assertFullControlSchemaCurrent();
+      this.#assertDatabaseIntegrity();
+      this.#assertItemNumberIntegrity();
+      this.#database.exec("PRAGMA user_version = 11;");
+    });
     const migratedVersion = this.#one(this.#database.prepare("PRAGMA user_version"));
-    if (!migratedVersion || requiredNumber(migratedVersion, "user_version") !== DYNA_SCHEMA_VERSION) {
+    if (!migratedVersion || requiredNumber(migratedVersion, "user_version") !== 11) {
       throw new Error("Dyna could not complete its database schema migration.");
     }
   }
@@ -62962,10 +63416,10 @@ var SqliteDynaRepository = class {
             ),
             parsed.itemId
           );
-          if (linkedTask) {
+          if (linkedTask && parsed.targetStage !== "done") {
             throw new DynaCliStoreError(
               "invalid_input",
-              "Linked Codex task status is controller-derived; use Start, Open, or Refresh instead."
+              "To Do and Needs You follow the linked Codex task; use Start, Open, or Refresh instead."
             );
           }
           if (parsed.targetStage === "done") {
@@ -63432,6 +63886,7 @@ var SqliteDynaRepository = class {
     const archiveCursor = parseHistoryCursor(options.archiveCursor, "archive");
     const orderCursor = parseHistoryCursor(options.orderCursor, "order");
     const statusCursor = parseHistoryCursor(options.statusCursor, "status");
+    const annotationCursor = parseHistoryCursor(options.annotationCursor, "annotation");
     const workCursor = parseHistoryCursor(options.workCursor, "work");
     const archiveRows = this.#database.prepare(
       `SELECT history.*, history.rowid AS insertion_sequence, i.fingerprint
@@ -63489,10 +63944,28 @@ var SqliteDynaRepository = class {
       limit + 1
     );
     const statusPage = statusRows.slice(0, limit);
+    const annotationRows = this.#database.prepare(
+      `SELECT *, rowid AS insertion_sequence FROM annotation_events
+         WHERE item_id = ?
+         ${annotationCursor ? `AND (occurred_at_ms < ? OR (
+                  occurred_at_ms = ? AND rowid < ?
+                ))` : ""}
+         ORDER BY occurred_at_ms DESC, rowid DESC LIMIT ?`
+    ).all(
+      itemId,
+      ...annotationCursor ? [
+        annotationCursor.createdAtMs,
+        annotationCursor.createdAtMs,
+        annotationCursor.insertionSequence
+      ] : [],
+      limit + 1
+    );
+    const annotationPage = annotationRows.slice(0, limit);
     const workPage = this.#workUpdatePage(itemId, limit, workCursor);
     const lastArchive = archivePage.at(-1);
     const lastOrganization = organizationPage.at(-1);
     const lastStatus = statusPage.at(-1);
+    const lastAnnotation = annotationPage.at(-1);
     const followUpOfItemId = followUpReferenceItemId(item);
     return DynaItemHistorySchema.parse({
       itemId,
@@ -63502,6 +63975,22 @@ var SqliteDynaRepository = class {
       archives,
       organization,
       statusChanges: statusPage.map((row) => this.#userWorkflowEventFromRow(row)),
+      annotationEvents: annotationPage.map((row) => {
+        const taskId = optionalString(row, "task_id");
+        const hostId = optionalString(row, "host_id");
+        const taskTitle = optionalString(row, "task_title");
+        const workAttemptId = optionalString(row, "work_attempt_id");
+        return {
+          id: requiredString(row, "id"),
+          annotationId: requiredString(row, "annotation_id"),
+          itemId: requiredString(row, "item_id"),
+          operation: requiredString(row, "operation"),
+          version: requiredNumber(row, "result_version"),
+          occurredAt: requiredString(row, "occurred_at"),
+          ...taskId && hostId ? { task: { taskId, hostId, ...taskTitle ? { title: taskTitle } : {} } } : {},
+          ...workAttemptId ? { workAttemptId } : {}
+        };
+      }),
       workUpdates: workPage.updates,
       ...archiveRows.length > limit && lastArchive ? {
         archiveEventsNextCursor: historyCursor(
@@ -63522,6 +64011,13 @@ var SqliteDynaRepository = class {
           "status",
           requiredNumber(lastStatus, "created_at_ms"),
           requiredNumber(lastStatus, "insertion_sequence")
+        )
+      } : {},
+      ...annotationRows.length > limit && lastAnnotation ? {
+        annotationEventsNextCursor: historyCursor(
+          "annotation",
+          requiredNumber(lastAnnotation, "occurred_at_ms"),
+          requiredNumber(lastAnnotation, "insertion_sequence")
         )
       } : {},
       ...workPage.nextCursor ? { workUpdatesNextCursor: workPage.nextCursor } : {}
@@ -63616,7 +64112,8 @@ var SqliteDynaRepository = class {
     const itemId = positioned.id;
     const workflowState = positioned.workflowState;
     const completion = this.#completionEvidence(itemId);
-    const completedAtMs = workflowState === "completed" ? completion.completedAtMs ?? positioned.userWorkflowCreatedMs : void 0;
+    const manuallyCompleted = positioned.userWorkflowStage === "done";
+    const completedAtMs = workflowState === "completed" ? manuallyCompleted ? positioned.userWorkflowCreatedMs : completion.completedAtMs : void 0;
     const archiveId = (0, import_node_crypto9.randomUUID)();
     const archivedAt = this.#now();
     this.#database.prepare(
@@ -63639,7 +64136,7 @@ var SqliteDynaRepository = class {
       workflowState,
       completedAtMs === void 0 ? null : new Date(completedAtMs).toISOString(),
       completedAtMs ?? null,
-      completion.outcome ?? positioned.userWorkflowOutcome ?? null,
+      (manuallyCompleted ? positioned.userWorkflowOutcome : completion.outcome) ?? null,
       positioned.effectivePriority,
       positioned.preferenceSequence ?? null,
       clientRequestId ?? null,
@@ -63823,6 +64320,10 @@ var SqliteDynaRepository = class {
         version: requiredNumber(row, "enrichment_version")
       } : void 0;
       const userWorkflowStage = optionalString(row, "user_workflow_stage");
+      const userWorkflowTaskId = optionalString(row, "user_workflow_task_id");
+      const userWorkflowHostId = optionalString(row, "user_workflow_host_id");
+      const userWorkflowTaskTitle = optionalString(row, "user_workflow_task_title");
+      const userWorkflowWorkAttemptId = optionalString(row, "user_workflow_work_attempt_id");
       const preferencePriority = optionalString(row, "preference_priority");
       const followUpOfItemId = followUpReferenceItemId(row);
       return {
@@ -63843,6 +64344,14 @@ var SqliteDynaRepository = class {
           userWorkflow: {
             stage: DynaUserWorkflowStageSchema.parse(userWorkflowStage),
             ...optionalString(row, "user_workflow_outcome") ? { outcome: optionalString(row, "user_workflow_outcome") } : {},
+            ...userWorkflowTaskId && userWorkflowHostId ? {
+              task: {
+                taskId: userWorkflowTaskId,
+                hostId: userWorkflowHostId,
+                ...userWorkflowTaskTitle ? { title: userWorkflowTaskTitle } : {}
+              }
+            } : {},
+            ...userWorkflowWorkAttemptId ? { workAttemptId: userWorkflowWorkAttemptId } : {},
             createdAt: requiredString(row, "user_workflow_created_at"),
             createdAtMs: requiredNumber(row, "user_workflow_created_ms")
           }
@@ -63944,16 +64453,7 @@ var SqliteDynaRepository = class {
     for (const row of annotationRows) {
       const itemId = requiredString(row, "item_id");
       const values = annotations.get(itemId) ?? [];
-      values.push(
-        DynaAnnotationSchema.parse({
-          id: requiredString(row, "id"),
-          itemId,
-          body: requiredString(row, "body"),
-          createdAt: requiredString(row, "created_at"),
-          updatedAt: requiredString(row, "updated_at"),
-          version: requiredNumber(row, "version")
-        })
-      );
+      values.push(DynaAnnotationSchema.parse(this.#annotationFromRow(row)));
       annotations.set(itemId, values);
     }
     const tasks = /* @__PURE__ */ new Map();
@@ -65190,21 +65690,16 @@ var SqliteDynaRepository = class {
       `SELECT * FROM annotations
            WHERE item_id = ? AND deleted_at IS NULL
            ORDER BY created_at DESC LIMIT 20`
-    ).all(itemId).map(
-      (annotation) => DynaAnnotationSchema.parse({
-        id: requiredString(annotation, "id"),
-        itemId,
-        body: requiredString(annotation, "body"),
-        createdAt: requiredString(annotation, "created_at"),
-        updatedAt: requiredString(annotation, "updated_at"),
-        version: requiredNumber(annotation, "version")
-      })
-    );
+    ).all(itemId).map((annotation) => DynaAnnotationSchema.parse(this.#annotationFromRow(annotation)));
   }
   #workUpdates(itemId, limit = MAX_WORK_UPDATES_PER_CARD) {
     return this.#database.prepare(
       "SELECT * FROM work_updates WHERE item_id = ? ORDER BY created_at_ms DESC, rowid DESC LIMIT ?"
     ).all(itemId, limit).map((row) => this.#workUpdateFromRow(row));
+  }
+  #findWorkUpdate(id) {
+    const row = this.#one(this.#database.prepare("SELECT * FROM work_updates WHERE id = ?"), id);
+    return row ? this.#workUpdateFromRow(row) : void 0;
   }
   #workUpdateCount(itemId) {
     const row = this.#one(
@@ -65267,6 +65762,7 @@ var SqliteDynaRepository = class {
       kind: requiredString(row, "kind"),
       body: requiredString(row, "body"),
       ...optionalString(row, "outcome") ? { outcome: optionalString(row, "outcome") } : {},
+      ...optionalString(row, "supersedes_work_update_id") ? { supersedesWorkUpdateId: optionalString(row, "supersedes_work_update_id") } : {},
       artifacts: parseJson2(requiredString(row, "artifacts")),
       ...optionalString(row, "task_id") && optionalString(row, "host_id") ? {
         task: {
@@ -65285,6 +65781,14 @@ var SqliteDynaRepository = class {
       originDashboardId: requiredString(row, "origin_dashboard_id"),
       targetStage: requiredString(row, "target_stage"),
       ...optionalString(row, "outcome") ? { outcome: optionalString(row, "outcome") } : {},
+      ...optionalString(row, "task_id") && optionalString(row, "host_id") ? {
+        task: {
+          taskId: optionalString(row, "task_id"),
+          hostId: optionalString(row, "host_id"),
+          ...optionalString(row, "task_title") ? { title: optionalString(row, "task_title") } : {}
+        }
+      } : {},
+      ...optionalString(row, "work_attempt_id") ? { workAttemptId: optionalString(row, "work_attempt_id") } : {},
       createdAt: requiredString(row, "created_at")
     });
   }
@@ -65375,6 +65879,7 @@ function projectedPriority(input) {
   return { priority: basePriority, leadershipScore };
 }
 function projectedWorkflow(tasks, userWorkflowStage) {
+  if (userWorkflowStage === "done") return "completed";
   if (tasks.some((task) => task.effectiveState === "failed" || task.effectiveState === "unknown")) {
     return "attention";
   }
@@ -65387,7 +65892,6 @@ function projectedWorkflow(tasks, userWorkflowStage) {
   }
   if (tasks.length > 0) return "attention";
   if (userWorkflowStage === "needs_you") return "attention";
-  if (userWorkflowStage === "done") return "completed";
   return "todo";
 }
 function conditionRank(kind) {
@@ -65397,27 +65901,26 @@ function conditionRank(kind) {
 }
 function projectDynaItemState(input) {
   const tasks = input.tasks.map((task) => effectiveTask(task, input.workUpdates));
+  const userWorkflowStage = input.userWorkflow?.stage ?? input.userWorkflowStage;
+  const manuallyCompleted = userWorkflowStage === "done";
   const condition = tasks.flatMap((task) => task.update ? [task.update] : []).sort(
     (left, right) => conditionRank(left.kind) - conditionRank(right.kind) || right.createdAtMs - left.createdAtMs || right.insertionSequence - left.insertionSequence
   )[0];
   const priority = projectedPriority(input);
-  const hasCondition = condition?.kind === "needs_input" || condition?.kind === "blocked";
-  const workflowState = projectedWorkflow(
-    tasks,
-    input.userWorkflow?.stage ?? input.userWorkflowStage
-  );
+  const hasCondition = !manuallyCompleted && (condition?.kind === "needs_input" || condition?.kind === "blocked");
+  const workflowState = projectedWorkflow(tasks, userWorkflowStage);
   const latestSucceeded = [...input.tasks].filter((task) => task.state === "succeeded").sort(
     (left, right) => (right.statusUpdatedAtMs ?? Number.NEGATIVE_INFINITY) - (left.statusUpdatedAtMs ?? Number.NEGATIVE_INFINITY) || left.taskId.localeCompare(right.taskId) || left.hostId.localeCompare(right.hostId)
   )[0];
-  const completedAtMs = workflowState === "completed" ? latestSucceeded?.statusUpdatedAtMs ?? input.userWorkflow?.createdAtMs : void 0;
-  const completedAt = workflowState === "completed" ? latestSucceeded?.statusUpdatedAt ?? input.userWorkflow?.createdAt : void 0;
-  const outcome = workflowState === "completed" ? latestSucceeded?.outcome ?? input.userWorkflow?.outcome : void 0;
+  const completedAtMs = workflowState === "completed" ? manuallyCompleted ? input.userWorkflow?.createdAtMs : latestSucceeded?.statusUpdatedAtMs : void 0;
+  const completedAt = workflowState === "completed" ? manuallyCompleted ? input.userWorkflow?.createdAt : latestSucceeded?.statusUpdatedAt : void 0;
+  const outcome = workflowState === "completed" ? manuallyCompleted ? input.userWorkflow?.outcome : latestSucceeded?.outcome : void 0;
   return {
     effectivePriority: priority.priority,
     effectiveLeadershipScore: priority.leadershipScore,
     workflowState,
-    blocked: tasks.some((task) => task.blocked),
-    ...condition ? { workState: condition.kind } : {},
+    blocked: manuallyCompleted ? false : tasks.some((task) => task.blocked),
+    ...!manuallyCompleted && condition ? { workState: condition.kind } : {},
     ...hasCondition ? {
       workConditionSummary: condition.body.slice(0, 200),
       workConditionTask: { taskId: condition.taskId, hostId: condition.hostId }
@@ -65433,7 +65936,14 @@ var DYNA_APPLICATION_CAPABILITIES = [
   "dashboard:read",
   "dashboard:manage",
   "item:read",
-  "item:write",
+  "work:update",
+  "work:enrich",
+  "work:complete",
+  "annotation:manage",
+  "item:organize",
+  "item:lifecycle",
+  "follow-up:create",
+  "todo:create",
   "publisher:publish",
   "publisher:manage",
   "view:interact",
@@ -65458,13 +65968,6 @@ var DynaCliError = class extends DynaCliStoreError {
     this.name = "DynaCliError";
   }
 };
-var TASK_ATTRIBUTED_WORK_KINDS = /* @__PURE__ */ new Set([
-  "progress",
-  "needs_input",
-  "blocked",
-  "completion_reported",
-  "handoff"
-]);
 var PRIORITIES = ["critical", "high", "normal", "low"];
 var MAX_DASHBOARDS2 = 100;
 var MAX_PUBLISHERS2 = 100;
@@ -65632,7 +66135,18 @@ var APPLICATION_ACTOR_CAPABILITIES = {
   mcp_host: new Set(
     DYNA_APPLICATION_CAPABILITIES.filter((capability) => capability !== "maintenance:backup")
   ),
-  codex_task: /* @__PURE__ */ new Set(["dashboard:read", "item:read", "item:write"]),
+  codex_task: /* @__PURE__ */ new Set([
+    "dashboard:read",
+    "item:read",
+    "work:update",
+    "work:enrich",
+    "work:complete",
+    "annotation:manage",
+    "item:organize",
+    "item:lifecycle",
+    "follow-up:create",
+    "todo:create"
+  ]),
   publisher: /* @__PURE__ */ new Set(["publisher:publish"]),
   controller: /* @__PURE__ */ new Set(["task:observe"])
 };
@@ -65771,6 +66285,67 @@ var DynaApplicationService = class {
       );
     }
   }
+  #assertLinkedTaskMutation(unitOfWork, itemId, attribution) {
+    const item = unitOfWork.findItemBase(itemId);
+    if (!item) throw new DynaCliError("not_found", "Dyna item was not found.");
+    const owner = unitOfWork.findTaskOwner(attribution.task.taskId);
+    if (owner?.itemId !== itemId || owner.hostId !== attribution.task.hostId) {
+      throw new DynaCliError(
+        "task_not_linked",
+        "The attributed Codex task and current host are not linked to this Dyna item."
+      );
+    }
+    const taskTitle = unitOfWork.findLinkedTaskTitle(
+      itemId,
+      attribution.task.taskId,
+      attribution.task.hostId
+    );
+    if (!taskTitle) {
+      throw new DynaCliError(
+        "task_not_linked",
+        "The attributed Codex task is not linked to this Dyna item."
+      );
+    }
+    if (!isCanonicalDynaTaskTitle(item.itemNumber, taskTitle)) {
+      throw new DynaCliError(
+        "invalid_input",
+        `The linked Codex task title is not synchronized. Rename it so ${formatDynaItemNumber(item.itemNumber)} appears exactly once at the start, verify the title, and retry.`
+      );
+    }
+    const priorAttempt = unitOfWork.findWorkAttemptAttribution(itemId, attribution.workAttemptId);
+    if (priorAttempt?.taskId && priorAttempt.taskId !== attribution.task.taskId) {
+      throw new DynaCliError(
+        "request_conflict",
+        "A Dyna work attempt cannot be reassigned to a different Codex task; host routing may change after handoff."
+      );
+    }
+    return { itemNumber: item.itemNumber, taskTitle };
+  }
+  #mutationControl(unitOfWork, dashboardId, itemId, deduplicated) {
+    const dashboard = unitOfWork.findDashboardState(dashboardId);
+    const item = unitOfWork.findItemBase(itemId);
+    if (!dashboard || !item) {
+      throw new Error("The Dyna mutation control state is unavailable.");
+    }
+    const archived = unitOfWork.findOpenArchive(dashboardId, itemId) !== void 0;
+    const projected = projectRepositoryItems(
+      unitOfWork.listProjectionItems(dashboardId, archived ? "archive" : "active")
+    ).find((candidate) => candidate.fact.id === itemId);
+    if (!projected) throw new Error("The Dyna mutation control projection is unavailable.");
+    return DynaMutationControlSchema.parse({
+      itemNumber: item.itemNumber,
+      fingerprint: item.fingerprint,
+      dashboardRevision: dashboard.revision,
+      enrichmentVersion: unitOfWork.currentEnrichmentVersion(itemId),
+      workflowState: projected.projection.workflowState,
+      ...projected.projection.workState ? { workState: projected.projection.workState } : {},
+      ...projected.projection.workConditionSummary ? { workConditionSummary: projected.projection.workConditionSummary } : {},
+      blocked: projected.projection.blocked,
+      archived,
+      ...projected.fact.archive?.reason ? { archiveReason: projected.fact.archive.reason } : {},
+      deduplicated
+    });
+  }
   #reserveTaskAssociation(unitOfWork, dashboardId, itemId, taskId, requestId, actionRequestId) {
     const owner = unitOfWork.findTaskOwner(taskId);
     if (owner?.itemId === itemId) {
@@ -65846,7 +66421,7 @@ var DynaApplicationService = class {
     }
     return reservation.requestId;
   }
-  #canonicalMutation(dashboardId, itemId, requestId, operation, request, parseResult, mutate) {
+  #canonicalMutation(dashboardId, itemId, requestId, operation, request, parseResult, mutate, receipt) {
     const requestHash = sha2563(canonicalJson2([operation, dashboardId, itemId, request]));
     return this.#repository.write((unitOfWork) => {
       const existing = unitOfWork.findCliReceipt(requestId);
@@ -65857,8 +66432,19 @@ var DynaApplicationService = class {
             "This Dyna request ID was already used for different input."
           );
         }
+        const replayed = parseResult(existing.result, unitOfWork);
+        const replayControl = Reflect.get(replayed, "control");
         return parseResult(
-          { ...parseResult(existing.result, unitOfWork), deduplicated: true },
+          {
+            ...replayed,
+            deduplicated: true,
+            ...typeof replayControl === "object" && replayControl !== null ? {
+              control: {
+                ...replayControl,
+                deduplicated: true
+              }
+            } : {}
+          },
           unitOfWork
         );
       }
@@ -65878,7 +66464,19 @@ var DynaApplicationService = class {
       const result = parseResult(mutate(unitOfWork), unitOfWork);
       unitOfWork.insertCliReceipt(
         requestId,
-        { dashboardId, operation, itemId, requestHash, result },
+        {
+          dashboardId,
+          operation,
+          itemId,
+          requestHash,
+          ...receipt?.attribution ? {
+            taskId: receipt.attribution.task.taskId,
+            hostId: receipt.attribution.task.hostId,
+            workAttemptId: receipt.attribution.workAttemptId
+          } : {},
+          ...receipt?.resultTargetId?.(result) ? { resultTargetId: receipt.resultTargetId(result) } : {},
+          result
+        },
         this.#now()
       );
       return result;
@@ -65897,6 +66495,7 @@ var DynaApplicationService = class {
       priorityPosition,
       workflowState: projection.workflowState,
       ...fact.preferenceSequence !== void 0 ? { preferenceSequence: fact.preferenceSequence } : {},
+      ...fact.userWorkflow ? { userWorkflowStage: fact.userWorkflow.stage } : {},
       ...fact.userWorkflow?.outcome ? { userWorkflowOutcome: fact.userWorkflow.outcome } : {},
       ...fact.userWorkflow ? { userWorkflowCreatedMs: fact.userWorkflow.createdAtMs } : {}
     }));
@@ -66100,6 +66699,11 @@ var DynaApplicationService = class {
       workflowState: projection.workflowState,
       ...projection.completedAt ? { completedAt: projection.completedAt } : {},
       ...projection.outcome ? { outcome: projection.outcome } : {},
+      ...projection.workflowState === "completed" ? fact.userWorkflow?.stage === "done" ? {
+        completionAuthority: fact.userWorkflow.task ? "dyna_task" : "dyna_user",
+        ...fact.userWorkflow.task ? { completionTask: fact.userWorkflow.task } : {},
+        ...fact.userWorkflow.workAttemptId ? { completionWorkAttemptId: fact.userWorkflow.workAttemptId } : {}
+      } : { completionAuthority: "native_controller" } : {},
       ...fact.followUpOfItemId ? { followUpOfItemId: fact.followUpOfItemId } : {},
       ...fact.followUpOfItemNumber ? { followUpOfItemNumber: fact.followUpOfItemNumber } : {},
       ...item.attention ? { attention: item.attention } : {},
@@ -66273,7 +66877,7 @@ var DynaApplicationService = class {
       const unscheduledAge = Number.isFinite(newest) ? Math.max(0, now.getTime() - newest) : Number.POSITIVE_INFINITY;
       const freshness = scheduleFreshness.includes("stale") ? "stale" : scheduleFreshness.includes("aging") ? "aging" : scheduleFreshness.length > 0 ? "fresh" : unscheduledAge <= 15 * 6e4 ? "fresh" : unscheduledAge <= 60 * 6e4 ? "aging" : "stale";
       return DynaDashboardSnapshotSchema.parse({
-        schema: "dyna/snapshot-v8",
+        schema: "dyna/snapshot-v9",
         dashboard,
         generatedAt: now.toISOString(),
         query: normalizedQuery,
@@ -66319,7 +66923,7 @@ var DynaApplicationService = class {
       (unitOfWork) => unitOfWork.persistCreateView(dashboardId)
     );
     return DynaUiPayloadSchema.parse({
-      schema: "dyna/ui-v10",
+      schema: "dyna/ui-v11",
       viewToken,
       snapshot
     });
@@ -66330,7 +66934,7 @@ var DynaApplicationService = class {
       (unitOfWork) => unitOfWork.authorizeViewToken(viewToken)
     );
     const snapshot = this.#materializeSnapshot(dashboardId, query, scope);
-    return DynaUiPayloadSchema.parse({ schema: "dyna/ui-v10", viewToken, snapshot });
+    return DynaUiPayloadSchema.parse({ schema: "dyna/ui-v11", viewToken, snapshot });
   }
   snapshot(dashboardId, query = "", scope = "active") {
     this.#requireCapability("dashboard:read");
@@ -66524,8 +67128,7 @@ var DynaApplicationService = class {
         hostId: target.hostId,
         checkpointVersion: target.checkpointVersion,
         ...target.cursor ? { afterCursor: target.cursor } : {},
-        ...target.lastTurnId ? { lastTurnId: target.lastTurnId } : {},
-        expectedTitle: canonicalDynaTaskTitle(target.itemNumber, target.taskTitle)
+        ...target.lastTurnId ? { lastTurnId: target.lastTurnId } : {}
       }));
       return DynaTaskSyncClaimSchema.parse({
         schema: "dyna/task-sync-claim-v1",
@@ -66575,6 +67178,12 @@ var DynaApplicationService = class {
         }
         if (target.checkpointVersion !== observation.checkpointVersion) {
           throw new DynaCliError("request_conflict", "A task sync checkpoint is stale.");
+        }
+        if (!isCanonicalDynaTaskTitle(target.itemNumber, observation.task.title)) {
+          throw new DynaCliError(
+            "invalid_input",
+            "A synchronized Codex task title must contain the item's Dyna identifier."
+          );
         }
         if (!unitOfWork.stageTaskSyncObservation(run.id, target.taskId, observation)) {
           throw new DynaCliError("request_conflict", "A task sync target was already submitted.");
@@ -66684,8 +67293,15 @@ var DynaApplicationService = class {
         const observationIdentity = taskSyncObservationReceiptIdentity(observation);
         const observationPayloadHash = taskSyncObservationPayloadHash(observation);
         const observationReceiptId = `task-sync-observation:${observationIdentity}`;
-        const existingReceipt = unitOfWork.findTaskSyncReceipt(observationReceiptId);
         const checkpoint = unitOfWork.findTaskSyncCheckpoint(target.taskId);
+        const owner = unitOfWork.findTaskOwner(target.taskId);
+        const membershipValid = owner?.itemId === target.itemId && unitOfWork.dashboardContainsItem(run.dashboardId, target.itemId) && !unitOfWork.findOpenArchive(run.dashboardId, target.itemId);
+        if (!membershipValid || !isCanonicalDynaTaskTitle(target.itemNumber, observation.task.title)) {
+          unavailableTaskIds.add(target.taskId);
+          unitOfWork.markTaskSyncTarget(run.id, target.taskId, "skipped");
+          continue;
+        }
+        const existingReceipt = unitOfWork.findTaskSyncReceipt(observationReceiptId);
         if (existingReceipt) {
           if (existingReceipt.requestHash !== observationPayloadHash) {
             unavailableTaskIds.add(target.taskId);
@@ -66698,9 +67314,7 @@ var DynaApplicationService = class {
           unitOfWork.markTaskSyncTarget(run.id, target.taskId, "applied");
           continue;
         }
-        const owner = unitOfWork.findTaskOwner(target.taskId);
-        const membershipValid = owner?.itemId === target.itemId && unitOfWork.dashboardContainsItem(run.dashboardId, target.itemId) && !unitOfWork.findOpenArchive(run.dashboardId, target.itemId);
-        if (!membershipValid || (checkpoint?.version ?? 0) !== target.checkpointVersion || !isCanonicalDynaTaskTitle(target.itemNumber, observation.task.title)) {
+        if ((checkpoint?.version ?? 0) !== target.checkpointVersion) {
           unavailableTaskIds.add(target.taskId);
           unitOfWork.markTaskSyncTarget(run.id, target.taskId, "skipped");
           continue;
@@ -66913,6 +67527,9 @@ var DynaApplicationService = class {
         plan: card.plan,
         nextSteps: card.nextSteps,
         ...card.outcome ? { outcome: card.outcome } : {},
+        ...card.completionAuthority ? { completionAuthority: card.completionAuthority } : {},
+        ...card.completionTask ? { completionTask: card.completionTask } : {},
+        ...card.completionWorkAttemptId ? { completionWorkAttemptId: card.completionWorkAttemptId } : {},
         ...card.workState ? { workState: card.workState } : {},
         workUpdates: card.workUpdates,
         workUpdateCount: card.workUpdateCount,
@@ -67110,7 +67727,7 @@ var DynaApplicationService = class {
     });
   }
   applyEnrichment(itemId, update) {
-    this.#requireCapability("item:write");
+    this.#requireCapability("work:enrich");
     this.#repository.write((unitOfWork) => {
       const item = unitOfWork.findItemBase(itemId);
       if (!item) throw new DynaCliError("not_found", "Dyna item was not found.");
@@ -67389,6 +68006,198 @@ var DynaApplicationService = class {
       });
     });
   }
+  addTaskAnnotation(dashboardId, itemId, expectedFingerprint, input) {
+    this.#requireCapability("annotation:manage");
+    const parsed = DynaCliAnnotationAddInputSchema.parse(input);
+    return this.#canonicalMutation(
+      dashboardId,
+      itemId,
+      parsed.requestId,
+      "annotation.add",
+      { expectedFingerprint, input: parsed },
+      (value) => {
+        const result = DynaCliAnnotationMutationResultSchema.parse(value);
+        return DynaCliAnnotationMutationResultSchema.parse(result);
+      },
+      (unitOfWork) => {
+        const item = unitOfWork.findItemBase(itemId);
+        if (item?.fingerprint !== expectedFingerprint) {
+          throw new DynaCliError(
+            "stale_item",
+            "The Dyna item changed; run item show before adding a note."
+          );
+        }
+        const { taskTitle } = this.#assertLinkedTaskMutation(unitOfWork, itemId, parsed);
+        const instant = this.#now();
+        const annotation = DynaAnnotationSchema.parse({
+          id: (0, import_node_crypto10.randomUUID)(),
+          itemId,
+          body: parsed.body,
+          createdAt: instant,
+          updatedAt: instant,
+          version: 1,
+          task: { ...parsed.task, title: taskTitle },
+          workAttemptId: parsed.workAttemptId
+        });
+        unitOfWork.insertAnnotation(annotation);
+        unitOfWork.insertAnnotationEvent({
+          id: (0, import_node_crypto10.randomUUID)(),
+          annotationId: annotation.id,
+          itemId,
+          operation: "create",
+          requestHash: sha2563(canonicalJson2({ body: annotation.body })),
+          resultVersion: 1,
+          occurredAt: instant,
+          taskId: parsed.task.taskId,
+          hostId: parsed.task.hostId,
+          taskTitle,
+          workAttemptId: parsed.workAttemptId
+        });
+        this.#touchItemDashboards(unitOfWork, itemId, instant);
+        unitOfWork.appendAudit("annotation.created.cli", annotation.id, instant);
+        return DynaCliAnnotationMutationResultSchema.parse({
+          schema: "dyna/cli-annotation-mutation-result-v1",
+          requestId: parsed.requestId,
+          itemId,
+          annotationId: annotation.id,
+          version: 1,
+          updatedAt: instant,
+          deleted: false,
+          deduplicated: false,
+          control: this.#mutationControl(unitOfWork, dashboardId, itemId, false)
+        });
+      },
+      { attribution: parsed, resultTargetId: (result) => result.annotationId }
+    );
+  }
+  editTaskAnnotation(dashboardId, itemId, annotationId, expectedVersion, expectedFingerprint, input) {
+    this.#requireCapability("annotation:manage");
+    const parsed = DynaCliAnnotationEditInputSchema.parse(input);
+    return this.#canonicalMutation(
+      dashboardId,
+      itemId,
+      parsed.requestId,
+      "annotation.edit",
+      { annotationId, expectedVersion, expectedFingerprint, input: parsed },
+      (value) => {
+        const result = DynaCliAnnotationMutationResultSchema.parse(value);
+        return DynaCliAnnotationMutationResultSchema.parse(result);
+      },
+      (unitOfWork) => {
+        const item = unitOfWork.findItemBase(itemId);
+        if (item?.fingerprint !== expectedFingerprint) {
+          throw new DynaCliError(
+            "stale_item",
+            "The Dyna item changed; run item show before editing the note."
+          );
+        }
+        const { taskTitle } = this.#assertLinkedTaskMutation(unitOfWork, itemId, parsed);
+        this.#editableAnnotation(unitOfWork, itemId, annotationId, expectedVersion);
+        const instant = this.#now();
+        const attribution = {
+          taskId: parsed.task.taskId,
+          hostId: parsed.task.hostId,
+          taskTitle,
+          workAttemptId: parsed.workAttemptId
+        };
+        if (!unitOfWork.updateAnnotation(
+          annotationId,
+          expectedVersion,
+          parsed.body,
+          instant,
+          attribution
+        )) {
+          throw new DynaCliError("request_conflict", "The note changed; refresh before retrying.");
+        }
+        const version2 = expectedVersion + 1;
+        unitOfWork.insertAnnotationEvent({
+          id: (0, import_node_crypto10.randomUUID)(),
+          annotationId,
+          itemId,
+          operation: "edit",
+          requestHash: sha2563(canonicalJson2({ body: parsed.body, expectedVersion })),
+          resultVersion: version2,
+          occurredAt: instant,
+          ...attribution
+        });
+        this.#touchItemDashboards(unitOfWork, itemId, instant);
+        unitOfWork.appendAudit("annotation.edited.cli", annotationId, instant);
+        return DynaCliAnnotationMutationResultSchema.parse({
+          schema: "dyna/cli-annotation-mutation-result-v1",
+          requestId: parsed.requestId,
+          itemId,
+          annotationId,
+          version: version2,
+          updatedAt: instant,
+          deleted: false,
+          deduplicated: false,
+          control: this.#mutationControl(unitOfWork, dashboardId, itemId, false)
+        });
+      },
+      { attribution: parsed, resultTargetId: () => annotationId }
+    );
+  }
+  deleteTaskAnnotation(dashboardId, itemId, annotationId, expectedVersion, expectedFingerprint, input) {
+    this.#requireCapability("annotation:manage");
+    const parsed = DynaCliAnnotationDeleteInputSchema.parse(input);
+    return this.#canonicalMutation(
+      dashboardId,
+      itemId,
+      parsed.requestId,
+      "annotation.delete",
+      { annotationId, expectedVersion, expectedFingerprint, input: parsed },
+      (value) => {
+        const result = DynaCliAnnotationMutationResultSchema.parse(value);
+        return DynaCliAnnotationMutationResultSchema.parse(result);
+      },
+      (unitOfWork) => {
+        const item = unitOfWork.findItemBase(itemId);
+        if (item?.fingerprint !== expectedFingerprint) {
+          throw new DynaCliError(
+            "stale_item",
+            "The Dyna item changed; run item show before deleting the note."
+          );
+        }
+        const { taskTitle } = this.#assertLinkedTaskMutation(unitOfWork, itemId, parsed);
+        this.#editableAnnotation(unitOfWork, itemId, annotationId, expectedVersion);
+        const instant = this.#now();
+        const attribution = {
+          taskId: parsed.task.taskId,
+          hostId: parsed.task.hostId,
+          taskTitle,
+          workAttemptId: parsed.workAttemptId
+        };
+        if (!unitOfWork.deleteAnnotation(annotationId, expectedVersion, instant, attribution)) {
+          throw new DynaCliError("request_conflict", "The note changed; refresh before retrying.");
+        }
+        const version2 = expectedVersion + 1;
+        unitOfWork.insertAnnotationEvent({
+          id: (0, import_node_crypto10.randomUUID)(),
+          annotationId,
+          itemId,
+          operation: "delete",
+          requestHash: sha2563(canonicalJson2({ expectedVersion })),
+          resultVersion: version2,
+          occurredAt: instant,
+          ...attribution
+        });
+        this.#touchItemDashboards(unitOfWork, itemId, instant);
+        unitOfWork.appendAudit("annotation.deleted.cli", annotationId, instant);
+        return DynaCliAnnotationMutationResultSchema.parse({
+          schema: "dyna/cli-annotation-mutation-result-v1",
+          requestId: parsed.requestId,
+          itemId,
+          annotationId,
+          version: version2,
+          updatedAt: instant,
+          deleted: true,
+          deduplicated: false,
+          control: this.#mutationControl(unitOfWork, dashboardId, itemId, false)
+        });
+      },
+      { attribution: parsed, resultTargetId: () => annotationId }
+    );
+  }
   #annotationMutationEventId(dashboardId, itemId, annotationId, clientRequestId) {
     return scopedUuid2([
       "annotation-mutation-request",
@@ -67649,8 +68458,9 @@ var DynaApplicationService = class {
         );
       }
       const taskEvidence = unitOfWork.completionEvidence(itemId);
-      const completedAtMs = positioned.workflowState === "completed" ? taskEvidence.completedAtMs ?? positioned.userWorkflowCreatedMs : void 0;
-      const outcome = positioned.workflowState === "completed" ? taskEvidence.outcome ?? positioned.userWorkflowOutcome : void 0;
+      const manuallyCompleted = positioned.userWorkflowStage === "done";
+      const completedAtMs = positioned.workflowState === "completed" ? manuallyCompleted ? positioned.userWorkflowCreatedMs : taskEvidence.completedAtMs : void 0;
+      const outcome = positioned.workflowState === "completed" ? manuallyCompleted ? positioned.userWorkflowOutcome : taskEvidence.outcome : void 0;
       const archiveId = (0, import_node_crypto10.randomUUID)();
       const archivedAt = this.#now();
       unitOfWork.insertArchive({
@@ -67867,13 +68677,7 @@ var DynaApplicationService = class {
     return this.#repository.read((unitOfWork) => unitOfWork.loadAction(requestId));
   }
   recordWorkUpdate(dashboardId, itemId, expectedFingerprint, input) {
-    this.#requireCapability("item:write");
-    if (TASK_ATTRIBUTED_WORK_KINDS.has(input.kind) && !input.task) {
-      throw new DynaCliError(
-        "invalid_input",
-        "This Dyna lifecycle update requires attribution to a linked Codex task."
-      );
-    }
+    this.#requireCapability("work:update");
     const parsed = DynaWorkUpdateInputSchema.parse(input);
     return this.#canonicalMutation(
       dashboardId,
@@ -67881,14 +68685,14 @@ var DynaApplicationService = class {
       parsed.requestId,
       "item.update",
       { expectedFingerprint, input: parsed },
-      (value) => DynaItemUpdateResultSchema.parse(value),
+      (value, unitOfWork) => {
+        const result = DynaItemUpdateResultSchema.parse(value);
+        return DynaItemUpdateResultSchema.parse({
+          ...result,
+          control: result.control ?? this.#mutationControl(unitOfWork, dashboardId, itemId, result.deduplicated)
+        });
+      },
       (unitOfWork) => {
-        if (this.#actorKind === "codex_task" && !parsed.task) {
-          throw new DynaCliError(
-            "invalid_input",
-            "A Codex-task Dyna update requires attribution to the receiving linked Codex task. Verify and synchronize that task before retrying."
-          );
-        }
         const item = unitOfWork.findItemBase(itemId);
         if (item?.fingerprint !== expectedFingerprint) {
           throw new DynaCliError(
@@ -67905,32 +68709,15 @@ var DynaApplicationService = class {
             archived ? "Archived Dyna items accept historical notes only; create a follow-up for continued work." : "Completed Dyna items accept historical notes only; create a follow-up for continued work."
           );
         }
-        let taskTitle;
-        if (parsed.task) {
-          taskTitle = unitOfWork.findLinkedTaskTitle(
-            itemId,
-            parsed.task.taskId,
-            parsed.task.hostId
-          );
-          if (!taskTitle) {
-            throw new DynaCliError(
-              "task_not_linked",
-              "The attributed Codex task is not linked to this Dyna item."
-            );
-          }
-          if (!isCanonicalDynaTaskTitle(item.itemNumber, taskTitle)) {
+        const { taskTitle } = this.#assertLinkedTaskMutation(unitOfWork, itemId, parsed);
+        if (parsed.supersedesWorkUpdateId) {
+          const superseded = unitOfWork.findWorkUpdate(parsed.supersedesWorkUpdateId);
+          if (superseded?.itemId !== itemId || superseded.task?.taskId !== parsed.task.taskId) {
             throw new DynaCliError(
               "invalid_input",
-              `The linked Codex task title is not synchronized. Rename it so ${formatDynaItemNumber(item.itemNumber)} appears exactly once at the start, verify the title, and retry this update.`
+              "A Dyna work correction must supersede an update from the same item and Codex task."
             );
           }
-        }
-        const priorAttempt = unitOfWork.findWorkAttemptAttribution(itemId, parsed.workAttemptId);
-        if (priorAttempt && priorAttempt.taskId !== parsed.task?.taskId) {
-          throw new DynaCliError(
-            "request_conflict",
-            "A Dyna work attempt cannot be reassigned to a different Codex task; host routing may change after handoff."
-          );
         }
         const instant = this.#now();
         const update = DynaWorkUpdateSchema.parse({
@@ -67943,7 +68730,8 @@ var DynaApplicationService = class {
           body: parsed.body,
           ...parsed.outcome ? { outcome: parsed.outcome } : {},
           artifacts: parsed.artifacts,
-          ...parsed.task ? { task: { ...parsed.task, title: taskTitle } } : {},
+          task: { ...parsed.task, title: taskTitle },
+          ...parsed.supersedesWorkUpdateId ? { supersedesWorkUpdateId: parsed.supersedesWorkUpdateId } : {},
           createdAt: instant
         });
         unitOfWork.insertWorkUpdate(update);
@@ -67954,13 +68742,102 @@ var DynaApplicationService = class {
           requestId: parsed.requestId,
           itemId,
           workUpdateId: update.id,
-          deduplicated: false
+          deduplicated: false,
+          control: this.#mutationControl(unitOfWork, dashboardId, itemId, false)
         });
+      },
+      {
+        attribution: parsed,
+        resultTargetId: (result) => result.workUpdateId
+      }
+    );
+  }
+  completeWork(dashboardId, itemId, expectedRevision, expectedFingerprint, input) {
+    this.#requireCapability("work:complete");
+    const parsed = DynaWorkCompleteInputSchema.parse(input);
+    return this.#canonicalMutation(
+      dashboardId,
+      itemId,
+      parsed.requestId,
+      "work.complete",
+      { expectedRevision, expectedFingerprint, input: parsed },
+      (value) => {
+        const result = DynaWorkCompleteResultSchema.parse(value);
+        return DynaWorkCompleteResultSchema.parse(result);
+      },
+      (unitOfWork) => {
+        const dashboard = unitOfWork.findDashboardState(dashboardId);
+        if (dashboard?.revision !== expectedRevision) {
+          throw new DynaCliError(
+            "stale_dashboard",
+            "The Dyna dashboard changed; run item show before completing this item."
+          );
+        }
+        const item = unitOfWork.findItemBase(itemId);
+        if (item?.fingerprint !== expectedFingerprint) {
+          throw new DynaCliError(
+            "stale_item",
+            "The Dyna item changed; run item show before completing it."
+          );
+        }
+        const { taskTitle } = this.#assertLinkedTaskMutation(unitOfWork, itemId, parsed);
+        const positioned = this.#positionedItem(unitOfWork, dashboardId, itemId);
+        if (!positioned) {
+          throw new DynaCliError(
+            "archived_item",
+            "Archived Dyna items cannot be completed; create a follow-up for continued work."
+          );
+        }
+        if (positioned.workflowState === "completed") {
+          throw new DynaCliError("completed_item", "The Dyna item is already completed.");
+        }
+        const instant = this.#now();
+        const update = DynaWorkUpdateSchema.parse({
+          schema: "dyna/work-update-v1",
+          id: (0, import_node_crypto10.randomUUID)(),
+          itemId,
+          originDashboardId: dashboardId,
+          workAttemptId: parsed.workAttemptId,
+          kind: "completion_reported",
+          body: parsed.body ?? `Dyna work closed with outcome: ${parsed.outcome}`,
+          outcome: parsed.outcome,
+          artifacts: parsed.artifacts,
+          task: { ...parsed.task, title: taskTitle },
+          createdAt: instant
+        });
+        const workflowEvent = {
+          id: (0, import_node_crypto10.randomUUID)(),
+          itemId,
+          originDashboardId: dashboardId,
+          targetStage: "done",
+          outcome: parsed.outcome,
+          task: { ...parsed.task, title: taskTitle },
+          workAttemptId: parsed.workAttemptId,
+          createdAt: instant
+        };
+        unitOfWork.insertWorkUpdate(update);
+        unitOfWork.insertUserWorkflowEvent(workflowEvent);
+        this.#touchItemDashboards(unitOfWork, itemId, instant);
+        unitOfWork.appendAudit("item.work_completed.cli", itemId, instant);
+        return DynaWorkCompleteResultSchema.parse({
+          schema: "dyna/work-complete-result-v1",
+          requestId: parsed.requestId,
+          itemId,
+          workUpdateId: update.id,
+          workflowEventId: workflowEvent.id,
+          nativeTaskSuccessCertified: false,
+          deduplicated: false,
+          control: this.#mutationControl(unitOfWork, dashboardId, itemId, false)
+        });
+      },
+      {
+        attribution: parsed,
+        resultTargetId: (result) => result.workflowEventId
       }
     );
   }
   enrichItem(dashboardId, itemId, expectedFingerprint, expectedEnrichmentVersion, input) {
-    this.#requireCapability("item:write");
+    this.#requireCapability("work:enrich");
     const parsed = DynaWorkEnrichInputSchema.parse(input);
     const enrichedInput = { ...parsed, provenance: "codex-task" };
     return this.#canonicalMutation(
@@ -68036,8 +68913,115 @@ var DynaApplicationService = class {
       }
     );
   }
+  enrichItemPatch(dashboardId, itemId, expectedFingerprint, expectedEnrichmentVersion, input) {
+    this.#requireCapability("work:enrich");
+    const parsed = DynaTaskWorkEnrichInputSchema.parse(input);
+    return this.#canonicalMutation(
+      dashboardId,
+      itemId,
+      parsed.requestId,
+      "item.enrich.patch",
+      { expectedFingerprint, expectedEnrichmentVersion, input: parsed },
+      (value, unitOfWork) => {
+        const result = DynaItemEnrichResultSchema.parse(value);
+        return DynaItemEnrichResultSchema.parse({
+          ...result,
+          control: result.control ?? this.#mutationControl(unitOfWork, dashboardId, itemId, result.deduplicated)
+        });
+      },
+      (unitOfWork) => {
+        const item = unitOfWork.findItemBase(itemId);
+        if (item?.fingerprint !== expectedFingerprint) {
+          throw new DynaCliError(
+            "stale_item",
+            "The Dyna item changed; run item show before enriching it."
+          );
+        }
+        this.#assertLinkedTaskMutation(unitOfWork, itemId, parsed);
+        const positioned = this.#positionedItem(unitOfWork, dashboardId, itemId);
+        if (!positioned) {
+          throw new DynaCliError(
+            "archived_item",
+            "Archived Dyna items cannot be enriched; restore or create a follow-up."
+          );
+        }
+        if (positioned.workflowState === "completed") {
+          throw new DynaCliError(
+            "completed_item",
+            "Completed Dyna items cannot be enriched; create a follow-up for continued work."
+          );
+        }
+        const currentVersion = unitOfWork.currentEnrichmentVersion(itemId);
+        if (currentVersion !== expectedEnrichmentVersion) {
+          throw new DynaCliError(
+            "stale_enrichment",
+            "The Dyna enrichment changed; run item show before patching it."
+          );
+        }
+        const storedEnrichment = unitOfWork.listProjectionItems(dashboardId, "active").find((candidate) => candidate.id === itemId)?.enrichment;
+        const current = storedEnrichment?.baseFingerprint === expectedFingerprint ? storedEnrichment : void 0;
+        const cleared = new Set(parsed.clear);
+        const hasSet = (field) => parsed.set !== void 0 && Object.hasOwn(parsed.set, field);
+        const value = (field, setValue, fallback2) => {
+          if (cleared.has(field)) return void 0;
+          if (hasSet(field)) return setValue;
+          return fallback2;
+        };
+        const summary2 = value("summary", parsed.set?.summary, current?.summary);
+        const priority = value("priority", parsed.set?.priority, current?.priority);
+        const priorityReason = value(
+          "priorityReason",
+          parsed.set?.priorityReason,
+          current?.priorityReason
+        );
+        const labels = value("labels", parsed.set?.labels, current?.labels);
+        const people = value("people", parsed.set?.people, current?.people);
+        const attention = value("attention", parsed.set?.attention, current?.attention);
+        const plan = value("plan", parsed.set?.plan, current?.plan);
+        const nextSteps = value("nextSteps", parsed.set?.nextSteps, current?.nextSteps);
+        if (priority === "critical" && item.sourcePriority !== "critical") {
+          throw new DynaCliError(
+            "invalid_input",
+            "Dyna enrichment cannot set critical unless the source priority is already critical."
+          );
+        }
+        const dueAtInput = value("dueAt", parsed.set?.dueAt, current?.dueAt);
+        const dueAtSet = cleared.has("dueAt") || hasSet("dueAt") ? true : current?.dueAtSet ?? false;
+        const instant = this.#now();
+        const enrichmentVersion = unitOfWork.replaceEnrichment({
+          itemId,
+          ...summary2 !== void 0 ? { summary: summary2 } : {},
+          ...priority !== void 0 ? { priority } : {},
+          ...priorityReason !== void 0 ? { priorityReason } : {},
+          ...dueAtInput ? { dueAt: new Date(dueAtInput).toISOString() } : {},
+          dueAtSet,
+          ...labels !== void 0 ? { labels } : {},
+          ...people !== void 0 ? { people } : {},
+          leadershipScore: dynaLeadershipScore(people ?? []),
+          ...attention !== void 0 ? { attention } : {},
+          ...plan !== void 0 ? { plan } : {},
+          ...nextSteps !== void 0 ? { nextSteps } : {},
+          baseFingerprint: expectedFingerprint,
+          baseSourceUpdatedAt: item.sourceUpdatedAt,
+          appliedAt: instant,
+          provenance: "codex-task"
+        });
+        this.#touchItemDashboards(unitOfWork, itemId, instant);
+        unitOfWork.appendAudit("item.enriched.cli.patch", itemId, instant);
+        return DynaItemEnrichResultSchema.parse({
+          schema: "dyna/item-enrich-result-v1",
+          requestId: parsed.requestId,
+          itemId,
+          enrichmentVersion,
+          deduplicated: false,
+          control: this.#mutationControl(unitOfWork, dashboardId, itemId, false)
+        });
+      },
+      { attribution: parsed, resultTargetId: () => itemId }
+    );
+  }
   placeItem(dashboardId, itemId, expectedRevision, expectedFingerprint, input) {
-    this.#requireCapability("item:write");
+    this.#requireCapability("item:organize");
     const parsed = DynaOrganizePlaceInputSchema.parse(input);
     return this.#canonicalMutation(
       dashboardId,
@@ -68045,7 +69029,13 @@ var DynaApplicationService = class {
       parsed.requestId,
       "item.place",
       { expectedRevision, expectedFingerprint, input: parsed },
-      (value) => DynaItemPlaceResultSchema.parse(value),
+      (value, unitOfWork) => {
+        const result = DynaItemPlaceResultSchema.parse(value);
+        return DynaItemPlaceResultSchema.parse({
+          ...result,
+          control: result.control ?? this.#mutationControl(unitOfWork, dashboardId, itemId, result.deduplicated)
+        });
+      },
       (unitOfWork) => {
         const dashboard = unitOfWork.findDashboardState(dashboardId);
         if (dashboard?.revision !== expectedRevision) {
@@ -68061,6 +69051,7 @@ var DynaApplicationService = class {
             "The Dyna item changed; run item show before moving it."
           );
         }
+        this.#assertLinkedTaskMutation(unitOfWork, itemId, parsed);
         const positioned = this.#positionedItems(unitOfWork, dashboardId);
         const source = positioned.find((candidate) => candidate.id === itemId);
         if (!source) {
@@ -68089,13 +69080,15 @@ var DynaApplicationService = class {
           requestId: parsed.requestId,
           itemId,
           changed: placement.changed,
-          deduplicated: false
+          deduplicated: false,
+          control: this.#mutationControl(unitOfWork, dashboardId, itemId, false)
         });
-      }
+      },
+      { attribution: parsed, resultTargetId: () => itemId }
     );
   }
   placeMany(dashboardId, expectedRevision, input) {
-    this.#requireCapability("item:write");
+    this.#requireCapability("item:organize");
     const parsed = DynaOrganizePlaceManyInputSchema.parse(input);
     const items = [...parsed.items].sort((left, right) => left.itemId.localeCompare(right.itemId));
     const anchor = items[0];
@@ -68140,7 +69133,7 @@ var DynaApplicationService = class {
     );
   }
   archiveItem(dashboardId, itemId, expectedRevision, expectedFingerprint, input) {
-    this.#requireCapability("item:write");
+    this.#requireCapability("item:lifecycle");
     const parsed = DynaLifecycleArchiveInputSchema.parse(input);
     return this.#canonicalMutation(
       dashboardId,
@@ -68148,7 +69141,13 @@ var DynaApplicationService = class {
       parsed.requestId,
       "item.archive",
       { expectedRevision, expectedFingerprint, input: parsed },
-      (value) => DynaItemArchiveResultSchema.parse(value),
+      (value, unitOfWork) => {
+        const result = DynaItemArchiveResultSchema.parse(value);
+        return DynaItemArchiveResultSchema.parse({
+          ...result,
+          control: result.control ?? this.#mutationControl(unitOfWork, dashboardId, itemId, result.deduplicated)
+        });
+      },
       (unitOfWork) => {
         const dashboard = unitOfWork.findDashboardState(dashboardId);
         if (dashboard?.revision !== expectedRevision) {
@@ -68167,15 +69166,17 @@ var DynaApplicationService = class {
             "The Dyna item changed; run item show before archiving it."
           );
         }
+        this.#assertLinkedTaskMutation(unitOfWork, itemId, parsed);
         if (parsed.reason === "completed" && positioned.workflowState !== "completed") {
           throw new DynaCliError(
             "invalid_input",
-            "Only controller-confirmed completed work can use the Completed disposition."
+            "Only completed Dyna work can use the Completed disposition."
           );
         }
         const taskEvidence = unitOfWork.completionEvidence(itemId);
-        const completedAtMs = positioned.workflowState === "completed" ? taskEvidence.completedAtMs ?? positioned.userWorkflowCreatedMs : void 0;
-        const outcome = positioned.workflowState === "completed" ? taskEvidence.outcome ?? positioned.userWorkflowOutcome : void 0;
+        const manuallyCompleted = positioned.userWorkflowStage === "done";
+        const completedAtMs = positioned.workflowState === "completed" ? manuallyCompleted ? positioned.userWorkflowCreatedMs : taskEvidence.completedAtMs : void 0;
+        const outcome = positioned.workflowState === "completed" ? manuallyCompleted ? positioned.userWorkflowOutcome : taskEvidence.outcome : void 0;
         const archiveId = (0, import_node_crypto10.randomUUID)();
         const archivedAt = this.#now();
         unitOfWork.insertArchive({
@@ -68202,21 +69203,29 @@ var DynaApplicationService = class {
           archiveId,
           archivedAt,
           reason: parsed.reason,
-          deduplicated: false
+          deduplicated: false,
+          control: this.#mutationControl(unitOfWork, dashboardId, itemId, false)
         });
-      }
+      },
+      { attribution: parsed, resultTargetId: (result) => result.archiveId }
     );
   }
   restoreItem(dashboardId, itemId, expectedRevision, expectedFingerprint, input) {
-    this.#requireCapability("item:write");
+    this.#requireCapability("item:lifecycle");
     const parsed = DynaLifecycleRestoreInputSchema.parse(input);
     return this.#canonicalMutation(
       dashboardId,
       itemId,
       parsed.requestId,
       "item.restore",
-      { expectedRevision, expectedFingerprint },
-      (value) => DynaItemRestoreResultSchema.parse(value),
+      { expectedRevision, expectedFingerprint, input: parsed },
+      (value, unitOfWork) => {
+        const result = DynaItemRestoreResultSchema.parse(value);
+        return DynaItemRestoreResultSchema.parse({
+          ...result,
+          control: result.control ?? this.#mutationControl(unitOfWork, dashboardId, itemId, result.deduplicated)
+        });
+      },
       (unitOfWork) => {
         const dashboard = unitOfWork.findDashboardState(dashboardId);
         if (dashboard?.revision !== expectedRevision) {
@@ -68232,6 +69241,7 @@ var DynaApplicationService = class {
             "The Dyna item changed; run item show before restoring it."
           );
         }
+        this.#assertLinkedTaskMutation(unitOfWork, itemId, parsed);
         const archive = unitOfWork.findOpenArchive(dashboardId, itemId);
         if (!archive) {
           throw new DynaCliError(
@@ -68253,13 +69263,15 @@ var DynaApplicationService = class {
           requestId: parsed.requestId,
           itemId,
           restoredAt,
-          deduplicated: false
+          deduplicated: false,
+          control: this.#mutationControl(unitOfWork, dashboardId, itemId, false)
         });
-      }
+      },
+      { attribution: parsed, resultTargetId: () => itemId }
     );
   }
   createTodo(dashboardId, input) {
-    this.#requireCapability("item:write");
+    this.#requireCapability("todo:create");
     const parsed = DynaTodoCreateInputSchema.parse(input);
     const { requestId, ...todoInput } = parsed;
     const todo = DynaTodoInputSchema.parse(todoInput);
@@ -68268,10 +69280,17 @@ var DynaApplicationService = class {
     );
   }
   createFollowUp(dashboardId, sourceItemId, expectedRevision, expectedFingerprint, input) {
-    this.#requireCapability("item:write");
+    this.#requireCapability("follow-up:create");
     const parsed = DynaFollowUpCreateInputSchema.parse(input);
-    const { requestId, ...todoInput } = parsed;
-    const todo = DynaTodoInputSchema.parse({ ...todoInput, followUpOfItemId: sourceItemId });
+    const { requestId } = parsed;
+    const todo = DynaTodoInputSchema.parse({
+      title: parsed.title,
+      ...parsed.summary ? { summary: parsed.summary } : {},
+      priority: parsed.priority,
+      ...parsed.attention ? { attention: parsed.attention } : {},
+      labels: parsed.labels,
+      followUpOfItemId: sourceItemId
+    });
     return this.#canonicalMutation(
       dashboardId,
       sourceItemId,
@@ -68280,7 +69299,17 @@ var DynaApplicationService = class {
       { expectedRevision, expectedFingerprint, input: parsed },
       (value, unitOfWork) => {
         const current = DynaFollowUpCreateResultSchema.safeParse(value);
-        if (current.success) return current.data;
+        if (current.success) {
+          return DynaFollowUpCreateResultSchema.parse({
+            ...current.data,
+            control: current.data.control ?? this.#mutationControl(
+              unitOfWork,
+              dashboardId,
+              current.data.itemId,
+              current.data.deduplicated
+            )
+          });
+        }
         const legacy = LegacyDynaFollowUpCreateResultSchema.parse(value);
         if (legacy.requestId !== requestId || legacy.sourceItemId !== sourceItemId) {
           throw new DynaCliError(
@@ -68298,7 +69327,13 @@ var DynaApplicationService = class {
           ...legacy,
           schema: "dyna/follow-up-create-result-v2",
           itemNumber: created.itemNumber,
-          sourceItemNumber: source.itemNumber
+          sourceItemNumber: source.itemNumber,
+          control: this.#mutationControl(
+            unitOfWork,
+            dashboardId,
+            legacy.itemId,
+            legacy.deduplicated
+          )
         });
       },
       (unitOfWork) => {
@@ -68316,6 +69351,7 @@ var DynaApplicationService = class {
             "The Dyna item changed; run item show before creating a follow-up."
           );
         }
+        this.#assertLinkedTaskMutation(unitOfWork, sourceItemId, parsed);
         const archived = unitOfWork.findOpenArchive(dashboardId, sourceItemId) !== void 0;
         const positioned = archived ? void 0 : this.#positionedItem(unitOfWork, dashboardId, sourceItemId);
         if (!archived && positioned?.workflowState !== "completed") {
@@ -68342,17 +69378,20 @@ var DynaApplicationService = class {
           sourceItemId,
           sourceItemNumber: source.itemNumber,
           fingerprint: created.fingerprint,
-          deduplicated: false
+          deduplicated: false,
+          control: this.#mutationControl(unitOfWork, dashboardId, created.itemId, false)
         });
-      }
+      },
+      { attribution: parsed, resultTargetId: (result) => result.itemId }
     );
   }
 };
 
 // packages/mcp-server/src/plugins/dyna.ts
 var DYNA_PLUGIN_ID = "dyna";
-var DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v18.html";
+var DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v19.html";
 var LEGACY_DYNA_TEMPLATE_URIS = [
+  "ui://flowzone/dyna/v18.html",
   "ui://flowzone/dyna/v17.html",
   "ui://flowzone/dyna/v16.html",
   "ui://flowzone/dyna/v15.html",
@@ -68364,7 +69403,14 @@ var DYNA_MCP_ACTOR = {
     "dashboard:read",
     "dashboard:manage",
     "item:read",
-    "item:write",
+    "work:update",
+    "work:enrich",
+    "work:complete",
+    "annotation:manage",
+    "item:organize",
+    "item:lifecycle",
+    "follow-up:create",
+    "todo:create",
     "publisher:publish",
     "publisher:manage",
     "view:interact",

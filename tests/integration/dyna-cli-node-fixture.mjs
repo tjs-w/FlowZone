@@ -106,6 +106,10 @@ try {
       "item activity",
       "work update",
       "work enrich",
+      "work complete",
+      "annotation add",
+      "annotation edit",
+      "annotation delete",
       "organize place",
       "organize place-many",
       "lifecycle archive",
@@ -224,6 +228,11 @@ try {
     "--expected-revision",
     "0",
   ];
+  const taskMutationInput = {
+    requestId: randomUUID(),
+    workAttemptId: randomUUID(),
+    task: { taskId: "parser-task", hostId: "parser-host" },
+  };
   const canonicalCommandCases = [
     {
       name: "dashboard list",
@@ -268,8 +277,7 @@ try {
       ],
       requiredFlag: "--expected-fingerprint",
       input: {
-        requestId: randomUUID(),
-        workAttemptId: randomUUID(),
+        ...taskMutationInput,
         kind: "note",
         body: "Parser boundary fixture",
         artifacts: [],
@@ -287,13 +295,63 @@ try {
         "0",
       ],
       requiredFlag: "--expected-enrichment-version",
-      input: { requestId: randomUUID(), summary: "Parser boundary fixture" },
+      input: { ...taskMutationInput, set: { summary: "Parser boundary fixture" }, clear: [] },
+    },
+    {
+      name: "work complete",
+      arguments: ["work", "complete", ...preconditionArguments],
+      requiredFlag: "--expected-revision",
+      input: { ...taskMutationInput, outcome: "Completed parser boundary fixture." },
+    },
+    {
+      name: "annotation add",
+      arguments: [
+        "annotation",
+        "add",
+        ...commonArguments,
+        "--expected-fingerprint",
+        unknownFingerprint,
+      ],
+      requiredFlag: "--expected-fingerprint",
+      input: { ...taskMutationInput, body: "Parser boundary annotation." },
+    },
+    {
+      name: "annotation edit",
+      arguments: [
+        "annotation",
+        "edit",
+        ...commonArguments,
+        "--expected-fingerprint",
+        unknownFingerprint,
+        "--annotation-id",
+        randomUUID(),
+        "--expected-version",
+        "1",
+      ],
+      requiredFlag: "--expected-version",
+      input: { ...taskMutationInput, body: "Edited parser boundary annotation." },
+    },
+    {
+      name: "annotation delete",
+      arguments: [
+        "annotation",
+        "delete",
+        ...commonArguments,
+        "--expected-fingerprint",
+        unknownFingerprint,
+        "--annotation-id",
+        randomUUID(),
+        "--expected-version",
+        "1",
+      ],
+      requiredFlag: "--annotation-id",
+      input: taskMutationInput,
     },
     {
       name: "organize place",
       arguments: ["organize", "place", ...preconditionArguments],
       requiredFlag: "--expected-revision",
-      input: { requestId: randomUUID(), targetPriority: "normal" },
+      input: { ...taskMutationInput, targetPriority: "normal" },
     },
     {
       name: "organize place-many",
@@ -316,19 +374,19 @@ try {
       name: "lifecycle archive",
       arguments: ["lifecycle", "archive", ...preconditionArguments],
       requiredFlag: "--expected-revision",
-      input: { requestId: randomUUID(), reason: "invalid" },
+      input: { ...taskMutationInput, reason: "invalid" },
     },
     {
       name: "lifecycle restore",
       arguments: ["lifecycle", "restore", ...preconditionArguments],
       requiredFlag: "--expected-revision",
-      input: { requestId: randomUUID() },
+      input: taskMutationInput,
     },
     {
       name: "todo create",
       arguments: ["todo", "create", "--dashboard-id", unknownDashboardId],
       requiredFlag: "--dashboard-id",
-      input: { requestId: randomUUID(), title: "Parser boundary fixture", priority: "normal" },
+      input: { ...taskMutationInput, title: "Parser boundary fixture", priority: "normal" },
     },
     {
       name: "follow-up create",
@@ -337,7 +395,7 @@ try {
       input: { requestId: randomUUID(), title: "Parser boundary fixture", priority: "normal" },
     },
   ];
-  assert.equal(canonicalCommandCases.length, 14);
+  assert.equal(canonicalCommandCases.length, 18);
   for (const command of canonicalCommandCases) {
     const missing = command.missing ?? withoutFlag(command.arguments, command.requiredFlag);
     const duplicate =
@@ -409,6 +467,9 @@ try {
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.json.schema, "dyna/item-update-result-v1");
   assert.equal(result.json.deduplicated, false);
+  assert.equal(result.json.control.itemNumber, item.itemNumber);
+  assert.equal(result.json.control.deduplicated, false);
+  const firstUpdateId = result.json.workUpdateId;
   const retry = invoke(updateArguments, updateInput);
   assert.equal(retry.status, 0, retry.stderr);
   assert.equal(retry.json.workUpdateId, result.json.workUpdateId);
@@ -417,9 +478,9 @@ try {
   result = invoke(updateArguments, {
     ...updateInput,
     requestId: randomUUID(),
-    workAttemptId: randomUUID(),
     body: "Second CLI note",
     artifacts: [],
+    supersedesWorkUpdateId: firstUpdateId,
   });
   assert.equal(result.status, 0, result.stderr);
 
@@ -502,10 +563,107 @@ try {
   ];
   result = invoke(enrichArguments, {
     requestId: randomUUID(),
-    summary: "Enriched through the CLI.",
+    workAttemptId: updateInput.workAttemptId,
+    task: updateInput.task,
+    set: { summary: "Enriched through the CLI." },
+    clear: [],
   });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.json.enrichmentVersion, 1);
+
+  const annotationCommonInput = {
+    requestId: randomUUID(),
+    workAttemptId: updateInput.workAttemptId,
+    task: updateInput.task,
+  };
+  const annotationAddArguments = [
+    "annotation",
+    "add",
+    "--dashboard-id",
+    dashboard.id,
+    "--item-id",
+    item.id,
+    "--expected-fingerprint",
+    item.fingerprint,
+  ];
+  result = invoke(annotationAddArguments, {
+    ...annotationCommonInput,
+    body: "CLI editable annotation",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.json.schema, "dyna/cli-annotation-mutation-result-v1");
+  assert.equal(result.json.version, 1);
+  assert.equal(result.json.deleted, false);
+  const annotationId = result.json.annotationId;
+  const annotationVerifier = new DynaApplicationService({ databasePath });
+  const projectedAnnotation = annotationVerifier
+    .snapshot(dashboard.id)
+    .cards.find((card) => card.id === item.id)
+    ?.annotations.find((annotation) => annotation.id === annotationId);
+  assert.deepEqual(projectedAnnotation?.task, {
+    taskId: cliTaskId,
+    hostId: cliTaskHostId,
+    title: cliTaskTitle,
+  });
+  assert.equal(projectedAnnotation?.workAttemptId, updateInput.workAttemptId);
+  annotationVerifier.close();
+  const annotationRetry = invoke(annotationAddArguments, {
+    ...annotationCommonInput,
+    body: "CLI editable annotation",
+  });
+  assert.equal(annotationRetry.status, 0, annotationRetry.stderr);
+  assert.equal(annotationRetry.json.annotationId, annotationId);
+  assert.equal(annotationRetry.json.deduplicated, true);
+
+  const annotationEditArguments = [
+    "annotation",
+    "edit",
+    ...annotationAddArguments.slice(2),
+    "--annotation-id",
+    annotationId,
+    "--expected-version",
+    "1",
+  ];
+  result = invoke(annotationEditArguments, {
+    ...annotationCommonInput,
+    requestId: randomUUID(),
+    body: "CLI edited annotation",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.json.version, 2);
+
+  const annotationDeleteArguments = [
+    "annotation",
+    "delete",
+    ...annotationAddArguments.slice(2),
+    "--annotation-id",
+    annotationId,
+    "--expected-version",
+    "2",
+  ];
+  result = invoke(annotationDeleteArguments, {
+    ...annotationCommonInput,
+    requestId: randomUUID(),
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.json.deleted, true);
+  assert.equal(result.json.version, 3);
+
+  result = invoke([
+    "item",
+    "history",
+    "--dashboard-id",
+    dashboard.id,
+    "--item-id",
+    item.id,
+    "--limit",
+    "2",
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.json.history.annotationEvents.length, 2);
+  assert.equal(result.json.history.annotationEvents[0].operation, "delete");
+  assert.equal(result.json.history.annotationEvents[0].body, undefined);
+  assert.equal(typeof result.json.history.annotationEventsNextCursor, "string");
 
   result = invoke(["todo", "create", "--dashboard-id", dashboard.id], {
     requestId: randomUUID(),
@@ -537,7 +695,12 @@ try {
     "--expected-revision",
     String(shown.revision),
   ];
-  result = invoke(placeArguments, { requestId: randomUUID(), targetPriority: "high" });
+  result = invoke(placeArguments, {
+    requestId: randomUUID(),
+    workAttemptId: updateInput.workAttemptId,
+    task: updateInput.task,
+    targetPriority: "high",
+  });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.json.changed, true);
 
@@ -583,7 +746,12 @@ try {
     "--expected-revision",
     String(shown.revision),
   ];
-  result = invoke(archiveArguments, { requestId: randomUUID(), reason: "invalid" });
+  result = invoke(archiveArguments, {
+    requestId: randomUUID(),
+    workAttemptId: updateInput.workAttemptId,
+    task: updateInput.task,
+    reason: "invalid",
+  });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.json.reason, "invalid");
 
@@ -616,6 +784,8 @@ try {
   ];
   result = invoke(followArguments, {
     requestId: randomUUID(),
+    workAttemptId: updateInput.workAttemptId,
+    task: updateInput.task,
     title: "CLI follow-up",
     priority: "normal",
     labels: [],
@@ -636,9 +806,45 @@ try {
     "--expected-revision",
     String(shown.revision),
   ];
-  result = invoke(restoreArguments, { requestId: randomUUID() });
+  result = invoke(restoreArguments, {
+    requestId: randomUUID(),
+    workAttemptId: updateInput.workAttemptId,
+    task: updateInput.task,
+  });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.json.itemId, item.id);
+
+  shown = invoke(showArguments).json;
+  const completeArguments = [
+    "work",
+    "complete",
+    "--dashboard-id",
+    dashboard.id,
+    "--item-id",
+    item.id,
+    "--expected-fingerprint",
+    item.fingerprint,
+    "--expected-revision",
+    String(shown.revision),
+  ];
+  const completeInput = {
+    requestId: randomUUID(),
+    workAttemptId: updateInput.workAttemptId,
+    task: updateInput.task,
+    outcome: "Completed the CLI integration workflow.",
+    body: "Validated linked-item mutation coverage.",
+    artifacts: [{ kind: "report", label: "CLI report", url: "https://example.com/cli-report" }],
+  };
+  result = invoke(completeArguments, completeInput);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.json.schema, "dyna/work-complete-result-v1");
+  assert.equal(result.json.nativeTaskSuccessCertified, false);
+  assert.equal(result.json.control.workflowState, "completed");
+  const completed = invoke(showArguments);
+  assert.equal(completed.status, 0, completed.stderr);
+  assert.equal(completed.json.item.completionAuthority, "dyna_task");
+  assert.equal(completed.json.item.completionTask.taskId, cliTaskId);
+  assert.equal(completed.json.item.outcome, completeInput.outcome);
 
   const secretMarker = "do-not-echo-this-private-value";
   const invalid = spawnSync(executable, [...executablePrefix, ...updateArguments], {

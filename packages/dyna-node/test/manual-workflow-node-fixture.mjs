@@ -137,6 +137,15 @@ try {
     statusUpdatedAt: timestamp(),
     observedAt: timestamp(),
   });
+  store.upsertTaskStatusForDashboard(dashboardA.id, linked.id, {
+    taskId: "task-linked-old-success",
+    hostId: "local",
+    title: `:${String(linked.itemNumber)}: Earlier completed task`,
+    state: "succeeded",
+    outcome: "An older linked task completed.",
+    statusUpdatedAt: new Date(now - 48 * 60 * 60 * 1_000).toISOString(),
+    observedAt: timestamp(),
+  });
   snapshot = store.snapshot(dashboardA.id);
   const linkedCard = snapshot.cards.find((card) => card.id === linked.id);
   assert.ok(linkedCard);
@@ -319,12 +328,83 @@ try {
     "completed",
   );
 
+  snapshot = store.snapshot(dashboardA.id);
+  const linkedBeforeManualCompletion = snapshot.cards.find((card) => card.id === linked.id);
+  assert.ok(linkedBeforeManualCompletion);
+  const linkedCompletedAt = timestamp();
+  const linkedDoneInput = {
+    viewToken: view,
+    itemId: linked.id,
+    targetStage: "done",
+    outcome: "The linked work was closed explicitly in Dyna.",
+    expectedRevision: snapshot.revision,
+    expectedFingerprint: linkedBeforeManualCompletion.fingerprint,
+    clientRequestId: request(),
+  };
+  const linkedDone = store.setItemStatus(linkedDoneInput);
+  assert.equal(linkedDone.changed, true);
+  assert.equal(store.setItemStatus(linkedDoneInput).deduplicated, true);
+  let manuallyCompletedLinked = store
+    .snapshot(dashboardA.id)
+    .cards.find((card) => card.id === linked.id);
+  assert.equal(manuallyCompletedLinked?.workflowState, "completed");
+  assert.equal(manuallyCompletedLinked?.completedAt, linkedCompletedAt);
+  assert.equal(manuallyCompletedLinked?.outcome, "The linked work was closed explicitly in Dyna.");
+  assert.deepEqual(manuallyCompletedLinked?.linkedTasks.map((task) => task.state).sort(), [
+    "running",
+    "succeeded",
+  ]);
+  assert.equal(
+    store.snapshot(dashboardB.id).cards.find((card) => card.id === linked.id)?.workflowState,
+    "completed",
+  );
+
+  now += 1_000;
+  store.upsertTaskStatusForDashboard(dashboardA.id, linked.id, {
+    taskId: "task-linked",
+    hostId: "local",
+    title: `:${String(linked.itemNumber)}: Controller-owned task`,
+    state: "running",
+    statusUpdatedAt: timestamp(),
+    observedAt: timestamp(),
+  });
+  manuallyCompletedLinked = store
+    .snapshot(dashboardA.id)
+    .cards.find((card) => card.id === linked.id);
+  assert.equal(manuallyCompletedLinked?.workflowState, "completed");
+  assert.equal(manuallyCompletedLinked?.completedAt, linkedCompletedAt);
+  assert.equal(manuallyCompletedLinked?.outcome, "The linked work was closed explicitly in Dyna.");
+  assert.deepEqual(manuallyCompletedLinked?.linkedTasks.map((task) => task.state).sort(), [
+    "running",
+    "succeeded",
+  ]);
+
+  now += 23 * 60 * 60 * 1_000;
+  manuallyCompletedLinked = store
+    .snapshot(dashboardA.id)
+    .cards.find((card) => card.id === linked.id);
+  assert.equal(manuallyCompletedLinked?.workflowState, "completed");
+  assert.equal(manuallyCompletedLinked?.completedAt, linkedCompletedAt);
+
+  now += 2 * 60 * 60 * 1_000;
+  assert.equal(
+    store.snapshot(dashboardA.id).cards.some((card) => card.id === linked.id),
+    false,
+  );
+  const linkedArchive = store.itemHistory(dashboardA.id, linked.id).archives[0];
+  assert.equal(linkedArchive?.reason, "completed");
+  assert.equal(linkedArchive?.mode, "automatic");
+  assert.equal(linkedArchive?.completedAt, linkedCompletedAt);
+  assert.equal(linkedArchive?.outcomeAtArchive, "The linked work was closed explicitly in Dyna.");
+
   globalThis.process.stdout.write(
     JSON.stringify({
       globalTasklessStatus: true,
       exactReplay: true,
       staleAndConflictGuards: true,
       linkedTaskAuthority: true,
+      linkedManualCompletion: true,
+      linkedManualRetention: true,
       creationRaceGuard: true,
       manualCompletion: true,
       terminalCompletion: true,
@@ -347,7 +427,7 @@ try {
   const migrated = new DynaStore({ databasePath });
   migrated.close();
   const verified = new DatabaseSync(databasePath, { readOnly: true });
-  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 10);
+  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 11);
   assert.equal(
     verified
       .prepare(

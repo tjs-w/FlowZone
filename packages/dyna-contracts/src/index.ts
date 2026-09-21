@@ -592,6 +592,19 @@ const DynaOneLineOutcomeSchema = z
   .max(200)
   .regex(/^[^\r\n]+$/, "A Codex task outcome must be exactly one line.");
 
+export const DynaWorkTaskAttributionSchema = z
+  .object({
+    taskId: IdentifierSchema,
+    hostId: IdentifierSchema,
+  })
+  .strict();
+export type DynaWorkTaskAttribution = z.infer<typeof DynaWorkTaskAttributionSchema>;
+
+export const DynaAttributedTaskSchema = DynaWorkTaskAttributionSchema.extend({
+  title: DynaTaskTitleSchema.optional(),
+}).strict();
+export type DynaAttributedTask = z.infer<typeof DynaAttributedTaskSchema>;
+
 export const DynaUserWorkflowStageSchema = z.enum(["todo", "needs_you", "done"]);
 export type DynaUserWorkflowStage = z.infer<typeof DynaUserWorkflowStageSchema>;
 
@@ -631,6 +644,8 @@ export const DynaUserWorkflowEventSchema = z
     originDashboardId: z.uuid(),
     targetStage: DynaUserWorkflowStageSchema,
     outcome: DynaOneLineOutcomeSchema.optional(),
+    task: DynaAttributedTaskSchema.optional(),
+    workAttemptId: z.uuid().optional(),
     createdAt: TimestampSchema,
   })
   .strict()
@@ -647,6 +662,13 @@ export const DynaUserWorkflowEventSchema = z
         code: "custom",
         message: "Only a completed Dyna workflow event can carry an outcome.",
         path: ["outcome"],
+      });
+    }
+    if ((event.task === undefined) !== (event.workAttemptId === undefined)) {
+      context.addIssue({
+        code: "custom",
+        message: "Task-attributed workflow events require both task and work-attempt identity.",
+        path: event.task ? ["workAttemptId"] : ["task"],
       });
     }
   });
@@ -803,13 +825,43 @@ export const DynaWorkStateSchema = z.enum([
 ]);
 export type DynaWorkState = z.infer<typeof DynaWorkStateSchema>;
 
-export const DynaWorkTaskAttributionSchema = z
+export const DynaTaskMutationAttributionSchema = z
   .object({
-    taskId: IdentifierSchema,
-    hostId: IdentifierSchema,
+    requestId: z.uuid(),
+    workAttemptId: z.uuid(),
+    task: DynaWorkTaskAttributionSchema,
   })
   .strict();
-export type DynaWorkTaskAttribution = z.infer<typeof DynaWorkTaskAttributionSchema>;
+export type DynaTaskMutationAttribution = z.infer<typeof DynaTaskMutationAttributionSchema>;
+
+function validateCompletionAttribution(
+  value: {
+    readonly completionAuthority?: "dyna_user" | "dyna_task" | "native_controller" | undefined;
+    readonly completionTask?: DynaAttributedTask | undefined;
+    readonly completionWorkAttemptId?: string | undefined;
+  },
+  context: z.RefinementCtx,
+): void {
+  const hasTask = value.completionTask !== undefined;
+  const hasAttempt = value.completionWorkAttemptId !== undefined;
+  if (value.completionAuthority === "dyna_task") {
+    if (!hasTask || !hasAttempt) {
+      context.addIssue({
+        code: "custom",
+        message: "Task-authored Dyna completion requires task and work-attempt attribution.",
+        path: !hasTask ? ["completionTask"] : ["completionWorkAttemptId"],
+      });
+    }
+    return;
+  }
+  if (hasTask || hasAttempt) {
+    context.addIssue({
+      code: "custom",
+      message: "Only task-authored Dyna completion can carry task attribution.",
+      path: hasTask ? ["completionTask"] : ["completionWorkAttemptId"],
+    });
+  }
+}
 
 export const DynaWorkUpdateInputSchema = z
   .object({
@@ -819,22 +871,11 @@ export const DynaWorkUpdateInputSchema = z
     body: z.string().trim().min(1).max(1_000),
     outcome: DynaOneLineOutcomeSchema.optional(),
     artifacts: z.array(DynaArtifactRefSchema).max(4).default([]),
-    task: DynaWorkTaskAttributionSchema.optional(),
+    task: DynaWorkTaskAttributionSchema,
+    supersedesWorkUpdateId: z.uuid().optional(),
   })
   .strict()
   .superRefine((input, context) => {
-    if (
-      ["progress", "needs_input", "blocked", "completion_reported", "handoff"].includes(
-        input.kind,
-      ) &&
-      !input.task
-    ) {
-      context.addIssue({
-        code: "custom",
-        message: "A lifecycle work update requires a controller-verified linked task.",
-        path: ["task"],
-      });
-    }
     if (input.kind === "completion_reported" && !input.outcome) {
       context.addIssue({
         code: "custom",
@@ -863,11 +904,8 @@ export const DynaWorkUpdateSchema = z
     body: z.string().trim().min(1).max(1_000),
     outcome: DynaOneLineOutcomeSchema.optional(),
     artifacts: z.array(DynaArtifactRefSchema).max(4),
-    task: DynaWorkTaskAttributionSchema.extend({
-      title: DynaTaskTitleSchema.optional(),
-    })
-      .strict()
-      .optional(),
+    task: DynaAttributedTaskSchema.optional(),
+    supersedesWorkUpdateId: z.uuid().optional(),
     createdAt: TimestampSchema,
   })
   .strict()
@@ -942,9 +980,43 @@ export const DynaAnnotationSchema = z
     createdAt: TimestampSchema,
     updatedAt: TimestampSchema,
     version: z.number().int().positive(),
+    task: DynaAttributedTaskSchema.optional(),
+    workAttemptId: z.uuid().optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((annotation, context) => {
+    if ((annotation.task === undefined) !== (annotation.workAttemptId === undefined)) {
+      context.addIssue({
+        code: "custom",
+        message: "Task-attributed annotations require both task and work-attempt identity.",
+        path: annotation.task ? ["workAttemptId"] : ["task"],
+      });
+    }
+  });
 export type DynaAnnotation = z.infer<typeof DynaAnnotationSchema>;
+
+export const DynaAnnotationEventSchema = z
+  .object({
+    id: z.uuid(),
+    annotationId: z.uuid(),
+    itemId: z.uuid(),
+    operation: z.enum(["create", "edit", "delete"]),
+    version: z.number().int().positive(),
+    occurredAt: TimestampSchema,
+    task: DynaAttributedTaskSchema.optional(),
+    workAttemptId: z.uuid().optional(),
+  })
+  .strict()
+  .superRefine((event, context) => {
+    if ((event.task === undefined) !== (event.workAttemptId === undefined)) {
+      context.addIssue({
+        code: "custom",
+        message: "Task-attributed annotation events require both task and work-attempt identity.",
+        path: event.task ? ["workAttemptId"] : ["task"],
+      });
+    }
+  });
+export type DynaAnnotationEvent = z.infer<typeof DynaAnnotationEventSchema>;
 
 const DynaAnnotationMutationBaseSchema = z
   .object({
@@ -1055,10 +1127,12 @@ export const DynaItemHistorySchema = z
       )
       .max(50),
     statusChanges: z.array(DynaUserWorkflowEventSchema).max(50),
+    annotationEvents: z.array(DynaAnnotationEventSchema).max(50).default([]),
     workUpdates: z.array(DynaWorkUpdateSchema).max(50),
     archiveEventsNextCursor: DynaPageCursorSchema.optional(),
     orderHistoryNextCursor: DynaPageCursorSchema.optional(),
     statusHistoryNextCursor: DynaPageCursorSchema.optional(),
+    annotationEventsNextCursor: DynaPageCursorSchema.optional(),
     workUpdatesNextCursor: DynaPageCursorSchema.optional(),
   })
   .strict()
@@ -1148,6 +1222,9 @@ export const DynaCardSchema = z
     workflowState: z.enum(["todo", "executing", "paused", "attention", "completed"]),
     completedAt: TimestampSchema.optional(),
     outcome: z.string().trim().min(1).max(200).optional(),
+    completionAuthority: z.enum(["dyna_user", "dyna_task", "native_controller"]).optional(),
+    completionTask: DynaAttributedTaskSchema.optional(),
+    completionWorkAttemptId: z.uuid().optional(),
     followUpOfItemId: z.uuid().optional(),
     followUpOfItemNumber: DynaItemNumberSchema.optional(),
     attention: z.string().trim().min(1).max(500).optional(),
@@ -1167,12 +1244,13 @@ export const DynaCardSchema = z
     archive: DynaArchiveStateSchema.optional(),
   })
   .strict()
-  .superRefine(validateFollowUpReference);
+  .superRefine(validateFollowUpReference)
+  .superRefine(validateCompletionAttribution);
 export type DynaCard = z.infer<typeof DynaCardSchema>;
 
 export const DynaDashboardSnapshotSchema = z
   .object({
-    schema: z.literal("dyna/snapshot-v8"),
+    schema: z.literal("dyna/snapshot-v9"),
     dashboard: DynaDashboardSchema,
     generatedAt: TimestampSchema,
     query: z.string().max(500),
@@ -1198,7 +1276,7 @@ export type DynaDashboardSnapshot = z.infer<typeof DynaDashboardSnapshotSchema>;
 
 export const DynaUiPayloadSchema = z
   .object({
-    schema: z.literal("dyna/ui-v10"),
+    schema: z.literal("dyna/ui-v11"),
     viewToken: z.string().min(32).max(128),
     snapshot: DynaDashboardSnapshotSchema,
   })
@@ -1289,6 +1367,9 @@ export const DynaItemSearchBriefSchema = z
     plan: z.array(z.string().trim().min(1).max(200)).max(4),
     nextSteps: z.array(DynaNextStepSchema).max(4),
     outcome: z.string().trim().min(1).max(200).optional(),
+    completionAuthority: z.enum(["dyna_user", "dyna_task", "native_controller"]).optional(),
+    completionTask: DynaAttributedTaskSchema.optional(),
+    completionWorkAttemptId: z.uuid().optional(),
     workState: DynaWorkStateSchema.optional(),
     workUpdates: z.array(DynaWorkUpdateSchema).max(1),
     workUpdateCount: z.number().int().nonnegative(),
@@ -1300,7 +1381,8 @@ export const DynaItemSearchBriefSchema = z
     archive: DynaArchiveStateSchema.optional(),
   })
   .strict()
-  .superRefine(validateFollowUpReference);
+  .superRefine(validateFollowUpReference)
+  .superRefine(validateCompletionAttribution);
 export type DynaItemSearchBrief = z.infer<typeof DynaItemSearchBriefSchema>;
 
 export const DynaItemSearchResultSchema = z
@@ -1355,13 +1437,82 @@ export const DynaWorkEnrichInputSchema = z
   });
 export type DynaWorkEnrichInput = z.infer<typeof DynaWorkEnrichInputSchema>;
 
-export const DynaOrganizePlaceInputSchema = z
+export const DynaEnrichmentFieldSchema = z.enum([
+  "summary",
+  "priority",
+  "priorityReason",
+  "dueAt",
+  "labels",
+  "people",
+  "attention",
+  "plan",
+  "nextSteps",
+]);
+export type DynaEnrichmentField = z.infer<typeof DynaEnrichmentFieldSchema>;
+
+const DynaTaskEnrichmentSetSchema = z
   .object({
-    requestId: z.uuid(),
-    targetPriority: DynaPrioritySchema,
-    beforeItemId: z.uuid().optional(),
+    summary: DynaPublishedItemSchema.shape.summary.optional(),
+    priority: DynaPrioritySchema.optional(),
+    priorityReason: DynaPublishedItemSchema.shape.priorityReason.optional(),
+    dueAt: DynaPublishedItemSchema.shape.dueAt.optional(),
+    labels: DynaPublishedItemSchema.shape.labels.optional(),
+    people: z.array(DynaPersonSignalSchema).max(8).optional(),
+    attention: DynaPublishedItemSchema.shape.attention.optional(),
+    plan: DynaPublishedItemSchema.shape.plan.optional(),
+    nextSteps: z.array(DynaNextStepSchema).max(4).optional(),
   })
-  .strict();
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "An enrichment set must contain at least one field.",
+  });
+
+export const DynaTaskWorkEnrichInputSchema = DynaTaskMutationAttributionSchema.extend({
+  set: DynaTaskEnrichmentSetSchema.optional(),
+  clear: z
+    .array(DynaEnrichmentFieldSchema)
+    .max(DynaEnrichmentFieldSchema.options.length)
+    .default([])
+    .superRefine((fields, context) => {
+      const seen = new Set<string>();
+      for (const [index, field] of fields.entries()) {
+        if (seen.has(field)) {
+          context.addIssue({
+            code: "custom",
+            message: "An enrichment field can be cleared only once.",
+            path: [index],
+          });
+        }
+        seen.add(field);
+      }
+    }),
+})
+  .strict()
+  .superRefine((input, context) => {
+    if (!input.set && input.clear.length === 0) {
+      context.addIssue({
+        code: "custom",
+        message: "A task enrichment must set or clear at least one field.",
+        path: ["set"],
+      });
+      return;
+    }
+    for (const field of input.clear) {
+      if (input.set && Object.hasOwn(input.set, field)) {
+        context.addIssue({
+          code: "custom",
+          message: "An enrichment field cannot be set and cleared together.",
+          path: ["clear"],
+        });
+      }
+    }
+  });
+export type DynaTaskWorkEnrichInput = z.infer<typeof DynaTaskWorkEnrichInputSchema>;
+
+export const DynaOrganizePlaceInputSchema = DynaTaskMutationAttributionSchema.extend({
+  targetPriority: DynaPrioritySchema,
+  beforeItemId: z.uuid().optional(),
+}).strict();
 export type DynaOrganizePlaceInput = z.infer<typeof DynaOrganizePlaceInputSchema>;
 
 export const DynaOrganizeSelectedItemSchema = z
@@ -1397,12 +1548,10 @@ export const DynaOrganizePlaceManyInputSchema = z
   .strict();
 export type DynaOrganizePlaceManyInput = z.infer<typeof DynaOrganizePlaceManyInputSchema>;
 
-export const DynaLifecycleArchiveInputSchema = z
-  .object({
-    requestId: z.uuid(),
-    reason: DynaArchiveReasonSchema,
-    reasonDetail: z.string().trim().min(1).max(500).optional(),
-  })
+export const DynaLifecycleArchiveInputSchema = DynaTaskMutationAttributionSchema.extend({
+  reason: DynaArchiveReasonSchema,
+  reasonDetail: z.string().trim().min(1).max(500).optional(),
+})
   .strict()
   .superRefine((input, context) => {
     if (input.reason === "other" && !input.reasonDetail) {
@@ -1422,7 +1571,7 @@ export const DynaLifecycleArchiveInputSchema = z
   });
 export type DynaLifecycleArchiveInput = z.infer<typeof DynaLifecycleArchiveInputSchema>;
 
-export const DynaLifecycleRestoreInputSchema = z.object({ requestId: z.uuid() }).strict();
+export const DynaLifecycleRestoreInputSchema = DynaTaskMutationAttributionSchema;
 export type DynaLifecycleRestoreInput = z.infer<typeof DynaLifecycleRestoreInputSchema>;
 
 export const DynaTodoCreateInputSchema = DynaTodoInputSchema.omit({ followUpOfItemId: true })
@@ -1431,14 +1580,54 @@ export const DynaTodoCreateInputSchema = DynaTodoInputSchema.omit({ followUpOfIt
 export type DynaTodoCreateInput = z.infer<typeof DynaTodoCreateInputSchema>;
 
 export const DynaFollowUpCreateInputSchema = DynaTodoInputSchema.omit({ followUpOfItemId: true })
-  .extend({ requestId: z.uuid() })
+  .extend(DynaTaskMutationAttributionSchema.shape)
   .strict();
 export type DynaFollowUpCreateInput = z.infer<typeof DynaFollowUpCreateInputSchema>;
+
+export const DynaWorkCompleteInputSchema = DynaTaskMutationAttributionSchema.extend({
+  outcome: DynaOneLineOutcomeSchema,
+  body: z.string().trim().min(1).max(1_000).optional(),
+  artifacts: z.array(DynaArtifactRefSchema).max(4).default([]),
+}).strict();
+export type DynaWorkCompleteInput = z.infer<typeof DynaWorkCompleteInputSchema>;
+
+export const DynaCliAnnotationAddInputSchema = DynaTaskMutationAttributionSchema.extend({
+  body: z.string().trim().min(1).max(1_000),
+}).strict();
+export type DynaCliAnnotationAddInput = z.infer<typeof DynaCliAnnotationAddInputSchema>;
+
+export const DynaCliAnnotationEditInputSchema = DynaTaskMutationAttributionSchema.extend({
+  body: z.string().trim().min(1).max(1_000),
+}).strict();
+export type DynaCliAnnotationEditInput = z.infer<typeof DynaCliAnnotationEditInputSchema>;
+
+export const DynaCliAnnotationDeleteInputSchema = DynaTaskMutationAttributionSchema;
+export type DynaCliAnnotationDeleteInput = z.infer<typeof DynaCliAnnotationDeleteInputSchema>;
+
+export const DynaMutationControlSchema = z
+  .object({
+    itemNumber: DynaItemNumberSchema,
+    fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+    dashboardRevision: z.number().int().nonnegative(),
+    enrichmentVersion: z.number().int().nonnegative(),
+    workflowState: z.enum(["todo", "executing", "paused", "attention", "completed"]),
+    workState: DynaWorkStateSchema.optional(),
+    workConditionSummary: z.string().trim().min(1).max(200).optional(),
+    blocked: z.boolean(),
+    archived: z.boolean(),
+    archiveReason: DynaArchiveReasonSchema.optional(),
+    deduplicated: z.boolean(),
+  })
+  .strict();
+export type DynaMutationControl = z.infer<typeof DynaMutationControlSchema>;
 
 const DynaMutationResultBaseSchema = z.object({
   requestId: z.uuid(),
   itemId: z.uuid(),
   deduplicated: z.boolean(),
+  // Legacy v10 receipts do not contain this block. New writes and replayed
+  // results enriched by schema-v11 services include it for safe chaining.
+  control: DynaMutationControlSchema.optional(),
 });
 
 export const DynaItemUpdateResultSchema = DynaMutationResultBaseSchema.extend({
@@ -1446,6 +1635,25 @@ export const DynaItemUpdateResultSchema = DynaMutationResultBaseSchema.extend({
   workUpdateId: z.uuid(),
 }).strict();
 export type DynaItemUpdateResult = z.infer<typeof DynaItemUpdateResultSchema>;
+
+export const DynaWorkCompleteResultSchema = DynaMutationResultBaseSchema.extend({
+  schema: z.literal("dyna/work-complete-result-v1"),
+  workUpdateId: z.uuid(),
+  workflowEventId: z.uuid(),
+  nativeTaskSuccessCertified: z.literal(false),
+  control: DynaMutationControlSchema,
+}).strict();
+export type DynaWorkCompleteResult = z.infer<typeof DynaWorkCompleteResultSchema>;
+
+export const DynaCliAnnotationMutationResultSchema = DynaMutationResultBaseSchema.extend({
+  schema: z.literal("dyna/cli-annotation-mutation-result-v1"),
+  annotationId: z.uuid(),
+  version: z.number().int().positive(),
+  updatedAt: TimestampSchema,
+  deleted: z.boolean(),
+  control: DynaMutationControlSchema,
+}).strict();
+export type DynaCliAnnotationMutationResult = z.infer<typeof DynaCliAnnotationMutationResultSchema>;
 
 export const DynaItemEnrichResultSchema = DynaMutationResultBaseSchema.extend({
   schema: z.literal("dyna/item-enrich-result-v1"),
@@ -1523,7 +1731,7 @@ export const DynaCliHelpResultSchema = z
           .strict(),
       )
       .min(1)
-      .max(17),
+      .max(24),
   })
   .strict();
 export type DynaCliHelpResult = z.infer<typeof DynaCliHelpResultSchema>;

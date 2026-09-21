@@ -149,6 +149,10 @@ function projectedWorkflow(
   tasks: readonly EffectiveTask[],
   userWorkflowStage: DynaUserWorkflowStage | undefined,
 ): DynaItemProjection["workflowState"] {
+  // An explicit user completion closes the Dyna work item without claiming
+  // that any linked Codex task succeeded. Task observations remain attached
+  // as evidence, but later synchronization must not silently reopen the item.
+  if (userWorkflowStage === "done") return "completed";
   if (tasks.some((task) => task.effectiveState === "failed" || task.effectiveState === "unknown")) {
     return "attention";
   }
@@ -161,7 +165,6 @@ function projectedWorkflow(
   }
   if (tasks.length > 0) return "attention";
   if (userWorkflowStage === "needs_you") return "attention";
-  if (userWorkflowStage === "done") return "completed";
   return "todo";
 }
 
@@ -174,6 +177,8 @@ function conditionRank(kind: DynaWorkUpdateKind): number {
 /** Pure characterization of the lifecycle/work/priority precedence used by Dyna. */
 export function projectDynaItemState(input: DynaItemProjectionInput): DynaItemProjection {
   const tasks = input.tasks.map((task) => effectiveTask(task, input.workUpdates));
+  const userWorkflowStage = input.userWorkflow?.stage ?? input.userWorkflowStage;
+  const manuallyCompleted = userWorkflowStage === "done";
   const condition = tasks
     .flatMap((task) => (task.update ? [task.update] : []))
     .sort(
@@ -183,11 +188,9 @@ export function projectDynaItemState(input: DynaItemProjectionInput): DynaItemPr
         right.insertionSequence - left.insertionSequence,
     )[0];
   const priority = projectedPriority(input);
-  const hasCondition = condition?.kind === "needs_input" || condition?.kind === "blocked";
-  const workflowState = projectedWorkflow(
-    tasks,
-    input.userWorkflow?.stage ?? input.userWorkflowStage,
-  );
+  const hasCondition =
+    !manuallyCompleted && (condition?.kind === "needs_input" || condition?.kind === "blocked");
+  const workflowState = projectedWorkflow(tasks, userWorkflowStage);
   const latestSucceeded = [...input.tasks]
     .filter((task) => task.state === "succeeded")
     .sort(
@@ -199,22 +202,28 @@ export function projectDynaItemState(input: DynaItemProjectionInput): DynaItemPr
     )[0];
   const completedAtMs =
     workflowState === "completed"
-      ? (latestSucceeded?.statusUpdatedAtMs ?? input.userWorkflow?.createdAtMs)
+      ? manuallyCompleted
+        ? input.userWorkflow?.createdAtMs
+        : latestSucceeded?.statusUpdatedAtMs
       : undefined;
   const completedAt =
     workflowState === "completed"
-      ? (latestSucceeded?.statusUpdatedAt ?? input.userWorkflow?.createdAt)
+      ? manuallyCompleted
+        ? input.userWorkflow?.createdAt
+        : latestSucceeded?.statusUpdatedAt
       : undefined;
   const outcome =
     workflowState === "completed"
-      ? (latestSucceeded?.outcome ?? input.userWorkflow?.outcome)
+      ? manuallyCompleted
+        ? input.userWorkflow?.outcome
+        : latestSucceeded?.outcome
       : undefined;
   return {
     effectivePriority: priority.priority,
     effectiveLeadershipScore: priority.leadershipScore,
     workflowState,
-    blocked: tasks.some((task) => task.blocked),
-    ...(condition ? { workState: condition.kind as DynaWorkState } : {}),
+    blocked: manuallyCompleted ? false : tasks.some((task) => task.blocked),
+    ...(!manuallyCompleted && condition ? { workState: condition.kind as DynaWorkState } : {}),
     ...(hasCondition
       ? {
           workConditionSummary: condition.body.slice(0, 200),

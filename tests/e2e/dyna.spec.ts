@@ -1453,10 +1453,10 @@ test("restores queue position and shows every progress stage together", async ({
     .toBeGreaterThanOrEqual(queueScrollY - 1);
 
   await page.getByRole("tab", { name: "Progress pipeline" }).click();
-  for (const stage of ["To Do", "In Codex", "Needs You", "Done"]) {
+  for (const stage of ["To Do", "In Codex", "Needs You", "Done", "Backlog"]) {
     await expect(page.getByRole("heading", { name: stage, level: 2 })).toBeVisible();
   }
-  await expect(page.locator(".dyna-pipeline-stage")).toHaveCount(4);
+  await expect(page.locator(".dyna-pipeline-stage")).toHaveCount(5);
 });
 
 test("keeps failed reprioritization visible without mutating the item", async ({ page }) => {
@@ -2532,7 +2532,7 @@ test("projects the same items through the Codex progress pipeline and creates fo
     const stage = page.locator(`.dyna-pipeline-stage[data-workflow-stage="${state}"]`);
     await expect(stage.getByRole("heading", { name: title, level: 2 })).toBeVisible();
     await expect(stage.locator(":scope > header > span")).toHaveText(count);
-    await expect(stage.locator(".dyna-card")).toHaveCount(1);
+    await expect(stage.locator(".dyna-card")).toHaveCount(Number(count));
   }
 
   const executingStage = page.locator('.dyna-pipeline-stage[data-workflow-stage="executing"]');

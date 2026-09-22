@@ -13,6 +13,7 @@ import {
   DynaItemContextSchema,
   DynaItemHistorySchema,
   DynaItemSearchResultSchema,
+  DynaItemBacklogResultSchema,
   DynaItemStatusResultSchema,
   DynaNextStepSchema,
   DynaPersonSignalSchema,
@@ -22,6 +23,7 @@ import {
   DynaRequiredSourceSlicesSchema,
   DynaScheduledPublishedItemSchema,
   DynaSetItemStatusInputSchema,
+  DynaSetItemBacklogInputSchema,
   DynaTaskStatusSchema,
   DynaTaskSyncBeginResultSchema,
   DynaTaskSyncScopeSchema,
@@ -42,8 +44,9 @@ import { z } from "zod";
 import type { FlowZoneAppTool, FlowZonePlugin } from "../plugin.js";
 
 export const DYNA_PLUGIN_ID = "dyna";
-export const DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v19.html";
+export const DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v20.html";
 export const LEGACY_DYNA_TEMPLATE_URIS = [
+  "ui://flowzone/dyna/v19.html",
   "ui://flowzone/dyna/v18.html",
   "ui://flowzone/dyna/v17.html",
   "ui://flowzone/dyna/v16.html",
@@ -517,6 +520,27 @@ function appTools(service: DynaApplicationService): readonly FlowZoneAppTool[] {
         const parsed = DynaSetItemStatusInputSchema.parse(input);
         return {
           structuredContent: service.setItemStatus(parsed),
+          content: [],
+        };
+      },
+    },
+    {
+      name: "dyna_set_item_backlog",
+      title: "Change Dyna item backlog state",
+      description:
+        "Retry-safely defer an active item to this dashboard's Backlog for one day, or return it immediately without changing its underlying lifecycle status.",
+      inputSchema: DynaSetItemBacklogInputSchema,
+      outputSchema: DynaItemBacklogResultSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+        idempotentHint: true,
+      },
+      handler(input) {
+        const parsed = DynaSetItemBacklogInputSchema.parse(input);
+        return {
+          structuredContent: service.setItemBacklog(parsed),
           content: [],
         };
       },

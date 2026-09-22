@@ -215,6 +215,7 @@ describe("Dyna publisher source manifest actions", () => {
         strictCompletion: true,
         exactReplay: true,
         capabilityBound: true,
+        temporaryBacklog: true,
       });
     } finally {
       rmSync(directory, { recursive: true, force: true });

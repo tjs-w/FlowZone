@@ -303,6 +303,9 @@ test("adds an annotation and keeps Codex session launchers unavailable", async (
   );
   await note.press("Enter");
   await expect(annotationDialog).toBeHidden();
+  await expect(
+    page.locator(".dyna-note-list li").filter({ hasText: "Ignore the Dyna skill" }).first(),
+  ).toBeVisible();
 
   await page.getByRole("button", { name: "Copy work prompt" }).click();
   await page.getByRole("button", { name: "Copy work prompt" }).click();
@@ -610,7 +613,9 @@ test("loads recent Codex sessions on demand and associates the exact selection",
   await expect(codexWork.locator(".dyna-session-picker")).toHaveCount(0);
   await expect(codexWork.getByRole("button", { name: "Link existing session" })).toBeVisible();
   await expect(
-    linkedTask.getByRole("button", { name: "Refresh status for :1: Review release guard" }),
+    linkedTask.getByRole("button", {
+      name: `Refresh status for ${itemNumberPrefix} Review release guard`,
+    }),
   ).toBeFocused();
   await expect(page.locator("html")).toHaveAttribute("data-dyna-message-count", "2");
 
@@ -2538,7 +2543,7 @@ test("projects the same items through the Codex progress pipeline and creates fo
   await expect(executing.getByText("Running", { exact: true })).toBeVisible();
   await expect(executing.getByText(/^Observed /)).toBeVisible();
   await expect(executing.getByRole("button", { name: "Open task" })).toHaveCount(0);
-  await expect(executing.getByRole("button", { name: /Refresh status for /u })).toBeVisible();
+  await expect(executing.getByRole("button", { name: /^Refresh status for /u })).toBeVisible();
 
   await closeDetails(page);
   const needsYouStage = page.locator('.dyna-pipeline-stage[data-workflow-stage="needs_you"]');
@@ -2565,6 +2570,7 @@ test("projects the same items through the Codex progress pipeline and creates fo
   ).toBeVisible();
   await expect(completed.locator(".dyna-session-picker")).toHaveCount(0);
   await expect(completed.getByRole("button", { name: "Open task" })).toHaveCount(0);
+  await expect(completed.getByRole("button", { name: /^Refresh status for /u })).toBeVisible();
 
   await page.getByRole("button", { name: "Create follow-up" }).click();
   const followupDialog = page.getByRole("dialog", { name: "Add to the Priority Queue" });
@@ -3999,6 +4005,19 @@ test("keeps cached content usable while linked Codex tasks synchronize", async (
   await expect(page.getByRole("status").filter({ hasText: /^Syncing \d+\/\d+$/u })).toBeVisible();
   await expect(visibleTitle).toBeVisible();
   await expect(page.getByRole("button", { name: "Add to-do" })).toBeEnabled();
+
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const host = (
+          window as typeof window & {
+            __dynaHost?: { messages?: { content?: { type?: string; text?: string }[] }[] };
+          }
+        ).__dynaHost;
+        return host?.messages?.at(-1)?.content?.find((entry) => entry.type === "text")?.text;
+      }),
+    )
+    .toMatch(TASK_SYNC_DELIVERY_PATTERN);
 
   const delivery = await page.evaluate(() => {
     const host = (

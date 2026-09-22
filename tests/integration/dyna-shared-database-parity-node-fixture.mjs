@@ -252,13 +252,13 @@ try {
 
   const database = new DatabaseSync(databasePath, { readOnly: true });
   try {
-    assert.equal(database.prepare("PRAGMA user_version").get().user_version, 11);
+    assert.equal(database.prepare("PRAGMA user_version").get().user_version, 12);
   } finally {
     database.close();
   }
 
   const opened = await executeAction(plugin, "render-dashboard", { dashboardId: dashboard.id });
-  assert.equal(opened.uiPayload.schema, "dyna/ui-v11");
+  assert.equal(opened.uiPayload.schema, "dyna/ui-v12");
   assert.equal(opened.uiPayload.snapshot.cards.length, 3);
   const viewToken = opened.uiPayload.viewToken;
   let currentRevision = opened.uiPayload.snapshot.revision;
@@ -271,7 +271,7 @@ try {
     );
     const payload = response._meta?.dynaDashboard;
     assert.ok(payload);
-    assert.equal(payload.schema, "dyna/ui-v11");
+    assert.equal(payload.schema, "dyna/ui-v12");
     assert.equal(payload.snapshot.dashboard.id, dashboard.id);
     currentRevision = payload.snapshot.revision;
     return payload.snapshot;

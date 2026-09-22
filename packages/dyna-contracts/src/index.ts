@@ -608,6 +608,30 @@ export type DynaAttributedTask = z.infer<typeof DynaAttributedTaskSchema>;
 export const DynaUserWorkflowStageSchema = z.enum(["todo", "needs_you", "done"]);
 export type DynaUserWorkflowStage = z.infer<typeof DynaUserWorkflowStageSchema>;
 
+export const DynaBacklogStateSchema = z
+  .object({
+    backloggedAt: TimestampSchema,
+    until: TimestampSchema,
+  })
+  .strict()
+  .refine((state) => Date.parse(state.until) > Date.parse(state.backloggedAt), {
+    message: "A Dyna backlog period must end after it starts.",
+    path: ["until"],
+  });
+export type DynaBacklogState = z.infer<typeof DynaBacklogStateSchema>;
+
+export const DynaSetItemBacklogInputSchema = z
+  .object({
+    viewToken: z.string().min(32).max(128),
+    itemId: z.uuid(),
+    action: z.enum(["defer", "return"]),
+    expectedRevision: z.number().int().nonnegative(),
+    expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+    clientRequestId: z.uuid(),
+  })
+  .strict();
+export type DynaSetItemBacklogInput = z.infer<typeof DynaSetItemBacklogInputSchema>;
+
 export const DynaSetItemStatusInputSchema = z
   .object({
     viewToken: z.string().min(32).max(128),
@@ -1241,6 +1265,7 @@ export const DynaCardSchema = z
     blocked: z.boolean().default(false),
     titleSyncNeeded: z.boolean().default(false),
     linkedTasks: z.array(DynaTaskStatusSchema).max(8),
+    backlog: DynaBacklogStateSchema.optional(),
     archive: DynaArchiveStateSchema.optional(),
   })
   .strict()
@@ -1250,7 +1275,7 @@ export type DynaCard = z.infer<typeof DynaCardSchema>;
 
 export const DynaDashboardSnapshotSchema = z
   .object({
-    schema: z.literal("dyna/snapshot-v9"),
+    schema: z.literal("dyna/snapshot-v10"),
     dashboard: DynaDashboardSchema,
     generatedAt: TimestampSchema,
     query: z.string().max(500),
@@ -1265,6 +1290,7 @@ export const DynaDashboardSnapshotSchema = z
         total: z.number().int().nonnegative(),
         archived: z.number().int().nonnegative().default(0),
         blocked: z.number().int().nonnegative().default(0),
+        backlog: z.number().int().nonnegative().default(0),
       })
       .strict(),
     schedules: z.array(DynaPublisherSchema).max(50),
@@ -1276,7 +1302,7 @@ export type DynaDashboardSnapshot = z.infer<typeof DynaDashboardSnapshotSchema>;
 
 export const DynaUiPayloadSchema = z
   .object({
-    schema: z.literal("dyna/ui-v11"),
+    schema: z.literal("dyna/ui-v12"),
     viewToken: z.string().min(32).max(128),
     snapshot: DynaDashboardSnapshotSchema,
   })
@@ -1686,6 +1712,14 @@ export const DynaItemStatusResultSchema = DynaMutationResultBaseSchema.extend({
   changedAt: TimestampSchema.optional(),
 }).strict();
 export type DynaItemStatusResult = z.infer<typeof DynaItemStatusResultSchema>;
+
+export const DynaItemBacklogResultSchema = DynaMutationResultBaseSchema.extend({
+  schema: z.literal("dyna/item-backlog-result-v1"),
+  action: z.enum(["defer", "return"]),
+  changed: z.boolean(),
+  backlog: DynaBacklogStateSchema.optional(),
+}).strict();
+export type DynaItemBacklogResult = z.infer<typeof DynaItemBacklogResultSchema>;
 
 export const DynaItemArchiveResultSchema = DynaMutationResultBaseSchema.extend({
   schema: z.literal("dyna/item-archive-result-v1"),

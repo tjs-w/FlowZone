@@ -26,7 +26,9 @@ import {
   DynaCardSchema,
   DynaItemContextSchema,
   DynaItemHistorySchema,
+  DynaItemBacklogResultSchema,
   DynaItemStatusResultSchema,
+  DynaSetItemBacklogInputSchema,
   DynaSetItemStatusInputSchema,
   DynaUserWorkflowEventSchema,
   DynaWorkActivityPageSchema,
@@ -61,10 +63,10 @@ describe("Dyna executive signal contracts", () => {
   test("accepts only the versioned snapshot-only UI payload", () => {
     const timestamp = "2026-09-04T12:00:00.000Z";
     const payload = {
-      schema: "dyna/ui-v11",
+      schema: "dyna/ui-v12",
       viewToken: "v".repeat(32),
       snapshot: {
-        schema: "dyna/snapshot-v9",
+        schema: "dyna/snapshot-v10",
         dashboard: {
           id: "bd9a11b5-fbf8-495a-a116-d3429496969f",
           name: "Morning brief",
@@ -500,6 +502,35 @@ describe("Dyna executive signal contracts", () => {
         targetStage: "done",
         changed: true,
         changedAt: event.createdAt,
+      }).success,
+    ).toBe(true);
+  });
+
+  test("validates retry-safe temporary backlog changes", () => {
+    const input = {
+      viewToken: "v".repeat(32),
+      itemId: "4ab587d0-a34a-43ea-95ce-75be06d4c244",
+      action: "defer",
+      expectedRevision: 3,
+      expectedFingerprint: "a".repeat(64),
+      clientRequestId: "7bfd389a-0374-4658-92cc-a2ba97407fcc",
+    } as const;
+    expect(DynaSetItemBacklogInputSchema.safeParse(input).success).toBe(true);
+    expect(DynaSetItemBacklogInputSchema.safeParse({ ...input, action: "later" }).success).toBe(
+      false,
+    );
+    expect(
+      DynaItemBacklogResultSchema.safeParse({
+        schema: "dyna/item-backlog-result-v1",
+        requestId: input.clientRequestId,
+        itemId: input.itemId,
+        deduplicated: false,
+        action: "defer",
+        changed: true,
+        backlog: {
+          backloggedAt: "2026-09-21T16:00:00.000Z",
+          until: "2026-09-22T16:00:00.000Z",
+        },
       }).success,
     ).toBe(true);
   });

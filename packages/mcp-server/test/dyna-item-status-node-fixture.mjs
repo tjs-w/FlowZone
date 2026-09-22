@@ -92,6 +92,22 @@ try {
   assert.equal(service.snapshot(dashboard.id).cards[0]?.workflowState, "attention");
   await assert.rejects(call(setStatus, { ...input, targetStage: "todo" }), /different input/);
 
+  const backlogPayload = service.render(dashboard.id);
+  const backlogCard = backlogPayload.snapshot.cards[0];
+  assert.ok(backlogCard);
+  const setBacklog = appTool(plugin.appTools ?? [], "dyna_set_item_backlog");
+  const deferred = await call(setBacklog, {
+    viewToken: backlogPayload.viewToken,
+    itemId,
+    action: "defer",
+    expectedRevision: backlogPayload.snapshot.revision,
+    expectedFingerprint: backlogCard.fingerprint,
+    clientRequestId: randomUUID(),
+  });
+  assert.equal(deferred.structuredContent.schema, "dyna/item-backlog-result-v1");
+  assert.equal(service.snapshot(dashboard.id).cards[0]?.workflowState, "attention");
+  assert.ok(service.snapshot(dashboard.id).cards[0]?.backlog);
+
   const otherDashboard = service.createDashboard("Other", "Capability isolation");
   const otherView = service.render(otherDashboard.id);
   await assert.rejects(
@@ -109,6 +125,7 @@ try {
       strictCompletion: true,
       exactReplay: true,
       capabilityBound: true,
+      temporaryBacklog: true,
     }),
   );
 } finally {

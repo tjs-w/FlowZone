@@ -90,10 +90,11 @@ type ActionName =
 
 type TodoPriority = "critical" | "high" | "normal" | "low";
 type WorkflowStage = "todo" | "executing" | "needs_you" | "completed";
-type WorkflowChoice = WorkflowStage | "follow_up";
+type PipelineStageState = WorkflowStage | "backlog";
+type WorkflowChoice = PipelineStageState | "return_from_backlog" | "follow_up";
 type ManualWorkflowStage = "todo" | "needs_you" | "done";
 type PriorityFilter = TodoPriority | "all";
-type WorkflowFilter = WorkflowStage | "blocked" | "all";
+type WorkflowFilter = PipelineStageState | "blocked" | "all";
 type DashboardView = "queue" | "pipeline" | "archive";
 type ScrollSurface = DashboardView;
 type ArchiveReason = "invalid" | "duplicate" | "no_action_needed" | "superseded" | "other";
@@ -974,6 +975,7 @@ interface DynaComponentCatalog {
       readonly needsYou: number;
       readonly inCodex: number;
       readonly blocked: number;
+      readonly backlog: number;
       readonly shown: number;
       readonly total: number;
     }>,
@@ -994,13 +996,14 @@ interface DynaComponentCatalog {
       readonly sourceSummary?: string | undefined;
       readonly priority?: TodoPriority;
       readonly itemIds?: readonly string[];
+      readonly backlog?: boolean;
     }>,
   ) => ReactNode;
   readonly QueueView: (args: ComponentArgs<Record<string, never>>) => ReactNode;
   readonly PipelineView: (
     args: ComponentArgs<{
       readonly stages: readonly {
-        readonly state: WorkflowStage;
+        readonly state: PipelineStageState;
         readonly title: string;
         readonly count: number;
       }[];
@@ -1008,7 +1011,7 @@ interface DynaComponentCatalog {
   ) => ReactNode;
   readonly PipelineStage: (
     args: ComponentArgs<{
-      readonly state: WorkflowStage;
+      readonly state: PipelineStageState;
       readonly title: string;
       readonly count: number;
     }>,
@@ -1187,29 +1190,30 @@ function StatusSelect({ card }: { readonly card: CardViewProps }) {
   const [engaged, setEngaged] = useState(false);
   const linked = card.linkedTasks.length > 0;
   const completed = card.workflowStage === "completed";
+  const backlogged = Boolean(card.backlog);
   // Keep the 200-item queue light: native options are only needed once the
   // control is about to be used. Progress and the selected item's inspector
   // keep their options mounted for deterministic keyboard and test behavior.
   const showOptions =
     engaged || controller.view !== "queue" || controller.selectedItemId === card.itemId;
-  if (card.archive || linked) {
+  if (card.archive) {
     return (
       <span className="dyna-row-status" data-dyna-status-item={card.itemId}>
-        {card.archive ? "Archived" : workflowStageLabel(card.workflowStage)}
+        Archived
       </span>
     );
   }
   return (
     <label className="dyna-status-control">
       <span className="dyna-row-status" aria-hidden="true">
-        {workflowStageLabel(card.workflowStage)}
+        {backlogged ? "Backlog" : workflowStageLabel(card.workflowStage)}
       </span>
       <select
         className="dyna-status-select"
         data-dyna-status-item={card.itemId}
         data-dyna-action={`${card.itemId}:status`}
         aria-label={`Change status for ${card.title}`}
-        value={card.workflowStage}
+        value={backlogged ? "backlog" : card.workflowStage}
         disabled={controller.busy || controller.blocked}
         onFocus={() => {
           setEngaged(true);
@@ -1226,18 +1230,33 @@ function StatusSelect({ card }: { readonly card: CardViewProps }) {
         }}
       >
         {showOptions ? (
-          <>
-            <option value="todo" disabled={completed}>
-              To Do
-            </option>
-            <option value="needs_you" disabled={completed}>
-              Needs You
-            </option>
-            <option value="completed" disabled={completed}>
-              Done…
-            </option>
-            {completed ? <option value="follow_up">Create follow-up…</option> : null}
-          </>
+          completed ? (
+            <>
+              <option value="completed">Done</option>
+              <option value="follow_up">Create follow-up…</option>
+            </>
+          ) : backlogged ? (
+            <>
+              <option value="backlog">
+                Backlog until {relativeTime(card.backlog?.until ?? "", controller.locale)}
+              </option>
+              <option value="return_from_backlog">
+                Return to {workflowStageLabel(card.workflowStage)}
+              </option>
+            </>
+          ) : linked ? (
+            <>
+              <option value={card.workflowStage}>{workflowStageLabel(card.workflowStage)}</option>
+              <option value="backlog">Backlog for 1 day</option>
+            </>
+          ) : (
+            <>
+              <option value="todo">To Do</option>
+              <option value="needs_you">Needs You</option>
+              <option value="backlog">Backlog for 1 day</option>
+              <option value="completed">Done…</option>
+            </>
+          )
         ) : null}
       </select>
     </label>
@@ -2518,6 +2537,7 @@ const dynaComponents: DynaComponentCatalog = {
                     <option value="executing">In Codex</option>
                     <option value="needs_you">Needs You</option>
                     <option value="blocked">Blocked</option>
+                    <option value="backlog">Backlog</option>
                     <option value="completed">Done</option>
                   </select>
                 </label>
@@ -2595,6 +2615,7 @@ const dynaComponents: DynaComponentCatalog = {
       ["needs_you", props.needsYou, "need you"],
       ["executing", props.inCodex, "in Codex"],
       ["blocked", props.blocked, "blocked"],
+      ["backlog", props.backlog, "backlog"],
       [
         "all",
         props.shown < props.total ? `${props.shown}/${props.total}` : props.total,
@@ -2782,6 +2803,7 @@ const dynaComponents: DynaComponentCatalog = {
       <section
         className="dyna-section"
         data-priority-group={props.priority}
+        data-backlog={Boolean(props.backlog)}
         data-drop-active={dropActive}
         data-empty={props.count === 0}
         onDragOver={(event) => {
@@ -2978,6 +3000,7 @@ const dynaComponents: DynaComponentCatalog = {
       controller.view === "queue" &&
       !controller.condenseInline &&
       !props.archive &&
+      !props.backlog &&
       props.workflowStage !== "completed";
     const showPipelineMove =
       controller.view === "pipeline" && !props.archive && props.workflowStage !== "completed";
@@ -2986,6 +3009,7 @@ const dynaComponents: DynaComponentCatalog = {
       showQueueMove && !controller.bulkMode && !controller.busy && !controller.blocked;
     const canDrag =
       (showQueueMove || showPipelineMove) &&
+      !props.backlog &&
       !controller.bulkMode &&
       !controller.busy &&
       !controller.blocked &&
@@ -3034,6 +3058,7 @@ const dynaComponents: DynaComponentCatalog = {
         data-presentation={presentation}
         data-workflow-state={props.workflowState}
         data-workflow-stage={props.workflowStage}
+        data-backlogged={Boolean(props.backlog)}
         data-selected={selected}
         data-bulk-selected={bulkSelected}
         data-has-move={showQueueMove || (showPipelineMove && canDrag)}
@@ -4374,6 +4399,7 @@ function cardSearchText(card: DynaCard): string {
     card.archive?.reason ?? "",
     card.archive?.reasonDetail ?? "",
     card.archive?.changedSinceArchive ? "changed since archive" : "",
+    card.backlog ? `backlog backlogged ${card.backlog.backloggedAt} ${card.backlog.until}` : "",
     ux.workConditionSummary ?? "",
     ux.matchedActivity ?? "",
     ...card.labels,
@@ -4425,7 +4451,10 @@ function cardPassesFilters(
     (priority === "all" || card.priority === priority) &&
     (source === "all" || card.sourceLabel === source) &&
     (workflow === "all" ||
-      (workflow === "blocked" ? cardIsBlocked(card) : cardWorkflowStage(card) === workflow)) &&
+      (workflow === "backlog"
+        ? Boolean(card.backlog)
+        : !card.backlog &&
+          (workflow === "blocked" ? cardIsBlocked(card) : cardWorkflowStage(card) === workflow))) &&
     (!leadershipOnly || card.leadershipScore > 0)
   );
 }
@@ -4544,12 +4573,15 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
     controller.leadershipOnly;
   const executiveSummary = buildExecutiveSummary(
     snapshot,
-    summaryCards,
+    summaryCards.filter((card) => !card.backlog),
     controller.query,
     summaryFiltersApplied,
     controller.locale,
   );
-  const queueCards = cards.filter((card) => card.workflowState !== "completed");
+  const queueCards = cards.filter((card) => card.workflowState !== "completed" && !card.backlog);
+  const backlogCards = cards.filter(
+    (card) => card.workflowState !== "completed" && Boolean(card.backlog),
+  );
   const archiveCards = cards.filter((card) => Boolean(card.archive));
   const selectedCard = cards.find((card) => card.id === controller.selectedItemId);
   const inlineCards = selectedCard
@@ -4600,12 +4632,18 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
     : unhealthySchedules.length > 0
       ? sourceStateLabel
       : undefined;
-  const stages = PIPELINE_STAGES.map(([state, title]) => ({
-    state,
-    title,
-    cards: cards.filter((card) => cardWorkflowStage(card) === state),
-    count: cards.filter((card) => cardWorkflowStage(card) === state).length,
-  }));
+  const stages: readonly {
+    readonly state: PipelineStageState;
+    readonly title: string;
+    readonly cards: readonly DynaCard[];
+    readonly count: number;
+  }[] = [
+    ...PIPELINE_STAGES.map(([state, title]) => {
+      const stageItems = cards.filter((card) => !card.backlog && cardWorkflowStage(card) === state);
+      return { state, title, cards: stageItems, count: stageItems.length };
+    }),
+    { state: "backlog", title: "Backlog", cards: backlogCards, count: backlogCards.length },
+  ];
 
   const queueContent = compactInline ? (
     queueCards.length > 0 || selectedCard ? (
@@ -4651,7 +4689,21 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
             );
           })
         : null}
-      {queueCards.length === 0 ? (
+      {backlogCards.length > 0 ? (
+        <Section
+          props={{
+            title: "Backlog",
+            emptyMessage: "Nothing is deferred.",
+            count: backlogCards.length,
+            backlog: true,
+          }}
+        >
+          {backlogCards.map((card) => (
+            <CardView key={card.id} card={card} dashboard={snapshot.dashboard} />
+          ))}
+        </Section>
+      ) : null}
+      {queueCards.length === 0 && backlogCards.length === 0 ? (
         <EmptyState
           props={{
             message:
@@ -4706,9 +4758,14 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
       ) : controller.view !== "archive" ? (
         <SummaryStrip
           props={{
-            needsYou: stageCards.filter((card) => cardWorkflowStage(card) === "needs_you").length,
-            inCodex: stageCards.filter((card) => cardWorkflowStage(card) === "executing").length,
-            blocked: stageCards.filter(cardIsBlocked).length,
+            needsYou: stageCards.filter(
+              (card) => !card.backlog && cardWorkflowStage(card) === "needs_you",
+            ).length,
+            inCodex: stageCards.filter(
+              (card) => !card.backlog && cardWorkflowStage(card) === "executing",
+            ).length,
+            blocked: stageCards.filter((card) => !card.backlog && cardIsBlocked(card)).length,
+            backlog: stageCards.filter((card) => Boolean(card.backlog)).length,
             shown: cards.length,
             total: snapshot.counts.total,
           }}
@@ -4900,6 +4957,7 @@ function DynaApp({ app }: { readonly app: App }) {
   const archiveRequestIds = useRef(new Map<string, string>());
   const restoreRequestIds = useRef(new Map<string, string>());
   const statusRequestIds = useRef(new Map<string, string>());
+  const backlogRequestIds = useRef(new Map<string, string>());
   const annotationTrigger = useRef<HTMLElement | null>(null);
   const annotationDeleteTrigger = useRef<HTMLElement | null>(null);
   const detailTrigger = useRef<HTMLElement | null>(null);
@@ -6053,6 +6111,51 @@ function DynaApp({ app }: { readonly app: App }) {
     [app, busy, connectionError, refresh],
   );
 
+  const executeBacklogChange = useCallback(
+    async (
+      itemId: string,
+      fingerprint: string,
+      action: "defer" | "return",
+      trigger: HTMLElement,
+    ) => {
+      const active = current.current;
+      if (!active || busy || connectionError || !hostCapabilitiesRef.current.serverTools) return;
+      const clientRequestId = backlogRequestIds.current.get(itemId) ?? crypto.randomUUID();
+      backlogRequestIds.current.set(itemId, clientRequestId);
+      setOperationError(undefined);
+      setBusy(true);
+      try {
+        const result = await app.callServerTool({
+          name: "dyna_set_item_backlog",
+          arguments: {
+            viewToken: active.viewToken,
+            itemId,
+            action,
+            expectedRevision: active.snapshot.revision,
+            expectedFingerprint: fingerprint,
+            clientRequestId,
+          },
+        });
+        if (toolResultFailed(result)) throw new Error("Backlog change failed.");
+        backlogRequestIds.current.delete(itemId);
+        await refresh(true);
+        window.setTimeout(() => {
+          const status = document.querySelector<HTMLElement>(
+            `[data-dyna-status-item="${CSS.escape(itemId)}"]`,
+          );
+          (status ?? trigger).focus();
+        }, 0);
+        setToast(action === "defer" ? "Moved to Backlog for 1 day." : "Returned to active work.");
+        setConnectionError(undefined);
+      } catch {
+        setOperationError("Could not change the backlog state. Refresh and try again.");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [app, busy, connectionError, refresh],
+  );
+
   useEffect(() => {
     const itemId = createdTodoFocus.current;
     if (!itemId || busy || todoOpen) return;
@@ -6635,6 +6738,19 @@ function DynaApp({ app }: { readonly app: App }) {
           setOperationError("Restore this item before changing its status.");
           return;
         }
+        if (target === "backlog" || target === "return_from_backlog") {
+          if (currentStage === "completed") {
+            setOperationError("Completed work cannot move to Backlog.");
+            return;
+          }
+          await executeBacklogChange(
+            itemId,
+            fingerprint,
+            target === "backlog" ? "defer" : "return",
+            trigger,
+          );
+          return;
+        }
         if (target === "follow_up" || (currentStage === "completed" && target !== "completed")) {
           todoTrigger.current = trigger;
           todoRequestId.current = crypto.randomUUID();
@@ -6775,6 +6891,7 @@ function DynaApp({ app }: { readonly app: App }) {
       workflowFilter,
       closeDetails,
       executeArchive,
+      executeBacklogChange,
       executeRestore,
       executeStatusChange,
       dispatchAction,

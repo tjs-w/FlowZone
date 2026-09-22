@@ -140,10 +140,10 @@ const card = {
 } as const;
 
 const uiPayload = {
-  schema: "dyna/ui-v11",
+  schema: "dyna/ui-v12",
   viewToken: "v".repeat(32),
   snapshot: {
-    schema: "dyna/snapshot-v9",
+    schema: "dyna/snapshot-v10",
     dashboard: {
       id: dashboardId,
       name: "Engineering action queue",
@@ -207,12 +207,25 @@ describe("Dyna browser contract parity", () => {
         ],
       },
     };
+    const invalidBacklog = {
+      ...uiPayload,
+      snapshot: {
+        ...uiPayload.snapshot,
+        cards: [
+          {
+            ...card,
+            backlog: { backloggedAt: timestamp, until: timestamp },
+          },
+        ],
+      },
+    };
     expectParserParity(DynaUiPayloadSchema, BrowserUiPayloadSchema, [
       uiPayload,
       { ...uiPayload, extra: true },
       { ...uiPayload, schema: "dyna/ui-v10" },
       invalidCompletion,
       duplicateSlice,
+      invalidBacklog,
     ]);
   });
 

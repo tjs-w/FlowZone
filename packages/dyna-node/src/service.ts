@@ -20,6 +20,7 @@ import {
   DynaFollowUpCreateInputSchema,
   DynaFollowUpCreateResultSchema,
   DynaItemArchiveResultSchema,
+  DynaItemBacklogResultSchema,
   DynaItemEnrichResultSchema,
   DynaItemPlaceResultSchema,
   DynaItemSearchResultSchema,
@@ -71,6 +72,7 @@ import {
   type DynaFollowUpCreateInput,
   type DynaFollowUpCreateResult,
   type DynaItemArchiveResult,
+  type DynaItemBacklogResult,
   type DynaItemContext,
   type DynaItemEnrichResult,
   type DynaItemHistory,
@@ -94,6 +96,7 @@ import {
   type DynaPublishSourceSlice,
   type DynaRequiredSourceSlice,
   type DynaSetItemStatusInput,
+  type DynaSetItemBacklogInput,
   type DynaTaskStatus,
   type DynaTaskSyncBeginResult,
   type DynaTaskSyncScope,
@@ -1093,6 +1096,7 @@ export class DynaApplicationService {
       ...(fact.userWorkflow ? { userWorkflowStage: fact.userWorkflow.stage } : {}),
       ...(fact.userWorkflow?.outcome ? { userWorkflowOutcome: fact.userWorkflow.outcome } : {}),
       ...(fact.userWorkflow ? { userWorkflowCreatedMs: fact.userWorkflow.createdAtMs } : {}),
+      ...(fact.backlog ? { backlog: fact.backlog } : {}),
     }));
   }
 
@@ -1394,6 +1398,7 @@ export class DynaApplicationService {
         : {}),
       ...(fact.followUpOfItemId ? { followUpOfItemId: fact.followUpOfItemId } : {}),
       ...(fact.followUpOfItemNumber ? { followUpOfItemNumber: fact.followUpOfItemNumber } : {}),
+      ...(fact.backlog ? { backlog: fact.backlog } : {}),
       ...(item.attention ? { attention: item.attention } : {}),
       plan: item.plan,
       nextSteps: item.nextSteps,
@@ -1646,7 +1651,7 @@ export class DynaApplicationService {
                 ? "aging"
                 : "stale";
       return DynaDashboardSnapshotSchema.parse({
-        schema: "dyna/snapshot-v9",
+        schema: "dyna/snapshot-v10",
         dashboard,
         generatedAt: now.toISOString(),
         query: normalizedQuery,
@@ -1655,22 +1660,27 @@ export class DynaApplicationService {
         freshness,
         counts: {
           critical: matchingActive.filter(
-            ({ projection }) =>
+            ({ fact, projection }) =>
+              !fact.backlog &&
               projection.workflowState !== "completed" &&
               projection.effectivePriority === "critical",
           ).length,
           high: matchingActive.filter(
-            ({ projection }) =>
-              projection.workflowState !== "completed" && projection.effectivePriority === "high",
+            ({ fact, projection }) =>
+              !fact.backlog &&
+              projection.workflowState !== "completed" &&
+              projection.effectivePriority === "high",
           ).length,
           leadership: matchingActive.filter(
-            ({ projection }) => projection.effectiveLeadershipScore > 0,
+            ({ fact, projection }) => !fact.backlog && projection.effectiveLeadershipScore > 0,
           ).length,
           total: matchingActive.length,
           archived: matchingArchived.length,
           blocked: matchingActive.filter(
-            ({ projection }) => projection.workflowState !== "completed" && projection.blocked,
+            ({ fact, projection }) =>
+              !fact.backlog && projection.workflowState !== "completed" && projection.blocked,
           ).length,
+          backlog: matchingActive.filter(({ fact }) => Boolean(fact.backlog)).length,
         },
         schedules,
         cards,
@@ -1699,7 +1709,7 @@ export class DynaApplicationService {
       unitOfWork.persistCreateView(dashboardId),
     );
     return DynaUiPayloadSchema.parse({
-      schema: "dyna/ui-v11",
+      schema: "dyna/ui-v12",
       viewToken,
       snapshot,
     });
@@ -1711,7 +1721,7 @@ export class DynaApplicationService {
       unitOfWork.authorizeViewToken(viewToken),
     );
     const snapshot = this.#materializeSnapshot(dashboardId, query, scope);
-    return DynaUiPayloadSchema.parse({ schema: "dyna/ui-v11", viewToken, snapshot });
+    return DynaUiPayloadSchema.parse({ schema: "dyna/ui-v12", viewToken, snapshot });
   }
 
   snapshot(
@@ -3240,6 +3250,36 @@ export class DynaApplicationService {
       }
       const positioned = this.#positionedItem(unitOfWork, dashboardId, input.itemId);
       return unitOfWork.persistItemStatus(input, positioned);
+    });
+  }
+
+  setItemBacklog(input: DynaSetItemBacklogInput): DynaItemBacklogResult {
+    this.#requireCapability("view:interact");
+    return this.#repository.write((unitOfWork) => {
+      const dashboardId = unitOfWork.authorizeViewToken(input.viewToken, input.itemId);
+      if (!unitOfWork.findCliReceipt(input.clientRequestId)) {
+        this.#assertItemMembership(unitOfWork, dashboardId, input.itemId);
+        this.#assertExpectedRevision(
+          unitOfWork,
+          dashboardId,
+          input.expectedRevision,
+          "The Dyna dashboard changed; refresh before changing this item's backlog state.",
+        );
+        this.#assertExpectedFingerprint(
+          unitOfWork,
+          input.itemId,
+          input.expectedFingerprint,
+          "The Dyna item changed; refresh before changing its backlog state.",
+        );
+      }
+      const now = this.#clock();
+      const positioned = this.#positionedItem(unitOfWork, dashboardId, input.itemId);
+      return DynaItemBacklogResultSchema.parse(
+        unitOfWork.persistItemBacklog(input, positioned, {
+          backloggedAt: now.toISOString(),
+          until: new Date(now.getTime() + 24 * 60 * 60 * 1_000).toISOString(),
+        }),
+      );
     });
   }
 

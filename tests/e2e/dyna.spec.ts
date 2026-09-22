@@ -2522,6 +2522,7 @@ test("projects the same items through the Codex progress pipeline and creates fo
     ["executing", "In Codex", "1"],
     ["needs_you", "Needs You", "1"],
     ["completed", "Done", "1"],
+    ["backlog", "Backlog", "0"],
   ] as const) {
     const stage = page.locator(`.dyna-pipeline-stage[data-workflow-stage="${state}"]`);
     await expect(stage.getByRole("heading", { name: title, level: 2 })).toBeVisible();
@@ -2688,7 +2689,9 @@ test("requires a one-line outcome before a taskless item can move to Done", asyn
   );
 });
 
-test("keeps linked Codex status read-only in the Progress pipeline", async ({ page }) => {
+test("keeps linked Codex lifecycle read-only while allowing temporary Backlog", async ({
+  page,
+}) => {
   await page.goto("/dyna?pipeline=1");
   await openFullDashboard(page);
   await page.getByRole("tab", { name: "Progress pipeline" }).click();
@@ -2696,9 +2699,22 @@ test("keeps linked Codex status read-only in the Progress pipeline", async ({ pa
   const title = "Additional priority 1";
   const executing = page.locator('.dyna-pipeline-stage[data-workflow-stage="executing"]');
   const card = executing.locator(".dyna-card").filter({ hasText: title });
-  await expect(card.getByRole("combobox", { name: `Change status for ${title}` })).toHaveCount(0);
-  await expect(card.locator(".dyna-status-control")).toHaveCount(0);
+  const status = card.getByRole("combobox", { name: `Change status for ${title}` });
+  await expect(status).toBeVisible();
+  await expect(status.locator('option[value="todo"]')).toHaveCount(0);
+  await expect(status.locator('option[value="needs_you"]')).toHaveCount(0);
+  await expect(status.locator('option[value="completed"]')).toHaveCount(0);
+  await expect(status.locator('option[value="backlog"]')).toHaveText("Backlog for 1 day");
   await expect(card.locator(".dyna-row-status")).toHaveText("In Codex");
+  await status.selectOption("backlog");
+  const backlog = page.locator('.dyna-pipeline-stage[data-workflow-stage="backlog"]');
+  const deferred = backlog.locator(".dyna-card").filter({ hasText: title });
+  await expect(deferred).toBeVisible();
+  await expect(deferred.locator(".dyna-row-status")).toHaveText("Backlog");
+  await deferred
+    .getByRole("combobox", { name: `Change status for ${title}` })
+    .selectOption("return_from_backlog");
+  await expect(executing.locator(".dyna-card").filter({ hasText: title })).toBeVisible();
   const calls = await page.evaluate(() => {
     const host = (
       window as typeof window & {
@@ -2707,11 +2723,12 @@ test("keeps linked Codex status read-only in the Progress pipeline", async ({ pa
     ).__dynaHost;
     return host?.toolCalls ?? [];
   });
+  expect(calls.some((call) => call.name === "dyna_set_item_backlog")).toBe(true);
   expect(calls.some((call) => call.name === "dyna_prepare_action")).toBe(false);
   expect(calls.some((call) => call.name === "dyna_begin_task_sync")).toBe(false);
 });
 
-test("keeps Queue linked Codex status read-only", async ({ page }) => {
+test("keeps Queue linked Codex lifecycle read-only while exposing Backlog", async ({ page }) => {
   await page.goto("/dyna?pipeline=1");
   await openFullDashboard(page);
 
@@ -2719,10 +2736,13 @@ test("keeps Queue linked Codex status read-only", async ({ page }) => {
   const queueCard = page
     .locator('.dyna-card[data-presentation="queue"]')
     .filter({ hasText: title });
-  await expect(queueCard.getByRole("combobox", { name: `Change status for ${title}` })).toHaveCount(
-    0,
-  );
-  await expect(queueCard.locator(".dyna-status-control")).toHaveCount(0);
+  const status = queueCard.getByRole("combobox", { name: `Change status for ${title}` });
+  await expect(status).toBeVisible();
+  await status.focus();
+  await expect(status.locator('option[value="todo"]')).toHaveCount(0);
+  await expect(status.locator('option[value="needs_you"]')).toHaveCount(0);
+  await expect(status.locator('option[value="completed"]')).toHaveCount(0);
+  await expect(status.locator('option[value="backlog"]')).toHaveText("Backlog for 1 day");
   await expect(queueCard.locator(".dyna-row-status")).toHaveText("In Codex");
 });
 

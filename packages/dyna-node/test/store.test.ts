@@ -47,6 +47,27 @@ describe("DynaStore lifecycle", () => {
     });
   });
 
+  test("defers active attention to a dashboard-local 24-hour backlog", () => {
+    const fixture = resolve(import.meta.dir, "backlog-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      exactReplay: true,
+      dashboardLocal: true,
+      linkedItems: true,
+      attentionExcluded: true,
+      automaticReturn: true,
+      completionGuard: true,
+    });
+  });
+
+  test("migrates dashboard preferences from schema v11 to v12", () => {
+    const fixture = resolve(import.meta.dir, "backlog-migration-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ migrated: true });
+  });
+
   test("lists bounded private Codex sessions and attaches an exact controller-verified selection", () => {
     const fixture = resolve(import.meta.dir, "session-picker-node-fixture.mjs");
     const result = spawnSync("node", [fixture], { encoding: "utf8" });

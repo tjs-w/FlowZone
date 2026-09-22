@@ -108,6 +108,7 @@ describe("checked-in Node stdio bundle", () => {
         "dyna_task_sync_status",
         "dyna_get_item_activity",
         "dyna_set_item_status",
+        "dyna_set_item_backlog",
         "dyna_archive_item",
         "dyna_restore_item",
         "dyna_add_annotation",

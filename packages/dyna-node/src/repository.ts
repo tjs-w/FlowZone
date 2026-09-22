@@ -17,6 +17,7 @@ import {
   DynaActionKindSchema,
   DynaActionRequestSchema,
   DynaAnnotationSchema,
+  DynaBacklogStateSchema,
   DynaArchiveReasonSchema,
   DynaArchiveStateSchema,
   DynaCodexSessionCandidatesSchema,
@@ -24,6 +25,7 @@ import {
   DynaDashboardSchema,
   DynaItemContextSchema,
   DynaItemHistorySchema,
+  DynaItemBacklogResultSchema,
   DynaItemStatusResultSchema,
   DynaMaterializedItemSchema,
   DynaPrioritySchema,
@@ -39,12 +41,14 @@ import {
   DynaTodoCreateResultSchema,
   DynaTodoInputSchema,
   DynaSetItemStatusInputSchema,
+  DynaSetItemBacklogInputSchema,
   DynaUserWorkflowEventSchema,
   DynaUserWorkflowStageSchema,
   DynaWorkActivityPageSchema,
   DynaWorkUpdateSchema,
   dynaLeadershipScore,
   type DynaAnnotation,
+  type DynaBacklogState,
   type DynaCard,
   type DynaArchiveReason,
   type DynaCodexSessionCandidate,
@@ -52,6 +56,7 @@ import {
   type DynaDashboard,
   type DynaItemContext,
   type DynaItemHistory,
+  type DynaItemBacklogResult,
   type DynaItemNumber,
   type DynaItemStatusResult,
   type DynaPublishedItem,
@@ -64,6 +69,7 @@ import {
   type DynaTodoCreateResult,
   type DynaTodoInput,
   type DynaSetItemStatusInput,
+  type DynaSetItemBacklogInput,
   type DynaUserWorkflowEvent,
   type DynaUserWorkflowStage,
   type DynaWorkActivityPage,
@@ -140,7 +146,7 @@ const ACTION_TTL_MS = 10 * 60 * 1_000;
 const CODEX_SESSION_CANDIDATE_TTL_MS = 10 * 60 * 1_000;
 const CLAIM_LEASE_MS = 5 * 60 * 1_000;
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1_000;
-const DYNA_SCHEMA_VERSION = 11;
+const DYNA_SCHEMA_VERSION = 12;
 const MAX_SAFE_ITEM_NUMBER = Number.MAX_SAFE_INTEGER;
 const MAX_DASHBOARDS = 100;
 const MAX_PUBLISHERS = 100;
@@ -209,6 +215,8 @@ function dynaProjectionMembershipCte(scope: "active" | "archive" = "active"): st
         e.version AS enrichment_version,
         p.priority_override AS preference_priority,
         p.sequence AS preference_sequence,
+        p.backlogged_at AS preference_backlogged_at,
+        p.backlog_until AS preference_backlog_until,
         ar.id AS archive_id,
         ar.reason AS archive_reason,
         ar.reason_detail AS archive_reason_detail,
@@ -891,6 +899,7 @@ export interface DynaCliPositionedItem {
   readonly userWorkflowStage?: DynaUserWorkflowStage | undefined;
   readonly userWorkflowOutcome?: string | undefined;
   readonly userWorkflowCreatedMs?: number | undefined;
+  readonly backlog?: DynaBacklogState | undefined;
 }
 
 export interface DynaRepositoryProjectionTask {
@@ -945,6 +954,7 @@ export interface DynaRepositoryProjectionItem {
   readonly enrichment?: DynaRepositoryProjectionEnrichment | undefined;
   readonly preferencePriority?: DynaPriority | undefined;
   readonly preferenceSequence?: number | undefined;
+  readonly backlog?: DynaBacklogState | undefined;
   readonly userWorkflow?:
     | {
         readonly stage: z.infer<typeof DynaUserWorkflowStageSchema>;
@@ -1187,6 +1197,11 @@ export interface DynaWriteUnitOfWork extends DynaReadUnitOfWork {
     input: DynaSetItemStatusInput,
     positioned: DynaCliPositionedItem | undefined,
   ): DynaItemStatusResult;
+  persistItemBacklog(
+    input: DynaSetItemBacklogInput,
+    positioned: DynaCliPositionedItem | undefined,
+    backlog: DynaBacklogState,
+  ): DynaItemBacklogResult;
   persistPrepareAction(
     viewToken: string,
     kind: DynaActionKind,
@@ -1402,6 +1417,8 @@ export class SqliteDynaRepository {
             : this.publish(publisherId, secret ?? "", items, options),
         persistCreateView: (dashboardId) => this.createView(dashboardId),
         persistItemStatus: (input, positioned) => this.setItemStatus(input, positioned),
+        persistItemBacklog: (input, positioned, backlog) =>
+          this.setItemBacklog(input, positioned, backlog),
         persistPrepareAction: (viewToken, kind, values, attachmentBlocker) => {
           try {
             return {
@@ -2517,7 +2534,8 @@ export class SqliteDynaRepository {
       CREATE TABLE IF NOT EXISTS item_preferences (
         dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
         item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
-        priority_override TEXT, sequence INTEGER, updated_at TEXT NOT NULL,
+        priority_override TEXT, sequence INTEGER,
+        backlogged_at TEXT, backlog_until TEXT, updated_at TEXT NOT NULL,
         PRIMARY KEY (dashboard_id, item_id)
       );
       CREATE TABLE IF NOT EXISTS item_preference_events (
@@ -3437,6 +3455,31 @@ export class SqliteDynaRepository {
     }
   }
 
+  #migrateBacklogV12(): void {
+    const columns = new Set(
+      (this.#database.prepare("PRAGMA table_info(item_preferences)").all() as SqlRow[]).map((row) =>
+        requiredString(row, "name"),
+      ),
+    );
+    if (!columns.has("backlogged_at")) {
+      this.#database.exec("ALTER TABLE item_preferences ADD COLUMN backlogged_at TEXT;");
+    }
+    if (!columns.has("backlog_until")) {
+      this.#database.exec("ALTER TABLE item_preferences ADD COLUMN backlog_until TEXT;");
+    }
+  }
+
+  #assertBacklogSchemaCurrent(): void {
+    const columns = new Set(
+      (this.#database.prepare("PRAGMA table_info(item_preferences)").all() as SqlRow[]).map((row) =>
+        requiredString(row, "name"),
+      ),
+    );
+    if (!columns.has("backlogged_at") || !columns.has("backlog_until")) {
+      throw new Error("The Dyna backlog preference schema is incomplete.");
+    }
+  }
+
   #backfillItemNumbers(): void {
     const insert = this.#database.prepare("INSERT INTO item_numbers (item_id) VALUES (?)");
     const rows = this.#database
@@ -3616,6 +3659,7 @@ export class SqliteDynaRepository {
       this.#assertTaskSyncSchemaCurrent();
       this.#assertAnnotationSchemaCurrent();
       this.#assertFullControlSchemaCurrent();
+      this.#assertBacklogSchemaCurrent();
       const actionSchemaCurrent = this.#actionRequestsUseV6Constraints();
       const taskIdentityIndexCurrent = this.#namedIndexMatches(
         "task_bindings",
@@ -3709,12 +3753,25 @@ export class SqliteDynaRepository {
     if (startingVersion === 10) {
       this.#transaction(() => {
         this.#migrateFullControlV11();
+        this.#migrateBacklogV12();
         this.#createSchema();
         this.#assertAnnotationSchemaCurrent();
         this.#assertFullControlSchemaCurrent();
+        this.#assertBacklogSchemaCurrent();
         this.#assertDatabaseIntegrity();
         this.#assertItemNumberIntegrity();
-        this.#database.exec("PRAGMA user_version = 11;");
+        this.#database.exec("PRAGMA user_version = 12;");
+      });
+      return;
+    }
+    if (startingVersion === 11) {
+      this.#transaction(() => {
+        this.#migrateBacklogV12();
+        this.#createSchema();
+        this.#assertBacklogSchemaCurrent();
+        this.#assertDatabaseIntegrity();
+        this.#assertItemNumberIntegrity();
+        this.#database.exec("PRAGMA user_version = 12;");
       });
       return;
     }
@@ -4020,8 +4077,20 @@ export class SqliteDynaRepository {
       this.#assertItemNumberIntegrity();
       this.#database.exec("PRAGMA user_version = 11;");
     });
+    const versionElevenRow = this.#one(this.#database.prepare("PRAGMA user_version"));
+    if (!versionElevenRow || requiredNumber(versionElevenRow, "user_version") !== 11) {
+      throw new Error("Dyna could not complete its database schema migration.");
+    }
+    this.#transaction(() => {
+      this.#migrateBacklogV12();
+      this.#createSchema();
+      this.#assertBacklogSchemaCurrent();
+      this.#assertDatabaseIntegrity();
+      this.#assertItemNumberIntegrity();
+      this.#database.exec("PRAGMA user_version = 12;");
+    });
     const migratedVersion = this.#one(this.#database.prepare("PRAGMA user_version"));
-    if (!migratedVersion || requiredNumber(migratedVersion, "user_version") !== 11) {
+    if (!migratedVersion || requiredNumber(migratedVersion, "user_version") !== 12) {
       throw new Error("Dyna could not complete its database schema migration.");
     }
   }
@@ -4105,7 +4174,8 @@ export class SqliteDynaRepository {
           CREATE TABLE item_preferences (
             dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
             item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
-            priority_override TEXT, sequence INTEGER, updated_at TEXT NOT NULL,
+            priority_override TEXT, sequence INTEGER,
+            backlogged_at TEXT, backlog_until TEXT, updated_at TEXT NOT NULL,
             PRIMARY KEY (dashboard_id, item_id)
           );
           INSERT INTO item_preferences (
@@ -5786,6 +5856,155 @@ export class SqliteDynaRepository {
     );
   }
 
+  setItemBacklog(
+    input: DynaSetItemBacklogInput,
+    positioned: DynaCliPositionedItem | undefined,
+    backlog: DynaBacklogState,
+  ): DynaItemBacklogResult {
+    const parsed = DynaSetItemBacklogInputSchema.parse(input);
+    const parsedBacklog = DynaBacklogStateSchema.parse(backlog);
+    const dashboardId = this.authorizeView(parsed.viewToken, parsed.itemId);
+    return DynaItemBacklogResultSchema.parse(
+      this.#cliMutation(
+        dashboardId,
+        parsed.itemId,
+        parsed.clientRequestId,
+        "app.item.backlog",
+        {
+          action: parsed.action,
+          expectedRevision: parsed.expectedRevision,
+          expectedFingerprint: parsed.expectedFingerprint,
+        },
+        () => {
+          const revision = this.#one(
+            this.#database.prepare("SELECT revision FROM dashboards WHERE id = ?"),
+            dashboardId,
+          );
+          if (!revision || requiredNumber(revision, "revision") !== parsed.expectedRevision) {
+            throw new DynaCliStoreError(
+              "stale_dashboard",
+              "The Dyna dashboard changed; refresh before changing this item's backlog state.",
+            );
+          }
+          const item = this.#itemBaseRow(parsed.itemId);
+          if (requiredString(item, "fingerprint") !== parsed.expectedFingerprint) {
+            throw new DynaCliStoreError(
+              "stale_item",
+              "The Dyna item changed; refresh before changing its backlog state.",
+            );
+          }
+          if (!positioned) {
+            const archived = this.#one(
+              this.#database.prepare(
+                "SELECT 1 AS present FROM item_archive_events WHERE dashboard_id = ? AND item_id = ? AND restored_at IS NULL",
+              ),
+              dashboardId,
+              parsed.itemId,
+            );
+            throw new DynaCliStoreError(
+              archived ? "archived_item" : "not_found",
+              archived
+                ? "Archived Dyna items cannot move to Backlog; restore the item first."
+                : "The Dyna item is no longer active in this dashboard.",
+            );
+          }
+          if (positioned.workflowState === "completed") {
+            throw new DynaCliStoreError(
+              "completed_item",
+              "Completed Dyna work cannot move to Backlog.",
+            );
+          }
+
+          const preference = this.#one(
+            this.#database.prepare(
+              `SELECT backlogged_at, backlog_until FROM item_preferences
+               WHERE dashboard_id = ? AND item_id = ?`,
+            ),
+            dashboardId,
+            parsed.itemId,
+          );
+          const storedBackloggedAt = preference
+            ? optionalString(preference, "backlogged_at")
+            : undefined;
+          const storedUntil = preference ? optionalString(preference, "backlog_until") : undefined;
+          const activeBacklog =
+            storedBackloggedAt && storedUntil && Date.parse(storedUntil) > this.#nowMs()
+              ? DynaBacklogStateSchema.parse({
+                  backloggedAt: storedBackloggedAt,
+                  until: storedUntil,
+                })
+              : undefined;
+
+          if (parsed.action === "defer" && activeBacklog) {
+            return {
+              schema: "dyna/item-backlog-result-v1" as const,
+              requestId: parsed.clientRequestId,
+              itemId: parsed.itemId,
+              deduplicated: false,
+              action: parsed.action,
+              changed: false,
+              backlog: activeBacklog,
+            };
+          }
+          if (parsed.action === "return" && !storedBackloggedAt && !storedUntil) {
+            return {
+              schema: "dyna/item-backlog-result-v1" as const,
+              requestId: parsed.clientRequestId,
+              itemId: parsed.itemId,
+              deduplicated: false,
+              action: parsed.action,
+              changed: false,
+            };
+          }
+
+          const instant = this.#now();
+          if (parsed.action === "defer") {
+            this.#database
+              .prepare(
+                `INSERT INTO item_preferences (
+                   dashboard_id, item_id, priority_override, sequence,
+                   backlogged_at, backlog_until, updated_at
+                 ) VALUES (?, ?, NULL, NULL, ?, ?, ?)
+                 ON CONFLICT(dashboard_id, item_id) DO UPDATE SET
+                   backlogged_at = excluded.backlogged_at,
+                   backlog_until = excluded.backlog_until,
+                   updated_at = excluded.updated_at`,
+              )
+              .run(
+                dashboardId,
+                parsed.itemId,
+                parsedBacklog.backloggedAt,
+                parsedBacklog.until,
+                instant,
+              );
+          } else {
+            this.#database
+              .prepare(
+                `UPDATE item_preferences SET backlogged_at = NULL, backlog_until = NULL,
+                   updated_at = ? WHERE dashboard_id = ? AND item_id = ?`,
+              )
+              .run(instant, dashboardId, parsed.itemId);
+          }
+          this.#touchDashboards([dashboardId], instant);
+          this.#audit(
+            parsed.action === "defer" ? "item.backlog.deferred" : "item.backlog.returned",
+            parsed.itemId,
+            instant,
+          );
+          return {
+            schema: "dyna/item-backlog-result-v1" as const,
+            requestId: parsed.clientRequestId,
+            itemId: parsed.itemId,
+            deduplicated: false,
+            action: parsed.action,
+            changed: true,
+            ...(parsed.action === "defer" ? { backlog: parsedBacklog } : {}),
+          };
+        },
+      ),
+    );
+  }
+
   organizeItem(
     viewToken: string,
     itemId: string,
@@ -6863,6 +7082,12 @@ export class SqliteDynaRepository {
       const userWorkflowTaskTitle = optionalString(row, "user_workflow_task_title");
       const userWorkflowWorkAttemptId = optionalString(row, "user_workflow_work_attempt_id");
       const preferencePriority = optionalString(row, "preference_priority");
+      const backloggedAt = optionalString(row, "preference_backlogged_at");
+      const backlogUntil = optionalString(row, "preference_backlog_until");
+      const backlog =
+        backloggedAt && backlogUntil && Date.parse(backlogUntil) > this.#nowMs()
+          ? DynaBacklogStateSchema.parse({ backloggedAt, until: backlogUntil })
+          : undefined;
       const followUpOfItemId = followUpReferenceItemId(row);
       return {
         id,
@@ -6884,6 +7109,7 @@ export class SqliteDynaRepository {
         ...(typeof row["preference_sequence"] === "number"
           ? { preferenceSequence: requiredNumber(row, "preference_sequence") }
           : {}),
+        ...(backlog ? { backlog } : {}),
         ...(userWorkflowStage
           ? {
               userWorkflow: {

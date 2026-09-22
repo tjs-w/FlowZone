@@ -319,6 +319,24 @@ const DynaArchiveStateSchema = z.strictObject({
   changedSinceArchive: z.boolean(),
 });
 
+const DynaBacklogStateSchema = z
+  .strictObject({
+    backloggedAt: TimestampSchema,
+    until: TimestampSchema,
+  })
+  .check(
+    z.superRefine((state, context) => {
+      if (Date.parse(state.until) <= Date.parse(state.backloggedAt)) {
+        context.addIssue({
+          code: "custom",
+          message: "A Dyna backlog period must end after it starts.",
+          path: ["until"],
+          input: state,
+        });
+      }
+    }),
+  );
+
 function validateFollowUpReference(
   value: {
     readonly followUpOfItemId?: string | undefined;
@@ -410,6 +428,7 @@ const DynaCardSchema = z
     blocked: z._default(z.boolean(), false),
     titleSyncNeeded: z._default(z.boolean(), false),
     linkedTasks: z.array(DynaTaskStatusSchema).check(z.maxLength(8)),
+    backlog: z.optional(DynaBacklogStateSchema),
     archive: z.optional(DynaArchiveStateSchema),
   })
   .check(z.superRefine(validateFollowUpReference), z.superRefine(validateCompletionAttribution));
@@ -484,7 +503,7 @@ const DynaDashboardSchema = z.strictObject({
 });
 
 const DynaDashboardSnapshotSchema = z.strictObject({
-  schema: z.literal("dyna/snapshot-v9"),
+  schema: z.literal("dyna/snapshot-v10"),
   dashboard: DynaDashboardSchema,
   generatedAt: TimestampSchema,
   query: boundedString(500),
@@ -498,6 +517,7 @@ const DynaDashboardSnapshotSchema = z.strictObject({
     total: z.int().check(z.nonnegative()),
     archived: z._default(z.int().check(z.nonnegative()), 0),
     blocked: z._default(z.int().check(z.nonnegative()), 0),
+    backlog: z._default(z.int().check(z.nonnegative()), 0),
   }),
   schedules: z.array(DynaPublisherSchema).check(z.maxLength(50)),
   cards: z.array(DynaCardSchema).check(z.maxLength(200)),
@@ -505,7 +525,7 @@ const DynaDashboardSnapshotSchema = z.strictObject({
 });
 
 export const DynaUiPayloadSchema = z.strictObject({
-  schema: z.literal("dyna/ui-v11"),
+  schema: z.literal("dyna/ui-v12"),
   viewToken: z.string().check(z.minLength(32), z.maxLength(128)),
   snapshot: DynaDashboardSnapshotSchema,
 }) satisfies z.ZodMiniType<DynaUiPayload>;

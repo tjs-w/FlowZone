@@ -828,6 +828,11 @@ type DynaSourceSlice = NonNullable<DynaSchedule["lastSourceSlices"]>[number];
 type DynaTask = DynaCard["linkedTasks"][number];
 type DynaWorkUpdate = DynaCard["workUpdates"][number];
 
+function codexThreadUrl(taskId: string): string | undefined {
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,255}$/u.test(taskId)) return undefined;
+  return `codex://threads/${encodeURIComponent(taskId)}`;
+}
+
 type DynaActivityPage = DynaWorkActivityPage;
 
 interface DynaCardUxFields {
@@ -2191,6 +2196,45 @@ function CodexWork({
   );
 }
 
+function CodexSessionLink({
+  task,
+  className,
+  children,
+  onActivate,
+}: {
+  readonly task: DynaTask;
+  readonly className: string;
+  readonly children?: ReactNode;
+  readonly onActivate?: () => void;
+}) {
+  const href = codexThreadUrl(task.taskId);
+  if (!href) return null;
+  const label = `Open ${task.title} in Codex`;
+  return (
+    <a
+      className={`dyna-session-link ${className}`}
+      data-dyna-session-link={task.taskId}
+      href={href}
+      aria-label={label}
+      title={label}
+      onClick={(event) => {
+        event.stopPropagation();
+        if (selectionIntersects(event.currentTarget)) {
+          event.preventDefault();
+          return;
+        }
+        onActivate?.();
+      }}
+      onAuxClick={(event) => {
+        event.stopPropagation();
+      }}
+    >
+      <ExternalLink className="dyna-icon" aria-hidden="true" />
+      {children}
+    </a>
+  );
+}
+
 function mergeWorkUpdates(
   current: readonly DynaWorkUpdate[],
   incoming: readonly DynaWorkUpdate[],
@@ -3100,6 +3144,7 @@ const dynaComponents: DynaComponentCatalog = {
   PriorityCard: ({ props, children }) => {
     const controller = useController();
     const rowMoveTrigger = useRef<HTMLElement | null>(null);
+    const sessionChooser = useRef<HTMLDetailsElement | null>(null);
     const [dropActive, setDropActive] = useState(false);
     const [showAllNotes, setShowAllNotes] = useState(false);
     const presentation = controller.view;
@@ -3171,6 +3216,7 @@ const dynaComponents: DynaComponentCatalog = {
             ? "info"
             : "secondary";
     const visibleAnnotations = showAllNotes ? props.annotations : props.annotations.slice(0, 3);
+    const linkedSessions = props.linkedTasks.filter((task) => codexThreadUrl(task.taskId));
     return (
       <article
         className="dyna-card"
@@ -3346,6 +3392,66 @@ const dynaComponents: DynaComponentCatalog = {
                 <span className="dyna-row-time" data-has-deadline="true">
                   Due {relativeTime(props.dueAt, controller.locale)}
                 </span>
+              ) : null}
+              {linkedSessions.length === 1 && linkedSessions[0] ? (
+                <CodexSessionLink task={linkedSessions[0]} className="dyna-session-icon" />
+              ) : null}
+              {linkedSessions.length > 1 ? (
+                <details
+                  className="dyna-session-chooser"
+                  ref={sessionChooser}
+                  onToggle={(event) => {
+                    const card = event.currentTarget.closest<HTMLElement>(".dyna-card");
+                    if (card) card.dataset["sessionChooserOpen"] = String(event.currentTarget.open);
+                    if (!event.currentTarget.open) return;
+                    closeOrganizationMenus();
+                    document
+                      .querySelectorAll<HTMLDetailsElement>(".dyna-session-chooser[open]")
+                      .forEach((other) => {
+                        if (other !== event.currentTarget) other.open = false;
+                      });
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Escape") return;
+                    event.preventDefault();
+                    event.currentTarget.open = false;
+                    event.currentTarget.querySelector<HTMLElement>("summary")?.focus();
+                  }}
+                >
+                  <summary
+                    className="dyna-session-chooser-trigger"
+                    role="button"
+                    aria-label={`Choose a Codex session for ${props.title}`}
+                    title={`Open one of ${String(linkedSessions.length)} linked Codex sessions`}
+                  >
+                    <ExternalLink className="dyna-icon" aria-hidden="true" />
+                    <span className="dyna-session-count" aria-hidden="true">
+                      {linkedSessions.length}
+                    </span>
+                  </summary>
+                  <ul className="dyna-session-chooser-list" aria-label="Linked Codex sessions">
+                    {linkedSessions.map((task) => (
+                      <li key={task.taskId}>
+                        <CodexSessionLink
+                          task={task}
+                          className="dyna-session-option"
+                          onActivate={() => {
+                            window.setTimeout(() => {
+                              if (sessionChooser.current) sessionChooser.current.open = false;
+                            }, 0);
+                          }}
+                        >
+                          <span className="dyna-session-option-text">
+                            <strong>{task.title}</strong>
+                            <small>
+                              {humanize(task.state)} · {task.hostId}
+                            </small>
+                          </span>
+                        </CodexSessionLink>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
               ) : null}
               <button
                 type="button"
@@ -3796,6 +3902,7 @@ const dynaComponents: DynaComponentCatalog = {
           {props.outcome ? <span className="dyna-task-outcome">{props.outcome}</span> : null}
         </span>
         <div className="dyna-task-actions">
+          <CodexSessionLink task={props} className="dyna-session-icon" />
           <Button
             data-dyna-action={`${props.itemId}:refresh_codex_status:${props.taskId}`}
             aria-label={`Refresh status for ${props.title}`}

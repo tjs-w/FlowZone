@@ -2143,6 +2143,69 @@ body {
   text-underline-offset: 2px;
 }
 
+.dyna-contribution-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.dyna-source-entry {
+  display: inline-flex;
+  gap: 4px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.dyna-source-entry small,
+.dyna-source-entry[data-freshness="retired"] {
+  color: var(--d-muted);
+}
+
+.dyna-source-exact,
+.dyna-source-correct {
+  border: 0;
+  background: none;
+  color: var(--d-text);
+  font: inherit;
+  cursor: pointer;
+  padding: 0 2px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.dyna-source-correct {
+  color: var(--d-muted);
+  text-decoration: none;
+}
+
+.dyna-source-exact:hover,
+.dyna-source-correct:hover {
+  color: var(--d-normal);
+}
+
+.dyna-contribution-list-compact {
+  flex: 0 1 auto;
+  flex-wrap: nowrap;
+  max-width: 52%;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.dyna-contribution-list-compact .dyna-source-entry {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dyna-contribution-list-compact .dyna-origin-link {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .dyna-labels {
   display: flex;
   flex-wrap: wrap;

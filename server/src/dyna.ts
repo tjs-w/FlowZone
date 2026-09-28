@@ -552,7 +552,7 @@ async function main(): Promise<void> {
           ...(command.workCursor ? { workCursor: command.workCursor } : {}),
         });
         result = DynaItemHistoryResultSchema.parse({
-          schema: "dyna/item-history-result-v2",
+          schema: "dyna/item-history-result-v3",
           dashboardId: command.dashboardId,
           history,
         });

@@ -463,7 +463,7 @@ try {
   afterDeletion.close();
 
   const verified = new DatabaseSync(databasePath, { readOnly: true });
-  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 12);
+  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 14);
   assert.deepEqual(
     verified
       .prepare("SELECT number FROM item_numbers ORDER BY number")

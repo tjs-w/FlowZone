@@ -100,6 +100,31 @@ const DynaSourceRefSchema = z.discriminatedUnion("source", [
   z.strictObject({ source: z.literal("manual"), todoId: z.uuid() }),
 ]);
 
+const DynaSourceViewSchema = z.strictObject({
+  sourceRef: DynaSourceRefSchema,
+  label: trimmedString(1, 128),
+  sourceUpdatedAt: TimestampSchema,
+  observedAt: TimestampSchema,
+  freshness: z.enum(["current", "last_known", "retired"]),
+  navigation: z.enum(["link", "exact_record"]),
+  correlationWarning: z._default(z.boolean(), false),
+});
+
+const DynaGroupingEvidenceSchema = z.strictObject({
+  kind: z.enum(["references_jira_issue", "links_to_record", "same_thread"]),
+  source: DynaSourceRefSchema,
+  target: DynaSourceRefSchema,
+  field: z.enum([
+    "mr_reference",
+    "mr_description_link",
+    "message_link",
+    "document_link",
+    "thread_root",
+  ]),
+  observedAt: TimestampSchema,
+  collectorSupplied: z.literal(true),
+});
+
 const DynaPersonSignalSchema = z.strictObject({
   displayName: trimmedString(1, 120),
   title: z.optional(trimmedString(1, 160)),
@@ -211,6 +236,15 @@ const DynaTaskSyncSummarySchema = z.strictObject({
   updatedItems: z.int().check(z.minimum(0), z.maximum(200)),
   unavailableTasks: z.int().check(z.minimum(0), z.maximum(200)),
   incompleteMetadataTasks: z.int().check(z.minimum(0), z.maximum(200)),
+  discoveryState: z._default(
+    z.enum(["disabled", "pending", "complete", "unavailable"]),
+    "disabled",
+  ),
+  inspectedSessions: z._default(z.int().check(z.minimum(0), z.maximum(200)), 0),
+  importedItems: z._default(z.int().check(z.minimum(0), z.maximum(200)), 0),
+  adoptedItems: z._default(z.int().check(z.minimum(0), z.maximum(200)), 0),
+  skippedSessions: z._default(z.int().check(z.minimum(0), z.maximum(200)), 0),
+  inventoryTruncated: z._default(z.boolean(), false),
   remainingTasks: z.int().check(z.nonnegative()),
   startedAt: TimestampSchema,
   completedAt: z.optional(TimestampSchema),
@@ -392,6 +426,21 @@ const DynaCardSchema = z
     source: DynaSourceSchema,
     sourceRef: DynaSourceRefSchema,
     sourceLabel: trimmedString(1, 128),
+    sources: z._default(z.array(DynaSourceViewSchema).check(z.maxLength(32)), []),
+    groupingEvidence: z._default(z.array(DynaGroupingEvidenceSchema).check(z.maxLength(32)), []),
+    mergedAliases: z._default(
+      z
+        .array(
+          z.strictObject({
+            itemId: z.uuid(),
+            itemNumber: DynaItemNumberSchema,
+          }),
+        )
+        .check(z.maxLength(20)),
+      [],
+    ),
+    sourceState: z._default(z.enum(["current", "last_known", "none"]), "current"),
+    citedSummaryState: z.optional(z.enum(["current", "last_known"])),
     title: boundedString(200),
     summary: boundedString(1_000),
     sourcePriority: DynaPrioritySchema,
@@ -503,7 +552,7 @@ const DynaDashboardSchema = z.strictObject({
 });
 
 const DynaDashboardSnapshotSchema = z.strictObject({
-  schema: z.literal("dyna/snapshot-v10"),
+  schema: z.literal("dyna/snapshot-v12"),
   dashboard: DynaDashboardSchema,
   generatedAt: TimestampSchema,
   query: boundedString(500),
@@ -525,7 +574,7 @@ const DynaDashboardSnapshotSchema = z.strictObject({
 });
 
 export const DynaUiPayloadSchema = z.strictObject({
-  schema: z.literal("dyna/ui-v12"),
+  schema: z.literal("dyna/ui-v14"),
   viewToken: z.string().check(z.minLength(32), z.maxLength(128)),
   snapshot: DynaDashboardSnapshotSchema,
 }) satisfies z.ZodMiniType<DynaUiPayload>;

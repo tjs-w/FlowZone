@@ -175,8 +175,18 @@ try {
   const acceptedSnapshot = store.snapshot(dashboard.id);
   assert.deepEqual(acceptedSnapshot.cards.map((card) => card.title).sort(), [
     "gitlab:current",
+    "gitlab:old",
     "outlook:preserved",
+    "slack:retired",
   ]);
+  assert.equal(
+    acceptedSnapshot.cards.find((card) => card.title === "gitlab:old")?.sourceState,
+    "none",
+  );
+  assert.equal(
+    acceptedSnapshot.cards.find((card) => card.title === "slack:retired")?.sourceState,
+    "none",
+  );
   const latestPartialSlices = store
     .listPublishers(dashboard.id)
     .find(({ id }) => id === created.publisher.id)?.lastSourceSlices;

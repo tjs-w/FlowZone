@@ -99,8 +99,11 @@ try {
   assert.equal(deferredCard?.backlog?.until, deferred.backlog.until);
   assert.equal(snapshot.counts.backlog, 1);
   assert.equal(snapshot.counts.high, 1);
-  const sharedCard = store.snapshot(dashboardB.id).cards.find((card) => card.id === attention.id);
-  assert.equal(sharedCard?.workflowState, "attention");
+  const sharedCard = store
+    .snapshot(dashboardB.id)
+    .cards.find((card) => card.title === attention.title);
+  assert.notEqual(sharedCard?.id, attention.id);
+  assert.equal(sharedCard?.workflowState, "todo");
   assert.equal(sharedCard?.backlog, undefined);
 
   store.updateTask(dashboardA.id, linked.id, {

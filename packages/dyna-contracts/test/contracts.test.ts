@@ -47,7 +47,11 @@ import {
   formatDynaItemNumber,
   type DynaPersonSignal,
 } from "../src/index.js";
-import { DynaTaskSyncBatchInputSchema, DynaTaskSyncClaimSchema } from "../src/controller.js";
+import {
+  DynaTaskDiscoveryBatchInputSchema,
+  DynaTaskSyncBatchInputSchema,
+  DynaTaskSyncClaimSchema,
+} from "../src/controller.js";
 
 const executive: DynaPersonSignal = {
   displayName: "Executive sponsor",
@@ -63,10 +67,10 @@ describe("Dyna executive signal contracts", () => {
   test("accepts only the versioned snapshot-only UI payload", () => {
     const timestamp = "2026-09-04T12:00:00.000Z";
     const payload = {
-      schema: "dyna/ui-v12",
+      schema: "dyna/ui-v14",
       viewToken: "v".repeat(32),
       snapshot: {
-        schema: "dyna/snapshot-v10",
+        schema: "dyna/snapshot-v12",
         dashboard: {
           id: "bd9a11b5-fbf8-495a-a116-d3429496969f",
           name: "Morning brief",
@@ -963,7 +967,7 @@ describe("Dyna executive signal contracts", () => {
     ).toBe(true);
     expect(
       DynaTaskSyncClaimSchema.safeParse({
-        schema: "dyna/task-sync-claim-v1",
+        schema: "dyna/task-sync-claim-v2",
         runId,
         dashboardId,
         claimToken: "c".repeat(64),
@@ -977,13 +981,15 @@ describe("Dyna executive signal contracts", () => {
             taskId: "task-184",
             hostId: "host-local",
             checkpointVersion: 0,
+            canonicalTitle: ":184: Review release",
           },
         ],
+        discovery: { state: "required", maxCandidates: 200 },
       }).success,
     ).toBe(true);
     expect(
       DynaTaskSyncClaimSchema.safeParse({
-        schema: "dyna/task-sync-claim-v1",
+        schema: "dyna/task-sync-claim-v2",
         runId,
         dashboardId,
         claimToken: "c".repeat(64),
@@ -997,9 +1003,36 @@ describe("Dyna executive signal contracts", () => {
             taskId: "task-184",
             hostId: "host-local",
             checkpointVersion: 0,
+            canonicalTitle: ":184: Review release",
             expectedTitle: ":184: Review release",
           },
         ],
+        discovery: { state: "required", maxCandidates: 200 },
+      }).success,
+    ).toBe(false);
+    const discoveryCandidate = {
+      taskId: "ordinary-task",
+      hostId: "host-local",
+      projectId: "project-local",
+      title: "Review the release schedule",
+      updatedAt: timestamp,
+    } as const;
+    expect(
+      DynaTaskDiscoveryBatchInputSchema.safeParse({
+        requestId: "eb4909a3-14da-433a-908d-8771636be350",
+        candidates: [discoveryCandidate],
+      }).success,
+    ).toBe(true);
+    expect(
+      DynaTaskDiscoveryBatchInputSchema.safeParse({
+        requestId: "eb4909a3-14da-433a-908d-8771636be350",
+        candidates: [discoveryCandidate, discoveryCandidate],
+      }).success,
+    ).toBe(false);
+    expect(
+      DynaTaskDiscoveryBatchInputSchema.safeParse({
+        requestId: "eb4909a3-14da-433a-908d-8771636be350",
+        candidates: [{ ...discoveryCandidate, transcript: "must not cross" }],
       }).success,
     ).toBe(false);
     const observation = {

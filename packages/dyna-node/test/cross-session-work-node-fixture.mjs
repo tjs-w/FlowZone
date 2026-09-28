@@ -329,9 +329,10 @@ try {
   shown = store.showItem(dashboardA.id, itemId);
   assert.equal(shown.item.workflowState, "executing");
   assert.equal(shown.item.workState, "progress");
-  const sharedItem = store.showItem(dashboardB.id, itemId).item;
-  assert.equal(sharedItem.workUpdates.length, 1);
-  assert.equal(sharedItem.workUpdateCount, 4);
+  assert.throws(
+    () => store.showItem(dashboardB.id, itemId),
+    (error) => error instanceof DynaCliStoreError && error.code === "outside_dashboard",
+  );
 
   advance();
   store.upsertTaskStatus(itemId, status("task-a", "running", undefined, itemNumber));
@@ -438,7 +439,7 @@ try {
   );
   assert.equal(
     store.snapshot(dashboardB.id).cards.some((card) => card.id === itemId),
-    true,
+    false,
   );
   advance();
   store.upsertTaskStatusForDashboard(
@@ -735,7 +736,7 @@ try {
   const migrated = new DynaStore({ databasePath });
   migrated.close();
   const verified = new DatabaseSync(databasePath, { readOnly: true });
-  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 12);
+  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 14);
   assert.equal(
     verified
       .prepare(

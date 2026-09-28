@@ -1,8 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+
+import { readDynaScheduleTaskInventory } from "../src/plugins/dyna-schedule-inventory.js";
 
 const repositoryRoot = resolve(import.meta.dir, "../../..");
 
@@ -87,6 +97,7 @@ describe("Dyna architecture boundaries", () => {
       expect(cliActor).toContain(`"${capability}"`);
     }
     expect(cliActor).not.toContain('"item:write"');
+    expect(cliActor).not.toContain('"task:discover"');
     expect(cliActor).not.toMatch(
       /publisher:|dashboard:manage|view:interact|action:execute|backup/u,
     );
@@ -118,6 +129,7 @@ describe("Dyna architecture boundaries", () => {
       "publisher:manage",
       "view:interact",
       "action:execute",
+      "task:discover",
     ]) {
       expect(mcpActor).toContain(`"${capability}"`);
     }
@@ -146,6 +158,55 @@ describe("Dyna architecture boundaries", () => {
 });
 
 describe("Dyna publisher source manifest actions", () => {
+  test("reads only bounded regular automation metadata and fails closed on ambiguity", () => {
+    const directory = mkdtempSync(join(tmpdir(), "flowzone-dyna-automation-inventory-"));
+    const automations = join(directory, "automations");
+    try {
+      mkdirSync(join(automations, "active"), { recursive: true });
+      mkdirSync(join(automations, "paused"), { recursive: true });
+      writeFileSync(
+        join(automations, "active", "automation.toml"),
+        'kind = "heartbeat"\nstatus = "ACTIVE"\ntarget_thread_id = "task-active"\n',
+      );
+      writeFileSync(
+        join(automations, "paused", "automation.toml"),
+        'kind = "cron"\nstatus = "PAUSED"\ntarget_thread_id = "task-paused"\n',
+      );
+      expect(readDynaScheduleTaskInventory({ CODEX_HOME: directory })).toEqual({
+        state: "available",
+        taskIds: ["task-active", "task-paused"],
+      });
+
+      const linkedDirectory = mkdtempSync(join(tmpdir(), "flowzone-dyna-linked-automation-"));
+      symlinkSync(
+        join(automations, "active", "automation.toml"),
+        join(linkedDirectory, "automation.toml"),
+      );
+      symlinkSync(linkedDirectory, join(automations, "linked"));
+      expect(readDynaScheduleTaskInventory({ CODEX_HOME: directory })).toEqual({
+        state: "unavailable",
+      });
+      rmSync(join(automations, "linked"));
+      writeFileSync(
+        join(automations, "active", "automation.toml"),
+        'kind = "heartbeat"\nkind = "cron"\n',
+      );
+      expect(readDynaScheduleTaskInventory({ CODEX_HOME: directory })).toEqual({
+        state: "unavailable",
+      });
+      writeFileSync(
+        join(automations, "active", "automation.toml"),
+        'kind = "heartbeat"\ntarget_thread_id = ""\n',
+      );
+      expect(readDynaScheduleTaskInventory({ CODEX_HOME: directory })).toEqual({
+        state: "unavailable",
+      });
+      rmSync(linkedDirectory, { recursive: true, force: true });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   test("bridges linked-task pull synchronization through private app tools and bounded controller actions", () => {
     const fixture = resolve(import.meta.dir, "dyna-task-sync-node-fixture.mjs");
     const directory = mkdtempSync(join(tmpdir(), "flowzone-dyna-task-sync-"));

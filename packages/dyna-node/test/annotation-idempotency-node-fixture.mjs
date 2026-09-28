@@ -74,7 +74,10 @@ if (!isMainThread) {
       { runId: "annotation-run", sourceCompletedAt: now, mode: "replace", status: "succeeded" },
     );
     const item = store.snapshot(dashboard.id).cards[0];
+    const siblingItem = store.snapshot(siblingDashboard.id).cards[0];
     assert.ok(item);
+    assert.ok(siblingItem);
+    assert.notEqual(siblingItem.id, item.id);
     const viewToken = store.createView(dashboard.id);
     const siblingViewToken = store.createView(siblingDashboard.id);
     const clientRequestId = "30c5e632-4287-4e4d-b5b1-b46a81b2ad43";
@@ -91,7 +94,7 @@ if (!isMainThread) {
 
     const sibling = store.addAnnotation(
       siblingViewToken,
-      item.id,
+      siblingItem.id,
       clientRequestId,
       "Review in Codex.",
     );
@@ -99,7 +102,7 @@ if (!isMainThread) {
 
     const editRequestId = "9e029ca7-0f44-439f-adf1-cd9f6e456546";
     const edited = store.editAnnotation({
-      viewToken: siblingViewToken,
+      viewToken,
       itemId: item.id,
       annotationId: first.annotationId,
       clientRequestId: editRequestId,
@@ -107,7 +110,7 @@ if (!isMainThread) {
       body: "deleted-only-marker-938",
     });
     const editRetry = store.editAnnotation({
-      viewToken: siblingViewToken,
+      viewToken,
       itemId: item.id,
       annotationId: first.annotationId,
       clientRequestId: editRequestId,
@@ -132,7 +135,7 @@ if (!isMainThread) {
     assert.throws(
       () =>
         store.deleteAnnotation({
-          viewToken: siblingViewToken,
+          viewToken,
           itemId: item.id,
           annotationId: first.annotationId,
           clientRequestId: editRequestId,
@@ -291,7 +294,7 @@ if (!isMainThread) {
     assert.equal(legacyRetry.deduplicated, true);
     migrated.close();
     const migratedDatabase = new DatabaseSync(migrationPath, { readOnly: true });
-    assert.equal(migratedDatabase.prepare("PRAGMA user_version").get().user_version, 12);
+    assert.equal(migratedDatabase.prepare("PRAGMA user_version").get().user_version, 14);
     assert.deepEqual(
       {
         ...migratedDatabase

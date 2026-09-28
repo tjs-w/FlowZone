@@ -160,11 +160,11 @@ async function validateInstalledSkillReferences(pluginRoot: string): Promise<voi
     "before the first mutation in its work attempt",
     "Do not attach a collector or administration task",
     "A newly copied or Dyna-created prompt explicitly requires a receiving-task preflight",
-    "no stored or expected task title",
-    "canonicalize its controller-observed current suffix",
-    "never locally construct and submit a title as though it were native evidence",
-    "rejects a submitted title unless it is canonical",
-    "submit that target as unavailable",
+    "bounded ordinary-session discovery",
+    "exact native title evidence",
+    "canonical `:<itemNumber>:` read-back",
+    "Dyna privately excludes scheduled automation task IDs",
+    "report the target unavailable",
   ]) {
     expect(dynaSkill.toLocaleLowerCase()).toContain(contractMarker.toLocaleLowerCase());
   }
@@ -222,8 +222,8 @@ async function validateInstalledSkillReferences(pluginRoot: string): Promise<voi
   const taskPullSync = await readFile(taskPullSyncPath, "utf8");
   for (const contractMarker of [
     "fixed control reminder",
-    "no stored or expected task title",
-    "never invent a descriptive suffix",
+    "canonical title repair target",
+    "neither is native title evidence",
     "For every target, call `read_thread`",
     "using the target's `itemNumber`",
     "preserve the remaining current suffix",

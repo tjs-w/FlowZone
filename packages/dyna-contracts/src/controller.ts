@@ -18,6 +18,7 @@ export const DynaTaskSyncTargetSchema = z
     taskId: IdentifierSchema,
     hostId: IdentifierSchema,
     checkpointVersion: z.number().int().nonnegative(),
+    canonicalTitle: z.string().trim().min(1).max(200),
     afterCursor: z.string().trim().min(1).max(2_048).optional(),
     lastTurnId: IdentifierSchema.optional(),
   })
@@ -26,7 +27,7 @@ export type DynaTaskSyncTarget = z.infer<typeof DynaTaskSyncTargetSchema>;
 
 export const DynaTaskSyncClaimSchema = z
   .object({
-    schema: z.literal("dyna/task-sync-claim-v1"),
+    schema: z.literal("dyna/task-sync-claim-v2"),
     runId: z.uuid(),
     dashboardId: z.uuid(),
     claimToken: z.string().min(32).max(128),
@@ -34,6 +35,12 @@ export const DynaTaskSyncClaimSchema = z
     totalTasks: z.number().int().min(0).max(200),
     remainingTasks: z.number().int().nonnegative(),
     targets: z.array(DynaTaskSyncTargetSchema).max(200),
+    discovery: z
+      .object({
+        state: z.enum(["required", "unavailable", "not_requested"]),
+        maxCandidates: z.number().int().min(0).max(200),
+      })
+      .strict(),
   })
   .strict();
 export type DynaTaskSyncClaim = z.infer<typeof DynaTaskSyncClaimSchema>;
@@ -146,5 +153,58 @@ export const DynaTaskSyncBatchResultSchema = z
   .strict();
 export type DynaTaskSyncBatchResult = z.infer<typeof DynaTaskSyncBatchResultSchema>;
 
-export const DynaTaskSyncCompleteInputSchema = z.object({ requestId: z.uuid() }).strict();
+export const DynaTaskDiscoveryCandidateSchema = z
+  .object({
+    taskId: IdentifierSchema,
+    hostId: IdentifierSchema,
+    projectId: IdentifierSchema.optional(),
+    title: z.string().trim().min(1).max(200),
+    updatedAt: TimestampSchema,
+  })
+  .strict();
+export type DynaTaskDiscoveryCandidate = z.infer<typeof DynaTaskDiscoveryCandidateSchema>;
+
+export const DynaTaskDiscoveryBatchInputSchema = z
+  .object({
+    requestId: z.uuid(),
+    candidates: z.array(DynaTaskDiscoveryCandidateSchema).min(1).max(8),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    const identities = input.candidates.map((candidate) => candidate.taskId);
+    if (new Set(identities).size !== identities.length) {
+      context.addIssue({
+        code: "custom",
+        message: "A discovery batch cannot repeat a Codex task.",
+        path: ["candidates"],
+      });
+    }
+  });
+export type DynaTaskDiscoveryBatchInput = z.infer<typeof DynaTaskDiscoveryBatchInputSchema>;
+
+export const DynaTaskDiscoveryRepairTargetSchema = DynaTaskSyncTargetSchema.extend({
+  disposition: z.enum(["imported", "adopted"]),
+}).strict();
+export type DynaTaskDiscoveryRepairTarget = z.infer<typeof DynaTaskDiscoveryRepairTargetSchema>;
+
+export const DynaTaskDiscoveryBatchResultSchema = z
+  .object({
+    schema: z.literal("dyna/task-discovery-batch-result-v1"),
+    acceptedCandidates: z.number().int().min(1).max(8),
+    deduplicated: z.boolean(),
+    leaseExpiresAt: TimestampSchema,
+    repairTargets: z.array(DynaTaskDiscoveryRepairTargetSchema).max(8),
+    summary: DynaTaskSyncSummarySchema,
+  })
+  .strict();
+export type DynaTaskDiscoveryBatchResult = z.infer<typeof DynaTaskDiscoveryBatchResultSchema>;
+
+export const DynaTaskSyncCompleteInputSchema = z
+  .object({
+    requestId: z.uuid(),
+    inventoryState: z
+      .enum(["complete", "truncated", "unavailable", "not_requested"])
+      .default("not_requested"),
+  })
+  .strict();
 export type DynaTaskSyncCompleteInput = z.infer<typeof DynaTaskSyncCompleteInputSchema>;

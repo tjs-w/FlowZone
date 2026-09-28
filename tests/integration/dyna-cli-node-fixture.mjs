@@ -435,12 +435,12 @@ try {
   const showArguments = ["item", "show", "--dashboard-id", dashboard.id, "--item-id", item.id];
   result = invoke(showArguments);
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.json.schema, "dyna/item-show-result-v4");
+  assert.equal(result.json.schema, "dyna/item-show-result-v5");
   assert.equal(result.json.enrichmentVersion, 0);
 
   result = invoke(["item", "search", "--dashboard-id", dashboard.id, "--query", "Exercise"]);
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.json.schema, "dyna/item-search-result-v3");
+  assert.equal(result.json.schema, "dyna/item-search-result-v4");
   assert.equal(result.json.items.length, 1);
   assert.equal(result.json.items[0].itemId, item.id);
 
@@ -530,7 +530,7 @@ try {
     "1",
   ]);
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.json.schema, "dyna/item-history-result-v2");
+  assert.equal(result.json.schema, "dyna/item-history-result-v3");
   assert.equal(result.json.history.workUpdates.length, 1);
   assert.equal(typeof result.json.history.workUpdatesNextCursor, "string");
   const historyPageTwo = invoke([

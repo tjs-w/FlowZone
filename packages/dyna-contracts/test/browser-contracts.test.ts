@@ -140,10 +140,10 @@ const card = {
 } as const;
 
 const uiPayload = {
-  schema: "dyna/ui-v12",
+  schema: "dyna/ui-v14",
   viewToken: "v".repeat(32),
   snapshot: {
-    schema: "dyna/snapshot-v10",
+    schema: "dyna/snapshot-v12",
     dashboard: {
       id: dashboardId,
       name: "Engineering action queue",

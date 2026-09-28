@@ -1,6 +1,7 @@
 import {
   DynaPublishSourceSlicesSchema,
   DynaScheduledPublishedItemSchema,
+  DynaWorkSummarySchema,
 } from "@flowzone/dyna-contracts";
 import { DynaApplicationService, type DynaApplicationActor } from "@flowzone/dyna-node";
 import { spawnSync } from "node:child_process";
@@ -21,6 +22,7 @@ const PublishEnvelopeSchema = z
     failureMessage: z.string().trim().min(1).max(500).optional(),
     sourceSlices: DynaPublishSourceSlicesSchema.optional(),
     items: z.array(DynaScheduledPublishedItemSchema).max(200),
+    workSummaries: z.array(DynaWorkSummarySchema).max(200).optional(),
   })
   .strict();
 
@@ -84,6 +86,7 @@ async function main(): Promise<void> {
       status: input.status,
       ...(input.failureMessage ? { failureMessage: input.failureMessage } : {}),
       ...(input.sourceSlices ? { sourceSlices: input.sourceSlices } : {}),
+      ...(input.workSummaries ? { workSummaries: input.workSummaries } : {}),
     });
     process.stdout.write(`${JSON.stringify(result)}\n`);
   } finally {

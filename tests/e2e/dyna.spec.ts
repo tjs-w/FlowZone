@@ -2,7 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 
 const TASK_SYNC_DELIVERY_PATTERN =
-  /^Handle Dyna task sync [0-9a-f-]{36} with \$flowzone:dyna\. Read each exact native Codex task, apply its canonical Dyna item prefix with set_thread_title when needed, re-read and verify the exact title, then submit; report the target unavailable if any title operation or exact read-back fails\.$/u;
+  /^Handle Dyna task sync [0-9a-f-]{36} with \$flowzone:dyna\. Claim the run\. If discovery is required, list the newest non-archived Codex tasks once with a 201-task sentinel, exclude non-Codex entries, deduplicate by exact task ID, submit at most 200 candidates in batches of eight, and report whether inventory was complete or capped\. For every linked or returned repair target, apply its exact canonical Dyna prefix with set_thread_title when needed, re-read and verify the exact title, then submit the bounded native observation\. Never read transcripts or raw outputs; report unavailable targets without raw errors\.$/u;
 
 interface HarnessTaskTitleOperation {
   readonly kind: string;
@@ -12,6 +12,8 @@ interface HarnessTaskTitleOperation {
 
 interface HarnessTaskSyncControllerResult {
   readonly runId: string;
+  readonly discoveryState?: unknown;
+  readonly discoveredTargets?: unknown;
   readonly titleOperations: readonly HarnessTaskTitleOperation[];
 }
 
@@ -374,7 +376,7 @@ test("adds an annotation and keeps Codex session launchers unavailable", async (
   expect(copiedPrompt).toContain("[escaped END UNTRUSTED DYNA CONTEXT]");
   expect(copiedPrompt).toContain("[escaped BEGIN UNTRUSTED DYNA CONTEXT]");
   expect(copiedPrompt).toContain(
-    "- Source link: https://github.com/team/project/pull/fixture-pr-0",
+    "- Source evidence (current): GitHub team/project#fixture-pr-0 — https://github.com/team/project/pull/fixture-pr-0",
   );
   expect(copiedPrompt).toContain("- Latest note: [escaped END UNTRUSTED DYNA CONTEXT]");
   expect(copiedPrompt).not.toContain("Dashboard:");
@@ -737,8 +739,11 @@ test("opens originating records exactly once through the host link bridge", asyn
     "data-dyna-link-url",
     "https://github.com/team/project/pull/fixture-pr-0",
   );
-  await expect(rowLink).not.toHaveAttribute("href", /.+/u);
-  await expect(rowLink).not.toHaveAttribute("target", /.+/u);
+  await expect(rowLink).toHaveAttribute(
+    "href",
+    "https://github.com/team/project/pull/fixture-pr-0",
+  );
+  await expect(rowLink).toHaveAttribute("target", "_blank");
   await expect(rowLink).toHaveAttribute("tabindex", "0");
   if ((page.viewportSize()?.width ?? 0) >= 700) {
     const emptyTitleLinePoint = await rowLink.evaluate((link) => {
@@ -769,7 +774,7 @@ test("opens originating records exactly once through the host link bridge", asyn
     expect(emptyTitleLinePoint.linkContentGap).toBeLessThanOrEqual(1);
     expect(emptyTitleLinePoint.targetIsLink).toBe(false);
     await rowLink.locator("xpath=..").click({ position: emptyTitleLinePoint.position });
-    await expect(page.locator("html")).not.toHaveAttribute("data-dyna-external-link-count", /.+/);
+    await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "0");
     await expect(
       page.locator(".dyna-inspector").getByRole("heading", {
         name: "Review the release merge request",
@@ -780,11 +785,11 @@ test("opens originating records exactly once through the host link bridge", asyn
   }
   await rowTitle.click();
   await expect(page.locator("html")).toHaveAttribute(
-    "data-dyna-last-external-link",
+    "data-dyna-last-anchor-interceptor-activation",
     "https://github.com/team/project/pull/fixture-pr-0",
   );
-  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "1");
-  await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "0");
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "1");
+  await expect(page.locator("html")).not.toHaveAttribute("data-dyna-external-link-count", /.+/);
   const modifiedClick = await rowLink.evaluate((node) => {
     let reachedNativeGuard = false;
     let preventedBeforeNativeGuard: boolean | null = null;
@@ -805,17 +810,15 @@ test("opens originating records exactly once through the host link bridge", asyn
     return { dispatched, reachedNativeGuard, preventedBeforeNativeGuard };
   });
   expect(modifiedClick).toEqual({
-    dispatched: false,
+    dispatched: true,
     reachedNativeGuard: false,
     preventedBeforeNativeGuard: null,
   });
   await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
-  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "2");
-  await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "0");
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "1");
   await rowLink.focus();
   await rowLink.press("Enter");
-  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "3");
-  await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "0");
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "2");
   const selectedActivation = await rowLink.evaluate((node) => {
     const text = node.querySelector("span")?.firstChild;
     if (!text) return { dispatched: true, selected: "" };
@@ -836,21 +839,13 @@ test("opens originating records exactly once through the host link bridge", asyn
     selected: "Review the release merge request",
   });
   await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
-  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "3");
-  await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "0");
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "2");
   await page.evaluate(() => window.getSelection()?.removeAllRanges());
-  await rowLink.click({ button: "right" });
-  const linkMenu = page.getByRole("menu", { name: "Link actions" });
-  await expect(linkMenu.getByRole("menuitem")).toHaveText(["Open link", "Copy link"]);
-  await linkMenu.getByRole("menuitem", { name: "Copy link" }).click();
-  await expect(page.locator("html")).toHaveAttribute("data-dyna-clipboard-write-count", "1");
-  expect(
-    await page.evaluate(() =>
-      (
-        window as typeof window & { __dynaHost?: { clipboardWrites?: string[] } }
-      ).__dynaHost?.clipboardWrites?.at(-1),
-    ),
-  ).toBe("https://github.com/team/project/pull/fixture-pr-0");
+  const nativeLinkMenu = await rowLink.evaluate((node) =>
+    node.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })),
+  );
+  expect(nativeLinkMenu).toBe(true);
+  await expect(page.locator(".dyna-context-menu")).toHaveCount(0);
   const selectedContextMenu = await rowLink.evaluate((node) => {
     const text = node.querySelector("span")?.firstChild;
     if (!text) return { allowed: true, selected: "" };
@@ -870,18 +865,9 @@ test("opens originating records exactly once through the host link bridge", asyn
     );
     return { allowed, selected: selection?.toString() ?? "" };
   });
-  expect(selectedContextMenu.allowed).toBe(false);
+  expect(selectedContextMenu.allowed).toBe(true);
   expect(selectedContextMenu.selected).toBe("Review the release merge request");
-  const selectionMenu = page.getByRole("menu", { name: "Selected text actions" });
-  await expect(selectionMenu.getByRole("menuitem")).toHaveText(["Copy selected text", "Copy link"]);
-  await selectionMenu.getByRole("menuitem", { name: "Copy selected text" }).click();
-  expect(
-    await page.evaluate(() =>
-      (
-        window as typeof window & { __dynaHost?: { clipboardWrites?: string[] } }
-      ).__dynaHost?.clipboardWrites?.at(-1),
-    ),
-  ).toBe("Review the release merge request");
+  await expect(page.locator(".dyna-context-menu")).toHaveCount(0);
   await page.evaluate(() => window.getSelection()?.removeAllRanges());
   await rowLink.locator("xpath=ancestor::article").locator(".dyna-row-attention").click();
   await expect(
@@ -895,28 +881,26 @@ test("opens originating records exactly once through the host link bridge", asyn
     "data-dyna-link-url",
     "https://github.com/team/project/pull/fixture-pr-0",
   );
-  await expect(sourceLink).not.toHaveAttribute("href", /.+/u);
-  await expect(sourceLink).not.toHaveAttribute("target", /.+/u);
+  await expect(sourceLink).toHaveAttribute(
+    "href",
+    "https://github.com/team/project/pull/fixture-pr-0",
+  );
+  await expect(sourceLink).toHaveAttribute("target", "_blank");
   await sourceLink.click();
   await expect(page.locator("html")).toHaveAttribute(
-    "data-dyna-last-external-link",
+    "data-dyna-last-anchor-interceptor-activation",
     "https://github.com/team/project/pull/fixture-pr-0",
   );
-  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "4");
-  await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "0");
-  const provenance = page
-    .locator(".dyna-inspector details.dyna-context-details")
-    .filter({ hasText: "Plan, priority rationale, and provenance" });
-  await provenance.locator("summary").click();
-  const originatingRecord = provenance.locator(".dyna-origin > .dyna-origin-link");
-  await expect(originatingRecord).toHaveAttribute(
-    "data-dyna-link-url",
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "3");
+  const contributingSource = page.locator(
+    ".dyna-inspector .dyna-contribution-list .dyna-origin-link",
+  );
+  await expect(contributingSource).toHaveAttribute(
+    "href",
     "https://github.com/team/project/pull/fixture-pr-0",
   );
-  await expect(originatingRecord).not.toHaveAttribute("href", /.+/u);
-  await originatingRecord.click();
-  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "5");
-  await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "0");
+  await contributingSource.click();
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "4");
   await expect(page.locator("html")).not.toHaveAttribute("data-dyna-message-count", /.+/);
 });
 
@@ -929,14 +913,83 @@ test("opens legacy Slack workspace references with a canonical permalink", async
   await expect(rowLink).toHaveAttribute("data-dyna-link-url", sourceUrl);
 
   await rowLink.locator(":scope > span").click();
-  await expect(page.locator("html")).toHaveAttribute("data-dyna-last-external-link", sourceUrl);
-  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "1");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-dyna-last-anchor-interceptor-activation",
+    sourceUrl,
+  );
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "1");
 
   await openDetails(page, "Additional priority 5");
   const inspectorLink = page.getByRole("link", { name: "Open source", exact: true });
   await expect(inspectorLink).toHaveAttribute("data-dyna-link-url", sourceUrl);
   await inspectorLink.click();
-  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "2");
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "2");
+});
+
+for (const theme of ["light", "dark"] as const) {
+  test(`shows four correlated source targets and their proof in ${theme} theme`, async ({
+    page,
+  }) => {
+    await page.goto(`/dyna?correlated-sources=1&theme=${theme}`);
+    await openFullDashboard(page);
+    const card = page.locator('.dyna-card[data-presentation="queue"]');
+    await expect(card).toHaveCount(1);
+    const sourceLinks = card.locator(".dyna-contribution-list-compact a[href]");
+    await expect(sourceLinks).toHaveCount(4);
+    expect(
+      (
+        await sourceLinks.evaluateAll((links) => links.map((link) => link.getAttribute("href")))
+      ).sort(),
+    ).toEqual(
+      [
+        "https://gitlab.com/team/project/-/merge_requests/51",
+        "https://gitlab.com/team/project/-/merge_requests/52",
+        "https://splunk.atlassian.net/browse/LIN-3087",
+        "https://splunk.slack.com/archives/C0123456789/p1757811605123456",
+      ].sort(),
+    );
+    const nativeMenu = await sourceLinks
+      .first()
+      .evaluate((link) =>
+        link.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })),
+      );
+    expect(nativeMenu).toBe(true);
+    await expect(page.locator(".dyna-context-menu")).toHaveCount(0);
+    await sourceLinks.first().click();
+    await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "1");
+    await expect(page.locator("html")).not.toHaveAttribute("data-dyna-external-link-count", /.+/u);
+
+    await openDetails(page, "Release MR !51");
+    const inspector = page.locator(".dyna-inspector");
+    await expect(inspector.locator(".dyna-contribution-list a[href]")).toHaveCount(4);
+    await expect(inspector).toContainText(
+      "One release decision spans Jira, two MRs, and the Slack thread.",
+    );
+    const proof = inspector.getByText("Why these sources are grouped");
+    await proof.click();
+    await expect(inspector).toContainText("collector-supplied");
+    expect(await dashboardScrollViolations(page)).toEqual([]);
+  });
+}
+
+test("separates a correlated source only after confirmation", async ({ page }) => {
+  await page.goto("/dyna?correlated-sources=1");
+  await openFullDashboard(page);
+  await openDetails(page, "Release MR !51");
+  const inspector = page.locator(".dyna-inspector");
+  const slackSource = inspector
+    .locator(".dyna-source-entry")
+    .filter({ has: page.locator('a[href*="slack.com/archives/"]') });
+  await expect(slackSource).toHaveCount(1);
+  await slackSource.getByRole("button", { name: "Separate" }).click();
+  const confirmation = page.getByRole("dialog", { name: "Separate This Source?" });
+  await expect(confirmation).toContainText("Its original source record and link remain available.");
+  await confirmation.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.locator('.dyna-card[data-presentation="queue"]')).toHaveCount(1);
+  await slackSource.getByRole("button", { name: "Separate" }).click();
+  await confirmation.getByRole("button", { name: "Separate source" }).click();
+  await expect(confirmation).toBeHidden();
+  await expect(page.locator('.dyna-card[data-presentation="queue"]')).toHaveCount(2);
 });
 
 test("retains native link fallback when the host cannot open links", async ({ page }) => {
@@ -977,9 +1030,9 @@ test("retains native link fallback when the host cannot open links", async ({ pa
     return { dispatched, reachedNativeGuard, preventedBeforeNativeGuard };
   });
   expect(modifiedClick).toEqual({
-    dispatched: false,
-    reachedNativeGuard: true,
-    preventedBeforeNativeGuard: false,
+    dispatched: true,
+    reachedNativeGuard: false,
+    preventedBeforeNativeGuard: null,
   });
   await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "1");
   await expect(page.locator("html")).not.toHaveAttribute("data-dyna-external-link-count", /.+/u);
@@ -1737,7 +1790,10 @@ test("uses calm, legible light and dark host themes", async ({ page }) => {
   await openDetails(page, "Additional priority 8");
   await expect(page.locator(".dyna-inspector h2")).toHaveCSS("font-family", /Geist Variable/);
   await openContextDetails(page);
-  await expect(page.locator(".dyna-origin code")).toHaveCSS("font-family", /Geist Mono Variable/);
+  await expect(page.locator(".dyna-inspector .dyna-item-number").first()).toHaveCSS(
+    "font-family",
+    /Geist Mono Variable/,
+  );
   await closeDetails(page);
   const accessibility = await new AxeBuilder({ page }).analyze();
   expect(accessibility.violations).toEqual([]);
@@ -1860,7 +1916,7 @@ test("adds, searches, reprioritizes, and sequences queue items", async ({ page }
   await expect(page.getByRole("button", { name: "Add note" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Start in Codex" })).toHaveCount(0);
   await openContextDetails(page);
-  await expect(page.getByText("Created in Dyna", { exact: true })).toBeVisible();
+  await expect(manualInspector.getByText("Created in Dyna", { exact: true })).toBeVisible();
   await expect(page.getByText("Stored source record", { exact: true })).toHaveCount(0);
   await closeDetails(page);
 
@@ -2861,14 +2917,17 @@ for (const theme of ["light", "dark"] as const) {
       "data-dyna-link-url",
       "https://gitlab.com/team/project/-/pipelines/8842",
     );
-    await expect(artifact).not.toHaveAttribute("href", /.+/u);
-    await expect(artifact).not.toHaveAttribute("target", /.+/u);
-    await artifact.click();
-    await expect(page.locator("html")).toHaveAttribute(
-      "data-dyna-last-external-link",
+    await expect(artifact).toHaveAttribute(
+      "href",
       "https://gitlab.com/team/project/-/pipelines/8842",
     );
-    await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "1");
+    await expect(artifact).toHaveAttribute("target", "_blank");
+    await artifact.click();
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-dyna-last-anchor-interceptor-activation",
+      "https://gitlab.com/team/project/-/pipelines/8842",
+    );
+    await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "1");
 
     const modifiedClickDispatched = await artifact.evaluate((node) =>
       node.dispatchEvent(
@@ -2879,9 +2938,8 @@ for (const theme of ["light", "dark"] as const) {
         }),
       ),
     );
-    expect(modifiedClickDispatched).toBe(false);
-    await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "2");
-    await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "0");
+    expect(modifiedClickDispatched).toBe(true);
+    await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "1");
     if (!testInfo.project.name.startsWith("mobile-")) {
       const selectedContextMenu = await artifact.evaluate((node) => {
         const text = node.querySelector("span")?.firstChild;
@@ -2903,24 +2961,12 @@ for (const theme of ["light", "dark"] as const) {
         return { allowed, selected: selection?.toString() ?? "" };
       });
       expect(selectedContextMenu).toEqual({
-        allowed: false,
+        allowed: true,
         selected: "Passing pipeline 8842",
       });
-      const selectionMenu = page.getByRole("menu", { name: "Selected text actions" });
-      await expect(selectionMenu.getByRole("menuitem")).toHaveText([
-        "Copy selected text",
-        "Copy link",
-      ]);
-      await selectionMenu.getByRole("menuitem", { name: "Copy selected text" }).click();
-      expect(
-        await page.evaluate(() =>
-          (
-            window as typeof window & { __dynaHost?: { clipboardWrites?: string[] } }
-          ).__dynaHost?.clipboardWrites?.at(-1),
-        ),
-      ).toBe("Passing pipeline 8842");
+      await expect(page.locator(".dyna-context-menu")).toHaveCount(0);
     }
-    await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "2");
+    await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "1");
     await page.evaluate(() => window.getSelection()?.removeAllRanges());
 
     await page.getByRole("button", { name: "Copy work prompt" }).click();
@@ -3202,10 +3248,13 @@ test("renders the latest activity immediately and loads older pages on demand", 
     "data-dyna-link-url",
     "https://docs.example.test/release/history-01",
   );
-  await expect(historicalArtifact).not.toHaveAttribute("href", /.+/u);
+  await expect(historicalArtifact).toHaveAttribute(
+    "href",
+    "https://docs.example.test/release/history-01",
+  );
   await historicalArtifact.click();
   await expect(page.locator("html")).toHaveAttribute(
-    "data-dyna-last-external-link",
+    "data-dyna-last-anchor-interceptor-activation",
     "https://docs.example.test/release/history-01",
   );
   expect(await touchTargetViolations(page, ".dyna-work-activity")).toEqual([]);
@@ -3902,7 +3951,7 @@ test("keeps the dashboard usable while the automatic fullscreen response is dela
 });
 
 test("refreshes the latest authoritative backend state on demand", async ({ page }) => {
-  await page.goto("/dyna?inline-only=1");
+  await page.goto("/dyna?inline-only=1&task-sync-controller=updated");
   const refresh = page.locator('[data-dyna-refresh="true"]:visible');
   await expect(refresh).toHaveAttribute("aria-label", "Refresh dashboard");
   await expect
@@ -4122,6 +4171,47 @@ test("keeps cached content usable while linked Codex tasks synchronize", async (
   expect(laterOperations.some((operation) => operation.kind === "set_thread_title")).toBe(false);
 });
 
+test("discovers an ordinary Codex task without blanking cached dashboard content", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "chromium",
+    "The controller-backed ordinary-session discovery flow needs one desktop engine smoke test.",
+  );
+  await page.goto("/dyna?pipeline=1&inline-only=1&task-sync-controller=discovered");
+  const cachedTitle = page.getByText("Review the release merge request", { exact: true });
+  await expect(cachedTitle).toBeVisible();
+  await awaitInitialDynaSnapshot(page);
+
+  await page.locator('[data-dyna-refresh="true"]:visible').click();
+  await expect(
+    page.getByRole("status").filter({ hasText: /^(?:Discovering sessions|Syncing \d+\/\d+)$/u }),
+  ).toBeVisible();
+  await expect(cachedTitle).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add to-do" })).toBeEnabled();
+
+  await expect(
+    page.getByRole("status").filter({ hasText: /^Added 1 · Updated [1-9]\d* ·/u }),
+  ).toBeVisible({ timeout: 5_000 });
+  await expect(page.getByText("Audit the unscheduled release work", { exact: true })).toBeVisible();
+  const controller = parseHarnessTaskSyncControllerResult(
+    await page.evaluate(() => {
+      const raw = document.documentElement.dataset["dynaLastTaskSyncController"];
+      return raw ? (JSON.parse(raw) as unknown) : undefined;
+    }),
+  );
+  expect(controller.discoveryState).toBe("required");
+  expect(controller.discoveredTargets).toBe(1);
+  expect(
+    controller.titleOperations.some(
+      (operation) =>
+        operation.kind === "set_thread_title" &&
+        operation.taskId === "ordinary-discovered-task" &&
+        /^:[1-9]\d*: Audit the unscheduled release work$/u.test(operation.title),
+    ),
+  ).toBe(true);
+});
+
 test("joins repeated dashboard refreshes without another controller message", async ({ page }) => {
   await page.goto("/dyna?pipeline=1&inline-only=1");
   await awaitInitialDynaSnapshot(page);
@@ -4274,7 +4364,7 @@ test("reports partial linked-task synchronization without replacing cached conte
   await expect(status).toBeVisible({ timeout: 5_000 });
   await expect(status).toHaveAttribute(
     "aria-label",
-    "Linked Codex task synchronization completed partially. 1 task was unavailable. 1 completed task is missing an outcome.",
+    "Codex synchronization completed partially. 1 task was unavailable. 1 completed task is missing an outcome.",
   );
   await expect(title).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
@@ -4288,7 +4378,7 @@ test("reports native success without an outcome as incomplete metadata", async (
   await expect(status).toBeVisible({ timeout: 5_000 });
   await expect(status).toHaveAttribute(
     "aria-label",
-    "Linked Codex task synchronization completed partially. 1 completed task is missing an outcome.",
+    "Codex synchronization completed partially. 1 completed task is missing an outcome.",
   );
   await expect(page.getByRole("alert")).toHaveCount(0);
 });

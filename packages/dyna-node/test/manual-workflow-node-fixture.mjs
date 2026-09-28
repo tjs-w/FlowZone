@@ -96,8 +96,8 @@ try {
   snapshot = store.snapshot(dashboardA.id);
   assert.equal(snapshot.cards.find((card) => card.id === taskless.id)?.workflowState, "attention");
   assert.equal(
-    store.snapshot(dashboardB.id).cards.find((card) => card.id === taskless.id)?.workflowState,
-    "attention",
+    store.snapshot(dashboardB.id).cards.some((card) => card.id === taskless.id),
+    false,
   );
   assert.throws(
     () =>
@@ -114,7 +114,7 @@ try {
     clientRequestId: request(),
   });
   assert.equal(noOp.changed, false);
-  assert.equal(store.itemHistory(dashboardB.id, taskless.id).statusChanges.length, 1);
+  assert.equal(store.itemHistory(dashboardA.id, taskless.id).statusChanges.length, 1);
 
   let tasklessCard = snapshot.cards.find((card) => card.id === taskless.id);
   assert.ok(tasklessCard);
@@ -271,22 +271,22 @@ try {
     (error) => error instanceof DynaCliStoreError && error.code === "completed_item",
   );
 
-  const sharedHistory = store.itemHistory(dashboardB.id, taskless.id);
+  const sharedHistory = store.itemHistory(dashboardA.id, taskless.id);
   assert.deepEqual(
     sharedHistory.statusChanges.map((event) => event.targetStage),
     ["done", "todo", "needs_you"],
   );
   assert.equal(sharedHistory.statusChanges[0]?.originDashboardId, dashboardA.id);
-  const firstStatusPage = store.itemHistory(dashboardB.id, taskless.id, { limit: 1 });
+  const firstStatusPage = store.itemHistory(dashboardA.id, taskless.id, { limit: 1 });
   assert.equal(firstStatusPage.statusChanges[0]?.targetStage, "done");
   assert.ok(firstStatusPage.statusHistoryNextCursor);
-  const secondStatusPage = store.itemHistory(dashboardB.id, taskless.id, {
+  const secondStatusPage = store.itemHistory(dashboardA.id, taskless.id, {
     limit: 1,
     statusCursor: firstStatusPage.statusHistoryNextCursor,
   });
   assert.equal(secondStatusPage.statusChanges[0]?.targetStage, "todo");
   assert.ok(secondStatusPage.statusHistoryNextCursor);
-  const thirdStatusPage = store.itemHistory(dashboardB.id, taskless.id, {
+  const thirdStatusPage = store.itemHistory(dashboardA.id, taskless.id, {
     limit: 1,
     statusCursor: secondStatusPage.statusHistoryNextCursor,
   });
@@ -294,7 +294,7 @@ try {
   assert.equal(thirdStatusPage.statusHistoryNextCursor, undefined);
   assert.throws(
     () =>
-      store.itemHistory(dashboardB.id, taskless.id, {
+      store.itemHistory(dashboardA.id, taskless.id, {
         limit: 1,
         orderCursor: firstStatusPage.statusHistoryNextCursor,
       }),
@@ -355,8 +355,8 @@ try {
     "succeeded",
   ]);
   assert.equal(
-    store.snapshot(dashboardB.id).cards.find((card) => card.id === linked.id)?.workflowState,
-    "completed",
+    store.snapshot(dashboardB.id).cards.some((card) => card.id === linked.id),
+    false,
   );
 
   now += 1_000;
@@ -427,7 +427,7 @@ try {
   const migrated = new DynaStore({ databasePath });
   migrated.close();
   const verified = new DatabaseSync(databasePath, { readOnly: true });
-  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 12);
+  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 14);
   assert.equal(
     verified
       .prepare(

@@ -187,7 +187,17 @@ try {
       "Current GitLab review",
       "Preserve Outlook decision",
       "Preserve another Outlook decision",
+      "Retire missing GitLab review",
+      "Retire missing Slack request",
     ].sort(),
+  );
+  assert.equal(
+    snapshot.cards.find((card) => card.title === "Retire missing GitLab review")?.sourceState,
+    "none",
+  );
+  assert.equal(
+    snapshot.cards.find((card) => card.title === "Retire missing Slack request")?.sourceState,
+    "none",
   );
   const [schedule] = snapshot.schedules;
   assert.equal(schedule?.lastRunStatus, "partial");

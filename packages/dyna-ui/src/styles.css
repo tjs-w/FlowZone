@@ -1051,6 +1051,10 @@ body {
   background: color-mix(in srgb, var(--d-ring) 9%, var(--d-surface));
 }
 
+.dyna-card[data-session-chooser-open="true"] {
+  z-index: 15;
+}
+
 .dyna-card[data-presentation="queue"]::before {
   display: none;
 }
@@ -1375,6 +1379,105 @@ body {
   border: 0;
   background: transparent;
   cursor: pointer;
+}
+
+.dyna-session-link {
+  color: var(--d-text);
+  text-decoration: none;
+}
+
+.dyna-session-icon,
+.dyna-session-chooser-trigger {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--d-text);
+  cursor: pointer;
+}
+
+.dyna-session-icon:hover,
+.dyna-session-icon:focus-visible,
+.dyna-session-chooser-trigger:hover,
+.dyna-session-chooser-trigger:focus-visible,
+.dyna-session-option:hover,
+.dyna-session-option:focus-visible {
+  background: var(--d-surface-muted);
+}
+
+.dyna-session-link:focus-visible,
+.dyna-session-chooser-trigger:focus-visible {
+  outline: 2px solid var(--d-ring);
+  outline-offset: 1px;
+}
+
+.dyna-session-chooser {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.dyna-session-chooser-trigger {
+  gap: 2px;
+  list-style: none;
+}
+
+.dyna-session-chooser-trigger::-webkit-details-marker {
+  display: none;
+}
+
+.dyna-session-count {
+  font: 10px/1 var(--d-font-mono);
+}
+
+.dyna-session-chooser-list {
+  position: absolute;
+  z-index: 16;
+  top: calc(100% + 5px);
+  right: 0;
+  width: min(300px, calc(100vw - 28px));
+  max-height: 260px;
+  overflow: auto;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--d-border);
+  border-radius: 8px;
+  background: var(--d-surface);
+  box-shadow: 0 10px 28px color-mix(in srgb, #000 18%, transparent);
+  list-style: none;
+}
+
+.dyna-session-option {
+  display: flex;
+  min-height: 38px;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+.dyna-session-option-text {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.dyna-session-option-text strong {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dyna-session-option-text small {
+  color: var(--d-muted);
+  font-size: 11px;
 }
 
 .dyna-card[data-workflow-stage="executing"] {
@@ -2834,6 +2937,9 @@ body {
 :root[data-touch="true"] .dyna-refresh-action,
 :root[data-touch="true"] .dyna-drag-handle,
 :root[data-touch="true"] .dyna-row-primary,
+:root[data-touch="true"] .dyna-session-icon,
+:root[data-touch="true"] .dyna-session-chooser-trigger,
+:root[data-touch="true"] .dyna-session-option,
 :root[data-touch="true"] .dyna-stat,
 :root[data-touch="true"] .dyna-icon-action,
 :root[data-touch="true"] .dyna-note-menu-trigger,

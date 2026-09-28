@@ -972,6 +972,37 @@ for (const theme of ["light", "dark"] as const) {
   });
 }
 
+test("does not turn an unsafe task identifier into a Codex deep link", async ({ page }) => {
+  await page.goto("/dyna?work-activity=1");
+  await openFullDashboard(page);
+  await awaitInitialDynaSnapshot(page);
+  await page.evaluate(() => {
+    const host = (
+      window as typeof window & {
+        __dynaHost?: {
+          latestToolResult?: {
+            _meta?: { dynaDashboard?: { snapshot?: { cards?: Record<string, unknown>[] } } };
+          };
+          replayLatestToolResult?: () => void;
+        };
+      }
+    ).__dynaHost;
+    const card = host?.latestToolResult?._meta?.dynaDashboard?.snapshot?.cards?.find(
+      (candidate) => candidate["title"] === "Review the release merge request",
+    );
+    const tasks = card?.["linkedTasks"];
+    if (!Array.isArray(tasks) || !tasks[0]) throw new Error("Expected one linked task");
+    (tasks[0] as Record<string, unknown>)["taskId"] = "../other-task";
+    host?.replayLatestToolResult?.();
+  });
+  const card = page
+    .locator('.dyna-card[data-presentation="queue"]')
+    .filter({ hasText: "Review the release merge request" });
+  await expect(card.locator("a[data-dyna-session-link]")).toHaveCount(0);
+  await openDetails(page, "Review the release merge request");
+  await expect(page.locator(".dyna-inspector .dyna-task a[data-dyna-session-link]")).toHaveCount(0);
+});
+
 test("separates a correlated source only after confirmation", async ({ page }) => {
   await page.goto("/dyna?correlated-sources=1");
   await openFullDashboard(page);
@@ -1054,6 +1085,90 @@ test("retains native link fallback when the host cannot open links", async ({ pa
   await expect(inspectorSource).toHaveAttribute("href", sourceUrl);
   await expect(inspectorSource).toHaveAttribute("target", "_blank");
 });
+
+for (const theme of ["light", "dark"] as const) {
+  test(`opens exact linked Codex sessions once from cards and inspector in ${theme} theme`, async ({
+    page,
+  }) => {
+    await page.goto(`/dyna?work-activity=1&theme=${theme}`);
+    await openFullDashboard(page);
+
+    const single = page
+      .locator('.dyna-card[data-presentation="queue"]')
+      .filter({ hasText: "Review the release merge request" });
+    const direct = single.locator(".dyna-row-heading a[data-dyna-session-link]");
+    await expect(direct).toHaveCount(1);
+    await expect(direct).toHaveAttribute("href", "codex://threads/activity-progress-task");
+    await expect(direct).toHaveAttribute("aria-label", /Open .* in Codex/u);
+    expect(await direct.getAttribute("target")).toBeNull();
+    await direct.click();
+    await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "1");
+    await expect(page.locator(".dyna-inspector-layer")).toBeHidden();
+
+    const nativeMenu = await direct.evaluate((link) =>
+      link.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })),
+    );
+    expect(nativeMenu).toBe(true);
+    await expect(page.locator(".dyna-context-menu")).toHaveCount(0);
+    await direct.focus();
+    await direct.press("Enter");
+    await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "2");
+
+    await openDetails(page, "Review the release merge request");
+    const inspectorLink = page
+      .locator(".dyna-inspector:visible .dyna-task a[data-dyna-session-link]")
+      .first();
+    await expect(inspectorLink).toHaveAttribute("href", "codex://threads/activity-progress-task");
+    await inspectorLink.click();
+    await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "3");
+    await closeDetails(page);
+
+    const multiple = page
+      .locator('.dyna-card[data-presentation="queue"]')
+      .filter({ hasText: "Additional priority 1" });
+    const chooser = multiple.locator(".dyna-session-chooser");
+    await expect(chooser.getByText("2", { exact: true })).toBeVisible();
+    await chooser
+      .getByRole("button", { name: "Choose a Codex session for Additional priority 1" })
+      .click();
+    await expect(chooser.locator("a[data-dyna-session-link]")).toHaveCount(2);
+    await expect(chooser).toContainText("Architecture decision");
+    await expect(chooser).toContainText("Dependency investigation");
+    await expect(chooser).toContainText("local");
+    const accessibility = await new AxeBuilder({ page })
+      .include(".dyna-session-chooser[open]")
+      .analyze();
+    expect(accessibility.violations).toEqual([]);
+    await chooser.locator('a[href="codex://threads/activity-input-blocker-task"]').click();
+    await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "4");
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-dyna-last-anchor-interceptor-activation",
+      "codex://threads/activity-input-blocker-task",
+    );
+    await expect(chooser).not.toHaveAttribute("open", "");
+    await expect(page.locator(".dyna-inspector-layer")).toBeHidden();
+
+    await page.getByRole("tab", { name: "Progress pipeline" }).click();
+    const progressLink = page
+      .locator('.dyna-card[data-presentation="pipeline"]')
+      .filter({ hasText: "Review the release merge request" })
+      .locator(".dyna-row-heading a[data-dyna-session-link]");
+    await expect(progressLink).toHaveAttribute("href", "codex://threads/activity-progress-task");
+
+    await page.getByRole("tab", { name: "Priority queue" }).click();
+    await openDetails(page, "Review the release merge request");
+    await page.locator('button[aria-label="Archive item"]:visible').click();
+    const archiveDialog = page.getByRole("dialog", { name: "Archive Item" });
+    await archiveDialog.getByRole("combobox", { name: "Reason" }).selectOption("duplicate");
+    await archiveDialog.getByRole("button", { name: "Archive item" }).click();
+    await page.getByRole("tab", { name: "Archive", exact: true }).click();
+    const archiveLink = page
+      .locator('.dyna-card[data-presentation="archive"]')
+      .filter({ hasText: "Review the release merge request" })
+      .locator(".dyna-row-heading a[data-dyna-session-link]");
+    await expect(archiveLink).toHaveAttribute("href", "codex://threads/activity-progress-task");
+  });
+}
 
 test("offers deliberate context actions without replacing native field editing", async ({
   page,

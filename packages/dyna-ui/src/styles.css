@@ -1311,6 +1311,21 @@ body {
   align-items: center;
 }
 
+.dyna-card[data-presentation="pipeline"] .dyna-row-heading {
+  flex-wrap: wrap;
+  row-gap: 0;
+}
+
+.dyna-card[data-presentation="pipeline"] .dyna-row-title.dyna-source-link {
+  flex: 1 1 0;
+}
+
+.dyna-card[data-presentation="pipeline"] .dyna-row-time {
+  order: 1;
+  width: 100%;
+  text-align: right;
+}
+
 .dyna-source-link {
   display: inline-flex;
   gap: 5px;

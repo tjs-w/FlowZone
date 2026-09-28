@@ -13,12 +13,16 @@ import {
   DynaItemContextSchema,
   DynaItemHistorySchema,
   DynaItemSearchResultSchema,
+  DynaSourceCorrectionInputSchema,
+  DynaSourceCorrectionResultSchema,
+  DynaSourceRefSchema,
   DynaItemBacklogResultSchema,
   DynaItemStatusResultSchema,
   DynaNextStepSchema,
   DynaPersonSignalSchema,
   DynaPrioritySchema,
   DynaPublishSourceSlicesSchema,
+  DynaWorkSummarySchema,
   DynaPublisherSchema,
   DynaRequiredSourceSlicesSchema,
   DynaScheduledPublishedItemSchema,
@@ -33,19 +37,28 @@ import {
   DynaWorkActivityPageSchema,
 } from "@flowzone/dyna-contracts";
 import {
+  DynaTaskDiscoveryBatchInputSchema,
+  DynaTaskDiscoveryBatchResultSchema,
   DynaTaskSyncBatchInputSchema,
   DynaTaskSyncBatchResultSchema,
   DynaTaskSyncClaimSchema,
   DynaTaskSyncCompleteInputSchema,
 } from "@flowzone/dyna-contracts/controller";
-import { DynaApplicationService, type DynaApplicationActor } from "@flowzone/dyna-node";
+import {
+  DynaApplicationService,
+  type DynaApplicationActor,
+  type DynaScheduleTaskInventory,
+} from "@flowzone/dyna-node";
 import { z } from "zod";
 
 import type { FlowZoneAppTool, FlowZonePlugin } from "../plugin.js";
+import { readDynaScheduleTaskInventory } from "./dyna-schedule-inventory.js";
 
 export const DYNA_PLUGIN_ID = "dyna";
-export const DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v20.html";
+export const DYNA_TEMPLATE_URI = "ui://flowzone/dyna/v22.html";
 export const LEGACY_DYNA_TEMPLATE_URIS = [
+  "ui://flowzone/dyna/v21.html",
+  "ui://flowzone/dyna/v20.html",
   "ui://flowzone/dyna/v19.html",
   "ui://flowzone/dyna/v18.html",
   "ui://flowzone/dyna/v17.html",
@@ -73,6 +86,7 @@ const DYNA_MCP_ACTOR = {
     "view:interact",
     "action:execute",
     "task:observe",
+    "task:discover",
   ],
 } as const satisfies DynaApplicationActor;
 
@@ -192,6 +206,7 @@ const PrepareActionInputSchema = z
   .object({
     viewToken: z.string().min(32).max(128),
     itemId: z.uuid(),
+    sourceRef: DynaSourceRefSchema.optional(),
     taskId: IdentifierSchema.optional(),
     taskHostId: IdentifierSchema.optional(),
     sessionListRequestId: z.uuid().optional(),
@@ -203,6 +218,13 @@ const PrepareActionInputSchema = z
   .strict()
   .superRefine((input, context) => {
     const exactTaskTarget = Boolean(input.taskId && input.taskHostId);
+    if (input.sourceRef && input.kind !== "open_source") {
+      context.addIssue({
+        code: "custom",
+        path: ["sourceRef"],
+        message: "Only source opening may select a source.",
+      });
+    }
     if (Boolean(input.taskId) !== Boolean(input.taskHostId)) {
       context.addIssue({
         code: "custom",
@@ -332,6 +354,10 @@ const SubmitTaskSyncBatchInputSchema = DynaTaskSyncBatchInputSchema.safeExtend({
   runId: z.uuid(),
   claimToken: z.string().min(32).max(128),
 }).strict();
+const SubmitTaskDiscoveryBatchInputSchema = DynaTaskDiscoveryBatchInputSchema.safeExtend({
+  runId: z.uuid(),
+  claimToken: z.string().min(32).max(128),
+}).strict();
 const CompleteTaskSyncInputSchema = DynaTaskSyncCompleteInputSchema.extend({
   runId: z.uuid(),
   claimToken: z.string().min(32).max(128),
@@ -339,6 +365,7 @@ const CompleteTaskSyncInputSchema = DynaTaskSyncCompleteInputSchema.extend({
 
 export interface DynaPluginOptions {
   readonly service?: DynaApplicationService;
+  readonly scheduleInventory?: () => DynaScheduleTaskInventory;
 }
 
 function cancellationAware(tool: FlowZoneAppTool): FlowZoneAppTool {
@@ -351,7 +378,10 @@ function cancellationAware(tool: FlowZoneAppTool): FlowZoneAppTool {
   };
 }
 
-function appTools(service: DynaApplicationService): readonly FlowZoneAppTool[] {
+function appTools(
+  service: DynaApplicationService,
+  scheduleInventory: () => DynaScheduleTaskInventory,
+): readonly FlowZoneAppTool[] {
   const tools: FlowZoneAppTool[] = [
     {
       name: "dyna_get_snapshot",
@@ -395,7 +425,11 @@ function appTools(service: DynaApplicationService): readonly FlowZoneAppTool[] {
         const { viewToken, scope } = BeginTaskSyncInputSchema.parse(input);
         return {
           structuredContent: DynaTaskSyncBeginResultSchema.parse(
-            service.beginTaskSyncForView(viewToken, scope),
+            service.beginTaskSyncForView(
+              viewToken,
+              scope,
+              scope.kind === "dashboard" ? scheduleInventory() : undefined,
+            ),
           ),
           content: [],
         };
@@ -641,6 +675,28 @@ function appTools(service: DynaApplicationService): readonly FlowZoneAppTool[] {
       },
     },
     {
+      name: "dyna_correct_sources",
+      title: "Correct Dyna source grouping",
+      description:
+        "Confirmed, retry-safe separation of one exact source or reversal of one proven merge.",
+      inputSchema: DynaSourceCorrectionInputSchema,
+      outputSchema: DynaSourceCorrectionResultSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+        idempotentHint: true,
+      },
+      handler(input) {
+        return {
+          structuredContent: service.correctSourcesForView(
+            DynaSourceCorrectionInputSchema.parse(input),
+          ),
+          content: [],
+        };
+      },
+    },
+    {
       name: "dyna_add_annotation",
       title: "Add Dyna annotation",
       description: "Retry-safely add a bounded note to an item in the capability-bound Dyna view.",
@@ -813,6 +869,7 @@ function appTools(service: DynaApplicationService): readonly FlowZoneAppTool[] {
         const parsed = PrepareActionInputSchema.parse(input);
         const request = service.prepareAction(parsed.viewToken, parsed.kind, {
           itemId: parsed.itemId,
+          ...(parsed.sourceRef ? { sourceRef: parsed.sourceRef } : {}),
           ...(parsed.taskId ? { taskId: parsed.taskId } : {}),
           ...(parsed.taskHostId ? { taskHostId: parsed.taskHostId } : {}),
           ...(parsed.sessionListRequestId
@@ -886,6 +943,7 @@ function appTools(service: DynaApplicationService): readonly FlowZoneAppTool[] {
 
 export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugin {
   const service = options.service ?? new DynaApplicationService({ actor: DYNA_MCP_ACTOR });
+  const scheduleInventory = options.scheduleInventory ?? readDynaScheduleTaskInventory;
   return {
     id: DYNA_PLUGIN_ID,
     displayName: "Dyna",
@@ -1309,6 +1367,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
             failureMessage: z.string().trim().min(1).max(500).optional(),
             sourceSlices: DynaPublishSourceSlicesSchema.optional(),
             items: z.array(DynaScheduledPublishedItemSchema).max(200),
+            workSummaries: z.array(DynaWorkSummarySchema).max(200).optional(),
           })
           .strict(),
         outputSchema: z
@@ -1334,6 +1393,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
                 failureMessage: z.string().trim().min(1).max(500).optional(),
                 sourceSlices: DynaPublishSourceSlicesSchema.optional(),
                 items: z.array(DynaScheduledPublishedItemSchema).max(200),
+                workSummaries: z.array(DynaWorkSummarySchema).max(200).optional(),
               })
               .strict()
               .parse(input);
@@ -1344,6 +1404,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
               status: parsed.status,
               ...(parsed.failureMessage ? { failureMessage: parsed.failureMessage } : {}),
               ...(parsed.sourceSlices ? { sourceSlices: parsed.sourceSlices } : {}),
+              ...(parsed.workSummaries ? { workSummaries: parsed.workSummaries } : {}),
             };
             return {
               result: service.publish(parsed.publisherId, parsed.secret, parsed.items, options),
@@ -1593,7 +1654,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
         id: "claim-task-sync",
         title: "Claim Dyna task synchronization",
         description:
-          "Claim one delivered linked-task synchronization run and return only its bounded native task targets and one-time completion capability.",
+          "Claim one delivered task synchronization run and return its bounded linked targets, discovery requirement, and one-time completion capability.",
         inputSchema: ClaimTaskSyncInputSchema,
         outputSchema: DynaTaskSyncClaimSchema,
         risk: { readOnly: false, destructive: false, openWorld: false, idempotent: false },
@@ -1607,6 +1668,33 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
         summarize(result) {
           const claim = DynaTaskSyncClaimSchema.parse(result);
           return `Claimed ${String(claim.targets.length)} linked Codex task${claim.targets.length === 1 ? "" : "s"} for bounded Dyna synchronization.`;
+        },
+      },
+      {
+        id: "submit-task-discovery-batch",
+        title: "Submit Dyna Codex task discovery batch",
+        description:
+          "Retry-safely submit up to eight ordinary Codex task identities for private schedule-safe discovery and receive only title-repair targets.",
+        inputSchema: SubmitTaskDiscoveryBatchInputSchema,
+        outputSchema: DynaTaskDiscoveryBatchResultSchema,
+        risk: { readOnly: false, destructive: false, openWorld: false, idempotent: true },
+        executor: {
+          kind: "module",
+          execute(input) {
+            const parsed = SubmitTaskDiscoveryBatchInputSchema.parse(input);
+            return {
+              result: DynaTaskDiscoveryBatchResultSchema.parse(
+                service.submitTaskDiscoveryBatch(parsed.runId, parsed.claimToken, {
+                  requestId: parsed.requestId,
+                  candidates: parsed.candidates,
+                }),
+              ),
+            };
+          },
+        },
+        summarize(result) {
+          const batch = DynaTaskDiscoveryBatchResultSchema.parse(result);
+          return `Checked ${String(batch.acceptedCandidates)} Codex task${batch.acceptedCandidates === 1 ? "" : "s"}; ${String(batch.repairTargets.length)} require Dyna title verification.`;
         },
       },
       {
@@ -1653,6 +1741,7 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
               result: DynaTaskSyncStatusResultSchema.parse(
                 service.completeTaskSync(parsed.runId, parsed.claimToken, {
                   requestId: parsed.requestId,
+                  inventoryState: parsed.inventoryState,
                 }),
               ),
             };
@@ -1710,6 +1799,6 @@ export function createDynaPlugin(options: DynaPluginOptions = {}): FlowZonePlugi
         },
       },
     ],
-    appTools: appTools(service),
+    appTools: appTools(service, scheduleInventory),
   };
 }

@@ -18,6 +18,12 @@ const summary = {
   updatedItems: 0,
   unavailableTasks: 0,
   incompleteMetadataTasks: 0,
+  discoveryState: "disabled",
+  inspectedSessions: 0,
+  importedItems: 0,
+  adoptedItems: 0,
+  skippedSessions: 0,
+  inventoryTruncated: false,
   remainingTasks: 1,
   startedAt: now,
   updatedAt: now,
@@ -28,12 +34,13 @@ const target = {
   taskId: "task-1",
   hostId: "local",
   checkpointVersion: 0,
+  canonicalTitle: ":184: Task one",
   afterCursor: "opaque-cursor",
 };
 const calls = [];
 const service = {
-  beginTaskSyncForView(receivedViewToken, scope) {
-    calls.push(["begin", receivedViewToken, scope]);
+  beginTaskSyncForView(receivedViewToken, scope, scheduleInventory) {
+    calls.push(["begin", receivedViewToken, scope, scheduleInventory]);
     return {
       schema: "dyna/task-sync-begin-result-v1",
       joined: false,
@@ -52,7 +59,7 @@ const service = {
   claimTaskSync(receivedRunId) {
     calls.push(["claim", receivedRunId]);
     return {
-      schema: "dyna/task-sync-claim-v1",
+      schema: "dyna/task-sync-claim-v2",
       runId,
       dashboardId,
       claimToken,
@@ -60,6 +67,22 @@ const service = {
       totalTasks: 1,
       remainingTasks: 0,
       targets: [target],
+      discovery: { state: "required", maxCandidates: 200 },
+    };
+  },
+  submitTaskDiscoveryBatch(receivedRunId, receivedClaimToken, input) {
+    calls.push(["discovery", receivedRunId, receivedClaimToken, input]);
+    return {
+      schema: "dyna/task-discovery-batch-result-v1",
+      acceptedCandidates: input.candidates.length,
+      deduplicated: false,
+      leaseExpiresAt: "2026-09-14T18:05:00.000Z",
+      repairTargets: [],
+      summary: {
+        ...summary,
+        discoveryState: "pending",
+        inspectedSessions: input.candidates.length,
+      },
     };
   },
   submitTaskSyncBatch(receivedRunId, receivedClaimToken, input) {
@@ -121,12 +144,16 @@ async function execute(target, input) {
   return (await target.executor.execute(input, executionContext)).result;
 }
 
-const plugin = createDynaPlugin({ service });
+const plugin = createDynaPlugin({
+  service,
+  scheduleInventory: () => ({ state: "available", taskIds: ["scheduled-task"] }),
+});
 const appTools = plugin.appTools ?? [];
 const begin = appTool(appTools, "dyna_begin_task_sync");
 const delivered = appTool(appTools, "dyna_mark_task_sync_delivered");
 const status = appTool(appTools, "dyna_task_sync_status");
 const claim = action(plugin.actions, "claim-task-sync");
+const discovery = action(plugin.actions, "submit-task-discovery-batch");
 const batch = action(plugin.actions, "submit-task-sync-batch");
 const complete = action(plugin.actions, "complete-task-sync");
 
@@ -192,6 +219,29 @@ assert.equal(claimed.targets.length, 1);
 assert.equal(claimed.targets[0].afterCursor, "opaque-cursor");
 assert.equal(claimed.claimToken, claimToken);
 assert.equal(claim.inputSchema.safeParse({ runId, dashboardId }).success, false);
+
+const discoveryRequestId = randomUUID();
+const discoveryInput = {
+  runId,
+  claimToken,
+  requestId: discoveryRequestId,
+  candidates: [
+    {
+      taskId: "ordinary-task",
+      hostId: "local",
+      title: "Ordinary task",
+      updatedAt: now,
+    },
+  ],
+};
+assert.equal(
+  discovery.inputSchema.safeParse({
+    ...discoveryInput,
+    candidates: [{ ...discoveryInput.candidates[0], summary: "must not cross" }],
+  }).success,
+  false,
+);
+assert.equal((await execute(discovery, discoveryInput)).acceptedCandidates, 1);
 
 const observation = {
   taskId: "task-1",
@@ -262,7 +312,12 @@ assert.equal(batched.acceptedTasks, 1);
 assert.equal(batched.summary.processedTasks, 1);
 
 const completionRequestId = randomUUID();
-const completed = await execute(complete, { runId, claimToken, requestId: completionRequestId });
+const completed = await execute(complete, {
+  runId,
+  claimToken,
+  requestId: completionRequestId,
+  inventoryState: "complete",
+});
 assert.equal(completed.summary.state, "partial");
 assert.equal(completed.summary.updatedItems, 1);
 assert.equal(completed.summary.incompleteMetadataTasks, 1);
@@ -276,12 +331,18 @@ assert.equal(
 );
 
 assert.deepEqual(calls, [
-  ["begin", viewToken, { kind: "dashboard" }],
+  ["begin", viewToken, { kind: "dashboard" }, { state: "available", taskIds: ["scheduled-task"] }],
   ["delivered", viewToken, runId],
   ["status", viewToken, runId],
   ["claim", runId],
+  [
+    "discovery",
+    runId,
+    claimToken,
+    { requestId: discoveryRequestId, candidates: discoveryInput.candidates },
+  ],
   ["batch", runId, claimToken, { requestId, observations: [observation], unavailable: [] }],
-  ["complete", runId, claimToken, { requestId: completionRequestId }],
+  ["complete", runId, claimToken, { requestId: completionRequestId, inventoryState: "complete" }],
 ]);
 
 globalThis.process.stdout.write(

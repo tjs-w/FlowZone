@@ -25,7 +25,7 @@ try {
   migrated.close();
 
   const verified = new DatabaseSync(databasePath, { readOnly: true });
-  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 12);
+  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 14);
   const columns = new Set(
     verified
       .prepare("PRAGMA table_info(item_preferences)")

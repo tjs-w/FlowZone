@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -51,11 +51,17 @@ if (process.argv[2] === "--generated-fixture") {
 const requestedPort = Number(process.env["MARKDOWN_REVIEW_PORT"] ?? 43_117);
 const dynaDataDirectory =
   generatedDirectory ?? (await mkdtemp(join(tmpdir(), "flowzone-dyna-harness-")));
+const dynaCodexHome = join(dynaDataDirectory, "codex-home");
+await mkdir(join(dynaCodexHome, "automations"), { recursive: true });
 const transport = new StdioClientTransport({
   command: "node",
   args: [resolve(pluginRoot, "server/dist/server.cjs")],
   cwd: pluginRoot,
-  env: { FLOWZONE_DATA_DIR: dynaDataDirectory, PATH: process.env["PATH"] ?? "" },
+  env: {
+    CODEX_HOME: dynaCodexHome,
+    FLOWZONE_DATA_DIR: dynaDataDirectory,
+    PATH: process.env["PATH"] ?? "",
+  },
   stderr: "pipe",
 });
 const client = new Client({ name: "flowzone-browser-harness", version: "0.1.0" });
@@ -111,11 +117,17 @@ async function dynaBackend(request: IncomingMessage): Promise<DynaHarnessBackend
   }
   const pending = (async () => {
     const dataDirectory = await mkdtemp(join(tmpdir(), `flowzone-dyna-${partition}-`));
+    const codexHome = join(dataDirectory, "codex-home");
+    await mkdir(join(codexHome, "automations"), { recursive: true });
     const partitionTransport = new StdioClientTransport({
       command: "node",
       args: [resolve(pluginRoot, "server/dist/server.cjs")],
       cwd: pluginRoot,
-      env: { FLOWZONE_DATA_DIR: dataDirectory, PATH: process.env["PATH"] ?? "" },
+      env: {
+        CODEX_HOME: codexHome,
+        FLOWZONE_DATA_DIR: dataDirectory,
+        PATH: process.env["PATH"] ?? "",
+      },
       stderr: "pipe",
     });
     const partitionClient = new Client({
@@ -350,7 +362,7 @@ async function handleDynaControllerAction(
 async function handleDynaTaskSync(
   request: IncomingMessage,
   runId: string,
-  mode: "updated" | "partial" | "succeeded" | "missing-outcome",
+  mode: "updated" | "partial" | "succeeded" | "missing-outcome" | "discovered",
 ): Promise<Readonly<Record<string, unknown>>> {
   const backend = await dynaBackend(request);
   const nativeTitles = dynaNativeTaskTitleState(request);
@@ -365,16 +377,50 @@ async function handleDynaTaskSync(
   if (claimedCall.isError) throw new Error("Could not claim the Dyna task synchronization.");
   const claimed = flowzoneResult(claimedCall);
   const claimToken = claimed["claimToken"];
-  const targets = claimed["targets"];
-  if (typeof claimToken !== "string" || !Array.isArray(targets)) {
+  const targets = z.array(z.unknown()).safeParse(claimed["targets"]);
+  const discovery = resultRecord(claimed["discovery"]);
+  if (typeof claimToken !== "string" || !targets.success) {
     throw new Error("The claimed Dyna task synchronization is incomplete.");
   }
+  const discoveredTargets: unknown[] = [];
+  if (mode === "discovered" && discovery["state"] === "required") {
+    const discoveredAt = new Date().toISOString();
+    const discoveryCall = await backend.client.callTool({
+      name: "flowzone",
+      arguments: {
+        plugin: "dyna",
+        action: "submit-task-discovery-batch",
+        input: {
+          runId,
+          claimToken,
+          requestId: randomUUID(),
+          candidates: [
+            {
+              taskId: "ordinary-discovered-task",
+              hostId: "local",
+              projectId: "project-local",
+              title: "Audit the unscheduled release work",
+              updatedAt: discoveredAt,
+            },
+          ],
+        },
+      },
+    });
+    if (discoveryCall.isError) throw new Error("Could not submit the Dyna discovery batch.");
+    const discovered = flowzoneResult(discoveryCall);
+    const repairTargets = z.array(z.unknown()).safeParse(discovered["repairTargets"]);
+    if (!repairTargets.success) {
+      throw new Error("The Dyna discovery result omitted its title-repair targets.");
+    }
+    discoveredTargets.push(...repairTargets.data);
+  }
+  const synchronizationTargets = [...targets.data, ...discoveredTargets];
 
-  for (let offset = 0; offset < targets.length; offset += 8) {
+  for (let offset = 0; offset < synchronizationTargets.length; offset += 8) {
     const observations: Readonly<Record<string, unknown>>[] = [];
     const unavailable: Readonly<Record<string, unknown>>[] = [];
     const observedAt = new Date().toISOString();
-    for (const [index, rawTarget] of targets.slice(offset, offset + 8).entries()) {
+    for (const [index, rawTarget] of synchronizationTargets.slice(offset, offset + 8).entries()) {
       const target = resultRecord(rawTarget);
       const taskId = target["taskId"];
       const hostId = target["hostId"];
@@ -407,7 +453,9 @@ async function handleDynaTaskSync(
         nativeTitles,
         taskId,
         itemNumber,
-        `Current native title for ${taskId}`,
+        taskId === "ordinary-discovered-task"
+          ? "Audit the unscheduled release work"
+          : `Current native title for ${taskId}`,
       );
       if (!nativeTitle.verified) {
         throw new Error("The Dyna task title did not match after synchronization.");
@@ -473,7 +521,17 @@ async function handleDynaTaskSync(
     arguments: {
       plugin: "dyna",
       action: "complete-task-sync",
-      input: { runId, claimToken, requestId: randomUUID() },
+      input: {
+        runId,
+        claimToken,
+        requestId: randomUUID(),
+        inventoryState:
+          discovery["state"] === "required"
+            ? "complete"
+            : discovery["state"] === "unavailable"
+              ? "unavailable"
+              : "not_requested",
+      },
     },
   });
   if (completedCall.isError) throw new Error("Could not complete the Dyna task synchronization.");
@@ -482,6 +540,8 @@ async function handleDynaTaskSync(
     handled: true,
     runId,
     state: resultRecord(completed["summary"])["state"],
+    discoveryState: discovery["state"],
+    discoveredTargets: discoveredTargets.length,
     titleOperations: nativeTitles.operations,
   };
 }
@@ -543,7 +603,7 @@ async function runDynaFixtureUpdate(
   return result;
 }
 
-const dynaResource = await client.readResource({ uri: "ui://flowzone/dyna/v20.html" });
+const dynaResource = await client.readResource({ uri: "ui://flowzone/dyna/v21.html" });
 const dynaResourceContent = dynaResource.contents[0];
 if (!dynaResourceContent || !("text" in dynaResourceContent)) {
   throw new Error("The Dyna HTML resource was not returned");
@@ -564,6 +624,7 @@ async function createDynaFixture(
   paginatedActivity = false,
   includeAnnotation = false,
   taskAttribution = false,
+  correlatedSources = false,
 ): Promise<unknown> {
   const fixtureId = randomUUID();
   const now = new Date().toISOString();
@@ -621,6 +682,69 @@ async function createDynaFixture(
     { source: "slack", sourceScope: "team/project" },
     { source: "codex", sourceScope: "team/project" },
   ] as const;
+  const correlatedJira = {
+    source: "twg",
+    contextId: "splunk.atlassian.net",
+    resultType: "jira",
+    recordId: "LIN-3087",
+  } as const;
+  const correlatedMr = (iid: number) => ({
+    source: "gitlab" as const,
+    instanceId: "gitlab.com",
+    projectPath: "team/project",
+    iid,
+    entityType: "merge_request" as const,
+  });
+  const correlatedSlack = {
+    source: "slack",
+    workspaceId: "splunk",
+    channelId: "C0123456789",
+    messageId: "1757811605.123456",
+  } as const;
+  const correlatedRecord = (
+    externalId: string,
+    sourceRef: typeof correlatedJira | ReturnType<typeof correlatedMr> | typeof correlatedSlack,
+    title: string,
+    relationships: readonly Record<string, unknown>[] = [],
+  ) => ({
+    externalId,
+    sourceRef,
+    sourceScope: "team/project",
+    title,
+    summary: title,
+    priority: "high",
+    priorityReason: "One release decision is required.",
+    sourceUpdatedAt: now,
+    labels: ["release"],
+    relationships,
+  });
+  const correlatedItems = [
+    correlatedRecord("mr-51", correlatedMr(51), "Release MR !51", [
+      {
+        kind: "references_jira_issue",
+        target: correlatedJira,
+        evidence: { field: "mr_reference", exactValue: "LIN-3087" },
+      },
+    ]),
+    correlatedRecord("jira-3087", correlatedJira, "LIN-3087 release decision"),
+    correlatedRecord("mr-52", correlatedMr(52), "Release MR !52", [
+      {
+        kind: "references_jira_issue",
+        target: correlatedJira,
+        evidence: { field: "mr_reference", exactValue: "LIN-3087" },
+      },
+    ]),
+    correlatedRecord("slack-thread", correlatedSlack, "Release decision thread", [
+      {
+        kind: "links_to_record",
+        target: correlatedJira,
+        evidence: {
+          field: "message_link",
+          exactValue: "https://splunk.atlassian.net/browse/LIN-3087",
+        },
+      },
+    ]),
+  ];
   const createdDashboard = await client.callTool({
     name: "flowzone",
     arguments: {
@@ -740,91 +864,110 @@ async function createDynaFixture(
               ? "failed"
               : "succeeded",
         })),
+        ...(correlatedSources
+          ? {
+              workSummaries: [
+                {
+                  workIdentity: correlatedJira,
+                  summary: "One release decision spans Jira, two MRs, and the Slack thread.",
+                  evidenceRefs: [
+                    correlatedJira,
+                    correlatedMr(51),
+                    correlatedMr(52),
+                    correlatedSlack,
+                  ],
+                },
+              ],
+            }
+          : {}),
         items:
           failedSchedule || partialSchedule
             ? []
-            : Array.from({ length: itemCount }, (_, index) => {
-                const source = sources[index % sources.length];
-                if (!source) throw new Error("Dyna fixture source was not found");
-                const sourceRef =
-                  source.source === "scm"
-                    ? { ...source, entityId: `fixture-pr-${String(index)}` }
-                    : source.source === "outlook"
-                      ? { ...source, messageId: `quarterly-plan-${String(index)}` }
-                      : source.source === "messaging"
-                        ? { ...source, messageId: `decision-${String(index)}` }
-                        : source.source === "slack"
-                          ? { ...source, messageId: `175781160${String(index)}.123456` }
-                          : source.source === "gitlab"
-                            ? { ...source, iid: index + 1 }
-                            : source.source === "twg"
-                              ? { ...source, recordId: `record-${String(4_242 + index)}` }
-                              : { ...source, taskId: `fixture-codex-task-${String(index)}` };
-                return {
-                  externalId: `fixture:${String(index)}`,
-                  sourceRef,
-                  sourceScope: "team/project",
-                  title:
-                    index === 0
-                      ? longContent
-                        ? `Review-${"x".repeat(193)}`
-                        : "Review the release merge request"
-                      : `Additional priority ${String(index)}`,
-                  summary:
-                    index === 0
-                      ? longContent
-                        ? `Context-${"y".repeat(992)}`
-                        : "The change is ready and waiting for an executive review."
-                      : "A cross-functional signal needs a clear owner and a bounded next move.",
-                  priority: index === 0 ? "critical" : index === 3 ? "high" : "normal",
-                  priorityReason: "The release window closes today.",
-                  sourceUpdatedAt: now,
-                  ...(index === 2
-                    ? {}
-                    : {
-                        dueAt: new Date(
-                          Date.parse(now) + (index === 0 ? 2 : index === 3 ? 4 : 24) * 60 * 60_000,
-                        ).toISOString(),
-                      }),
-                  labels: ["release", "decision"],
-                  people:
-                    index === 2
-                      ? [
-                          {
-                            displayName: "Architecture council",
-                            leadershipLevel: "architect",
-                            relationship: "neighboring_org",
-                            involvement: "mentioned",
-                            provenance: "source_metadata",
-                            confidence: "medium",
-                          },
-                        ]
-                      : [
-                          {
-                            displayName: index === 0 ? "Avery Chen" : "Morgan Lee",
-                            title: index === 0 ? "Chief Technology Officer" : "Senior Director",
-                            leadershipLevel: index === 0 ? "cto" : "senior_director",
-                            relationship: index === 0 ? "management_chain" : "neighboring_org",
-                            involvement: index === 0 ? "approver" : "sender",
-                            provenance: "declared_source",
-                            confidence: "high",
-                          },
-                        ],
-                  attention:
-                    index === 0
-                      ? "Confirm the risk posture and either approve the release or name the blocker."
-                      : "Turn this signal into an owned decision before it becomes follow-up debt.",
-                  plan: ["Validate the latest context", "Resolve the decision owner"],
-                  nextSteps: [
-                    {
-                      label:
-                        index === 0 ? "Review the release diff" : "Confirm the accountable owner",
-                      owner: "You",
-                    },
-                    { label: "Record the decision in the source thread" },
-                  ],
-                };
-              }),
+            : correlatedSources
+              ? correlatedItems
+              : Array.from({ length: itemCount }, (_, index) => {
+                  const source = sources[index % sources.length];
+                  if (!source) throw new Error("Dyna fixture source was not found");
+                  const sourceRef =
+                    source.source === "scm"
+                      ? { ...source, entityId: `fixture-pr-${String(index)}` }
+                      : source.source === "outlook"
+                        ? { ...source, messageId: `quarterly-plan-${String(index)}` }
+                        : source.source === "messaging"
+                          ? { ...source, messageId: `decision-${String(index)}` }
+                          : source.source === "slack"
+                            ? { ...source, messageId: `175781160${String(index)}.123456` }
+                            : source.source === "gitlab"
+                              ? { ...source, iid: index + 1 }
+                              : source.source === "twg"
+                                ? { ...source, recordId: `record-${String(4_242 + index)}` }
+                                : { ...source, taskId: `fixture-codex-task-${String(index)}` };
+                  return {
+                    externalId: `fixture:${String(index)}`,
+                    sourceRef,
+                    sourceScope: "team/project",
+                    title:
+                      index === 0
+                        ? longContent
+                          ? `Review-${"x".repeat(193)}`
+                          : "Review the release merge request"
+                        : `Additional priority ${String(index)}`,
+                    summary:
+                      index === 0
+                        ? longContent
+                          ? `Context-${"y".repeat(992)}`
+                          : "The change is ready and waiting for an executive review."
+                        : "A cross-functional signal needs a clear owner and a bounded next move.",
+                    priority: index === 0 ? "critical" : index === 3 ? "high" : "normal",
+                    priorityReason: "The release window closes today.",
+                    sourceUpdatedAt: now,
+                    ...(index === 2
+                      ? {}
+                      : {
+                          dueAt: new Date(
+                            Date.parse(now) +
+                              (index === 0 ? 2 : index === 3 ? 4 : 24) * 60 * 60_000,
+                          ).toISOString(),
+                        }),
+                    labels: ["release", "decision"],
+                    people:
+                      index === 2
+                        ? [
+                            {
+                              displayName: "Architecture council",
+                              leadershipLevel: "architect",
+                              relationship: "neighboring_org",
+                              involvement: "mentioned",
+                              provenance: "source_metadata",
+                              confidence: "medium",
+                            },
+                          ]
+                        : [
+                            {
+                              displayName: index === 0 ? "Avery Chen" : "Morgan Lee",
+                              title: index === 0 ? "Chief Technology Officer" : "Senior Director",
+                              leadershipLevel: index === 0 ? "cto" : "senior_director",
+                              relationship: index === 0 ? "management_chain" : "neighboring_org",
+                              involvement: index === 0 ? "approver" : "sender",
+                              provenance: "declared_source",
+                              confidence: "high",
+                            },
+                          ],
+                    attention:
+                      index === 0
+                        ? "Confirm the risk posture and either approve the release or name the blocker."
+                        : "Turn this signal into an owned decision before it becomes follow-up debt.",
+                    plan: ["Validate the latest context", "Resolve the decision owner"],
+                    nextSteps: [
+                      {
+                        label:
+                          index === 0 ? "Review the release diff" : "Confirm the accountable owner",
+                        owner: "You",
+                      },
+                      { label: "Record the decision in the source thread" },
+                    ],
+                  };
+                }),
       },
     },
   });
@@ -1563,6 +1706,12 @@ const dynaHostScript = (dynaResult: unknown) => `<script>
     if (!(target instanceof Element)) return;
     const anchor = target.closest("a[href]");
     if (!(anchor instanceof HTMLAnchorElement)) return;
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed && selection.toString()) {
+      for (let index = 0; index < selection.rangeCount; index += 1) {
+        if (selection.getRangeAt(index).intersectsNode(anchor)) return;
+      }
+    }
     state.anchorInterceptorActivations.push(anchor.href);
     document.documentElement.dataset.dynaAnchorInterceptorCount =
       String(state.anchorInterceptorActivations.length);
@@ -1734,7 +1883,8 @@ const dynaHostScript = (dynaResult: unknown) => `<script>
           (taskSyncMode === "updated" ||
             taskSyncMode === "partial" ||
             taskSyncMode === "succeeded" ||
-            taskSyncMode === "missing-outcome")
+            taskSyncMode === "missing-outcome" ||
+            taskSyncMode === "discovered")
         ) {
           const runId = taskSyncMatch[1];
           state.taskSyncControllerRuns.push(runId);
@@ -1875,6 +2025,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
         requestUrl.searchParams.get("activity-pages") === "1",
         requestUrl.searchParams.get("note-actions") === "1",
         requestUrl.searchParams.get("task-attribution") === "1",
+        requestUrl.searchParams.get("correlated-sources") === "1",
       );
       dynaFixtureDashboardIds.set(partition, dynaFixtureDashboardId(dynaFixture));
     }
@@ -1932,7 +2083,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       const { runId, mode } = z
         .object({
           runId: z.uuid(),
-          mode: z.enum(["updated", "partial", "succeeded", "missing-outcome"]),
+          mode: z.enum(["updated", "partial", "succeeded", "missing-outcome", "discovered"]),
         })
         .strict()
         .parse(JSON.parse((await readRequestBody(request)).toString("utf8")));

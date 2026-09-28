@@ -140,6 +140,231 @@ export const DynaSourceRefSchema = z.discriminatedUnion("source", [
     .strict(),
 ]);
 export type DynaSourceRef = z.infer<typeof DynaSourceRefSchema>;
+function normalizedProvider(value: string): string {
+  return value.trim().toLocaleLowerCase("en-US");
+}
+
+function normalizedInstance(value: string): string {
+  try {
+    const Url = (
+      globalThis as unknown as {
+        readonly URL: new (input: string) => {
+          readonly protocol: string;
+          readonly username: string;
+          readonly password: string;
+          readonly origin: string;
+        };
+      }
+    ).URL;
+    const url = new Url(value.includes("://") ? value : `https://${value}`);
+    if ((url.protocol === "https:" || url.protocol === "http:") && !url.username && !url.password) {
+      return url.origin.toLocaleLowerCase("en-US");
+    }
+  } catch {
+    /* An opaque instance remains a distinct identity. */
+  }
+  return value.trim().toLocaleLowerCase("en-US");
+}
+
+/** Exact provider record identity; titles and publisher URLs are never identity evidence. */
+export function dynaRecordKey(ref: DynaSourceRef): string {
+  switch (ref.source) {
+    case "gitlab":
+      return JSON.stringify([
+        "gitlab",
+        normalizedInstance(ref.instanceId),
+        ref.projectPath.toLocaleLowerCase("en-US"),
+        ref.entityType,
+        String(ref.iid),
+      ]);
+    case "scm": {
+      const provider = normalizedProvider(ref.provider);
+      const gitlab = provider === "gitlab";
+      return JSON.stringify([
+        gitlab ? "gitlab" : provider,
+        normalizedInstance(ref.instanceId),
+        ref.repository.toLocaleLowerCase("en-US"),
+        gitlab && ref.entityType === "pull_request" ? "merge_request" : ref.entityType,
+        ref.entityId,
+      ]);
+    }
+    case "slack":
+      return JSON.stringify(["slack", ref.workspaceId, ref.channelId, ref.messageId]);
+    case "messaging":
+      return JSON.stringify([
+        normalizedProvider(ref.provider) === "slack" ? "slack" : normalizedProvider(ref.provider),
+        ref.workspaceId,
+        ref.channelId,
+        ref.messageId,
+      ]);
+    case "outlook":
+      return JSON.stringify(["outlook", ref.accountId, ref.messageId]);
+    case "email":
+      return JSON.stringify([
+        ["outlook", "microsoft outlook"].includes(normalizedProvider(ref.provider))
+          ? "outlook"
+          : normalizedProvider(ref.provider),
+        ref.accountId,
+        ref.messageId,
+      ]);
+    case "twg":
+      return JSON.stringify([
+        ref.resultType,
+        normalizedInstance(ref.contextId),
+        ref.resultType === "jira" ? ref.recordId.toLocaleUpperCase("en-US") : ref.recordId,
+      ]);
+    case "codex":
+      return JSON.stringify(["codex", ref.taskId]);
+    case "skill":
+      return JSON.stringify(["skill", ref.contextId, ref.skillName, ref.recordType, ref.recordId]);
+    case "manual":
+      return JSON.stringify(["manual", ref.todoId]);
+  }
+}
+
+export function dynaJiraKey(ref: DynaSourceRef): string | undefined {
+  return ref.source === "twg" && ref.resultType === "jira" ? dynaRecordKey(ref) : undefined;
+}
+
+export const DynaSourceRelationshipSchema = z
+  .object({
+    kind: z.enum(["references_jira_issue", "links_to_record", "same_thread"]),
+    target: DynaSourceRefSchema,
+    evidence: z
+      .object({
+        field: z.enum([
+          "mr_reference",
+          "mr_description_link",
+          "message_link",
+          "document_link",
+          "thread_root",
+        ]),
+        exactValue: z.string().trim().min(1).max(512),
+      })
+      .strict(),
+  })
+  .strict();
+export type DynaSourceRelationship = z.infer<typeof DynaSourceRelationshipSchema>;
+
+export function validDynaRelationship(
+  source: DynaSourceRef,
+  relationship: DynaSourceRelationship,
+): boolean {
+  const { kind, target, evidence } = relationship;
+  if (dynaRecordKey(source) === dynaRecordKey(target)) return false;
+  if (kind === "references_jira_issue") {
+    const isMr =
+      (source.source === "gitlab" && source.entityType === "merge_request") ||
+      (source.source === "scm" && ["merge_request", "pull_request"].includes(source.entityType));
+    if (!isMr || target.source !== "twg" || target.resultType !== "jira") return false;
+    return evidence.field === "mr_reference"
+      ? evidence.exactValue.toLocaleUpperCase("en-US") ===
+          target.recordId.toLocaleUpperCase("en-US")
+      : evidence.field === "mr_description_link" && evidence.exactValue === dynaSourceUrl(target);
+  }
+  if (kind === "links_to_record") {
+    const message = ["email", "outlook", "slack", "messaging"].includes(source.source);
+    const document = source.source === "twg" && source.resultType === "confluence";
+    return (
+      ((message && evidence.field === "message_link") ||
+        (document && evidence.field === "document_link")) &&
+      Boolean(dynaSourceUrl(target)) &&
+      evidence.exactValue === dynaSourceUrl(target)
+    );
+  }
+  {
+    const sourceSlack =
+      source.source === "slack" ||
+      (source.source === "messaging" && normalizedProvider(source.provider) === "slack");
+    const targetSlack =
+      target.source === "slack" ||
+      (target.source === "messaging" && normalizedProvider(target.provider) === "slack");
+    return (
+      evidence.field === "thread_root" &&
+      sourceSlack &&
+      targetSlack &&
+      "workspaceId" in source &&
+      "workspaceId" in target &&
+      source.workspaceId === target.workspaceId &&
+      source.channelId === target.channelId &&
+      evidence.exactValue === target.messageId
+    );
+  }
+}
+
+export const DynaWorkSummarySchema = z
+  .object({
+    workIdentity: DynaSourceRefSchema,
+    summary: z.string().trim().min(1).max(1_000),
+    evidenceRefs: z.array(DynaSourceRefSchema).min(1).max(16),
+  })
+  .strict();
+export type DynaWorkSummary = z.infer<typeof DynaWorkSummarySchema>;
+
+export const DynaSourceViewSchema = z
+  .object({
+    sourceRef: DynaSourceRefSchema,
+    label: z.string().trim().min(1).max(128),
+    sourceUpdatedAt: TimestampSchema,
+    observedAt: TimestampSchema,
+    freshness: z.enum(["current", "last_known", "retired"]),
+    navigation: z.enum(["link", "exact_record"]),
+    correlationWarning: z.boolean().default(false),
+  })
+  .strict();
+export type DynaSourceView = z.infer<typeof DynaSourceViewSchema>;
+
+export const DynaSourceCorrectionInputSchema = z
+  .object({
+    viewToken: z.string().min(32).max(128),
+    itemId: z.uuid(),
+    action: z.enum(["separate", "undo_merge"]),
+    sourceRef: DynaSourceRefSchema.optional(),
+    aliasItemId: z.uuid().optional(),
+    expectedRevision: z.number().int().nonnegative(),
+    expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+    clientRequestId: z.uuid(),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    if (input.action === "separate" && (!input.sourceRef || input.aliasItemId)) {
+      context.addIssue({
+        code: "custom",
+        path: ["sourceRef"],
+        message: "Select one exact source.",
+      });
+    }
+    if (input.action === "undo_merge" && (!input.aliasItemId || input.sourceRef)) {
+      context.addIssue({
+        code: "custom",
+        path: ["aliasItemId"],
+        message: "Select one merged item.",
+      });
+    }
+  });
+export type DynaSourceCorrectionInput = z.infer<typeof DynaSourceCorrectionInputSchema>;
+
+export const DynaSourceCorrectionResultSchema = z
+  .object({
+    itemId: z.uuid(),
+    separatedItemId: z.uuid(),
+    separatedItemNumber: DynaItemNumberSchema,
+    deduplicated: z.boolean(),
+  })
+  .strict();
+export type DynaSourceCorrectionResult = z.infer<typeof DynaSourceCorrectionResultSchema>;
+
+export const DynaGroupingEvidenceSchema = z
+  .object({
+    kind: DynaSourceRelationshipSchema.shape.kind,
+    source: DynaSourceRefSchema,
+    target: DynaSourceRefSchema,
+    field: DynaSourceRelationshipSchema.shape.evidence.shape.field,
+    observedAt: TimestampSchema,
+    collectorSupplied: z.literal(true),
+  })
+  .strict();
+export type DynaGroupingEvidence = z.infer<typeof DynaGroupingEvidenceSchema>;
 
 export const DynaLeadershipLevelSchema = z.enum([
   "ceo",
@@ -260,6 +485,31 @@ export function dynaSourceLabel(sourceRef: DynaSourceRef): string {
       return sourceRef.skillName;
     case "manual":
       return "To-do";
+  }
+}
+
+export function dynaSourceRecordLabel(ref: DynaSourceRef): string {
+  switch (ref.source) {
+    case "gitlab":
+      return `GitLab ${ref.projectPath}!${ref.iid}`;
+    case "scm":
+      return `${ref.provider} ${ref.repository}#${ref.entityId}`;
+    case "twg":
+      return `${ref.resultType === "jira" ? "Jira" : ref.resultType === "confluence" ? "Confluence" : "TWG"} ${ref.recordId}`;
+    case "slack":
+      return `Slack ${ref.channelId} · ${ref.messageId}`;
+    case "messaging":
+      return `${ref.provider} ${ref.channelId} · ${ref.messageId}`;
+    case "outlook":
+      return `Outlook ${ref.messageId}`;
+    case "email":
+      return `${ref.provider} ${ref.messageId}`;
+    case "codex":
+      return `Codex ${ref.taskId}`;
+    case "skill":
+      return `${ref.skillName} ${ref.recordId}`;
+    case "manual":
+      return "Dyna to-do";
   }
 }
 
@@ -442,6 +692,7 @@ export const DynaPublishedItemSchema = z
     attention: z.string().trim().min(1).max(500).optional(),
     plan: z.array(z.string().trim().min(1).max(200)).max(4).default([]),
     nextSteps: z.array(DynaNextStepSchema).max(4).default([]),
+    relationships: z.array(DynaSourceRelationshipSchema).max(8).optional(),
   })
   .strict();
 export type DynaPublishedItem = z.infer<typeof DynaPublishedItemSchema>;
@@ -803,6 +1054,12 @@ export const DynaTaskSyncSummarySchema = z
     updatedItems: z.number().int().min(0).max(200),
     unavailableTasks: z.number().int().min(0).max(200),
     incompleteMetadataTasks: z.number().int().min(0).max(200),
+    discoveryState: z.enum(["disabled", "pending", "complete", "unavailable"]).default("disabled"),
+    inspectedSessions: z.number().int().min(0).max(200).default(0),
+    importedItems: z.number().int().min(0).max(200).default(0),
+    adoptedItems: z.number().int().min(0).max(200).default(0),
+    skippedSessions: z.number().int().min(0).max(200).default(0),
+    inventoryTruncated: z.boolean().default(false),
     remainingTasks: z.number().int().nonnegative(),
     startedAt: TimestampSchema,
     completedAt: TimestampSchema.optional(),
@@ -1092,6 +1349,7 @@ export const DynaItemContextSchema = DynaMaterializedItemSchema.extend({
   workUpdates: z.array(DynaWorkUpdateSchema).max(20),
   workUpdateCount: z.number().int().nonnegative(),
   linkedTasks: z.array(DynaTaskStatusSchema).max(8),
+  sources: z.array(DynaSourceViewSchema).max(32).default([]),
 })
   .strict()
   .superRefine(validateFollowUpReference);
@@ -1126,6 +1384,19 @@ export const DynaItemHistorySchema = z
   .object({
     itemId: z.uuid(),
     itemNumber: DynaItemNumberSchema,
+    sources: z.array(DynaSourceViewSchema).max(32).default([]),
+    groupingEvidence: z.array(DynaGroupingEvidenceSchema).max(32).default([]),
+    mergedAliases: z
+      .array(
+        z
+          .object({
+            itemId: z.uuid(),
+            itemNumber: DynaItemNumberSchema,
+          })
+          .strict(),
+      )
+      .max(20)
+      .default([]),
     followUpOfItemId: z.uuid().optional(),
     followUpOfItemNumber: DynaItemNumberSchema.optional(),
     archives: z
@@ -1229,6 +1500,21 @@ export const DynaCardSchema = z
     source: DynaSourceSchema,
     sourceRef: DynaSourceRefSchema,
     sourceLabel: z.string().trim().min(1).max(128),
+    sources: z.array(DynaSourceViewSchema).max(32).default([]),
+    groupingEvidence: z.array(DynaGroupingEvidenceSchema).max(32).default([]),
+    mergedAliases: z
+      .array(
+        z
+          .object({
+            itemId: z.uuid(),
+            itemNumber: DynaItemNumberSchema,
+          })
+          .strict(),
+      )
+      .max(20)
+      .default([]),
+    sourceState: z.enum(["current", "last_known", "none"]).default("current"),
+    citedSummaryState: z.enum(["current", "last_known"]).optional(),
     title: z.string().max(200),
     summary: z.string().max(1_000),
     sourcePriority: DynaPrioritySchema,
@@ -1275,7 +1561,7 @@ export type DynaCard = z.infer<typeof DynaCardSchema>;
 
 export const DynaDashboardSnapshotSchema = z
   .object({
-    schema: z.literal("dyna/snapshot-v10"),
+    schema: z.literal("dyna/snapshot-v12"),
     dashboard: DynaDashboardSchema,
     generatedAt: TimestampSchema,
     query: z.string().max(500),
@@ -1302,7 +1588,7 @@ export type DynaDashboardSnapshot = z.infer<typeof DynaDashboardSnapshotSchema>;
 
 export const DynaUiPayloadSchema = z
   .object({
-    schema: z.literal("dyna/ui-v12"),
+    schema: z.literal("dyna/ui-v14"),
     viewToken: z.string().min(32).max(128),
     snapshot: DynaDashboardSnapshotSchema,
   })
@@ -1311,7 +1597,7 @@ export type DynaUiPayload = z.infer<typeof DynaUiPayloadSchema>;
 
 export const DynaItemShowResultSchema = z
   .object({
-    schema: z.literal("dyna/item-show-result-v4"),
+    schema: z.literal("dyna/item-show-result-v5"),
     dashboard: DynaDashboardSchema,
     revision: z.number().int().nonnegative(),
     enrichmentVersion: z.number().int().nonnegative(),
@@ -1382,6 +1668,7 @@ export const DynaItemSearchBriefSchema = z
     title: z.string().trim().min(1).max(200),
     summary: z.string().trim().min(1).max(1_000),
     sourceRef: DynaSourceRefSchema,
+    sources: z.array(DynaSourceViewSchema).max(32).default([]),
     priority: DynaPrioritySchema,
     priorityReason: z.string().trim().min(1).max(500),
     sourceUpdatedAt: TimestampSchema,
@@ -1413,7 +1700,7 @@ export type DynaItemSearchBrief = z.infer<typeof DynaItemSearchBriefSchema>;
 
 export const DynaItemSearchResultSchema = z
   .object({
-    schema: z.literal("dyna/item-search-result-v3"),
+    schema: z.literal("dyna/item-search-result-v4"),
     dashboardId: z.uuid(),
     dashboardName: z.string().trim().min(1).max(96),
     query: z.string().max(500),
@@ -1428,7 +1715,7 @@ export type DynaItemSearchResult = z.infer<typeof DynaItemSearchResultSchema>;
 
 export const DynaItemHistoryResultSchema = z
   .object({
-    schema: z.literal("dyna/item-history-result-v2"),
+    schema: z.literal("dyna/item-history-result-v3"),
     dashboardId: z.uuid(),
     history: DynaItemHistorySchema,
   })

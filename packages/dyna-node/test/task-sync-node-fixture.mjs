@@ -41,7 +41,9 @@ function createTodo(service, dashboardId, title) {
   });
 }
 
-const service = new DynaApplicationService({ databasePath: ":memory:", clock });
+const activeDirectory = mkdtempSync(join(tmpdir(), "flowzone-dyna-active-sync-"));
+const activeDatabasePath = join(activeDirectory, "dyna.sqlite3");
+const service = new DynaApplicationService({ databasePath: activeDatabasePath, clock });
 try {
   const dashboard = service.createDashboard("Linked task sync", "Controller pull synchronization");
   const created = createTodo(service, dashboard.id, "Validate the release");
@@ -614,6 +616,31 @@ try {
   );
   const sharedCard = service.snapshot(sharedDashboardA.id).cards[0];
   assert.ok(sharedCard);
+  const localSharedCards = [sharedDashboardB.id, sharedDashboardC.id].map((dashboardId) => ({
+    dashboardId,
+    card: service.snapshot(dashboardId).cards[0],
+  }));
+  // Model a card shared before v14: new publications are dashboard-local, but
+  // migrated shared items retain their original cross-dashboard task identity.
+  const sharedDatabase = new DatabaseSync(activeDatabasePath);
+  sharedDatabase.exec("PRAGMA foreign_keys = ON; BEGIN IMMEDIATE;");
+  for (const { dashboardId, card: localCard } of localSharedCards) {
+    assert.ok(localCard);
+    sharedDatabase
+      .prepare("DELETE FROM dashboard_items WHERE dashboard_id = ? AND item_id = ?")
+      .run(dashboardId, localCard.id);
+    sharedDatabase
+      .prepare("INSERT INTO dashboard_items (dashboard_id, item_id, created_at) VALUES (?, ?, ?)")
+      .run(dashboardId, sharedCard.id, clock().toISOString());
+    sharedDatabase
+      .prepare("UPDATE source_contributions SET item_id = ? WHERE dashboard_id = ? AND item_id = ?")
+      .run(sharedCard.id, dashboardId, localCard.id);
+    sharedDatabase
+      .prepare("UPDATE work_identity_claims SET item_id = ? WHERE dashboard_id = ? AND item_id = ?")
+      .run(sharedCard.id, dashboardId, localCard.id);
+  }
+  sharedDatabase.exec("COMMIT;");
+  sharedDatabase.close();
   service.updateTask(
     sharedDashboardA.id,
     sharedCard.id,
@@ -908,6 +935,7 @@ try {
   );
 } finally {
   service.close();
+  rmSync(activeDirectory, { recursive: true, force: true });
   cleanup();
 }
 
@@ -938,7 +966,7 @@ try {
   migrationService.close();
   migrationService = undefined;
   const verified = new DatabaseSync(databasePath, { readOnly: true });
-  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 12);
+  assert.equal(verified.prepare("PRAGMA user_version").get().user_version, 14);
   assert.deepEqual(
     {
       ...verified

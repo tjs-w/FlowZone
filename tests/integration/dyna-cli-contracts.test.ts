@@ -69,7 +69,7 @@ describe("Dyna canonical CLI contracts", () => {
     ).toBe(false);
 
     const search = {
-      schema: "dyna/item-search-result-v3" as const,
+      schema: "dyna/item-search-result-v4" as const,
       dashboardId: UUID,
       dashboardName: dashboard.name,
       query: "release",

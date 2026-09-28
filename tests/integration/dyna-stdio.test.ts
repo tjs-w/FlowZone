@@ -41,7 +41,7 @@ describe("Dyna checked-in Node bundle", () => {
     try {
       const resources = await client.listResources();
       const dynaResource = resources.resources.find(
-        (resource) => resource.uri === "ui://flowzone/dyna/v20.html",
+        (resource) => resource.uri === "ui://flowzone/dyna/v21.html",
       );
       expect(resources.resources.map((resource) => resource.uri)).toContain(
         "ui://flowzone/dyna/v18.html",
@@ -54,7 +54,7 @@ describe("Dyna checked-in Node bundle", () => {
         csp: { connectDomains: [], resourceDomains: [], frameDomains: [] },
         permissions: { clipboardWrite: {} },
       });
-      const dynaHtml = await client.readResource({ uri: "ui://flowzone/dyna/v20.html" });
+      const dynaHtml = await client.readResource({ uri: "ui://flowzone/dyna/v21.html" });
       const dynaContent = dynaHtml.contents[0];
       expect(dynaContent && "text" in dynaContent ? dynaContent.text : "").toContain(
         'id="dyna-root"',
@@ -281,7 +281,7 @@ describe("Dyna checked-in Node bundle", () => {
         "The MR is ready for review.",
       );
       const payload = record(record(rendered._meta)["dynaDashboard"]);
-      expect(payload["schema"]).toBe("dyna/ui-v12");
+      expect(payload["schema"]).toBe("dyna/ui-v14");
       expect("spec" in payload).toBe(false);
       const viewToken = payload["viewToken"];
       const snapshot = record(payload["snapshot"]);
@@ -432,18 +432,18 @@ describe("Dyna checked-in Node bundle", () => {
         arguments: { viewToken },
       });
       const refreshedPayload = record(record(refreshed._meta)["dynaDashboard"]);
-      expect(refreshedPayload["schema"]).toBe("dyna/ui-v12");
+      expect(refreshedPayload["schema"]).toBe("dyna/ui-v14");
       expect("spec" in refreshedPayload).toBe(false);
       const refreshedSnapshot = record(refreshedPayload["snapshot"]);
-      expect(record(refreshedSnapshot["counts"])["critical"]).toBe(1);
+      expect(record(refreshedSnapshot["counts"])["critical"]).toBe(0);
       const refreshedCards = refreshedSnapshot["cards"];
       if (!Array.isArray(refreshedCards)) throw new Error("Missing refreshed Dyna cards");
-      expect(refreshedCards).toHaveLength(2);
+      expect(refreshedCards).toHaveLength(1);
       const refreshedCard = refreshedCards.map(record).find((card) => card["id"] === itemId);
       if (!refreshedCard) throw new Error("The original publisher item was replaced");
-      expect(refreshedCard["summary"]).toBe("Reviewers added security context.");
-      expect(refreshedCard["enrichmentState"]).toBe("active");
-      expect(JSON.stringify(refreshedCards)).toContain("The source changed after enrichment.");
+      expect(refreshedCard["summary"]).toBe("The source changed after enrichment.");
+      expect(refreshedCard["enrichmentState"]).toBe("stale");
+      expect(refreshedCard["sources"]).toHaveLength(1);
       const refreshedRevision = refreshedSnapshot["revision"];
       const itemFingerprint = refreshedCard["fingerprint"];
       if (typeof refreshedRevision !== "number" || typeof itemFingerprint !== "string") {
@@ -499,7 +499,7 @@ describe("Dyna checked-in Node bundle", () => {
       const afterDelayedCards = record(
         record(record(afterDelayedRun._meta)["dynaDashboard"])["snapshot"],
       )["cards"];
-      expect(afterDelayedCards).toHaveLength(2);
+      expect(afterDelayedCards).toHaveLength(1);
 
       const staleAction = await client.callTool({
         name: "dyna_prepare_action",
@@ -785,7 +785,7 @@ describe("Dyna checked-in Node bundle", () => {
       });
       expect(exactDashboardContext.isError).toBeUndefined();
       expect(record(record(exactDashboardContext.structuredContent)["result"])["fingerprint"]).toBe(
-        initialItemFingerprint,
+        itemFingerprint,
       );
 
       const swappedDashboardAttach = await client.callTool({
@@ -1086,7 +1086,7 @@ describe("Dyna checked-in Node bundle", () => {
         record(record(partialRefresh._meta)["dynaDashboard"])["snapshot"],
       );
       expect(partialSnapshot["freshness"]).toBe("stale");
-      expect(partialSnapshot["cards"]).toHaveLength(2);
+      expect(partialSnapshot["cards"]).toHaveLength(1);
       const partialSchedules = partialSnapshot["schedules"];
       if (!Array.isArray(partialSchedules)) throw new Error("Missing partial schedule status");
       expect(
@@ -1124,7 +1124,7 @@ describe("Dyna checked-in Node bundle", () => {
         record(record(failedRunRefresh._meta)["dynaDashboard"])["snapshot"],
       );
       expect(failedRunSnapshot["freshness"]).toBe("stale");
-      expect(failedRunSnapshot["cards"]).toHaveLength(2);
+      expect(failedRunSnapshot["cards"]).toHaveLength(1);
 
       await client.callTool({
         name: "flowzone",
@@ -1168,8 +1168,11 @@ describe("Dyna checked-in Node bundle", () => {
         arguments: { viewToken },
       });
       const emptySnapshot = record(record(record(emptyRefresh._meta)["dynaDashboard"])["snapshot"]);
-      expect(emptySnapshot["cards"]).toEqual([]);
-      expect(record(emptySnapshot["counts"])["total"]).toBe(0);
+      const noCurrentCards = emptySnapshot["cards"];
+      if (!Array.isArray(noCurrentCards)) throw new Error("Missing retained Dyna work item");
+      expect(noCurrentCards).toHaveLength(1);
+      expect(record(noCurrentCards[0])["sourceState"]).toBe("none");
+      expect(record(emptySnapshot["counts"])["total"]).toBe(1);
     } finally {
       await client.close();
     }

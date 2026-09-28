@@ -122,6 +122,26 @@ describe("DynaStore lifecycle", () => {
     });
   });
 
+  test("discovers ordinary Codex tasks without importing scheduled or previously tracked work", () => {
+    const fixture = resolve(import.meta.dir, "task-discovery-node-fixture.mjs");
+    const result = spawnSync("node", [fixture], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      scheduledExcluded: true,
+      ordinaryImported: true,
+      ordinaryScheduleTitleEligible: true,
+      codexSourceAdopted: true,
+      succeededImportCompleted: true,
+      stableNumberAllocated: true,
+      replaySafe: true,
+      boundedAtTwoHundred: true,
+      versionTwelveMigrated: true,
+      migrationRollback: true,
+      crossDashboardSkipped: true,
+      unavailableFailsClosed: true,
+    });
+  });
+
   test("serializes concurrent CLI retries and rolls back failed ledger claims", () => {
     const fixture = resolve(import.meta.dir, "cli-ledger-race-node-fixture.mjs");
     const result = spawnSync("node", [fixture], { encoding: "utf8" });

@@ -31,7 +31,6 @@ import type {
 import {
   createContext,
   type DragEvent as ReactDragEvent,
-  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type RefObject,
@@ -194,6 +193,22 @@ interface DynaUiController {
     reason?: "completed",
   ): void;
   restore(itemId: string, fingerprint: string, title: string, trigger: HTMLElement): void;
+  proposeSourceCorrection(
+    itemId: string,
+    fingerprint: string,
+    title: string,
+    action: "separate" | "undo_merge",
+    trigger: HTMLElement,
+    sourceRef?: DynaSourceRef,
+    aliasItemId?: string,
+    label?: string,
+  ): void;
+  openExactSource(
+    itemId: string,
+    fingerprint: string,
+    sourceRef: DynaSourceRef,
+    trigger: HTMLElement,
+  ): Promise<void>;
   request(
     itemId: string,
     fingerprint: string,
@@ -283,50 +298,122 @@ function ExternalResourceLink({
   artifactLinkId,
   children,
 }: ExternalResourceLinkProps) {
-  const controller = useController();
-  const useHostBridge = controller.externalLinks;
-  const activate = (element: HTMLAnchorElement) => {
-    if (selectionIntersects(element)) return;
-    void controller.openExternal(url);
-  };
   const handleClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {
-    if (!useHostBridge || event.button !== 0) return;
-    event.preventDefault();
     event.stopPropagation();
-    activate(event.currentTarget);
+    if (selectionIntersects(event.currentTarget)) event.preventDefault();
   };
   const handleAuxClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {
-    if (!useHostBridge || event.button !== 1) return;
-    event.preventDefault();
     event.stopPropagation();
-    activate(event.currentTarget);
   };
-  const handleKeyDown = (event: ReactKeyboardEvent<HTMLAnchorElement>) => {
-    if (!useHostBridge || event.key !== "Enter") return;
-    event.preventDefault();
-    event.stopPropagation();
-    activate(event.currentTarget);
-  };
-
   return (
     <a
       className={className}
       data-dyna-link-url={url}
       data-dyna-source-link={sourceLinkId}
       data-dyna-artifact-link={artifactLinkId}
-      href={useHostBridge ? undefined : url}
-      target={useHostBridge ? undefined : "_blank"}
-      rel={useHostBridge ? undefined : "noopener noreferrer"}
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
       role="link"
       tabIndex={0}
       style={{ cursor: "pointer" }}
       aria-label={ariaLabel}
       onClick={handleClick}
       onAuxClick={handleAuxClick}
-      onKeyDown={handleKeyDown}
     >
       {children}
     </a>
+  );
+}
+
+function SourceLinks({
+  sources,
+  compact = false,
+  onSeparate,
+  onOpenExact,
+}: {
+  readonly sources: DynaCard["sources"];
+  readonly compact?: boolean;
+  readonly onSeparate?: (sourceRef: DynaSourceRef, label: string, trigger: HTMLElement) => void;
+  readonly onOpenExact?: (sourceRef: DynaSourceRef, trigger: HTMLElement) => void;
+}) {
+  if (sources.length === 0) return null;
+  // The source icon and linked title identify a single current source; keep degraded evidence visible.
+  if (
+    compact &&
+    sources.length === 1 &&
+    sources[0]?.freshness === "current" &&
+    !sources[0].correlationWarning
+  )
+    return null;
+  const visible = compact ? sources.slice(0, 4) : sources;
+  return (
+    <div
+      className={
+        compact ? "dyna-contribution-list dyna-contribution-list-compact" : "dyna-contribution-list"
+      }
+      aria-label="Contributing sources"
+    >
+      {visible.map((source, index) => {
+        const url = dynaSourceUrl(source.sourceRef);
+        return (
+          <span
+            className="dyna-source-entry"
+            data-freshness={source.freshness}
+            key={`${source.label}-${index}`}
+          >
+            {url ? (
+              <ExternalResourceLink
+                className="dyna-origin-link"
+                url={url}
+                sourceLinkId={`${source.label}-${index}`}
+                ariaLabel={`Open ${source.label}${source.freshness === "current" ? "" : `, ${source.freshness.replace("_", " ")}`}`}
+              >
+                {source.label}
+              </ExternalResourceLink>
+            ) : source.sourceRef.source === "manual" ? (
+              <span>Created in Dyna</span>
+            ) : onOpenExact ? (
+              <button
+                type="button"
+                className="dyna-source-exact"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onOpenExact(source.sourceRef, event.currentTarget);
+                }}
+                aria-label={`Open exact source ${source.label}`}
+              >
+                {source.label} · Open source
+              </button>
+            ) : (
+              <span>{source.label} · exact source</span>
+            )}
+            {source.correlationWarning ? (
+              <small title="Collector evidence contains conflicting Jira identities">
+                Correlation needs review
+              </small>
+            ) : null}
+            {source.freshness !== "current" ? (
+              <small>{source.freshness === "retired" ? "historical" : "last known"}</small>
+            ) : null}
+            {onSeparate ? (
+              <button
+                type="button"
+                className="dyna-source-correct"
+                onClick={(event) => {
+                  onSeparate(source.sourceRef, source.label, event.currentTarget);
+                }}
+              >
+                Separate
+              </button>
+            ) : null}
+          </span>
+        );
+      })}
+      {compact && sources.length > visible.length ? (
+        <span>+{sources.length - visible.length}</span>
+      ) : null}
+    </div>
   );
 }
 
@@ -655,15 +742,36 @@ function taskSyncLabel(
   if (!summary) return undefined;
   const when = relativeTime(summary.completedAt ?? summary.updatedAt, locale);
   if (summary.state === "syncing") {
+    if (
+      summary.discoveryState === "pending" &&
+      summary.inspectedSessions === 0 &&
+      summary.totalTasks === 0
+    ) {
+      return {
+        text: "Discovering sessions",
+        description: "Checking ordinary Codex tasks while the stored dashboard remains available.",
+      };
+    }
     return {
-      text: `Syncing ${String(summary.processedTasks)}/${String(summary.totalTasks)}`,
-      description: `Synchronizing linked Codex tasks. ${String(summary.processedTasks)} of ${String(summary.totalTasks)} processed.`,
+      text: summary.inspectedSessions
+        ? `Syncing · ${String(summary.inspectedSessions)} checked`
+        : `Syncing ${String(summary.processedTasks)}/${String(summary.totalTasks)}`,
+      description: `Synchronizing Codex tasks. ${String(summary.processedTasks)} linked observations processed and ${String(summary.inspectedSessions)} sessions checked.`,
     };
   }
   if (summary.state === "updated") {
+    const added = summary.importedItems;
+    const linked = summary.adoptedItems;
     return {
-      text: `Updated ${String(summary.updatedItems)} · ${when}`,
-      description: `Linked Codex task synchronization updated ${String(summary.updatedItems)} ${summary.updatedItems === 1 ? "item" : "items"} ${when}.`,
+      text: [
+        added ? `Added ${String(added)}` : "",
+        linked ? `Linked ${String(linked)}` : "",
+        summary.updatedItems ? `Updated ${String(summary.updatedItems)}` : "",
+        when,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      description: `Codex synchronization added ${String(added)}, linked ${String(linked)}, and updated ${String(summary.updatedItems)} dashboard items ${when}.`,
     };
   }
   if (summary.state === "partial") {
@@ -674,10 +782,23 @@ function taskSyncLabel(
       ? `${String(summary.incompleteMetadataTasks)} missing ${summary.incompleteMetadataTasks === 1 ? "outcome" : "outcomes"}`
       : "";
     const remaining = summary.remainingTasks ? `${String(summary.remainingTasks)} remaining` : "";
-    const counts = [unavailable, incompleteMetadata, remaining].filter(Boolean).join(" · ");
+    const skipped = summary.skippedSessions ? `${String(summary.skippedSessions)} skipped` : "";
+    const capped = summary.inventoryTruncated ? "inventory capped" : "";
+    const discoveryUnavailable =
+      summary.discoveryState === "unavailable" ? "session discovery unavailable" : "";
+    const counts = [
+      unavailable,
+      incompleteMetadata,
+      skipped,
+      remaining,
+      capped,
+      discoveryUnavailable,
+    ]
+      .filter(Boolean)
+      .join(" · ");
     return {
       text: counts ? `Partial · ${counts}` : "Partial",
-      description: `Linked Codex task synchronization completed partially.${summary.unavailableTasks ? ` ${String(summary.unavailableTasks)} ${summary.unavailableTasks === 1 ? "task was" : "tasks were"} unavailable.` : ""}${summary.incompleteMetadataTasks ? ` ${String(summary.incompleteMetadataTasks)} completed ${summary.incompleteMetadataTasks === 1 ? "task is" : "tasks are"} missing an outcome.` : ""}${summary.remainingTasks ? ` ${String(summary.remainingTasks)} ${summary.remainingTasks === 1 ? "task remains" : "tasks remain"}.` : ""}`,
+      description: `Codex synchronization completed partially.${summary.unavailableTasks ? ` ${String(summary.unavailableTasks)} ${summary.unavailableTasks === 1 ? "task was" : "tasks were"} unavailable.` : ""}${summary.incompleteMetadataTasks ? ` ${String(summary.incompleteMetadataTasks)} completed ${summary.incompleteMetadataTasks === 1 ? "task is" : "tasks are"} missing an outcome.` : ""}${summary.skippedSessions ? ` ${String(summary.skippedSessions)} previously tracked ${summary.skippedSessions === 1 ? "session was" : "sessions were"} skipped.` : ""}${summary.remainingTasks ? ` ${String(summary.remainingTasks)} ${summary.remainingTasks === 1 ? "task remains" : "tasks remain"}.` : ""}${summary.inventoryTruncated ? " The ordinary-session inventory was capped at 200." : ""}${summary.discoveryState === "unavailable" ? " Ordinary-session discovery was unavailable; linked-task reconciliation still ran." : ""}`,
     };
   }
   if (summary.state === "expired") {
@@ -693,8 +814,10 @@ function taskSyncLabel(
     };
   }
   return {
-    text: `Current · ${when}`,
-    description: `Linked Codex tasks are current ${when}.`,
+    text: summary.inspectedSessions
+      ? `Current · ${String(summary.inspectedSessions)} checked`
+      : `Current · ${when}`,
+    description: `Codex tasks are current ${when}; ${String(summary.inspectedSessions)} ordinary sessions were checked.`,
   };
 }
 
@@ -3274,6 +3397,18 @@ const dynaComponents: DynaComponentCatalog = {
               <span className="dyna-row-attention" title={rowDetail}>
                 {rowDetail}
               </span>
+              <SourceLinks
+                sources={props.sources}
+                compact
+                onOpenExact={(sourceRef, trigger) =>
+                  void controller.openExactSource(
+                    props.itemId,
+                    props.fingerprint,
+                    sourceRef,
+                    trigger,
+                  )
+                }
+              />
             </div>
           </div>
         </div>
@@ -3487,25 +3622,89 @@ const dynaComponents: DynaComponentCatalog = {
                       ))}
                     </div>
                   ) : null}
-                  <div className="dyna-origin">
-                    <strong>
-                      {props.source === "manual" ? "Created in Dyna" : "Originating record"}
-                    </strong>
-                    {props.source === "manual" ? null : props.sourceUrl ? (
-                      <ExternalResourceLink className="dyna-origin-link" url={props.sourceUrl}>
-                        {sourceReferenceLabel(props.sourceRef)}
-                        <ExternalLink className="dyna-source-link-icon" aria-hidden="true" />
-                      </ExternalResourceLink>
-                    ) : (
-                      <code>{sourceReferenceLabel(props.sourceRef)}</code>
-                    )}
-                    <span className="dyna-meta">
-                      {props.source === "manual" ? "Added" : "Updated"}{" "}
-                      {relativeTime(props.sourceUpdatedAt, controller.locale)}
-                    </span>
-                  </div>
                 </div>
               </details>
+              <section className="dyna-inspector-section">
+                <div className="dyna-section-heading">
+                  <h3>Sources</h3>
+                </div>
+                {props.sourceState === "none" ? <p>No current source</p> : null}
+                {props.citedSummaryState === "last_known" ? (
+                  <p className="dyna-meta">
+                    Combined summary is last known; cited evidence changed.
+                  </p>
+                ) : null}
+                <SourceLinks
+                  sources={props.sources}
+                  onOpenExact={(sourceRef, trigger) =>
+                    void controller.openExactSource(
+                      props.itemId,
+                      props.fingerprint,
+                      sourceRef,
+                      trigger,
+                    )
+                  }
+                  {...(props.sources.length > 1 && !props.archive && !controller.readOnly
+                    ? {
+                        onSeparate: (
+                          sourceRef: DynaSourceRef,
+                          label: string,
+                          trigger: HTMLElement,
+                        ) => {
+                          controller.proposeSourceCorrection(
+                            props.itemId,
+                            props.fingerprint,
+                            props.title,
+                            "separate",
+                            trigger,
+                            sourceRef,
+                            undefined,
+                            label,
+                          );
+                        },
+                      }
+                    : {})}
+                />
+                {props.groupingEvidence.length > 0 ? (
+                  <details className="dyna-context-details">
+                    <summary>Why these sources are grouped</summary>
+                    <ul>
+                      {props.groupingEvidence.map((proof, index) => (
+                        <li key={`${index}-${proof.observedAt}`}>
+                          {sourceReferenceLabel(proof.source)} →{" "}
+                          {sourceReferenceLabel(proof.target)}
+                          {` · ${humanize(proof.kind)} · collector-supplied ${humanize(proof.field)}`}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                ) : null}
+                {props.mergedAliases.length > 0 && !controller.readOnly ? (
+                  <div className="dyna-source-merge-list">
+                    {props.mergedAliases.map((alias) => (
+                      <button
+                        type="button"
+                        key={alias.itemId}
+                        className="dyna-source-correct"
+                        onClick={(event) => {
+                          controller.proposeSourceCorrection(
+                            props.itemId,
+                            props.fingerprint,
+                            props.title,
+                            "undo_merge",
+                            event.currentTarget,
+                            undefined,
+                            alias.itemId,
+                            formatDynaItemNumber(alias.itemNumber),
+                          );
+                        }}
+                      >
+                        Undo merge of {formatDynaItemNumber(alias.itemNumber)}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </section>
               {props.annotations.length > 0 ? (
                 <section className="dyna-inspector-section">
                   <div className="dyna-section-heading">
@@ -3898,8 +4097,10 @@ function workPrompt(card: CardViewProps, locale: string): string {
       ? [`- Follow-up to: ${formatDynaItemNumber(card.followUpOfItemNumber)}`]
       : []),
     ...(card.outcome ? [`- Recorded result (${completionSource}): ${card.outcome}`] : []),
-    `- Source evidence: ${card.sourceLabel} — ${sourceReferenceLabel(card.sourceRef)}`,
-    ...(card.sourceUrl ? [`- Source link: ${card.sourceUrl}`] : []),
+    ...card.sources.map(
+      (source) =>
+        `- Source evidence (${source.freshness}): ${source.label}${dynaSourceUrl(source.sourceRef) ? ` — ${dynaSourceUrl(source.sourceRef)}` : ""}`,
+    ),
     ...(latestNote ? [`- Latest note: ${latestNote.body}`] : []),
   ];
   if (executionSteps.length > 0) {
@@ -4390,6 +4591,11 @@ function cardSearchText(card: DynaCard): string {
     card.priority,
     card.priorityReason,
     JSON.stringify(card.sourceRef),
+    ...card.sources.flatMap((source) => [
+      source.label,
+      JSON.stringify(source.sourceRef),
+      source.freshness,
+    ]),
     card.attention ?? "",
     card.outcome ?? "",
     card.completionAuthority ?? "",
@@ -4900,6 +5106,16 @@ function DynaApp({ app }: { readonly app: App }) {
     readonly fingerprint: string;
     readonly title: string;
   }>();
+  const [sourceCorrectionTarget, setSourceCorrectionTarget] = useState<{
+    readonly itemId: string;
+    readonly fingerprint: string;
+    readonly title: string;
+    readonly action: "separate" | "undo_merge";
+    readonly sourceRef?: DynaSourceRef;
+    readonly aliasItemId?: string;
+    readonly label: string;
+    readonly requestId: string;
+  }>();
   const [completionTarget, setCompletionTarget] = useState<{
     readonly itemId: string;
     readonly fingerprint: string;
@@ -4964,6 +5180,7 @@ function DynaApp({ app }: { readonly app: App }) {
   const todoTrigger = useRef<HTMLElement | null>(null);
   const archiveTrigger = useRef<HTMLElement | null>(null);
   const restoreTrigger = useRef<HTMLElement | null>(null);
+  const sourceCorrectionTrigger = useRef<HTMLElement | null>(null);
   const statusTrigger = useRef<HTMLElement | null>(null);
   const expansionTrigger = useRef<HTMLElement | null>(null);
   const actionTrigger = useRef<{ readonly element: HTMLElement; readonly key: string } | null>(
@@ -4983,6 +5200,7 @@ function DynaApp({ app }: { readonly app: App }) {
     todoOpen ||
     archiveTarget !== undefined ||
     restoreTarget !== undefined ||
+    sourceCorrectionTarget !== undefined ||
     completionTarget !== undefined ||
     (selectedItemId !== undefined && !wideLayout);
 
@@ -5206,6 +5424,7 @@ function DynaApp({ app }: { readonly app: App }) {
     };
     const onContextMenu = (event: MouseEvent) => {
       if (!(event.target instanceof Element)) return;
+      if (event.target.closest("a[href]")) return;
       const pending = pendingSecondarySelection.current;
       pendingSecondarySelection.current = undefined;
       const selectionOverride =
@@ -5418,7 +5637,7 @@ function DynaApp({ app }: { readonly app: App }) {
           content: [
             {
               type: "text",
-              text: `Handle Dyna task sync ${begun.summary.runId} with $flowzone:dyna. Read each exact native Codex task, apply its canonical Dyna item prefix with set_thread_title when needed, re-read and verify the exact title, then submit; report the target unavailable if any title operation or exact read-back fails.`,
+              text: `Handle Dyna task sync ${begun.summary.runId} with $flowzone:dyna. Claim the run. If discovery is required, list the newest non-archived Codex tasks once with a 201-task sentinel, exclude non-Codex entries, deduplicate by exact task ID, submit at most 200 candidates in batches of eight, and report whether inventory was complete or capped. For every linked or returned repair target, apply its exact canonical Dyna prefix with set_thread_title when needed, re-read and verify the exact title, then submit the bounded native observation. Never read transcripts or raw outputs; report unavailable targets without raw errors.`,
             },
           ],
         });
@@ -5484,8 +5703,8 @@ function DynaApp({ app }: { readonly app: App }) {
             setToast(
               summary?.state === "syncing"
                 ? changed
-                  ? "Dashboard updated. Linked tasks are syncing."
-                  : "Dashboard is current. Linked tasks are syncing."
+                  ? "Dashboard updated. Codex sessions are syncing."
+                  : "Dashboard is current. Codex sessions are syncing."
                 : changed
                   ? "Dashboard updated."
                   : "Dashboard is up to date.",
@@ -5827,6 +6046,11 @@ function DynaApp({ app }: { readonly app: App }) {
     window.setTimeout(() => restoreTrigger.current?.focus(), 0);
   }, []);
 
+  const closeSourceCorrection = useCallback(() => {
+    setSourceCorrectionTarget(undefined);
+    window.setTimeout(() => sourceCorrectionTrigger.current?.focus(), 0);
+  }, []);
+
   const closeCompletion = useCallback(() => {
     setCompletionTarget(undefined);
     setCompletionOutcome("");
@@ -6055,6 +6279,40 @@ function DynaApp({ app }: { readonly app: App }) {
     [app, busy, connectionError, refresh],
   );
 
+  const executeSourceCorrection = useCallback(async () => {
+    const active = current.current;
+    const target = sourceCorrectionTarget;
+    if (!active || !target || busy || connectionError || !hostCapabilitiesRef.current.serverTools)
+      return;
+    setOperationError(undefined);
+    setBusy(true);
+    try {
+      const result = await app.callServerTool({
+        name: "dyna_correct_sources",
+        arguments: {
+          viewToken: active.viewToken,
+          itemId: target.itemId,
+          action: target.action,
+          ...(target.sourceRef ? { sourceRef: target.sourceRef } : {}),
+          ...(target.aliasItemId ? { aliasItemId: target.aliasItemId } : {}),
+          expectedRevision: active.snapshot.revision,
+          expectedFingerprint: target.fingerprint,
+          clientRequestId: target.requestId,
+        },
+      });
+      if (toolResultFailed(result)) throw new Error("Source correction failed.");
+      setSourceCorrectionTarget(undefined);
+      await refresh(true);
+      setToast(
+        target.action === "undo_merge" ? "Merge undone." : "Source separated into its own item.",
+      );
+    } catch {
+      setOperationError("Could not correct the source grouping. Refresh and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }, [app, busy, connectionError, refresh, sourceCorrectionTarget]);
+
   const executeStatusChange = useCallback(
     async (
       itemId: string,
@@ -6173,6 +6431,7 @@ function DynaApp({ app }: { readonly app: App }) {
       !todoOpen &&
       !archiveTarget &&
       !restoreTarget &&
+      !sourceCorrectionTarget &&
       !completionTarget
     )
       return;
@@ -6185,6 +6444,7 @@ function DynaApp({ app }: { readonly app: App }) {
         else if (annotationDeleteTarget) closeAnnotationDelete();
         else if (archiveTarget) closeArchive();
         else if (restoreTarget) closeRestore();
+        else if (sourceCorrectionTarget) closeSourceCorrection();
         else if (completionTarget) closeCompletion();
         else closeTodo();
         return;
@@ -6215,8 +6475,10 @@ function DynaApp({ app }: { readonly app: App }) {
     closeArchive,
     closeCompletion,
     closeRestore,
+    closeSourceCorrection,
     closeTodo,
     restoreTarget,
+    sourceCorrectionTarget,
     completionTarget,
     todoOpen,
   ]);
@@ -6287,6 +6549,7 @@ function DynaApp({ app }: { readonly app: App }) {
       trigger?: HTMLElement,
       sessionListRequestId?: string,
       localFeedback = false,
+      selectedSourceRef?: DynaSourceRef,
     ): Promise<DynaActionDispatch | undefined> => {
       const active = current.current;
       if (!active || (!localFeedback && busy) || connectionError) return undefined;
@@ -6318,6 +6581,7 @@ function DynaApp({ app }: { readonly app: App }) {
         taskId ?? "",
         taskHostId ?? "",
         sessionListRequestId ?? "",
+        selectedSourceRef ? JSON.stringify(selectedSourceRef) : "",
       ].join(":");
       let preparationComplete = false;
       try {
@@ -6334,6 +6598,7 @@ function DynaApp({ app }: { readonly app: App }) {
               ...(taskId ? { taskId } : {}),
               ...(taskHostId ? { taskHostId } : {}),
               ...(sessionListRequestId ? { sessionListRequestId } : {}),
+              ...(selectedSourceRef ? { sourceRef: selectedSourceRef } : {}),
               expectedRevision: active.snapshot.revision,
               expectedFingerprint: fingerprint,
               idempotencyKey,
@@ -6479,6 +6744,7 @@ function DynaApp({ app }: { readonly app: App }) {
         todoOpen ||
         archiveTarget !== undefined ||
         restoreTarget !== undefined ||
+        sourceCorrectionTarget !== undefined ||
         completionTarget !== undefined,
       canExpand,
       condenseInline: displayMode === "inline" && (canExpand || initialExpansionPending),
@@ -6524,6 +6790,29 @@ function DynaApp({ app }: { readonly app: App }) {
       restore(itemId, fingerprint, title, trigger) {
         restoreTrigger.current = trigger;
         setRestoreTarget({ itemId, fingerprint, title });
+      },
+      proposeSourceCorrection(
+        itemId,
+        fingerprint,
+        title,
+        action,
+        trigger,
+        sourceRef,
+        aliasItemId,
+        label,
+      ) {
+        sourceCorrectionTrigger.current = trigger;
+        setOperationError(undefined);
+        setSourceCorrectionTarget({
+          itemId,
+          fingerprint,
+          title,
+          action,
+          ...(sourceRef ? { sourceRef } : {}),
+          ...(aliasItemId ? { aliasItemId } : {}),
+          label: label ?? title,
+          requestId: crypto.randomUUID(),
+        });
       },
       async copyContext(card) {
         try {
@@ -6812,6 +7101,19 @@ function DynaApp({ app }: { readonly app: App }) {
         }
         await dispatchAction(itemId, fingerprint, kind, taskId, taskHostId, trigger);
       },
+      async openExactSource(itemId, fingerprint, sourceRef, trigger) {
+        await dispatchAction(
+          itemId,
+          fingerprint,
+          "open_source",
+          undefined,
+          undefined,
+          trigger,
+          undefined,
+          false,
+          sourceRef,
+        );
+      },
       syncTask,
       async loadCodexSessions(itemId, fingerprint, trigger) {
         const dispatched = await dispatchAction(
@@ -6880,6 +7182,7 @@ function DynaApp({ app }: { readonly app: App }) {
       taskSync,
       taskSyncUnavailable,
       restoreTarget,
+      sourceCorrectionTarget,
       selectedItemId,
       setBulkItemsSelected,
       setBulkMode,
@@ -7071,6 +7374,7 @@ function DynaApp({ app }: { readonly app: App }) {
     todoOpen ||
     archiveTarget !== undefined ||
     restoreTarget !== undefined ||
+    sourceCorrectionTarget !== undefined ||
     completionTarget !== undefined ||
     routeDetailsOpen;
   return (
@@ -7530,6 +7834,61 @@ function DynaApp({ app }: { readonly app: App }) {
                 onClick={() => void executeRestore(restoreTarget.itemId, restoreTarget.fingerprint)}
               >
                 Restore item
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {sourceCorrectionTarget ? (
+        <div
+          ref={dialog}
+          className="dyna-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="source-correction-title"
+          aria-describedby="source-correction-description"
+        >
+          <div className="dyna-sheet dyna-confirm-sheet">
+            <div className="dyna-sheet-header">
+              <h2 id="source-correction-title">
+                {sourceCorrectionTarget.action === "undo_merge"
+                  ? "Undo This Merge?"
+                  : "Separate This Source?"}
+              </h2>
+              <p>{sourceCorrectionTarget.title}</p>
+            </div>
+            <div className="dyna-sheet-body">
+              <p id="source-correction-description" className="dyna-modal-note">
+                {sourceCorrectionTarget.action === "undo_merge"
+                  ? `Restore ${sourceCorrectionTarget.label} as a separate item. Both items retain their history and identifiers.`
+                  : `Move ${sourceCorrectionTarget.label} to its own item. Its original source record and link remain available.`}
+              </p>
+              {operationError ? (
+                <p role="alert" className="dyna-error">
+                  {operationError}
+                </p>
+              ) : null}
+            </div>
+            <div className="dyna-sheet-actions">
+              <Button
+                type="button"
+                color="secondary"
+                size="sm"
+                variant="ghost"
+                onClick={closeSourceCorrection}
+                autoFocus
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                color="primary"
+                size="sm"
+                loading={busy}
+                disabled={Boolean(connectionError) || busy}
+                onClick={() => void executeSourceCorrection()}
+              >
+                {sourceCorrectionTarget.action === "undo_merge" ? "Undo merge" : "Separate source"}
               </Button>
             </div>
           </div>

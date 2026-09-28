@@ -63,7 +63,10 @@ try {
   const initialA = store.snapshot(dashboardA.id);
   const initialB = store.snapshot(dashboardB.id);
   const item = initialA.cards.find((card) => card.title === "Original signal");
+  const itemB = initialB.cards.find((card) => card.title === "Original signal");
   assert.ok(item);
+  assert.ok(itemB);
+  assert.notEqual(item.id, itemB.id);
   const viewA = store.createView(dashboardA.id);
   assert.deepEqual(
     store.organizeItem(viewA, item.id, "bump", initialA.revision, item.fingerprint),
@@ -74,7 +77,7 @@ try {
     "high",
   );
   assert.equal(
-    store.snapshot(dashboardB.id).cards.find((card) => card.id === item.id)?.priority,
+    store.snapshot(dashboardB.id).cards.find((card) => card.id === itemB.id)?.priority,
     "normal",
   );
   assert.equal(store.snapshot(dashboardB.id).revision, initialB.revision);
@@ -127,8 +130,8 @@ try {
     provenance: "verified-org-lookup",
   });
   assert.equal(
-    store.snapshot(dashboardB.id).cards.find((card) => card.id === item.id)?.priority,
-    "high",
+    store.snapshot(dashboardB.id).cards.find((card) => card.id === itemB.id)?.priority,
+    "normal",
   );
   assert.throws(
     () =>
@@ -146,7 +149,7 @@ try {
     summary: "Fresh replacement overlay",
     provenance: "replacement-analysis",
   });
-  const replacedOverlay = store.snapshot(dashboardB.id).cards.find((card) => card.id === item.id);
+  const replacedOverlay = store.snapshot(dashboardB.id).cards.find((card) => card.id === itemB.id);
   assert.equal(replacedOverlay?.priority, "normal");
   assert.deepEqual(replacedOverlay?.people, []);
 
@@ -219,9 +222,8 @@ try {
     statusUpdatedAt: completedAt,
     observedAt: completedAt,
   });
-  const activeNormal = store.snapshot(dashboardB.id).cards.find((card) => card.id === item.id);
-  assert.equal(activeNormal?.canMoveEarlier, false);
-  assert.equal(activeNormal?.canMoveLater, false);
+  const activeNormal = store.snapshot(dashboardB.id).cards.find((card) => card.id === itemB.id);
+  assert.equal(Boolean(activeNormal?.canMoveEarlier || activeNormal?.canMoveLater), true);
 
   const nextSourceTime = "2026-09-03T20:00:02.000Z";
   store.publish(

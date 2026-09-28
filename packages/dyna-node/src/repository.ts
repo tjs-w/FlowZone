@@ -35,6 +35,8 @@ import {
   DynaRequiredSourceSlicesSchema,
   DynaScheduledPublishedItemSchema,
   DynaSourceRefSchema,
+  DynaSourceViewSchema,
+  DynaWorkSummarySchema,
   DynaTaskStatusSchema,
   DynaTaskSyncScopeSchema,
   DynaTodoCreateInputSchema,
@@ -46,6 +48,10 @@ import {
   DynaUserWorkflowStageSchema,
   DynaWorkActivityPageSchema,
   DynaWorkUpdateSchema,
+  dynaRecordKey,
+  dynaSourceRecordLabel,
+  dynaSourceUrl,
+  validDynaRelationship,
   dynaLeadershipScore,
   type DynaAnnotation,
   type DynaBacklogState,
@@ -60,6 +66,11 @@ import {
   type DynaItemNumber,
   type DynaItemStatusResult,
   type DynaPublishedItem,
+  type DynaSourceView,
+  type DynaSourceRef,
+  type DynaSourceCorrectionInput,
+  type DynaGroupingEvidence,
+  type DynaWorkSummary,
   type DynaPublishSourceSlice,
   type DynaPublisher,
   type DynaRequiredSourceSlice,
@@ -146,7 +157,7 @@ const ACTION_TTL_MS = 10 * 60 * 1_000;
 const CODEX_SESSION_CANDIDATE_TTL_MS = 10 * 60 * 1_000;
 const CLAIM_LEASE_MS = 5 * 60 * 1_000;
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1_000;
-const DYNA_SCHEMA_VERSION = 12;
+const DYNA_SCHEMA_VERSION = 14;
 const MAX_SAFE_ITEM_NUMBER = Number.MAX_SAFE_INTEGER;
 const MAX_DASHBOARDS = 100;
 const MAX_PUBLISHERS = 100;
@@ -176,27 +187,33 @@ function dynaProjectionMembershipCte(scope: "active" | "archive" = "active"): st
     scope === "archive"
       ? `JOIN item_archive_events ar ON ar.item_id = i.id
           AND ar.dashboard_id = ?1 AND ar.restored_at IS NULL
-         JOIN dashboard_publishers dp ON dp.dashboard_id = ar.dashboard_id
-          AND dp.publisher_id = i.publisher_id
-         LEFT JOIN publisher_items pi ON pi.item_id = i.id AND pi.publisher_id = i.publisher_id`
-      : `JOIN publisher_items pi ON pi.item_id = i.id
-         JOIN dashboard_publishers dp ON dp.publisher_id = pi.publisher_id
+         JOIN dashboard_items di ON di.dashboard_id = ar.dashboard_id AND di.item_id = i.id`
+      : `JOIN dashboard_items di ON di.item_id = i.id
          LEFT JOIN item_archive_events ar ON ar.item_id = i.id
-          AND ar.dashboard_id = dp.dashboard_id AND ar.restored_at IS NULL`;
+          AND ar.dashboard_id = di.dashboard_id AND ar.restored_at IS NULL`;
   const visibility =
     scope === "archive"
-      ? "1 = 1"
-      : `(pi.active = 1 OR EXISTS (
-          SELECT 1 FROM item_archive_events restored
-          WHERE restored.dashboard_id = dp.dashboard_id AND restored.item_id = i.id
-            AND restored.restored_at IS NOT NULL
-        )) AND ar.id IS NULL AND dp.dashboard_id = ?1`;
+      ? `NOT EXISTS (SELECT 1 FROM item_aliases alias
+          WHERE alias.dashboard_id = di.dashboard_id AND alias.alias_item_id = i.id
+            AND alias.undone_at IS NULL)`
+      : `ar.id IS NULL AND di.dashboard_id = ?1 AND EXISTS (
+          SELECT 1 FROM source_contributions visible_source
+          WHERE visible_source.dashboard_id = di.dashboard_id AND visible_source.item_id = i.id
+            AND (EXISTS (SELECT 1 FROM dashboard_publishers bound
+              WHERE bound.dashboard_id = di.dashboard_id AND bound.publisher_id = visible_source.publisher_id)
+              OR EXISTS (SELECT 1 FROM dashboard_manual_publishers manual
+                WHERE manual.dashboard_id = di.dashboard_id AND manual.publisher_id = visible_source.publisher_id))
+        ) AND NOT EXISTS (
+          SELECT 1 FROM item_aliases alias
+          WHERE alias.dashboard_id = di.dashboard_id AND alias.alias_item_id = i.id
+            AND alias.undone_at IS NULL
+        )`;
   return `
     WITH projection_membership AS (
       SELECT DISTINCT i.*, item_number.number AS item_number,
         follow_up.source_item_id AS follow_up_reference_item_id,
         follow_up.source_item_number AS follow_up_of_item_number,
-        dp.dashboard_id AS membership_dashboard_id,
+        di.dashboard_id AS membership_dashboard_id,
         e.summary AS enrichment_summary,
         e.priority AS enrichment_priority,
         e.priority_reason AS enrichment_priority_reason,
@@ -235,27 +252,22 @@ function dynaProjectionMembershipCte(scope: "active" | "archive" = "active"): st
         user_workflow.task_title AS user_workflow_task_title,
         user_workflow.work_attempt_id AS user_workflow_work_attempt_id,
         (SELECT MAX(history.restored_at_ms) FROM item_archive_events history
-          WHERE history.dashboard_id = dp.dashboard_id AND history.item_id = i.id
+          WHERE history.dashboard_id = di.dashboard_id AND history.item_id = i.id
         ) AS last_restored_at_ms
       FROM items i
       JOIN item_numbers item_number ON item_number.item_id = i.id
       LEFT JOIN item_follow_ups follow_up ON follow_up.item_id = i.id
       ${membership}
       LEFT JOIN item_enrichments e ON e.item_id = i.id
-      LEFT JOIN item_preferences p ON p.item_id = i.id AND p.dashboard_id = dp.dashboard_id
+      LEFT JOIN item_preferences p ON p.item_id = i.id AND p.dashboard_id = di.dashboard_id
       LEFT JOIN item_workflow_events user_workflow ON user_workflow.rowid = (
         SELECT candidate.rowid FROM item_workflow_events candidate
         WHERE candidate.item_id = i.id
         ORDER BY candidate.created_at_ms DESC, candidate.rowid DESC LIMIT 1
       )
       WHERE ${visibility}
-    ), projection_ranked AS (
-      SELECT *, ROW_NUMBER() OVER (
-        PARTITION BY identity_key ORDER BY source_updated_ms DESC, updated_at DESC, id
-      ) AS identity_rank
-      FROM projection_membership
     ), projection_items AS (
-      SELECT * FROM projection_ranked WHERE identity_rank = 1
+      SELECT * FROM projection_membership
     )
   `;
 }
@@ -274,6 +286,7 @@ export interface DynaPublishOptions {
   readonly status: "succeeded" | "partial" | "failed";
   readonly failureMessage?: string;
   readonly sourceSlices?: readonly DynaPublishSourceSlice[];
+  readonly workSummaries?: readonly DynaWorkSummary[];
 }
 
 export interface DynaArchiveResult {
@@ -732,6 +745,12 @@ export interface DynaRepositoryTaskSyncRun {
   readonly updatedItems: number;
   readonly unavailableTasks: number;
   readonly incompleteMetadataTasks: number;
+  readonly discoveryState: "disabled" | "pending" | "complete" | "unavailable";
+  readonly inspectedSessions: number;
+  readonly importedItems: number;
+  readonly adoptedItems: number;
+  readonly skippedSessions: number;
+  readonly inventoryTruncated: boolean;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly completedAt?: string | undefined;
@@ -779,6 +798,26 @@ export interface DynaRepositoryTaskSyncReceipt {
   readonly createdAt: string;
 }
 
+export type DynaTaskDiscoveryDisposition =
+  | "imported"
+  | "adopted"
+  | "already_linked"
+  | "scheduled"
+  | "prior_history"
+  | "unavailable"
+  | "failed";
+
+export interface DynaRepositoryTaskDiscovery {
+  readonly runId: string;
+  readonly taskId: string;
+  readonly hostId: string;
+  readonly disposition: DynaTaskDiscoveryDisposition;
+  readonly itemId?: string | undefined;
+  readonly itemNumber?: number | undefined;
+  readonly canonicalTitle?: string | undefined;
+  readonly createdAt: string;
+}
+
 export interface DynaReadUnitOfWork {
   listDashboards(): DynaDashboard[];
   getDashboard(id: string): DynaDashboard;
@@ -793,6 +832,7 @@ export interface DynaReadUnitOfWork {
     terms: readonly string[],
   ): ReadonlySet<string>;
   loadCardEvidence(
+    dashboardId: string,
     itemIds: readonly string[],
     searchTerms?: readonly string[],
   ): readonly DynaRepositoryCardEvidence[];
@@ -810,6 +850,7 @@ export interface DynaReadUnitOfWork {
   findActiveTaskAssociationReservation(taskId: string): DynaTaskAssociationReservation | undefined;
   countActiveTaskAssociationReservationsForItem(itemId: string, excludedRequestId?: string): number;
   dashboardContainsItem(dashboardId: string, itemId: string): boolean;
+  resolveItemAlias(dashboardId: string, itemId: string): string;
   findOpenArchive(dashboardId: string, itemId: string): { readonly id: string } | undefined;
   findArchiveReceipt(
     dashboardId: string,
@@ -857,6 +898,9 @@ export interface DynaReadUnitOfWork {
   listTaskSyncTargets(runId: string): readonly DynaRepositoryTaskSyncTarget[];
   findTaskSyncCheckpoint(taskId: string): DynaRepositoryTaskSyncCheckpoint | undefined;
   findTaskSyncReceipt(id: string): DynaRepositoryTaskSyncReceipt | undefined;
+  findTaskSyncDiscovery(runId: string, taskId: string): DynaRepositoryTaskDiscovery | undefined;
+  isTaskSyncExcluded(runId: string, taskId: string): boolean;
+  findCodexSourceItemIds(taskId: string): readonly string[];
 }
 
 export interface DynaCliReceiptRecord {
@@ -973,6 +1017,11 @@ export interface DynaRepositoryProjectionItem {
 
 export interface DynaRepositoryCardEvidence {
   readonly itemId: string;
+  readonly mergedAliases: readonly { readonly itemId: string; readonly itemNumber: number }[];
+  readonly sources: readonly DynaSourceView[];
+  readonly groupingEvidence: readonly DynaGroupingEvidence[];
+  readonly citedSummary?: string | undefined;
+  readonly citedSummaryState?: "current" | "last_known" | undefined;
   readonly annotations: readonly DynaAnnotation[];
   readonly linkedTasks: readonly DynaTaskStatus[];
   readonly workUpdates: readonly DynaWorkUpdate[];
@@ -1079,6 +1128,7 @@ export interface DynaCliArchiveInsert {
 }
 
 export interface DynaCliManualItemInsert {
+  readonly dashboardId: string;
   readonly itemId: string;
   readonly publisherId: string;
   readonly published: DynaPublishedItem;
@@ -1088,6 +1138,23 @@ export interface DynaCliManualItemInsert {
 }
 
 export interface DynaWriteUnitOfWork extends DynaReadUnitOfWork {
+  findSourceCorrectionReceipt(
+    dashboardId: string,
+    requestId: string,
+  ): { readonly requestHash: string; readonly result: unknown } | undefined;
+  applySourceCorrection(
+    dashboardId: string,
+    itemId: string,
+    input: Pick<DynaSourceCorrectionInput, "action" | "sourceRef" | "aliasItemId">,
+    instant: string,
+  ): { readonly separatedItemId: string; readonly separatedItemNumber: number };
+  insertSourceCorrectionReceipt(
+    dashboardId: string,
+    requestId: string,
+    requestHash: string,
+    result: unknown,
+    instant: string,
+  ): void;
   appendAudit(eventKind: string, entityId: string, instant?: string): void;
   touchDashboards(dashboardIds: Iterable<string>, instant?: string): void;
   findCliReceipt(requestId: string): DynaCliReceiptRecord | undefined;
@@ -1257,6 +1324,8 @@ export interface DynaWriteUnitOfWork extends DynaReadUnitOfWork {
   insertTaskSyncRun(run: DynaRepositoryTaskSyncRun): void;
   updateTaskSyncRun(run: DynaRepositoryTaskSyncRun): void;
   insertTaskSyncTargets(runId: string, targets: readonly DynaRepositoryTaskSyncCandidate[]): void;
+  insertTaskSyncExclusions(runId: string, taskIds: readonly string[]): void;
+  insertTaskSyncDiscovery(discovery: DynaRepositoryTaskDiscovery): void;
   stageTaskSyncObservation(
     runId: string,
     taskId: string,
@@ -1321,6 +1390,13 @@ export class SqliteDynaRepository {
     return this.#transaction(() =>
       operation({
         ...this.#readUnitOfWork(),
+        findSourceCorrectionReceipt: (dashboardId, requestId) =>
+          this.#findSourceCorrectionReceipt(dashboardId, requestId),
+        applySourceCorrection: (dashboardId, itemId, input, instant) =>
+          this.#applySourceCorrection(dashboardId, itemId, input, instant),
+        insertSourceCorrectionReceipt: (dashboardId, requestId, requestHash, result, instant) => {
+          this.#insertSourceCorrectionReceipt(dashboardId, requestId, requestHash, result, instant);
+        },
         appendAudit: (eventKind, entityId, instant) => {
           this.#audit(eventKind, entityId, instant);
         },
@@ -1477,6 +1553,12 @@ export class SqliteDynaRepository {
         insertTaskSyncTargets: (runId, targets) => {
           this.#insertTaskSyncTargets(runId, targets);
         },
+        insertTaskSyncExclusions: (runId, taskIds) => {
+          this.#insertTaskSyncExclusions(runId, taskIds);
+        },
+        insertTaskSyncDiscovery: (discovery) => {
+          this.#insertTaskSyncDiscovery(discovery);
+        },
         stageTaskSyncObservation: (runId, taskId, observation) =>
           this.#stageTaskSyncObservation(runId, taskId, observation),
         stageTaskSyncUnavailable: (runId, taskId, reason) =>
@@ -1504,7 +1586,8 @@ export class SqliteDynaRepository {
       listProjectionItems: (dashboardId, scope) => this.#listProjectionItems(dashboardId, scope),
       matchingProjectionItemIds: (dashboardId, scope, terms) =>
         this.#matchingProjectionItemIds(dashboardId, scope, terms),
-      loadCardEvidence: (itemIds, searchTerms) => this.#loadCardEvidence(itemIds, searchTerms),
+      loadCardEvidence: (dashboardId, itemIds, searchTerms) =>
+        this.#loadCardEvidence(dashboardId, itemIds, searchTerms),
       findDashboardState: (dashboardId) => this.#findDashboardState(dashboardId),
       findItemBase: (itemId) => this.#findCliItemBase(itemId),
       findTaskOwner: (taskId) => this.#findTaskOwner(taskId),
@@ -1522,6 +1605,7 @@ export class SqliteDynaRepository {
         this.#countActiveTaskAssociationReservationsForItem(itemId, excludedRequestId),
       dashboardContainsItem: (dashboardId, itemId) =>
         this.#dashboardContainsItem(dashboardId, itemId),
+      resolveItemAlias: (dashboardId, itemId) => this.#resolveItemAlias(dashboardId, itemId),
       findOpenArchive: (dashboardId, itemId) => this.#findOpenArchive(dashboardId, itemId),
       findArchiveReceipt: (dashboardId, requestId) =>
         this.#findArchiveReceipt(dashboardId, requestId),
@@ -1545,6 +1629,9 @@ export class SqliteDynaRepository {
       listTaskSyncTargets: (runId) => this.#listTaskSyncTargets(runId),
       findTaskSyncCheckpoint: (taskId) => this.#findTaskSyncCheckpoint(taskId),
       findTaskSyncReceipt: (id) => this.#findTaskSyncReceipt(id),
+      findTaskSyncDiscovery: (runId, taskId) => this.#findTaskSyncDiscovery(runId, taskId),
+      isTaskSyncExcluded: (runId, taskId) => this.#isTaskSyncExcluded(runId, taskId),
+      findCodexSourceItemIds: (taskId) => this.#findCodexSourceItemIds(taskId),
     };
   }
 
@@ -1946,16 +2033,7 @@ export class SqliteDynaRepository {
   #listDashboardIdsForItem(itemId: string): readonly string[] {
     return (
       this.#database
-        .prepare(
-          `SELECT DISTINCT dp.dashboard_id FROM dashboard_publishers dp
-           JOIN publisher_items pi ON pi.publisher_id = dp.publisher_id
-           WHERE pi.item_id = ? AND (
-             pi.active = 1 OR EXISTS (
-               SELECT 1 FROM item_archive_events history
-               WHERE history.dashboard_id = dp.dashboard_id AND history.item_id = pi.item_id
-             )
-           )`,
-        )
+        .prepare("SELECT dashboard_id FROM dashboard_items WHERE item_id = ?")
         .all(itemId) as SqlRow[]
     ).map((row) => requiredString(row, "dashboard_id"));
   }
@@ -2317,7 +2395,8 @@ export class SqliteDynaRepository {
   }
 
   #insertCliManualItem(record: DynaCliManualItemInsert): void {
-    const { itemId, publisherId, published, fingerprint, instant, followUpOfItemId } = record;
+    const { dashboardId, itemId, publisherId, published, fingerprint, instant, followUpOfItemId } =
+      record;
     this.#database
       .prepare(
         `INSERT INTO items (
@@ -2358,6 +2437,35 @@ export class SqliteDynaRepository {
          ) VALUES (?, ?, ?, 1, ?)`,
       )
       .run(publisherId, published.externalId, itemId, `manual:${published.externalId}`);
+    this.#database
+      .prepare("INSERT INTO dashboard_items (dashboard_id, item_id, created_at) VALUES (?, ?, ?)")
+      .run(dashboardId, itemId, instant);
+    this.#database
+      .prepare(
+        `INSERT INTO source_contributions
+       (dashboard_id, publisher_id, external_id, item_id, record_key, source_ref, source_scope,
+        payload, source_updated_at, observed_at, last_seen_run_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        dashboardId,
+        publisherId,
+        published.externalId,
+        itemId,
+        dynaRecordKey(published.sourceRef),
+        JSON.stringify(published.sourceRef),
+        published.sourceScope,
+        JSON.stringify(published),
+        published.sourceUpdatedAt,
+        instant,
+        `manual:${published.externalId}`,
+      );
+    this.#database
+      .prepare(
+        `INSERT OR IGNORE INTO work_identity_claims
+       (dashboard_id, record_key, item_id, created_at) VALUES (?, ?, ?, ?)`,
+      )
+      .run(dashboardId, dynaRecordKey(published.sourceRef), itemId, instant);
   }
 
   #insertFollowUpReference(itemId: string, sourceItemId: string): void {
@@ -2514,6 +2622,98 @@ export class SqliteDynaRepository {
         external_id TEXT NOT NULL, item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
         active INTEGER NOT NULL DEFAULT 1, last_seen_run_id TEXT NOT NULL,
         PRIMARY KEY (publisher_id, external_id)
+      );
+      CREATE TABLE IF NOT EXISTS dashboard_items (
+        dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
+        item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (dashboard_id, item_id)
+      );
+      CREATE TABLE IF NOT EXISTS source_contributions (
+        dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
+        publisher_id TEXT NOT NULL,
+        external_id TEXT NOT NULL,
+        item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        record_key TEXT NOT NULL,
+        source_ref TEXT NOT NULL,
+        source_scope TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        source_updated_at TEXT NOT NULL,
+        observed_at TEXT NOT NULL,
+        retired_at TEXT,
+        conflict_warning INTEGER NOT NULL DEFAULT 0 CHECK (conflict_warning IN (0, 1)),
+        last_seen_run_id TEXT NOT NULL,
+        PRIMARY KEY (dashboard_id, publisher_id, external_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_dyna_contributions_item
+        ON source_contributions(dashboard_id, item_id, retired_at);
+      CREATE INDEX IF NOT EXISTS idx_dyna_contributions_record
+        ON source_contributions(dashboard_id, record_key);
+      CREATE TABLE IF NOT EXISTS work_identity_claims (
+        dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
+        record_key TEXT NOT NULL,
+        item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (dashboard_id, record_key)
+      );
+      CREATE TABLE IF NOT EXISTS source_relationship_evidence (
+        id TEXT PRIMARY KEY,
+        dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
+        publisher_id TEXT NOT NULL,
+        external_id TEXT NOT NULL,
+        item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        target_key TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        field TEXT NOT NULL,
+        exact_value TEXT NOT NULL,
+        observed_at TEXT NOT NULL,
+        retired_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_dyna_relationship_evidence_item
+        ON source_relationship_evidence(dashboard_id, item_id, observed_at);
+      CREATE TABLE IF NOT EXISTS item_aliases (
+        dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
+        alias_item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        canonical_item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        merged_at TEXT NOT NULL,
+        undone_at TEXT,
+        PRIMARY KEY (dashboard_id, alias_item_id),
+        CHECK (alias_item_id <> canonical_item_id)
+      );
+      CREATE TABLE IF NOT EXISTS item_merge_events (
+        id TEXT PRIMARY KEY,
+        dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
+        alias_item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        canonical_item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        evidence_key TEXT NOT NULL,
+        moved_data TEXT NOT NULL DEFAULT '{}',
+        merged_at TEXT NOT NULL,
+        undone_at TEXT
+      );
+      CREATE TABLE IF NOT EXISTS work_summaries (
+        dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
+        item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        publisher_id TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        evidence_keys TEXT NOT NULL,
+        evidence_fingerprint TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (dashboard_id, item_id)
+      );
+      CREATE TABLE IF NOT EXISTS source_separations (
+        dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
+        record_key TEXT NOT NULL,
+        blocked_target_key TEXT NOT NULL,
+        separated_at TEXT NOT NULL,
+        PRIMARY KEY (dashboard_id, record_key, blocked_target_key)
+      );
+      CREATE TABLE IF NOT EXISTS source_correction_receipts (
+        dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
+        request_id TEXT NOT NULL,
+        request_hash TEXT NOT NULL,
+        result TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (dashboard_id, request_id)
       );
       CREATE TABLE IF NOT EXISTS publisher_runs (
         publisher_id TEXT NOT NULL REFERENCES publishers(id) ON DELETE CASCADE,
@@ -2725,6 +2925,25 @@ export class SqliteDynaRepository {
         result_json TEXT,
         created_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS task_sync_discoveries (
+        run_id TEXT NOT NULL REFERENCES task_sync_runs(id) ON DELETE CASCADE,
+        task_id TEXT NOT NULL,
+        host_id TEXT NOT NULL,
+        disposition TEXT NOT NULL CHECK (disposition IN (
+          'imported', 'adopted', 'already_linked', 'scheduled',
+          'prior_history', 'unavailable', 'failed'
+        )),
+        item_id TEXT REFERENCES items(id) ON DELETE SET NULL,
+        item_number INTEGER,
+        canonical_title TEXT,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (run_id, task_id)
+      );
+      CREATE TABLE IF NOT EXISTS task_sync_exclusions (
+        run_id TEXT NOT NULL REFERENCES task_sync_runs(id) ON DELETE CASCADE,
+        task_id TEXT NOT NULL,
+        PRIMARY KEY (run_id, task_id)
+      );
       CREATE TABLE IF NOT EXISTS view_sessions (
         token_hash BLOB PRIMARY KEY, dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
         expires_at TEXT NOT NULL
@@ -2734,6 +2953,7 @@ export class SqliteDynaRepository {
         dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
         kind TEXT NOT NULL, item_id TEXT REFERENCES items(id) ON DELETE CASCADE,
         item_fingerprint TEXT, dashboard_revision INTEGER, task_id TEXT, host_id TEXT,
+        selected_source_ref TEXT,
         idempotency_key TEXT, state TEXT NOT NULL, claim_token_hash BLOB, claim_expires_at TEXT,
         result_task_id TEXT, failure_message TEXT, uncertain_effect INTEGER NOT NULL DEFAULT 0,
         expires_at TEXT NOT NULL,
@@ -2825,6 +3045,8 @@ export class SqliteDynaRepository {
         WHERE state IN ('prepared', 'delivered', 'claimed', 'syncing');
       CREATE INDEX IF NOT EXISTS idx_dyna_task_sync_runs_dashboard_time
         ON task_sync_runs(dashboard_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_dyna_task_sync_discoveries_disposition
+        ON task_sync_discoveries(run_id, disposition, task_id);
       CREATE INDEX IF NOT EXISTS idx_dyna_task_sync_targets_state
         ON task_sync_targets(run_id, state, task_id);
       CREATE UNIQUE INDEX IF NOT EXISTS idx_dyna_task_sync_observation_receipt
@@ -3179,6 +3401,32 @@ export class SqliteDynaRepository {
           `The Dyna task-synchronization ledger ${table} is missing and cannot be reconstructed safely.`,
         );
       }
+      if (table === "task_sync_runs") {
+        const columns = new Set(
+          (this.#database.prepare("PRAGMA table_info(task_sync_runs)").all() as SqlRow[]).map(
+            (row) => requiredString(row, "name"),
+          ),
+        );
+        if (
+          [
+            "id",
+            "dashboard_id",
+            "scope_kind",
+            "state",
+            "expires_at",
+            "total_tasks",
+            "processed_tasks",
+            "updated_items",
+            "unavailable_tasks",
+            "incomplete_metadata_tasks",
+            "created_at",
+            "updated_at",
+          ].some((column) => !columns.has(column))
+        ) {
+          throw new Error("The Dyna task-synchronization run ledger is incomplete.");
+        }
+        continue;
+      }
       if (this.#normalizedSchemaSql(actual) !== this.#normalizedSchemaSql(expected)) {
         throw new Error(`The Dyna task-synchronization ledger ${table} is invalid.`);
       }
@@ -3480,6 +3728,154 @@ export class SqliteDynaRepository {
     }
   }
 
+  #migrateTaskDiscoveryV13(): void {
+    const columns = new Set(
+      (this.#database.prepare("PRAGMA table_info(task_sync_runs)").all() as SqlRow[]).map((row) =>
+        requiredString(row, "name"),
+      ),
+    );
+    const additions: Readonly<Record<string, string>> = {
+      discovery_state:
+        "TEXT NOT NULL DEFAULT 'disabled' CHECK (discovery_state IN ('disabled', 'pending', 'complete', 'unavailable'))",
+      inspected_sessions:
+        "INTEGER NOT NULL DEFAULT 0 CHECK (inspected_sessions >= 0 AND inspected_sessions <= 200)",
+      imported_items:
+        "INTEGER NOT NULL DEFAULT 0 CHECK (imported_items >= 0 AND imported_items <= 200)",
+      adopted_items:
+        "INTEGER NOT NULL DEFAULT 0 CHECK (adopted_items >= 0 AND adopted_items <= 200)",
+      skipped_sessions:
+        "INTEGER NOT NULL DEFAULT 0 CHECK (skipped_sessions >= 0 AND skipped_sessions <= 200)",
+      inventory_truncated: "INTEGER NOT NULL DEFAULT 0 CHECK (inventory_truncated IN (0, 1))",
+    };
+    for (const [name, declaration] of Object.entries(additions)) {
+      if (!columns.has(name)) {
+        this.#database.exec(`ALTER TABLE task_sync_runs ADD COLUMN ${name} ${declaration};`);
+      }
+    }
+    this.#createSchema();
+  }
+
+  #assertTaskDiscoverySchemaCurrent(): void {
+    const columns = new Set(
+      (this.#database.prepare("PRAGMA table_info(task_sync_runs)").all() as SqlRow[]).map((row) =>
+        requiredString(row, "name"),
+      ),
+    );
+    for (const name of [
+      "discovery_state",
+      "inspected_sessions",
+      "imported_items",
+      "adopted_items",
+      "skipped_sessions",
+      "inventory_truncated",
+    ]) {
+      if (!columns.has(name)) {
+        throw new Error("The Dyna task-discovery run schema is incomplete.");
+      }
+    }
+    for (const table of ["task_sync_discoveries", "task_sync_exclusions"]) {
+      if (!this.#schemaObjectExists("table", table)) {
+        throw new Error(`The Dyna task-discovery ledger ${table} is missing.`);
+      }
+    }
+    if (!this.#schemaObjectExists("index", "idx_dyna_task_sync_discoveries_disposition")) {
+      throw new Error("The Dyna task-discovery disposition index is missing.");
+    }
+  }
+
+  #migrateSourceEvidenceV14(): void {
+    this.#createSchema();
+    const actionColumns = new Set(
+      (this.#database.prepare("PRAGMA table_info(action_requests)").all() as SqlRow[]).map((row) =>
+        requiredString(row, "name"),
+      ),
+    );
+    if (!actionColumns.has("selected_source_ref")) {
+      this.#database.exec("ALTER TABLE action_requests ADD COLUMN selected_source_ref TEXT;");
+    }
+    const instant = this.#now();
+    this.#database
+      .prepare(
+        `INSERT OR IGNORE INTO dashboard_items (dashboard_id, item_id, created_at)
+       SELECT DISTINCT dp.dashboard_id, pi.item_id, ?
+       FROM publisher_items pi
+       JOIN dashboard_publishers dp ON dp.publisher_id = pi.publisher_id`,
+      )
+      .run(instant);
+    this.#database
+      .prepare(
+        `INSERT OR IGNORE INTO dashboard_items (dashboard_id, item_id, created_at)
+       SELECT DISTINCT dashboard_id, item_id, ? FROM item_archive_events`,
+      )
+      .run(instant);
+    const rows = this.#database
+      .prepare(
+        `SELECT di.dashboard_id, pi.publisher_id, pi.external_id,
+         pi.active, pi.last_seen_run_id, item.*
+       FROM dashboard_items di
+       JOIN items item ON item.id = di.item_id
+       JOIN publisher_items pi ON pi.item_id = item.id`,
+      )
+      .all() as SqlRow[];
+    const contribution = this.#database.prepare(
+      `INSERT OR IGNORE INTO source_contributions (
+         dashboard_id, publisher_id, external_id, item_id, record_key, source_ref,
+         source_scope, payload, source_updated_at, observed_at, retired_at, last_seen_run_id
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    const claim = this.#database.prepare(
+      `INSERT OR IGNORE INTO work_identity_claims
+         (dashboard_id, record_key, item_id, created_at) VALUES (?, ?, ?, ?)`,
+    );
+    for (const row of rows) {
+      const ref = DynaSourceRefSchema.parse(parseJson(requiredString(row, "source_ref")));
+      const dashboardId = requiredString(row, "dashboard_id");
+      const itemId = requiredString(row, "id");
+      const key = dynaRecordKey(ref);
+      contribution.run(
+        dashboardId,
+        requiredString(row, "publisher_id"),
+        requiredString(row, "external_id"),
+        itemId,
+        key,
+        JSON.stringify(ref),
+        requiredString(row, "source_scope"),
+        JSON.stringify(this.#baseItem(row)),
+        requiredString(row, "source_updated_at"),
+        requiredString(row, "updated_at"),
+        requiredNumber(row, "active") === 1 ? null : requiredString(row, "updated_at"),
+        requiredString(row, "last_seen_run_id"),
+      );
+      claim.run(dashboardId, key, itemId, instant);
+    }
+  }
+
+  #assertSourceEvidenceSchemaCurrent(): void {
+    const actionColumns = new Set(
+      (this.#database.prepare("PRAGMA table_info(action_requests)").all() as SqlRow[]).map((row) =>
+        requiredString(row, "name"),
+      ),
+    );
+    if (!actionColumns.has("selected_source_ref")) {
+      throw new Error("The Dyna selected-source action schema is incomplete.");
+    }
+    for (const table of [
+      "dashboard_items",
+      "source_contributions",
+      "work_identity_claims",
+      "source_relationship_evidence",
+      "item_aliases",
+      "item_merge_events",
+      "work_summaries",
+      "source_separations",
+      "source_correction_receipts",
+    ]) {
+      if (!this.#schemaObjectExists("table", table)) {
+        throw new Error(`The Dyna source-evidence table ${table} is missing.`);
+      }
+    }
+  }
+
   #backfillItemNumbers(): void {
     const insert = this.#database.prepare("INSERT INTO item_numbers (item_id) VALUES (?)");
     const rows = this.#database
@@ -3657,6 +4053,8 @@ export class SqliteDynaRepository {
       // silently backfilled with different numbers.
       this.#assertItemNumberIntegrity();
       this.#assertTaskSyncSchemaCurrent();
+      this.#assertTaskDiscoverySchemaCurrent();
+      this.#assertSourceEvidenceSchemaCurrent();
       this.#assertAnnotationSchemaCurrent();
       this.#assertFullControlSchemaCurrent();
       this.#assertBacklogSchemaCurrent();
@@ -3750,28 +4148,55 @@ export class SqliteDynaRepository {
       });
       return;
     }
+    if (startingVersion === 13) {
+      this.#transaction(() => {
+        this.#migrateSourceEvidenceV14();
+        this.#assertSourceEvidenceSchemaCurrent();
+        this.#assertDatabaseIntegrity();
+        this.#assertItemNumberIntegrity();
+        this.#database.exec("PRAGMA user_version = 14;");
+      });
+      return;
+    }
     if (startingVersion === 10) {
       this.#transaction(() => {
         this.#migrateFullControlV11();
         this.#migrateBacklogV12();
+        this.#migrateTaskDiscoveryV13();
+        this.#migrateSourceEvidenceV14();
         this.#createSchema();
         this.#assertAnnotationSchemaCurrent();
         this.#assertFullControlSchemaCurrent();
         this.#assertBacklogSchemaCurrent();
+        this.#assertTaskDiscoverySchemaCurrent();
         this.#assertDatabaseIntegrity();
         this.#assertItemNumberIntegrity();
-        this.#database.exec("PRAGMA user_version = 12;");
+        this.#database.exec("PRAGMA user_version = 14;");
       });
       return;
     }
     if (startingVersion === 11) {
       this.#transaction(() => {
         this.#migrateBacklogV12();
+        this.#migrateTaskDiscoveryV13();
+        this.#migrateSourceEvidenceV14();
         this.#createSchema();
         this.#assertBacklogSchemaCurrent();
+        this.#assertTaskDiscoverySchemaCurrent();
         this.#assertDatabaseIntegrity();
         this.#assertItemNumberIntegrity();
-        this.#database.exec("PRAGMA user_version = 12;");
+        this.#database.exec("PRAGMA user_version = 14;");
+      });
+      return;
+    }
+    if (startingVersion === 12) {
+      this.#transaction(() => {
+        this.#migrateTaskDiscoveryV13();
+        this.#migrateSourceEvidenceV14();
+        this.#assertTaskDiscoverySchemaCurrent();
+        this.#assertDatabaseIntegrity();
+        this.#assertItemNumberIntegrity();
+        this.#database.exec("PRAGMA user_version = 14;");
       });
       return;
     }
@@ -3955,7 +4380,10 @@ export class SqliteDynaRepository {
       versionFour !== 6 &&
       versionFour !== 7 &&
       versionFour !== 8 &&
-      versionFour !== 9
+      versionFour !== 9 &&
+      versionFour !== 10 &&
+      versionFour !== 11 &&
+      versionFour !== 12
     ) {
       throw new Error("Dyna could not complete its database schema migration.");
     }
@@ -3979,7 +4407,15 @@ export class SqliteDynaRepository {
         this.#assertDatabaseIntegrity();
         this.#database.exec("PRAGMA user_version = 6;");
       });
-    } else if (versionFive !== 6 && versionFive !== 7 && versionFive !== 8 && versionFive !== 9) {
+    } else if (
+      versionFive !== 6 &&
+      versionFive !== 7 &&
+      versionFive !== 8 &&
+      versionFive !== 9 &&
+      versionFive !== 10 &&
+      versionFive !== 11 &&
+      versionFive !== 12
+    ) {
       throw new Error("Dyna could not complete its database schema migration.");
     }
     const versionSixRow = this.#one(this.#database.prepare("PRAGMA user_version"));
@@ -3993,7 +4429,14 @@ export class SqliteDynaRepository {
         this.#assertDatabaseIntegrity();
         this.#database.exec("PRAGMA user_version = 7;");
       });
-    } else if (versionSix !== 7 && versionSix !== 8 && versionSix !== 9) {
+    } else if (
+      versionSix !== 7 &&
+      versionSix !== 8 &&
+      versionSix !== 9 &&
+      versionSix !== 10 &&
+      versionSix !== 11 &&
+      versionSix !== 12
+    ) {
       throw new Error("Dyna could not complete its database schema migration.");
     }
     const versionSevenRow = this.#one(this.#database.prepare("PRAGMA user_version"));
@@ -4033,7 +4476,10 @@ export class SqliteDynaRepository {
       });
     } else if (
       requiredNumber(versionSevenRow, "user_version") !== 8 &&
-      requiredNumber(versionSevenRow, "user_version") !== 9
+      requiredNumber(versionSevenRow, "user_version") !== 9 &&
+      requiredNumber(versionSevenRow, "user_version") !== 10 &&
+      requiredNumber(versionSevenRow, "user_version") !== 11 &&
+      requiredNumber(versionSevenRow, "user_version") !== 12
     ) {
       throw new Error("Dyna could not complete its database schema migration.");
     }
@@ -4051,48 +4497,77 @@ export class SqliteDynaRepository {
         this.#assertItemNumberIntegrity();
         this.#database.exec("PRAGMA user_version = 9;");
       });
-    } else if (versionEight !== 9) {
+    } else if (
+      versionEight !== 9 &&
+      versionEight !== 10 &&
+      versionEight !== 11 &&
+      versionEight !== 12
+    ) {
       throw new Error("Dyna could not complete its database schema migration.");
     }
     const versionNineRow = this.#one(this.#database.prepare("PRAGMA user_version"));
-    if (!versionNineRow || requiredNumber(versionNineRow, "user_version") !== 9) {
+    if (!versionNineRow) {
       throw new Error("Dyna could not complete its database schema migration.");
     }
-    this.#transaction(() => {
-      this.#migrateAnnotationsV10();
-      this.#assertDatabaseIntegrity();
-      this.#assertItemNumberIntegrity();
-      this.#database.exec("PRAGMA user_version = 10;");
-    });
+    const versionNine = requiredNumber(versionNineRow, "user_version");
+    if (versionNine === 9) {
+      this.#transaction(() => {
+        this.#migrateAnnotationsV10();
+        this.#assertDatabaseIntegrity();
+        this.#assertItemNumberIntegrity();
+        this.#database.exec("PRAGMA user_version = 10;");
+      });
+    } else if (versionNine !== 10 && versionNine !== 11 && versionNine !== 12) {
+      throw new Error("Dyna could not complete its database schema migration.");
+    }
     const versionTenRow = this.#one(this.#database.prepare("PRAGMA user_version"));
-    if (!versionTenRow || requiredNumber(versionTenRow, "user_version") !== 10) {
+    if (!versionTenRow) {
       throw new Error("Dyna could not complete its database schema migration.");
     }
-    this.#transaction(() => {
-      this.#migrateFullControlV11();
-      this.#createSchema();
-      this.#assertAnnotationSchemaCurrent();
-      this.#assertFullControlSchemaCurrent();
-      this.#assertDatabaseIntegrity();
-      this.#assertItemNumberIntegrity();
-      this.#database.exec("PRAGMA user_version = 11;");
-    });
+    const versionTen = requiredNumber(versionTenRow, "user_version");
+    if (versionTen === 10) {
+      this.#transaction(() => {
+        this.#migrateFullControlV11();
+        this.#createSchema();
+        this.#assertAnnotationSchemaCurrent();
+        this.#assertFullControlSchemaCurrent();
+        this.#assertDatabaseIntegrity();
+        this.#assertItemNumberIntegrity();
+        this.#database.exec("PRAGMA user_version = 11;");
+      });
+    } else if (versionTen !== 11 && versionTen !== 12) {
+      throw new Error("Dyna could not complete its database schema migration.");
+    }
     const versionElevenRow = this.#one(this.#database.prepare("PRAGMA user_version"));
-    if (!versionElevenRow || requiredNumber(versionElevenRow, "user_version") !== 11) {
+    if (!versionElevenRow) {
+      throw new Error("Dyna could not complete its database schema migration.");
+    }
+    const versionEleven = requiredNumber(versionElevenRow, "user_version");
+    if (versionEleven === 11) {
+      this.#transaction(() => {
+        this.#migrateBacklogV12();
+        this.#createSchema();
+        this.#assertBacklogSchemaCurrent();
+        this.#assertDatabaseIntegrity();
+        this.#assertItemNumberIntegrity();
+        this.#database.exec("PRAGMA user_version = 12;");
+      });
+    } else if (versionEleven !== 12) {
+      throw new Error("Dyna could not complete its database schema migration.");
+    }
+    const versionTwelveRow = this.#one(this.#database.prepare("PRAGMA user_version"));
+    if (!versionTwelveRow || requiredNumber(versionTwelveRow, "user_version") !== 12) {
       throw new Error("Dyna could not complete its database schema migration.");
     }
     this.#transaction(() => {
-      this.#migrateBacklogV12();
-      this.#createSchema();
-      this.#assertBacklogSchemaCurrent();
+      this.#migrateTaskDiscoveryV13();
+      this.#migrateSourceEvidenceV14();
+      this.#assertTaskDiscoverySchemaCurrent();
+      this.#assertSourceEvidenceSchemaCurrent();
       this.#assertDatabaseIntegrity();
       this.#assertItemNumberIntegrity();
-      this.#database.exec("PRAGMA user_version = 12;");
+      this.#database.exec("PRAGMA user_version = 14;");
     });
-    const migratedVersion = this.#one(this.#database.prepare("PRAGMA user_version"));
-    if (!migratedVersion || requiredNumber(migratedVersion, "user_version") !== 12) {
-      throw new Error("Dyna could not complete its database schema migration.");
-    }
   }
 
   #migrateUnversionedSchema(): void {
@@ -4473,9 +4948,8 @@ export class SqliteDynaRepository {
     );
     const activeSlices = this.#database
       .prepare(
-        `SELECT DISTINCT i.source, i.source_scope FROM publisher_items pi
-         JOIN items i ON i.id = pi.item_id
-         WHERE pi.publisher_id = ? AND pi.active = 1`,
+        `SELECT DISTINCT json_extract(source_ref, '$.source') AS source, source_scope
+         FROM source_contributions WHERE publisher_id = ? AND retired_at IS NULL`,
       )
       .all(publisherId) as SqlRow[];
     if (
@@ -5054,6 +5528,517 @@ export class SqliteDynaRepository {
     return this.#publishAuthorized(publisherId, undefined, items, options);
   }
 
+  #publishEvidenceRecords(
+    publisherId: string,
+    items: readonly DynaPublishedItem[],
+    options: DynaPublishOptions,
+    sourceSlices: readonly DynaPublishSourceSlice[] | undefined,
+    affectedDashboards: Set<string>,
+    instant: string,
+  ): void {
+    const dashboards = [...affectedDashboards];
+    const successfulSlices = sourceSlices?.filter((slice) => slice.status === "succeeded");
+    const touched = new Set<string>();
+    if (options.mode === "replace") {
+      const retire = this.#database.prepare(
+        `UPDATE source_contributions SET retired_at = ?
+         WHERE dashboard_id = ? AND publisher_id = ? AND retired_at IS NULL
+           AND (? IS NULL OR (json_extract(source_ref, '$.source') = ? AND source_scope = ?))`,
+      );
+      for (const dashboardId of dashboards) {
+        if (successfulSlices) {
+          for (const slice of successfulSlices) {
+            for (const row of this.#database
+              .prepare(
+                `SELECT item_id FROM source_contributions WHERE dashboard_id = ?
+               AND publisher_id = ? AND retired_at IS NULL
+               AND json_extract(source_ref, '$.source') = ? AND source_scope = ?`,
+              )
+              .all(dashboardId, publisherId, slice.source, slice.sourceScope) as SqlRow[]) {
+              touched.add(requiredString(row, "item_id"));
+            }
+            retire.run(
+              instant,
+              dashboardId,
+              publisherId,
+              slice.source,
+              slice.source,
+              slice.sourceScope,
+            );
+          }
+        } else {
+          for (const row of this.#database
+            .prepare(
+              `SELECT item_id FROM source_contributions WHERE dashboard_id = ?
+             AND publisher_id = ? AND retired_at IS NULL`,
+            )
+            .all(dashboardId, publisherId) as SqlRow[]) {
+            touched.add(requiredString(row, "item_id"));
+          }
+          retire.run(instant, dashboardId, publisherId, null, null, null);
+        }
+      }
+      // Preserve the legacy membership ledger for old installations and rollback tools.
+      if (successfulSlices) {
+        for (const slice of successfulSlices) {
+          this.#database
+            .prepare(
+              `UPDATE publisher_items SET active = 0 WHERE publisher_id = ? AND external_id IN
+             (SELECT external_id FROM source_contributions WHERE publisher_id = ?
+                AND json_extract(source_ref, '$.source') = ? AND source_scope = ?)`,
+            )
+            .run(publisherId, publisherId, slice.source, slice.sourceScope);
+        }
+      } else {
+        this.#database
+          .prepare("UPDATE publisher_items SET active = 0 WHERE publisher_id = ?")
+          .run(publisherId);
+      }
+    }
+
+    for (const item of items) {
+      let legacyItemId: string | undefined;
+      const ownKey = dynaRecordKey(item.sourceRef);
+      const sourceMs = normalizeTimestamp(item.sourceUpdatedAt).epoch;
+      const relationships = item.relationships ?? [];
+      for (const relationship of relationships) {
+        if (!validDynaRelationship(item.sourceRef, relationship)) {
+          throw new Error("Dyna rejected an unverified or unsupported source relationship.");
+        }
+      }
+      const assertedTargetKeys = [
+        ...new Set(relationships.map((relationship) => dynaRecordKey(relationship.target))),
+      ];
+      for (const dashboardId of dashboards) {
+        const targetKeys = assertedTargetKeys.filter(
+          (targetKey) =>
+            !this.#one(
+              this.#database.prepare(
+                `SELECT 1 AS blocked FROM source_separations
+             WHERE dashboard_id = ? AND record_key = ? AND blocked_target_key = ?`,
+              ),
+              dashboardId,
+              ownKey,
+              targetKey,
+            ),
+        );
+        const prior = this.#one(
+          this.#database.prepare(
+            `SELECT item_id, source_ref, source_scope, payload, source_updated_at
+           FROM source_contributions WHERE dashboard_id = ? AND publisher_id = ? AND external_id = ?`,
+          ),
+          dashboardId,
+          publisherId,
+          item.externalId,
+        );
+        if (prior && sourceSlices) {
+          const previousRef = DynaSourceRefSchema.parse(
+            parseJson(requiredString(prior, "source_ref")),
+          );
+          if (
+            previousRef.source !== item.sourceRef.source ||
+            requiredString(prior, "source_scope") !== item.sourceScope
+          ) {
+            throw new Error(
+              "A source-sliced Dyna run cannot move an external ID between source slices.",
+            );
+          }
+        }
+        if (
+          prior &&
+          Date.parse(requiredString(prior, "source_updated_at")) === sourceMs &&
+          JSON.stringify(parseJson(requiredString(prior, "payload"))) !== JSON.stringify(item)
+        ) {
+          throw new Error("Dyna rejected conflicting source data with the same update timestamp.");
+        }
+        const candidates = new Set<string>();
+        if (prior) candidates.add(requiredString(prior, "item_id"));
+        const ownClaim = this.#one(
+          this.#database.prepare(
+            "SELECT item_id FROM work_identity_claims WHERE dashboard_id = ? AND record_key = ?",
+          ),
+          dashboardId,
+          ownKey,
+        );
+        for (const key of [ownKey, ...targetKeys]) {
+          const claim = this.#one(
+            this.#database.prepare(
+              "SELECT item_id FROM work_identity_claims WHERE dashboard_id = ? AND record_key = ?",
+            ),
+            dashboardId,
+            key,
+          );
+          if (claim) candidates.add(requiredString(claim, "item_id"));
+        }
+        const candidateRows = [...candidates]
+          .map((id) =>
+            this.#one(
+              this.#database.prepare(
+                `SELECT i.id, n.number, (SELECT COUNT(*) FROM dashboard_items di WHERE di.item_id = i.id) AS dashboard_count
+           FROM items i JOIN item_numbers n ON n.item_id = i.id WHERE i.id = ?`,
+              ),
+              id,
+            ),
+          )
+          .filter((row): row is SqlRow => Boolean(row));
+        const jiraKeys = new Set<string>(
+          relationships
+            .filter(
+              (relationship) =>
+                relationship.target.source === "twg" && relationship.target.resultType === "jira",
+            )
+            .map((relationship) => dynaRecordKey(relationship.target)),
+        );
+        if (item.sourceRef.source === "twg" && item.sourceRef.resultType === "jira")
+          jiraKeys.add(ownKey);
+        for (const candidate of candidateRows) {
+          for (const claim of this.#database
+            .prepare(
+              "SELECT record_key FROM work_identity_claims WHERE dashboard_id = ? AND item_id = ?",
+            )
+            .all(dashboardId, requiredString(candidate, "id")) as SqlRow[]) {
+            const key = requiredString(claim, "record_key");
+            if (key.startsWith('["jira",')) jiraKeys.add(key);
+          }
+        }
+        const conflictingJira = jiraKeys.size > 1;
+        // Conflicting issue identities must never cause an automatic merge.
+        const localCandidateId = prior
+          ? requiredString(prior, "item_id")
+          : ownClaim
+            ? requiredString(ownClaim, "item_id")
+            : undefined;
+        const eligible = conflictingJira
+          ? candidateRows.filter((row) => requiredString(row, "id") === localCandidateId)
+          : candidateRows;
+        eligible.sort((a, b) => {
+          const shared =
+            (requiredNumber(b, "dashboard_count") > 1 ? 1 : 0) -
+            (requiredNumber(a, "dashboard_count") > 1 ? 1 : 0);
+          return shared || requiredNumber(a, "number") - requiredNumber(b, "number");
+        });
+        const itemId = eligible[0] ? requiredString(eligible[0], "id") : randomUUID();
+        if (eligible.length === 0) {
+          const fingerprint = sha256(JSON.stringify(item));
+          this.#database
+            .prepare(
+              `INSERT INTO items (id, publisher_id, external_id, identity_key, source, source_ref,
+               source_scope, title, summary, priority, priority_reason, source_updated_at,
+               source_updated_ms, due_at, labels, people, leadership_score, attention, plan,
+               next_steps, follow_up_of_item_id, fingerprint, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+            )
+            .run(
+              itemId,
+              publisherId,
+              `card:${itemId}`,
+              identityKey(publisherId, item.sourceRef),
+              item.sourceRef.source,
+              JSON.stringify(item.sourceRef),
+              item.sourceScope,
+              item.title,
+              item.summary,
+              item.priority,
+              item.priorityReason,
+              item.sourceUpdatedAt,
+              sourceMs,
+              item.dueAt ?? null,
+              JSON.stringify(item.labels),
+              JSON.stringify(item.people),
+              dynaLeadershipScore(item.people),
+              item.attention ?? null,
+              JSON.stringify(item.plan),
+              JSON.stringify(item.nextSteps),
+              fingerprint,
+              instant,
+            );
+        }
+        this.#database
+          .prepare(
+            "INSERT OR IGNORE INTO dashboard_items (dashboard_id, item_id, created_at) VALUES (?, ?, ?)",
+          )
+          .run(dashboardId, itemId, instant);
+        if (!conflictingJira) {
+          for (const candidate of eligible.slice(1)) {
+            const aliasId = requiredString(candidate, "id");
+            const localAlias = requiredNumber(candidate, "dashboard_count") === 1;
+            const movedData = {
+              sources: (
+                this.#database
+                  .prepare(
+                    `SELECT publisher_id, external_id, record_key FROM source_contributions
+                 WHERE dashboard_id = ? AND item_id = ?`,
+                  )
+                  .all(dashboardId, aliasId) as SqlRow[]
+              ).map((row) => ({
+                publisherId: requiredString(row, "publisher_id"),
+                externalId: requiredString(row, "external_id"),
+                recordKey: requiredString(row, "record_key"),
+              })),
+              annotations: localAlias
+                ? (
+                    this.#database
+                      .prepare("SELECT id FROM annotations WHERE item_id = ?")
+                      .all(aliasId) as SqlRow[]
+                  ).map((row) => requiredString(row, "id"))
+                : [],
+              updates: localAlias
+                ? (
+                    this.#database
+                      .prepare("SELECT id FROM work_updates WHERE item_id = ?")
+                      .all(aliasId) as SqlRow[]
+                  ).map((row) => requiredString(row, "id"))
+                : [],
+              tasks: localAlias
+                ? (
+                    this.#database
+                      .prepare("SELECT task_id FROM task_bindings WHERE item_id = ?")
+                      .all(aliasId) as SqlRow[]
+                  ).map((row) => requiredString(row, "task_id"))
+                : [],
+            };
+            this.#database
+              .prepare(
+                `INSERT OR IGNORE INTO item_aliases
+               (dashboard_id, alias_item_id, canonical_item_id, merged_at) VALUES (?, ?, ?, ?)`,
+              )
+              .run(dashboardId, aliasId, itemId, instant);
+            this.#database
+              .prepare(
+                `INSERT INTO item_merge_events
+               (id, dashboard_id, alias_item_id, canonical_item_id, evidence_key, moved_data, merged_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)`,
+              )
+              .run(
+                randomUUID(),
+                dashboardId,
+                aliasId,
+                itemId,
+                targetKeys[0] ?? ownKey,
+                JSON.stringify(movedData),
+                instant,
+              );
+            this.#database
+              .prepare(
+                "UPDATE source_contributions SET item_id = ? WHERE dashboard_id = ? AND item_id = ?",
+              )
+              .run(itemId, dashboardId, aliasId);
+            this.#database
+              .prepare(
+                "UPDATE work_identity_claims SET item_id = ? WHERE dashboard_id = ? AND item_id = ?",
+              )
+              .run(itemId, dashboardId, aliasId);
+            // Bindings are item-global, so move them only when the alias is local to this dashboard.
+            if (localAlias) {
+              this.#database
+                .prepare("UPDATE annotations SET item_id = ? WHERE item_id = ?")
+                .run(itemId, aliasId);
+              this.#database
+                .prepare("UPDATE work_updates SET item_id = ? WHERE item_id = ?")
+                .run(itemId, aliasId);
+              this.#database
+                .prepare("UPDATE task_bindings SET item_id = ? WHERE item_id = ?")
+                .run(itemId, aliasId);
+            }
+            touched.add(aliasId);
+          }
+        }
+        this.#database
+          .prepare(
+            `INSERT INTO source_contributions
+           (dashboard_id, publisher_id, external_id, item_id, record_key, source_ref, source_scope,
+            payload, source_updated_at, observed_at, retired_at, conflict_warning, last_seen_run_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+           ON CONFLICT(dashboard_id, publisher_id, external_id) DO UPDATE SET
+             item_id = excluded.item_id, record_key = excluded.record_key,
+             source_ref = excluded.source_ref, source_scope = excluded.source_scope,
+             payload = excluded.payload, source_updated_at = excluded.source_updated_at,
+             observed_at = excluded.observed_at, retired_at = NULL,
+             conflict_warning = excluded.conflict_warning,
+             last_seen_run_id = excluded.last_seen_run_id`,
+          )
+          .run(
+            dashboardId,
+            publisherId,
+            item.externalId,
+            itemId,
+            ownKey,
+            JSON.stringify(item.sourceRef),
+            item.sourceScope,
+            JSON.stringify(item),
+            item.sourceUpdatedAt,
+            instant,
+            conflictingJira ? 1 : 0,
+            options.runId,
+          );
+        this.#database
+          .prepare(
+            `INSERT INTO work_identity_claims (dashboard_id, record_key, item_id, created_at)
+           VALUES (?, ?, ?, ?) ON CONFLICT(dashboard_id, record_key)
+           DO UPDATE SET item_id = excluded.item_id`,
+          )
+          .run(dashboardId, ownKey, itemId, instant);
+        if (!conflictingJira) {
+          for (const key of targetKeys) {
+            this.#database
+              .prepare(
+                `INSERT OR IGNORE INTO work_identity_claims
+               (dashboard_id, record_key, item_id, created_at) VALUES (?, ?, ?, ?)`,
+              )
+              .run(dashboardId, key, itemId, instant);
+          }
+        }
+        this.#database
+          .prepare(
+            "UPDATE source_relationship_evidence SET retired_at = ? WHERE dashboard_id = ? AND publisher_id = ? AND external_id = ? AND retired_at IS NULL",
+          )
+          .run(instant, dashboardId, publisherId, item.externalId);
+        for (const relationship of relationships) {
+          this.#database
+            .prepare(
+              `INSERT INTO source_relationship_evidence
+             (id, dashboard_id, publisher_id, external_id, item_id, target_key, kind, field,
+              exact_value, observed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .run(
+              randomUUID(),
+              dashboardId,
+              publisherId,
+              item.externalId,
+              itemId,
+              dynaRecordKey(relationship.target),
+              relationship.kind,
+              relationship.evidence.field,
+              relationship.evidence.exactValue,
+              instant,
+            );
+        }
+        touched.add(itemId);
+        legacyItemId ??= itemId;
+      }
+      // Legacy publisher membership remains a best-effort compatibility index.
+      if (legacyItemId) {
+        this.#database
+          .prepare(
+            `INSERT INTO publisher_items (publisher_id, external_id, item_id, active, last_seen_run_id)
+           VALUES (?, ?, ?, 1, ?) ON CONFLICT(publisher_id, external_id)
+           DO UPDATE SET active = 1, last_seen_run_id = excluded.last_seen_run_id`,
+          )
+          .run(publisherId, item.externalId, legacyItemId, options.runId);
+      }
+    }
+    for (const proposed of options.workSummaries ?? []) {
+      const summary = DynaWorkSummarySchema.parse(proposed);
+      const anchor = dynaRecordKey(summary.workIdentity);
+      for (const dashboardId of dashboards) {
+        const claim = this.#one(
+          this.#database.prepare(
+            "SELECT item_id FROM work_identity_claims WHERE dashboard_id = ? AND record_key = ?",
+          ),
+          dashboardId,
+          anchor,
+        );
+        if (!claim) throw new Error("A Dyna work summary must cite a known work identity.");
+        const itemId = requiredString(claim, "item_id");
+        const cited = [];
+        for (const ref of summary.evidenceRefs) {
+          const key = dynaRecordKey(ref);
+          const contribution = this.#one(
+            this.#database.prepare(
+              `SELECT payload FROM source_contributions
+             WHERE dashboard_id = ? AND item_id = ? AND record_key = ? AND retired_at IS NULL
+             ORDER BY source_updated_at DESC LIMIT 1`,
+            ),
+            dashboardId,
+            itemId,
+            key,
+          );
+          if (!contribution) {
+            throw new Error("A Dyna work summary must cite current evidence on the same card.");
+          }
+          cited.push([key, parseJson(requiredString(contribution, "payload"))]);
+        }
+        this.#database
+          .prepare(
+            `INSERT INTO work_summaries
+           (dashboard_id, item_id, publisher_id, summary, evidence_keys, evidence_fingerprint, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(dashboard_id, item_id) DO UPDATE SET
+             publisher_id = excluded.publisher_id, summary = excluded.summary,
+             evidence_keys = excluded.evidence_keys,
+             evidence_fingerprint = excluded.evidence_fingerprint, updated_at = excluded.updated_at`,
+          )
+          .run(
+            dashboardId,
+            itemId,
+            publisherId,
+            summary.summary,
+            JSON.stringify(cited.map(([key]) => key)),
+            sha256(JSON.stringify(cited)),
+            instant,
+          );
+      }
+    }
+    for (const itemId of touched) this.#refreshEvidenceFingerprint(itemId, instant);
+  }
+
+  #refreshEvidenceFingerprint(itemId: string, instant: string): void {
+    const rows = this.#database
+      .prepare(
+        `SELECT payload, source_updated_at FROM source_contributions
+       WHERE item_id = ? AND retired_at IS NULL ORDER BY record_key, publisher_id, external_id`,
+      )
+      .all(itemId) as SqlRow[];
+    if (rows.length === 0) {
+      this.#database
+        .prepare("UPDATE items SET fingerprint = ?, updated_at = ? WHERE id = ?")
+        .run(sha256("[]"), instant, itemId);
+      return;
+    }
+    const payloads = rows.map((row) => parseJson(requiredString(row, "payload")));
+    const fingerprint = sha256(JSON.stringify(payloads));
+    const latest = [...rows].sort(
+      (a, b) =>
+        Date.parse(requiredString(b, "source_updated_at")) -
+        Date.parse(requiredString(a, "source_updated_at")),
+    )[0];
+    if (!latest) return;
+    const item = DynaPublishedItemSchema.parse(parseJson(requiredString(latest, "payload")));
+    const old = this.#one(
+      this.#database.prepare("SELECT fingerprint FROM items WHERE id = ?"),
+      itemId,
+    );
+    if (old && requiredString(old, "fingerprint") === fingerprint) return;
+    this.#database
+      .prepare(
+        `UPDATE items SET source = ?, source_ref = ?, source_scope = ?, title = ?, summary = ?,
+       priority = ?, priority_reason = ?, source_updated_at = ?, source_updated_ms = ?, due_at = ?,
+       labels = ?, people = ?, leadership_score = ?, attention = ?, plan = ?, next_steps = ?,
+       fingerprint = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(
+        item.sourceRef.source,
+        JSON.stringify(item.sourceRef),
+        item.sourceScope,
+        item.title,
+        item.summary,
+        item.priority,
+        item.priorityReason,
+        item.sourceUpdatedAt,
+        Date.parse(item.sourceUpdatedAt),
+        item.dueAt ?? null,
+        JSON.stringify(item.labels),
+        JSON.stringify(item.people),
+        dynaLeadershipScore(item.people),
+        item.attention ?? null,
+        JSON.stringify(item.plan),
+        JSON.stringify(item.nextSteps),
+        fingerprint,
+        instant,
+        itemId,
+      );
+  }
+
   #publishAuthorized(
     publisherId: string,
     secret: string | undefined,
@@ -5125,6 +6110,7 @@ export class SqliteDynaRepository {
         failureMessage: failureMessage ?? null,
         sourceSlices: sourceSlices ?? null,
         items: parsedItems,
+        workSummaries: options.workSummaries ?? null,
       }),
     );
     const instant = this.#now();
@@ -5236,166 +6222,14 @@ export class SqliteDynaRepository {
         ).map((row) => requiredString(row, "dashboard_id")),
       );
       if (options.status !== "failed") {
-        if (options.mode === "replace") {
-          if (sourceSlices) {
-            const deactivateSlice = this.#database.prepare(`
-              UPDATE publisher_items SET active = 0
-              WHERE publisher_id = ? AND EXISTS (
-                SELECT 1 FROM items
-                WHERE items.id = publisher_items.item_id
-                  AND items.source = ? AND items.source_scope = ?
-              )
-            `);
-            for (const slice of sourceSlices) {
-              if (slice.status === "succeeded") {
-                deactivateSlice.run(publisherId, slice.source, slice.sourceScope);
-              }
-            }
-          } else {
-            this.#database
-              .prepare("UPDATE publisher_items SET active = 0 WHERE publisher_id = ?")
-              .run(publisherId);
-          }
-        }
-        const insertItem = this.#database.prepare(`
-          INSERT INTO items (
-            id, publisher_id, external_id, identity_key, source, source_ref, source_scope, title,
-            summary, priority, priority_reason, source_updated_at, source_updated_ms, due_at,
-            labels, people, leadership_score, attention, plan, next_steps, follow_up_of_item_id,
-            fingerprint, updated_at
-          ) VALUES (
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-            NULL, ?, ?
-          )
-        `);
-        const updateItem = this.#database.prepare(`
-          UPDATE items SET source = ?, source_ref = ?, source_scope = ?, title = ?, summary = ?,
-            priority = ?, priority_reason = ?, source_updated_at = ?, source_updated_ms = ?,
-            due_at = ?, labels = ?, people = ?, leadership_score = ?, attention = ?, plan = ?, next_steps = ?,
-            fingerprint = ?, updated_at = ? WHERE id = ?
-        `);
-        const upsertMembership = this.#database.prepare(`
-          INSERT INTO publisher_items (publisher_id, external_id, item_id, active, last_seen_run_id)
-          VALUES (?, ?, ?, 1, ?)
-          ON CONFLICT(publisher_id, external_id) DO UPDATE SET
-            item_id = excluded.item_id, active = 1, last_seen_run_id = excluded.last_seen_run_id
-        `);
-        for (const item of parsedItems) {
-          const canonical = JSON.stringify(item);
-          const fingerprint = sha256(canonical);
-          const identity = identityKey(publisherId, item.sourceRef);
-          const sourceMs = normalizeTimestamp(item.sourceUpdatedAt).epoch;
-          let existing = this.#one(
-            this.#database.prepare(
-              "SELECT * FROM items WHERE identity_key = ? ORDER BY source_updated_ms DESC LIMIT 1",
-            ),
-            identity,
-          );
-          if (
-            sourceSlices &&
-            existing &&
-            (requiredString(existing, "source") !== item.sourceRef.source ||
-              requiredString(existing, "source_scope") !== item.sourceScope)
-          ) {
-            throw new Error(
-              "A source-sliced Dyna run cannot move an existing source reference between slices.",
-            );
-          }
-          if (sourceSlices) {
-            const existingMembership = this.#one(
-              this.#database.prepare(`
-                SELECT i.source, i.source_scope FROM publisher_items pi
-                JOIN items i ON i.id = pi.item_id
-                WHERE pi.publisher_id = ? AND pi.external_id = ?
-              `),
-              publisherId,
-              item.externalId,
-            );
-            if (
-              existingMembership &&
-              (requiredString(existingMembership, "source") !== item.sourceRef.source ||
-                requiredString(existingMembership, "source_scope") !== item.sourceScope)
-            ) {
-              throw new Error(
-                "A source-sliced Dyna run cannot move an external ID between source slices.",
-              );
-            }
-          }
-          if (!existing) {
-            const id = randomUUID();
-            insertItem.run(
-              id,
-              publisherId,
-              item.externalId,
-              identity,
-              item.sourceRef.source,
-              JSON.stringify(item.sourceRef),
-              item.sourceScope,
-              item.title,
-              item.summary,
-              item.priority,
-              item.priorityReason,
-              item.sourceUpdatedAt,
-              sourceMs,
-              item.dueAt ?? null,
-              JSON.stringify(item.labels),
-              JSON.stringify(item.people),
-              dynaLeadershipScore(item.people),
-              item.attention ?? null,
-              JSON.stringify(item.plan),
-              JSON.stringify(item.nextSteps),
-              fingerprint,
-              instant,
-            );
-            existing = this.#one(this.#database.prepare("SELECT * FROM items WHERE id = ?"), id);
-          } else {
-            const existingMs = requiredNumber(existing, "source_updated_ms");
-            const existingFingerprint = requiredString(existing, "fingerprint");
-            if (sourceMs === existingMs && fingerprint !== existingFingerprint) {
-              throw new Error(
-                "Dyna rejected conflicting source data with the same update timestamp.",
-              );
-            }
-            if (sourceMs > existingMs) {
-              updateItem.run(
-                item.sourceRef.source,
-                JSON.stringify(item.sourceRef),
-                item.sourceScope,
-                item.title,
-                item.summary,
-                item.priority,
-                item.priorityReason,
-                item.sourceUpdatedAt,
-                sourceMs,
-                item.dueAt ?? null,
-                JSON.stringify(item.labels),
-                JSON.stringify(item.people),
-                dynaLeadershipScore(item.people),
-                item.attention ?? null,
-                JSON.stringify(item.plan),
-                JSON.stringify(item.nextSteps),
-                fingerprint,
-                instant,
-                requiredString(existing, "id"),
-              );
-            }
-          }
-          if (!existing) throw new Error("Dyna could not persist a source item.");
-          const itemId = requiredString(existing, "id");
-          upsertMembership.run(publisherId, item.externalId, itemId, options.runId);
-          for (const row of this.#database
-            .prepare(
-              `
-              SELECT DISTINCT dp.dashboard_id FROM dashboard_publishers dp
-              JOIN publisher_items pi ON pi.publisher_id = dp.publisher_id
-              WHERE pi.item_id = ? AND pi.active = 1
-            `,
-            )
-            .all(itemId) as SqlRow[]) {
-            affectedDashboards.add(requiredString(row, "dashboard_id"));
-          }
-        }
+        this.#publishEvidenceRecords(
+          publisherId,
+          parsedItems,
+          options,
+          sourceSlices,
+          affectedDashboards,
+          instant,
+        );
       }
 
       this.#database
@@ -5685,6 +6519,36 @@ export class SqliteDynaRepository {
           ) VALUES (?, ?, ?, 1, ?)`,
         )
         .run(publisherId, item.externalId, itemId, `manual:${todoId}`);
+      this.#database
+        .prepare("INSERT INTO dashboard_items (dashboard_id, item_id, created_at) VALUES (?, ?, ?)")
+        .run(dashboardId, itemId, instant);
+      const recordKey = dynaRecordKey(item.sourceRef);
+      this.#database
+        .prepare(
+          `INSERT INTO source_contributions
+         (dashboard_id, publisher_id, external_id, item_id, record_key, source_ref,
+          source_scope, payload, source_updated_at, observed_at, last_seen_run_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          dashboardId,
+          publisherId,
+          item.externalId,
+          itemId,
+          recordKey,
+          JSON.stringify(item.sourceRef),
+          item.sourceScope,
+          JSON.stringify(item),
+          item.sourceUpdatedAt,
+          instant,
+          `manual:${todoId}`,
+        );
+      this.#database
+        .prepare(
+          `INSERT INTO work_identity_claims (dashboard_id, record_key, item_id, created_at)
+         VALUES (?, ?, ?, ?)`,
+        )
+        .run(dashboardId, recordKey, itemId, instant);
       this.#database
         .prepare(
           "INSERT INTO todo_requests (dashboard_id, client_request_id, request_hash, item_id) VALUES (?, ?, ?, ?)",
@@ -6495,6 +7359,8 @@ export class SqliteDynaRepository {
   ): DynaItemHistory {
     this.assertDashboardContainsItem(dashboardId, itemId);
     const item = this.#itemBaseRow(itemId);
+    const historyItemIds =
+      "SELECT ? UNION SELECT alias_item_id FROM item_aliases WHERE dashboard_id = ? AND canonical_item_id = ? AND undone_at IS NULL";
     const limit = pageSize(options.limit, MAX_HISTORY_PAGE_SIZE);
     const archiveCursor = parseHistoryCursor(options.archiveCursor, "archive");
     const orderCursor = parseHistoryCursor(options.orderCursor, "order");
@@ -6506,7 +7372,7 @@ export class SqliteDynaRepository {
         `SELECT history.*, history.rowid AS insertion_sequence, i.fingerprint
          FROM item_archive_events history
          JOIN items i ON i.id = history.item_id
-         WHERE history.dashboard_id = ? AND history.item_id = ?
+         WHERE history.dashboard_id = ? AND history.item_id IN (${historyItemIds})
          ${
            archiveCursor
              ? `AND (history.archived_at_ms < ? OR (
@@ -6517,6 +7383,8 @@ export class SqliteDynaRepository {
          ORDER BY history.archived_at_ms DESC, history.rowid DESC LIMIT ?`,
       )
       .all(
+        dashboardId,
+        itemId,
         dashboardId,
         itemId,
         ...(archiveCursor
@@ -6545,7 +7413,7 @@ export class SqliteDynaRepository {
       .prepare(
         `SELECT action, priority, sequence, created_at, rowid AS insertion_sequence
          FROM item_preference_events
-         WHERE dashboard_id = ? AND item_id = ?
+         WHERE dashboard_id = ? AND item_id IN (${historyItemIds})
          ${
            orderCursor && orderCursorTimestamp
              ? `AND (created_at < ? OR (created_at = ? AND rowid < ?))`
@@ -6554,6 +7422,8 @@ export class SqliteDynaRepository {
          ORDER BY created_at DESC, rowid DESC LIMIT ?`,
       )
       .all(
+        dashboardId,
+        itemId,
         dashboardId,
         itemId,
         ...(orderCursor && orderCursorTimestamp
@@ -6572,7 +7442,7 @@ export class SqliteDynaRepository {
     const statusRows = this.#database
       .prepare(
         `SELECT *, rowid AS insertion_sequence FROM item_workflow_events
-         WHERE item_id = ?
+         WHERE item_id IN (${historyItemIds})
          ${
            statusCursor
              ? `AND (created_at_ms < ? OR (
@@ -6584,6 +7454,8 @@ export class SqliteDynaRepository {
       )
       .all(
         itemId,
+        dashboardId,
+        itemId,
         ...(statusCursor
           ? [statusCursor.createdAtMs, statusCursor.createdAtMs, statusCursor.insertionSequence]
           : []),
@@ -6593,7 +7465,7 @@ export class SqliteDynaRepository {
     const annotationRows = this.#database
       .prepare(
         `SELECT *, rowid AS insertion_sequence FROM annotation_events
-         WHERE item_id = ?
+         WHERE item_id IN (${historyItemIds})
          ${
            annotationCursor
              ? `AND (occurred_at_ms < ? OR (
@@ -6604,6 +7476,8 @@ export class SqliteDynaRepository {
          ORDER BY occurred_at_ms DESC, rowid DESC LIMIT ?`,
       )
       .all(
+        itemId,
+        dashboardId,
         itemId,
         ...(annotationCursor
           ? [
@@ -6624,6 +7498,8 @@ export class SqliteDynaRepository {
     return DynaItemHistorySchema.parse({
       itemId,
       itemNumber: requiredItemNumber(item, "item_number"),
+      sources: this.#loadCardEvidence(dashboardId, [itemId])[0]?.sources ?? [],
+      groupingEvidence: this.#loadCardEvidence(dashboardId, [itemId])[0]?.groupingEvidence ?? [],
       ...(followUpOfItemId ? { followUpOfItemId } : {}),
       ...(typeof item["follow_up_of_item_number"] === "number"
         ? { followUpOfItemNumber: requiredItemNumber(item, "follow_up_of_item_number") }
@@ -6889,19 +7765,287 @@ export class SqliteDynaRepository {
     return Boolean(
       this.#one(
         this.#database.prepare(
-          `SELECT 1 AS present FROM publisher_items pi
-           JOIN dashboard_publishers dp ON dp.publisher_id = pi.publisher_id
-           WHERE dp.dashboard_id = ? AND pi.item_id = ? AND (
-             pi.active = 1 OR EXISTS (
-               SELECT 1 FROM item_archive_events history
-               WHERE history.dashboard_id = dp.dashboard_id AND history.item_id = pi.item_id
-             )
-           )`,
+          `SELECT 1 AS present FROM dashboard_items di
+           WHERE di.dashboard_id = ? AND di.item_id = ?
+             AND (EXISTS (SELECT 1 FROM source_contributions sc
+               WHERE sc.dashboard_id = di.dashboard_id AND sc.item_id = di.item_id
+                 AND (EXISTS (SELECT 1 FROM dashboard_publishers bound
+                   WHERE bound.dashboard_id = di.dashboard_id AND bound.publisher_id = sc.publisher_id)
+                 OR EXISTS (SELECT 1 FROM dashboard_manual_publishers manual
+                   WHERE manual.dashboard_id = di.dashboard_id AND manual.publisher_id = sc.publisher_id)))
+               OR EXISTS (SELECT 1 FROM item_archive_events archived
+                 WHERE archived.dashboard_id = di.dashboard_id AND archived.item_id = di.item_id
+                   AND archived.restored_at IS NULL))`,
         ),
         dashboardId,
         itemId,
       ),
     );
+  }
+
+  #resolveItemAlias(dashboardId: string, itemId: string): string {
+    const alias = this.#one(
+      this.#database.prepare(
+        `SELECT canonical_item_id FROM item_aliases
+       WHERE dashboard_id = ? AND alias_item_id = ? AND undone_at IS NULL`,
+      ),
+      dashboardId,
+      itemId,
+    );
+    return alias ? requiredString(alias, "canonical_item_id") : itemId;
+  }
+
+  #findSourceCorrectionReceipt(
+    dashboardId: string,
+    requestId: string,
+  ): { requestHash: string; result: unknown } | undefined {
+    const row = this.#one(
+      this.#database.prepare(
+        `SELECT request_hash, result FROM source_correction_receipts
+       WHERE dashboard_id = ? AND request_id = ?`,
+      ),
+      dashboardId,
+      requestId,
+    );
+    return row
+      ? {
+          requestHash: requiredString(row, "request_hash"),
+          result: parseJson(requiredString(row, "result")),
+        }
+      : undefined;
+  }
+
+  #insertSourceCorrectionReceipt(
+    dashboardId: string,
+    requestId: string,
+    requestHash: string,
+    result: unknown,
+    instant: string,
+  ): void {
+    this.#database
+      .prepare(
+        `INSERT INTO source_correction_receipts
+       (dashboard_id, request_id, request_hash, result, created_at) VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(dashboardId, requestId, requestHash, JSON.stringify(result), instant);
+  }
+
+  #separateClaimedRelationships(
+    dashboardId: string,
+    recordKey: string,
+    payload: DynaPublishedItem,
+    instant: string,
+  ): void {
+    for (const relationship of payload.relationships ?? []) {
+      this.#database
+        .prepare(
+          `INSERT OR IGNORE INTO source_separations
+         (dashboard_id, record_key, blocked_target_key, separated_at) VALUES (?, ?, ?, ?)`,
+        )
+        .run(dashboardId, recordKey, dynaRecordKey(relationship.target), instant);
+    }
+  }
+
+  #applySourceCorrection(
+    dashboardId: string,
+    itemId: string,
+    input: Pick<DynaSourceCorrectionInput, "action" | "sourceRef" | "aliasItemId">,
+    instant: string,
+  ): { separatedItemId: string; separatedItemNumber: number } {
+    if (input.action === "undo_merge") {
+      const aliasId = input.aliasItemId;
+      if (!aliasId) throw new Error("Select an exact merged Dyna item to separate.");
+      const alias = this.#one(
+        this.#database.prepare(
+          `SELECT 1 AS present FROM item_aliases WHERE dashboard_id = ?
+         AND alias_item_id = ? AND canonical_item_id = ? AND undone_at IS NULL`,
+        ),
+        dashboardId,
+        aliasId,
+        itemId,
+      );
+      if (!alias) throw new Error("The selected Dyna merge is no longer active.");
+      const event = this.#one(
+        this.#database.prepare(
+          `SELECT id, moved_data FROM item_merge_events WHERE dashboard_id = ?
+         AND alias_item_id = ? AND canonical_item_id = ? AND undone_at IS NULL
+         ORDER BY merged_at DESC LIMIT 1`,
+        ),
+        dashboardId,
+        aliasId,
+        itemId,
+      );
+      if (!event) throw new Error("The selected Dyna merge has no reversible provenance.");
+      const data = parseJson(requiredString(event, "moved_data")) as {
+        sources?: { publisherId: string; externalId: string; recordKey: string }[];
+        annotations?: string[];
+        updates?: string[];
+        tasks?: string[];
+      };
+      for (const source of data.sources ?? []) {
+        const row = this.#one(
+          this.#database.prepare(
+            `SELECT payload FROM source_contributions WHERE dashboard_id = ?
+           AND publisher_id = ? AND external_id = ? AND item_id = ?`,
+          ),
+          dashboardId,
+          source.publisherId,
+          source.externalId,
+          itemId,
+        );
+        if (!row) continue;
+        this.#database
+          .prepare(
+            `UPDATE source_contributions SET item_id = ? WHERE dashboard_id = ?
+           AND publisher_id = ? AND external_id = ? AND item_id = ?`,
+          )
+          .run(aliasId, dashboardId, source.publisherId, source.externalId, itemId);
+        this.#database
+          .prepare(
+            `UPDATE source_relationship_evidence SET item_id = ? WHERE dashboard_id = ?
+           AND publisher_id = ? AND external_id = ? AND item_id = ?`,
+          )
+          .run(aliasId, dashboardId, source.publisherId, source.externalId, itemId);
+        this.#database
+          .prepare(
+            `UPDATE work_identity_claims SET item_id = ? WHERE dashboard_id = ?
+           AND record_key = ? AND item_id = ?`,
+          )
+          .run(aliasId, dashboardId, source.recordKey, itemId);
+        this.#separateClaimedRelationships(
+          dashboardId,
+          source.recordKey,
+          DynaPublishedItemSchema.parse(parseJson(requiredString(row, "payload"))),
+          instant,
+        );
+      }
+      for (const annotationId of data.annotations ?? []) {
+        this.#database
+          .prepare("UPDATE annotations SET item_id = ? WHERE id = ? AND item_id = ?")
+          .run(aliasId, annotationId, itemId);
+      }
+      for (const updateId of data.updates ?? []) {
+        this.#database
+          .prepare("UPDATE work_updates SET item_id = ? WHERE id = ? AND item_id = ?")
+          .run(aliasId, updateId, itemId);
+      }
+      for (const taskId of data.tasks ?? []) {
+        this.#database
+          .prepare("UPDATE task_bindings SET item_id = ? WHERE task_id = ? AND item_id = ?")
+          .run(aliasId, taskId, itemId);
+      }
+      this.#database
+        .prepare(
+          `UPDATE item_aliases SET undone_at = ? WHERE dashboard_id = ?
+         AND alias_item_id = ? AND canonical_item_id = ? AND undone_at IS NULL`,
+        )
+        .run(instant, dashboardId, aliasId, itemId);
+      this.#database
+        .prepare("UPDATE item_merge_events SET undone_at = ? WHERE id = ?")
+        .run(instant, requiredString(event, "id"));
+      this.#refreshEvidenceFingerprint(itemId, instant);
+      this.#refreshEvidenceFingerprint(aliasId, instant);
+      const number = this.#one(
+        this.#database.prepare("SELECT number FROM item_numbers WHERE item_id = ?"),
+        aliasId,
+      );
+      if (!number) throw new Error("The Dyna alias has no stable item number.");
+      return {
+        separatedItemId: aliasId,
+        separatedItemNumber: requiredItemNumber(number, "number"),
+      };
+    }
+
+    const ref = input.sourceRef;
+    if (!ref) throw new Error("Select an exact source to separate.");
+    const recordKey = dynaRecordKey(ref);
+    const rows = this.#database
+      .prepare(
+        `SELECT * FROM source_contributions WHERE dashboard_id = ? AND item_id = ?
+       AND record_key = ? ORDER BY source_updated_at DESC LIMIT 32`,
+      )
+      .all(dashboardId, itemId, recordKey) as SqlRow[];
+    const latest = rows[0];
+    if (!latest) throw new Error("The selected source is no longer on this Dyna item.");
+    const published = DynaPublishedItemSchema.parse(parseJson(requiredString(latest, "payload")));
+    const separatedItemId = randomUUID();
+    const publisherId = requiredString(latest, "publisher_id");
+    this.#database
+      .prepare(
+        `INSERT INTO items (id, publisher_id, external_id, identity_key, source, source_ref,
+         source_scope, title, summary, priority, priority_reason, source_updated_at,
+         source_updated_ms, due_at, labels, people, leadership_score, attention, plan,
+         next_steps, follow_up_of_item_id, fingerprint, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+      )
+      .run(
+        separatedItemId,
+        publisherId,
+        `card:${separatedItemId}`,
+        identityKey(publisherId, published.sourceRef),
+        published.sourceRef.source,
+        JSON.stringify(published.sourceRef),
+        published.sourceScope,
+        published.title,
+        published.summary,
+        published.priority,
+        published.priorityReason,
+        published.sourceUpdatedAt,
+        Date.parse(published.sourceUpdatedAt),
+        published.dueAt ?? null,
+        JSON.stringify(published.labels),
+        JSON.stringify(published.people),
+        dynaLeadershipScore(published.people),
+        published.attention ?? null,
+        JSON.stringify(published.plan),
+        JSON.stringify(published.nextSteps),
+        sha256(JSON.stringify(published)),
+        instant,
+      );
+    this.#database
+      .prepare("INSERT INTO dashboard_items (dashboard_id, item_id, created_at) VALUES (?, ?, ?)")
+      .run(dashboardId, separatedItemId, instant);
+    for (const row of rows) {
+      this.#database
+        .prepare(
+          `UPDATE source_contributions SET item_id = ? WHERE dashboard_id = ?
+         AND publisher_id = ? AND external_id = ? AND item_id = ?`,
+        )
+        .run(
+          separatedItemId,
+          dashboardId,
+          requiredString(row, "publisher_id"),
+          requiredString(row, "external_id"),
+          itemId,
+        );
+      this.#database
+        .prepare(
+          `UPDATE source_relationship_evidence SET item_id = ? WHERE dashboard_id = ?
+         AND publisher_id = ? AND external_id = ? AND item_id = ?`,
+        )
+        .run(
+          separatedItemId,
+          dashboardId,
+          requiredString(row, "publisher_id"),
+          requiredString(row, "external_id"),
+          itemId,
+        );
+    }
+    this.#database
+      .prepare(
+        `UPDATE work_identity_claims SET item_id = ? WHERE dashboard_id = ?
+       AND record_key = ? AND item_id = ?`,
+      )
+      .run(separatedItemId, dashboardId, recordKey, itemId);
+    this.#separateClaimedRelationships(dashboardId, recordKey, published, instant);
+    this.#refreshEvidenceFingerprint(itemId, instant);
+    this.#refreshEvidenceFingerprint(separatedItemId, instant);
+    const number = this.#one(
+      this.#database.prepare("SELECT number FROM item_numbers WHERE item_id = ?"),
+      separatedItemId,
+    );
+    if (!number) throw new Error("The separated Dyna item has no stable number.");
+    return { separatedItemId, separatedItemNumber: requiredItemNumber(number, "number") };
   }
 
   assertDashboardContainsItem(dashboardId: string, itemId: string): void {
@@ -7180,6 +8324,16 @@ export class SqliteDynaRepository {
           ), ?) > 0)
         OR EXISTS (SELECT 1 FROM work_updates update_row
           WHERE update_row.item_id = item.id AND instr(${activitySearchSql("update_row")}, ?) > 0)
+        OR EXISTS (SELECT 1 FROM source_contributions contribution
+          WHERE contribution.dashboard_id = item.membership_dashboard_id
+            AND contribution.item_id = item.id
+            AND instr(lower(contribution.record_key || ' ' || contribution.source_ref || ' ' ||
+              contribution.payload || ' ' || contribution.external_id), ?) > 0)
+        OR EXISTS (SELECT 1 FROM item_aliases alias
+          JOIN item_numbers number ON number.item_id = alias.alias_item_id
+          WHERE alias.dashboard_id = item.membership_dashboard_id
+            AND alias.canonical_item_id = item.id AND alias.undone_at IS NULL
+            AND instr(':' || CAST(number.number AS TEXT) || ':', ?) > 0)
       )`,
     );
     const rows = this.#database
@@ -7187,17 +8341,161 @@ export class SqliteDynaRepository {
         `${dynaProjectionMembershipCte(scope)}
          SELECT item.id FROM projection_items item WHERE ${fragments.join(" AND ")}`,
       )
-      .all(dashboardId, ...terms.flatMap((term) => [term, term, term, term])) as SqlRow[];
+      .all(
+        dashboardId,
+        ...terms.flatMap((term) => [term, term, term, term, term, term]),
+      ) as SqlRow[];
     return new Set(rows.map((row) => requiredString(row, "id")));
   }
 
   #loadCardEvidence(
+    dashboardId: string,
     itemIds: readonly string[],
     searchTerms: readonly string[] = [],
   ): readonly DynaRepositoryCardEvidence[] {
     if (itemIds.length === 0) return [];
     if (itemIds.length > 200) throw new Error("Dyna card evidence is limited to 200 items.");
-    const placeholders = itemIds.map(() => "?").join(", ");
+    const itemPlaceholders = itemIds.map(() => "?").join(", ");
+    const aliasRows = this.#database
+      .prepare(
+        `SELECT alias.alias_item_id, alias.canonical_item_id, number.number FROM item_aliases alias
+       JOIN item_numbers number ON number.item_id = alias.alias_item_id
+       WHERE dashboard_id = ? AND canonical_item_id IN (${itemPlaceholders})
+         AND undone_at IS NULL ORDER BY merged_at DESC LIMIT 200`,
+      )
+      .all(dashboardId, ...itemIds) as SqlRow[];
+    const aliases = new Map(
+      aliasRows.map((row) => [
+        requiredString(row, "alias_item_id"),
+        requiredString(row, "canonical_item_id"),
+      ]),
+    );
+    const aliasDetails = new Map<string, { itemId: string; itemNumber: number }[]>();
+    for (const row of aliasRows) {
+      const canonicalId = requiredString(row, "canonical_item_id");
+      const values = aliasDetails.get(canonicalId) ?? [];
+      if (values.length < 20)
+        values.push({
+          itemId: requiredString(row, "alias_item_id"),
+          itemNumber: requiredItemNumber(row, "number"),
+        });
+      aliasDetails.set(canonicalId, values);
+    }
+    const evidenceIds = [...itemIds, ...aliases.keys()];
+    const canonical = (id: string) => aliases.get(id) ?? id;
+    const placeholders = evidenceIds.map(() => "?").join(", ");
+    const contributionRows = this.#database
+      .prepare(
+        `SELECT c.*, p.last_run_status,
+         (SELECT pr.source_slices FROM publisher_runs pr WHERE pr.publisher_id = c.publisher_id
+          AND pr.promoted = 1 ORDER BY pr.source_completed_ms DESC LIMIT 1) AS latest_slices
+       FROM source_contributions c JOIN publishers p ON p.id = c.publisher_id
+       WHERE c.dashboard_id = ? AND c.item_id IN (${itemPlaceholders})
+       ORDER BY c.item_id, c.retired_at IS NOT NULL, c.source_updated_at DESC, c.record_key`,
+      )
+      .all(dashboardId, ...itemIds) as SqlRow[];
+    const summaryRows = this.#database
+      .prepare(
+        `SELECT * FROM work_summaries WHERE dashboard_id = ? AND item_id IN (${itemPlaceholders})`,
+      )
+      .all(dashboardId, ...itemIds) as SqlRow[];
+    const summaries = new Map<string, { text: string; state: "current" | "last_known" }>();
+    for (const summary of summaryRows) {
+      const itemId = requiredString(summary, "item_id");
+      const keys = parseJson(requiredString(summary, "evidence_keys"));
+      if (!Array.isArray(keys) || keys.some((key) => typeof key !== "string")) continue;
+      const evidenceKeys = keys as string[];
+      const current = evidenceKeys.map((key) =>
+        contributionRows.find(
+          (row) =>
+            requiredString(row, "item_id") === itemId &&
+            requiredString(row, "record_key") === key &&
+            !optionalString(row, "retired_at") &&
+            requiredString(row, "last_run_status") !== "failed" &&
+            !(() => {
+              const slices = optionalString(row, "latest_slices");
+              if (!slices) return false;
+              const ref = DynaSourceRefSchema.parse(parseJson(requiredString(row, "source_ref")));
+              return DynaPublishSourceSlicesSchema.parse(parseJson(slices)).some(
+                (slice) =>
+                  slice.source === ref.source &&
+                  slice.sourceScope === requiredString(row, "source_scope") &&
+                  slice.status === "failed",
+              );
+            })(),
+        ),
+      );
+      const cited = current.every((row): row is SqlRow => Boolean(row))
+        ? current.map((row, index) => [
+            evidenceKeys.at(index),
+            parseJson(requiredString(row, "payload")),
+          ])
+        : undefined;
+      const state =
+        cited && sha256(JSON.stringify(cited)) === requiredString(summary, "evidence_fingerprint")
+          ? "current"
+          : "last_known";
+      summaries.set(itemId, { text: requiredString(summary, "summary"), state });
+    }
+    const sources = new Map<string, DynaSourceView[]>();
+    const grouping = new Map<string, DynaGroupingEvidence[]>();
+    const sourceKeys = new Map<string, Set<string>>();
+    const warningKeys = new Set(
+      contributionRows
+        .filter((row) => requiredNumber(row, "conflict_warning") === 1)
+        .map(
+          (row) => `${requiredString(row, "item_id")}\u0000${requiredString(row, "record_key")}`,
+        ),
+    );
+    for (const row of contributionRows) {
+      const itemId = requiredString(row, "item_id");
+      const key = requiredString(row, "record_key");
+      const known = sourceKeys.get(itemId) ?? new Set<string>();
+      if (known.has(key)) continue;
+      known.add(key);
+      sourceKeys.set(itemId, known);
+      const ref = DynaSourceRefSchema.parse(parseJson(requiredString(row, "source_ref")));
+      const slices = optionalString(row, "latest_slices");
+      const sourceStatus = slices
+        ? DynaPublishSourceSlicesSchema.parse(parseJson(slices)).find(
+            (slice) =>
+              slice.source === ref.source &&
+              slice.sourceScope === requiredString(row, "source_scope"),
+          )?.status
+        : undefined;
+      const freshness = optionalString(row, "retired_at")
+        ? ("retired" as const)
+        : sourceStatus === "failed" || requiredString(row, "last_run_status") === "failed"
+          ? ("last_known" as const)
+          : ("current" as const);
+      const label = dynaSourceRecordLabel(ref).slice(0, 128);
+      const view = DynaSourceViewSchema.parse({
+        sourceRef: ref,
+        label,
+        sourceUpdatedAt: requiredString(row, "source_updated_at"),
+        observedAt: requiredString(row, "observed_at"),
+        freshness,
+        navigation: dynaSourceUrl(ref) ? "link" : "exact_record",
+        correlationWarning: warningKeys.has(`${itemId}\u0000${key}`),
+      });
+      const values = sources.get(itemId) ?? [];
+      if (values.length < 32) values.push(view);
+      sources.set(itemId, values);
+      const published = DynaPublishedItemSchema.parse(parseJson(requiredString(row, "payload")));
+      const relationships = grouping.get(itemId) ?? [];
+      for (const relationship of published.relationships ?? []) {
+        if (relationships.length >= 32) break;
+        relationships.push({
+          kind: relationship.kind,
+          source: ref,
+          target: relationship.target,
+          field: relationship.evidence.field,
+          observedAt: requiredString(row, "observed_at"),
+          collectorSupplied: true,
+        });
+      }
+      grouping.set(itemId, relationships);
+    }
     const annotationRows = this.#database
       .prepare(
         `SELECT * FROM (
@@ -7208,7 +8506,7 @@ export class SqliteDynaRepository {
            WHERE item_id IN (${placeholders}) AND deleted_at IS NULL
          ) WHERE item_rank <= 20 ORDER BY item_id, created_at DESC`,
       )
-      .all(...itemIds) as SqlRow[];
+      .all(...evidenceIds) as SqlRow[];
     const taskRows = this.#database
       .prepare(
         `SELECT * FROM (
@@ -7218,7 +8516,7 @@ export class SqliteDynaRepository {
            FROM task_bindings WHERE item_id IN (${placeholders})
          ) WHERE item_rank <= 8 ORDER BY item_id, observed_ms DESC`,
       )
-      .all(...itemIds) as SqlRow[];
+      .all(...evidenceIds) as SqlRow[];
     const workUpdateRows = this.#database
       .prepare(
         `SELECT * FROM (
@@ -7228,13 +8526,13 @@ export class SqliteDynaRepository {
            FROM work_updates update_row WHERE item_id IN (${placeholders})
          ) WHERE item_rank <= ? ORDER BY item_id, created_at_ms DESC, insertion_seq DESC`,
       )
-      .all(...itemIds, MAX_WORK_UPDATES_PER_CARD) as SqlRow[];
+      .all(...evidenceIds, MAX_WORK_UPDATES_PER_CARD) as SqlRow[];
     const countRows = this.#database
       .prepare(
         `SELECT item_id, COUNT(*) AS total FROM work_updates
          WHERE item_id IN (${placeholders}) GROUP BY item_id`,
       )
-      .all(...itemIds) as SqlRow[];
+      .all(...evidenceIds) as SqlRow[];
     const activityExpression = activitySearchSql("update_row");
     const activityMatches = searchTerms.map(() => `instr(${activityExpression}, ?) > 0`);
     const activityCoverage = activityMatches
@@ -7254,41 +8552,52 @@ export class SqliteDynaRepository {
                  WHERE item_id IN (${placeholders}) AND (${activityMatches.join(" OR ")})
                ) WHERE item_rank = 1`,
             )
-            .all(...searchTerms, ...itemIds, ...searchTerms) as SqlRow[]);
+            .all(...searchTerms, ...evidenceIds, ...searchTerms) as SqlRow[]);
     const annotations = new Map<string, z.infer<typeof DynaAnnotationSchema>[]>();
     for (const row of annotationRows) {
-      const itemId = requiredString(row, "item_id");
+      const itemId = canonical(requiredString(row, "item_id"));
       const values = annotations.get(itemId) ?? [];
       values.push(DynaAnnotationSchema.parse(this.#annotationFromRow(row)));
       annotations.set(itemId, values);
     }
     const tasks = new Map<string, DynaTaskStatus[]>();
     for (const row of taskRows) {
-      const itemId = requiredString(row, "item_id");
+      const itemId = canonical(requiredString(row, "item_id"));
       const values = tasks.get(itemId) ?? [];
       values.push(this.#taskFromRow(row));
       tasks.set(itemId, values);
     }
     const updates = new Map<string, DynaWorkUpdate[]>();
     for (const row of workUpdateRows) {
-      const itemId = requiredString(row, "item_id");
+      const itemId = canonical(requiredString(row, "item_id"));
       const values = updates.get(itemId) ?? [];
       values.push(this.#workUpdateFromRow(row));
       updates.set(itemId, values);
     }
-    const counts = new Map(
-      countRows.map((row) => [requiredString(row, "item_id"), requiredNumber(row, "total")]),
-    );
+    const counts = new Map<string, number>();
+    for (const row of countRows) {
+      const itemId = canonical(requiredString(row, "item_id"));
+      counts.set(itemId, (counts.get(itemId) ?? 0) + requiredNumber(row, "total"));
+    }
     const matched = new Map<string, string>();
     for (const row of matchingActivityRows) {
       const summary = matchedActivitySummary(this.#workUpdateFromRow(row), searchTerms);
-      if (summary) matched.set(requiredString(row, "item_id"), summary);
+      if (summary) matched.set(canonical(requiredString(row, "item_id")), summary);
     }
     return itemIds.map((itemId) => ({
       itemId,
-      annotations: annotations.get(itemId) ?? [],
+      mergedAliases: aliasDetails.get(itemId) ?? [],
+      sources: sources.get(itemId) ?? [],
+      groupingEvidence: grouping.get(itemId) ?? [],
+      ...(summaries.get(itemId)
+        ? {
+            citedSummary: summaries.get(itemId)?.text,
+            citedSummaryState: summaries.get(itemId)?.state,
+          }
+        : {}),
+      annotations: (annotations.get(itemId) ?? []).slice(0, 20),
       linkedTasks: tasks.get(itemId) ?? [],
-      workUpdates: updates.get(itemId) ?? [],
+      workUpdates: (updates.get(itemId) ?? []).slice(0, MAX_WORK_UPDATES_PER_CARD),
       workUpdateCount: counts.get(itemId) ?? 0,
       ...(matched.get(itemId) ? { matchedActivity: matched.get(itemId) } : {}),
     }));
@@ -7443,6 +8752,7 @@ export class SqliteDynaRepository {
     kind: DynaActionKind,
     values: {
       readonly itemId: string;
+      readonly sourceRef?: DynaSourceRef;
       readonly taskId?: string;
       readonly taskHostId?: string;
       readonly sessionListRequestId?: string;
@@ -7453,6 +8763,12 @@ export class SqliteDynaRepository {
     attachmentBlocker?: DynaRepositoryTaskAttachmentBlocker,
   ): z.infer<typeof DynaActionRequestSchema> {
     DynaActionKindSchema.parse(kind);
+    if (values.sourceRef && kind !== "open_source") {
+      throw new Error("Only source-opening actions may select an exact source.");
+    }
+    const selectedSourceJson = values.sourceRef
+      ? JSON.stringify(DynaSourceRefSchema.parse(values.sourceRef))
+      : undefined;
     const dashboardId = this.authorizeView(viewToken, values.itemId);
     let attachAuthorization: CachedCodexSessionAttachAuthorization | undefined;
     const result = this.#transaction<
@@ -7481,6 +8797,7 @@ export class SqliteDynaRepository {
           requiredString(existing, "item_id") !== values.itemId ||
           optionalString(existing, "task_id") !== values.taskId ||
           optionalString(existing, "host_id") !== values.taskHostId ||
+          optionalString(existing, "selected_source_ref") !== selectedSourceJson ||
           requiredNumber(existing, "dashboard_revision") !== values.expectedRevision ||
           requiredString(existing, "item_fingerprint") !== values.expectedFingerprint
         ) {
@@ -7521,6 +8838,20 @@ export class SqliteDynaRepository {
       }
       if (kind === "open_source" && requiredString(item, "source") === "manual") {
         throw new Error("This Dyna to-do has no originating source to open.");
+      }
+      if (
+        values.sourceRef &&
+        !this.#one(
+          this.#database.prepare(
+            `SELECT 1 AS present FROM source_contributions WHERE dashboard_id = ? AND item_id = ?
+         AND record_key = ? LIMIT 1`,
+          ),
+          dashboardId,
+          values.itemId,
+          dynaRecordKey(values.sourceRef),
+        )
+      ) {
+        throw new Error("The selected source is not part of this Dyna item.");
       }
       if (
         kind === "open_codex_task" ||
@@ -7577,6 +8908,7 @@ export class SqliteDynaRepository {
           AND dashboard_revision = ? AND item_fingerprint = ?
           AND COALESCE(task_id, '') = COALESCE(?, '')
           AND COALESCE(host_id, '') = COALESCE(?, '')
+          AND COALESCE(selected_source_ref, '') = COALESCE(?, '')
           AND expires_at > ?
           AND (
             state IN ('prepared', 'delivered') OR
@@ -7592,6 +8924,7 @@ export class SqliteDynaRepository {
         values.expectedFingerprint,
         values.taskId ?? null,
         values.taskHostId ?? null,
+        selectedSourceJson ?? null,
         instant,
         instant,
       );
@@ -7639,9 +8972,9 @@ export class SqliteDynaRepository {
           `
         INSERT INTO action_requests (
           id, view_token_hash, dashboard_id, kind, item_id, item_fingerprint,
-          dashboard_revision, task_id, host_id, idempotency_key, state,
+          dashboard_revision, task_id, host_id, selected_source_ref, idempotency_key, state,
           expires_at, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
         )
         .run(
@@ -7654,6 +8987,7 @@ export class SqliteDynaRepository {
           request.dashboardRevision,
           request.taskId ?? null,
           request.taskHostId ?? null,
+          selectedSourceJson ?? null,
           values.idempotencyKey,
           request.state,
           request.expiresAt,
@@ -7828,9 +9162,7 @@ export class SqliteDynaRepository {
         dashboardId && itemId
           ? this.#one(
               this.#database.prepare(
-                `SELECT 1 AS present FROM publisher_items pi
-                 JOIN dashboard_publishers dp ON dp.publisher_id = pi.publisher_id
-                 WHERE dp.dashboard_id = ? AND pi.item_id = ? AND pi.active = 1`,
+                "SELECT 1 AS present FROM dashboard_items WHERE dashboard_id = ? AND item_id = ?",
               ),
               dashboardId,
               itemId,
@@ -7951,7 +9283,18 @@ export class SqliteDynaRepository {
         request,
         claimToken,
         context: {
-          ...(request.itemId ? { item: this.#actionItemContext(request.itemId) } : {}),
+          ...(request.itemId
+            ? {
+                item: this.#actionItemContext(
+                  request.itemId,
+                  optionalString(requestRow, "selected_source_ref")
+                    ? DynaSourceRefSchema.parse(
+                        parseJson(requiredString(requestRow, "selected_source_ref")),
+                      )
+                    : undefined,
+                ),
+              }
+            : {}),
           ...((request.kind === "open_codex_task" || request.kind === "refresh_codex_status") &&
           request.taskId &&
           request.taskHostId &&
@@ -8308,6 +9651,15 @@ export class SqliteDynaRepository {
       updatedItems: requiredNumber(row, "updated_items"),
       unavailableTasks: requiredNumber(row, "unavailable_tasks"),
       incompleteMetadataTasks: requiredNumber(row, "incomplete_metadata_tasks"),
+      discoveryState: requiredString(
+        row,
+        "discovery_state",
+      ) as DynaRepositoryTaskSyncRun["discoveryState"],
+      inspectedSessions: requiredNumber(row, "inspected_sessions"),
+      importedItems: requiredNumber(row, "imported_items"),
+      adoptedItems: requiredNumber(row, "adopted_items"),
+      skippedSessions: requiredNumber(row, "skipped_sessions"),
+      inventoryTruncated: requiredNumber(row, "inventory_truncated") === 1,
       createdAt: requiredString(row, "created_at"),
       updatedAt: requiredString(row, "updated_at"),
       ...(optionalString(row, "completed_at")
@@ -8331,21 +9683,13 @@ export class SqliteDynaRepository {
       FROM task_bindings task
       JOIN items item ON item.id = task.item_id
       JOIN item_numbers item_number ON item_number.item_id = item.id
-      JOIN publisher_items publisher_item ON publisher_item.item_id = item.id
-        AND publisher_item.publisher_id = item.publisher_id
-      JOIN dashboard_publishers dashboard_publisher
-        ON dashboard_publisher.publisher_id = publisher_item.publisher_id
-       AND dashboard_publisher.dashboard_id = ?1
+      JOIN dashboard_items dashboard_item ON dashboard_item.item_id = item.id
+        AND dashboard_item.dashboard_id = ?1
       LEFT JOIN item_archive_events archive
-        ON archive.dashboard_id = dashboard_publisher.dashboard_id
+        ON archive.dashboard_id = dashboard_item.dashboard_id
        AND archive.item_id = item.id AND archive.restored_at IS NULL
       LEFT JOIN task_sync_checkpoints checkpoint ON checkpoint.task_id = task.task_id
-      WHERE archive.id IS NULL
-        AND (publisher_item.active = 1 OR EXISTS (
-          SELECT 1 FROM item_archive_events restored
-          WHERE restored.dashboard_id = dashboard_publisher.dashboard_id
-            AND restored.item_id = item.id AND restored.restored_at IS NOT NULL
-        )) ${taskPredicate}`;
+      WHERE archive.id IS NULL ${taskPredicate}`;
     const parameters: SQLInputValue[] =
       parsedScope.kind === "task"
         ? [dashboardId, parsedScope.itemId, parsedScope.taskId, parsedScope.hostId]
@@ -8469,6 +9813,56 @@ export class SqliteDynaRepository {
     };
   }
 
+  #findTaskSyncDiscovery(runId: string, taskId: string): DynaRepositoryTaskDiscovery | undefined {
+    const row = this.#one(
+      this.#database.prepare(
+        "SELECT * FROM task_sync_discoveries WHERE run_id = ? AND task_id = ?",
+      ),
+      runId,
+      taskId,
+    );
+    if (!row) return undefined;
+    const itemNumber = row["item_number"];
+    return {
+      runId: requiredString(row, "run_id"),
+      taskId: requiredString(row, "task_id"),
+      hostId: requiredString(row, "host_id"),
+      disposition: requiredString(row, "disposition") as DynaTaskDiscoveryDisposition,
+      ...(optionalString(row, "item_id") ? { itemId: optionalString(row, "item_id") } : {}),
+      ...(typeof itemNumber === "number"
+        ? { itemNumber: requiredItemNumber(row, "item_number") }
+        : {}),
+      ...(optionalString(row, "canonical_title")
+        ? { canonicalTitle: optionalString(row, "canonical_title") }
+        : {}),
+      createdAt: requiredString(row, "created_at"),
+    };
+  }
+
+  #isTaskSyncExcluded(runId: string, taskId: string): boolean {
+    return Boolean(
+      this.#one(
+        this.#database.prepare(
+          "SELECT 1 AS present FROM task_sync_exclusions WHERE run_id = ? AND task_id = ?",
+        ),
+        runId,
+        taskId,
+      ),
+    );
+  }
+
+  #findCodexSourceItemIds(taskId: string): readonly string[] {
+    return (
+      this.#database
+        .prepare(
+          `SELECT id FROM items
+           WHERE source = 'codex' AND json_extract(source_ref, '$.taskId') = ?
+           ORDER BY updated_at DESC, id`,
+        )
+        .all(taskId) as SqlRow[]
+    ).map((row) => requiredString(row, "id"));
+  }
+
   #insertTaskSyncRun(run: DynaRepositoryTaskSyncRun): void {
     const scope = DynaTaskSyncScopeSchema.parse(run.scope);
     this.#database
@@ -8477,8 +9871,10 @@ export class SqliteDynaRepository {
            id, dashboard_id, scope_kind, scope_item_id, scope_task_id, scope_host_id,
            state, claim_token_hash, lease_expires_at, expires_at, total_tasks,
            excess_tasks, processed_tasks, updated_items, unavailable_tasks,
-           incomplete_metadata_tasks, created_at, updated_at, completed_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           incomplete_metadata_tasks, discovery_state, inspected_sessions,
+           imported_items, adopted_items, skipped_sessions, inventory_truncated,
+           created_at, updated_at, completed_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         run.id,
@@ -8497,6 +9893,12 @@ export class SqliteDynaRepository {
         run.updatedItems,
         run.unavailableTasks,
         run.incompleteMetadataTasks,
+        run.discoveryState,
+        run.inspectedSessions,
+        run.importedItems,
+        run.adoptedItems,
+        run.skippedSessions,
+        run.inventoryTruncated ? 1 : 0,
         run.createdAt,
         run.updatedAt,
         run.completedAt ?? null,
@@ -8507,17 +9909,26 @@ export class SqliteDynaRepository {
     const changed = this.#database
       .prepare(
         `UPDATE task_sync_runs SET state = ?, claim_token_hash = ?, lease_expires_at = ?,
-           processed_tasks = ?, updated_items = ?, unavailable_tasks = ?,
-           incomplete_metadata_tasks = ?, updated_at = ?, completed_at = ? WHERE id = ?`,
+           total_tasks = ?, processed_tasks = ?, updated_items = ?, unavailable_tasks = ?,
+           incomplete_metadata_tasks = ?, discovery_state = ?, inspected_sessions = ?,
+           imported_items = ?, adopted_items = ?, skipped_sessions = ?,
+           inventory_truncated = ?, updated_at = ?, completed_at = ? WHERE id = ?`,
       )
       .run(
         run.state,
         run.claimTokenHash ?? null,
         run.leaseExpiresAt ?? null,
+        run.totalTasks,
         run.processedTasks,
         run.updatedItems,
         run.unavailableTasks,
         run.incompleteMetadataTasks,
+        run.discoveryState,
+        run.inspectedSessions,
+        run.importedItems,
+        run.adoptedItems,
+        run.skippedSessions,
+        run.inventoryTruncated ? 1 : 0,
         run.updatedAt,
         run.completedAt ?? null,
         run.id,
@@ -8547,6 +9958,33 @@ export class SqliteDynaRepository {
         target.checkpointObservedAtMs ?? null,
       );
     }
+  }
+
+  #insertTaskSyncExclusions(runId: string, taskIds: readonly string[]): void {
+    const insert = this.#database.prepare(
+      "INSERT INTO task_sync_exclusions (run_id, task_id) VALUES (?, ?)",
+    );
+    for (const taskId of taskIds) insert.run(runId, taskId);
+  }
+
+  #insertTaskSyncDiscovery(discovery: DynaRepositoryTaskDiscovery): void {
+    this.#database
+      .prepare(
+        `INSERT INTO task_sync_discoveries (
+           run_id, task_id, host_id, disposition, item_id, item_number,
+           canonical_title, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        discovery.runId,
+        discovery.taskId,
+        discovery.hostId,
+        discovery.disposition,
+        discovery.itemId ?? null,
+        discovery.itemNumber ?? null,
+        discovery.canonicalTitle ?? null,
+        discovery.createdAt,
+      );
   }
 
   #stageTaskSyncObservation(
@@ -8841,6 +10279,7 @@ export class SqliteDynaRepository {
         ...base,
         id: itemId,
         itemNumber,
+        sources: [],
         fingerprint: requiredString(row, "fingerprint"),
         ...(followUpOfItemId ? { followUpOfItemId } : {}),
         ...(followUpOfItemNumber ? { followUpOfItemNumber } : {}),
@@ -8881,6 +10320,7 @@ export class SqliteDynaRepository {
       ...merged,
       id: itemId,
       itemNumber,
+      sources: [],
       fingerprint: requiredString(row, "fingerprint"),
       ...(followUpOfItemId ? { followUpOfItemId } : {}),
       ...(followUpOfItemNumber ? { followUpOfItemNumber } : {}),
@@ -8979,13 +10419,16 @@ export class SqliteDynaRepository {
     ).map((row) => this.#taskFromRow(row));
   }
 
-  #actionItemContext(itemId: string): z.infer<typeof DynaActionItemContextSchema> {
+  #actionItemContext(
+    itemId: string,
+    selectedSourceRef?: DynaSourceRef,
+  ): z.infer<typeof DynaActionItemContextSchema> {
     const item = this.#item(itemId);
     return DynaActionItemContextSchema.parse({
       id: itemId,
       itemNumber: item.itemNumber,
       title: item.title,
-      sourceRef: item.sourceRef,
+      sourceRef: selectedSourceRef ?? item.sourceRef,
       sourceUpdatedAt: item.sourceUpdatedAt,
       annotations: this.#annotations(itemId),
       trustBoundary: "untrusted_reference_data",
@@ -9075,14 +10518,7 @@ export class SqliteDynaRepository {
       this.#database
         .prepare(
           `
-        SELECT DISTINCT dp.dashboard_id FROM dashboard_publishers dp
-        JOIN publisher_items pi ON pi.publisher_id = dp.publisher_id
-        WHERE pi.item_id = ? AND (
-          pi.active = 1 OR EXISTS (
-            SELECT 1 FROM item_archive_events history
-            WHERE history.dashboard_id = dp.dashboard_id AND history.item_id = pi.item_id
-          )
-        )
+        SELECT dashboard_id FROM dashboard_items WHERE item_id = ?
       `,
         )
         .all(itemId) as SqlRow[]

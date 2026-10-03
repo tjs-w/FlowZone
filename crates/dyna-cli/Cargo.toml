@@ -1,0 +1,35 @@
+[package]
+name = "dyna"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+license = "MIT"
+description = "Standalone local Dyna work-management backend"
+
+[features]
+# Never enabled by release packaging. Subprocess tests use an isolated account
+# home without touching the actual user's installed store.
+isolated-tests = []
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+fs2 = "0.4"
+libc = "0.2"
+rusqlite = { version = "0.38", features = ["bundled", "backup"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4", "v5", "serde"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[[bin]]
+name = "dyna"
+path = "src/main.rs"

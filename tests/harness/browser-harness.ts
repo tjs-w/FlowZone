@@ -1716,7 +1716,7 @@ const dynaHostScript = (dynaResult: unknown) => `<script>
     document.documentElement.dataset.dynaAnchorInterceptorCount =
       String(state.anchorInterceptorActivations.length);
     document.documentElement.dataset.dynaLastAnchorInterceptorActivation = anchor.href;
-    event.preventDefault();
+    if (query.get("observe-anchor-default") !== "1") event.preventDefault();
   }, { capture: true });
   Object.defineProperty(navigator, "clipboard", {
     configurable: true,

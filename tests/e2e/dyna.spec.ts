@@ -789,7 +789,11 @@ test("opens originating records exactly once through the host link bridge", asyn
     "https://github.com/team/project/pull/fixture-pr-0",
   );
   await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "1");
-  await expect(page.locator("html")).not.toHaveAttribute("data-dyna-external-link-count", /.+/);
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "1");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-dyna-last-external-link",
+    "https://github.com/team/project/pull/fixture-pr-0",
+  );
   const modifiedClick = await rowLink.evaluate((node) => {
     let reachedNativeGuard = false;
     let preventedBeforeNativeGuard: boolean | null = null;
@@ -816,9 +820,11 @@ test("opens originating records exactly once through the host link bridge", asyn
   });
   await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
   await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "1");
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "1");
   await rowLink.focus();
   await rowLink.press("Enter");
   await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "2");
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "2");
   const selectedActivation = await rowLink.evaluate((node) => {
     const text = node.querySelector("span")?.firstChild;
     if (!text) return { dispatched: true, selected: "" };
@@ -840,6 +846,7 @@ test("opens originating records exactly once through the host link bridge", asyn
   });
   await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
   await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "2");
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "2");
   await page.evaluate(() => window.getSelection()?.removeAllRanges());
   const nativeLinkMenu = await rowLink.evaluate((node) =>
     node.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })),
@@ -892,6 +899,7 @@ test("opens originating records exactly once through the host link bridge", asyn
     "https://github.com/team/project/pull/fixture-pr-0",
   );
   await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "3");
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "3");
   const contributingSource = page.locator(
     ".dyna-inspector .dyna-contribution-list .dyna-origin-link",
   );
@@ -901,7 +909,40 @@ test("opens originating records exactly once through the host link bridge", asyn
   );
   await contributingSource.click();
   await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "4");
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "4");
   await expect(page.locator("html")).not.toHaveAttribute("data-dyna-message-count", /.+/);
+});
+
+test("host-opened links suppress the native anchor navigation", async ({ page }) => {
+  await page.goto("/dyna?work-activity=1&observe-anchor-default=1");
+  await awaitInitialDynaSnapshot(page);
+
+  const source = page.getByRole("link", {
+    name: "Open source: Review the release merge request",
+  });
+  const sourceClick = await source.evaluate((link) => {
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+    const allowed = link.dispatchEvent(event);
+    return { allowed, prevented: event.defaultPrevented };
+  });
+  expect(sourceClick).toEqual({ allowed: false, prevented: true });
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "1");
+
+  const session = page
+    .locator('.dyna-card[data-presentation="queue"]')
+    .filter({ hasText: "Review the release merge request" })
+    .locator(".dyna-row-heading a[data-dyna-session-link]");
+  const sessionClick = await session.evaluate((link) => {
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+    const allowed = link.dispatchEvent(event);
+    return { allowed, prevented: event.defaultPrevented };
+  });
+  expect(sessionClick).toEqual({ allowed: false, prevented: true });
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "2");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-dyna-last-external-link",
+    "codex://threads/activity-progress-task",
+  );
 });
 
 test("opens legacy Slack workspace references with a canonical permalink", async ({ page }) => {
@@ -918,12 +959,14 @@ test("opens legacy Slack workspace references with a canonical permalink", async
     sourceUrl,
   );
   await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "1");
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "1");
 
   await openDetails(page, "Additional priority 5");
   const inspectorLink = page.getByRole("link", { name: "Open source", exact: true });
   await expect(inspectorLink).toHaveAttribute("data-dyna-link-url", sourceUrl);
   await inspectorLink.click();
   await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "2");
+  await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "2");
 });
 
 for (const theme of ["light", "dark"] as const) {
@@ -957,7 +1000,7 @@ for (const theme of ["light", "dark"] as const) {
     await expect(page.locator(".dyna-context-menu")).toHaveCount(0);
     await sourceLinks.first().click();
     await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "1");
-    await expect(page.locator("html")).not.toHaveAttribute("data-dyna-external-link-count", /.+/u);
+    await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "1");
 
     await openDetails(page, "Release MR !51");
     const inspector = page.locator(".dyna-inspector");
@@ -1103,6 +1146,11 @@ for (const theme of ["light", "dark"] as const) {
     expect(await direct.getAttribute("target")).toBeNull();
     await direct.click();
     await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "1");
+    await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "1");
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-dyna-last-external-link",
+      "codex://threads/activity-progress-task",
+    );
     await expect(page.locator(".dyna-inspector-layer")).toBeHidden();
 
     const nativeMenu = await direct.evaluate((link) =>
@@ -1113,6 +1161,7 @@ for (const theme of ["light", "dark"] as const) {
     await direct.focus();
     await direct.press("Enter");
     await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "2");
+    await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "2");
 
     await openDetails(page, "Review the release merge request");
     const inspectorLink = page
@@ -1121,6 +1170,7 @@ for (const theme of ["light", "dark"] as const) {
     await expect(inspectorLink).toHaveAttribute("href", "codex://threads/activity-progress-task");
     await inspectorLink.click();
     await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "3");
+    await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "3");
     await closeDetails(page);
 
     const multiple = page
@@ -1141,6 +1191,7 @@ for (const theme of ["light", "dark"] as const) {
     expect(accessibility.violations).toEqual([]);
     await chooser.locator('a[href="codex://threads/activity-input-blocker-task"]').click();
     await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "4");
+    await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "4");
     await expect(page.locator("html")).toHaveAttribute(
       "data-dyna-last-anchor-interceptor-activation",
       "codex://threads/activity-input-blocker-task",
@@ -1154,6 +1205,8 @@ for (const theme of ["light", "dark"] as const) {
       .filter({ hasText: "Review the release merge request" })
       .locator(".dyna-row-heading a[data-dyna-session-link]");
     await expect(progressLink).toHaveAttribute("href", "codex://threads/activity-progress-task");
+    await progressLink.click();
+    await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "5");
 
     await page.getByRole("tab", { name: "Priority queue" }).click();
     await openDetails(page, "Review the release merge request");
@@ -1167,6 +1220,8 @@ for (const theme of ["light", "dark"] as const) {
       .filter({ hasText: "Review the release merge request" })
       .locator(".dyna-row-heading a[data-dyna-session-link]");
     await expect(archiveLink).toHaveAttribute("href", "codex://threads/activity-progress-task");
+    await archiveLink.click();
+    await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "6");
   });
 }
 
@@ -1770,6 +1825,51 @@ test("recomputes the Executive Brief within search and filter scope", async ({ p
     brief.getByRole("button", { name: "Open details for Additional priority 2" }),
   ).toBeVisible();
 });
+
+for (const theme of ["light", "dark"] as const) {
+  test(`keeps empty-search and Backlog Executive Brief scope honest in ${theme} theme`, async ({
+    page,
+  }) => {
+    await page.goto(`/dyna?many-items=1&theme=${theme}`);
+    await openFullDashboard(page);
+    const brief = page.getByRole("region", { name: "Executive Brief" });
+    const metadata = brief.locator(".dyna-executive-summary-meta");
+    const search = page.getByRole("searchbox", { name: "Search dashboard" });
+    const queueRows = page.locator('.dyna-card[data-presentation="queue"]');
+    await search.fill("nomatch-manual-e2e-xyz");
+    await expect(metadata).toContainText("0 search matches");
+    await expect(brief).toContainText("No items match this search.");
+    await expect(brief).not.toContainText("No action signals were found");
+    await page.locator(".dyna-search-clear").click();
+    await expect(queueRows).toHaveCount(4);
+
+    const title = "Review the release merge request";
+    const status = queueRows
+      .filter({ hasText: title })
+      .getByRole("combobox", { name: `Change status for ${title}` });
+    await status.focus();
+    await status.selectOption("backlog");
+    await expect(metadata).toContainText("All 4 active items · 1 in Backlog");
+    await expect(brief.locator('li[data-kind="act"]')).not.toContainText(title);
+
+    await page.locator('.dyna-filters > summary[aria-label="Filters"]').click();
+    const filterPanel = page.locator(".dyna-filter-panel");
+    const workflow = filterPanel
+      .getByRole("combobox")
+      .filter({ has: page.locator('option[value="backlog"]') });
+    await workflow.selectOption("backlog");
+    await expect(metadata).toContainText("1 filtered item · 1 in Backlog");
+    await expect(brief).toContainText("1 item is deferred to Backlog.");
+    await expect(brief).not.toContainText("No action signals were found");
+    await expect(queueRows).toHaveCount(1);
+
+    await workflow.selectOption("completed");
+    await expect(metadata).toContainText("0 filtered items");
+    await expect(brief).toContainText("No items match these filters.");
+    await search.fill("nomatch-manual-e2e-xyz");
+    await expect(brief).toContainText("No items match this search and filters.");
+  });
+}
 
 test("discloses unavailable source coverage without presenting an all-clear", async ({ page }) => {
   await page.goto("/dyna?failed-schedule=1");
@@ -2842,6 +2942,9 @@ test("requires a one-line outcome before a taskless item can move to Done", asyn
   const completed = stage("completed").locator(".dyna-card").filter({ hasText: title });
   await expect(completed).toBeVisible();
   await expect(completed.locator(".dyna-row-status")).toHaveText("Done");
+  await expect(completed.locator(".dyna-row-attention")).toContainText(
+    "Approved the release after validating the rollback path.",
+  );
   await expect(stage("completed").locator(":scope > header > span")).toHaveText("2");
   await expect(dialog).toBeHidden();
 
@@ -2866,7 +2969,7 @@ test("requires a one-line outcome before a taskless item can move to Done", asyn
   );
 });
 
-test("keeps linked Codex lifecycle read-only while allowing temporary Backlog", async ({
+test("preserves native lifecycle choices while allowing linked completion and temporary Backlog", async ({
   page,
 }) => {
   await page.goto("/dyna?pipeline=1");
@@ -2880,7 +2983,7 @@ test("keeps linked Codex lifecycle read-only while allowing temporary Backlog", 
   await expect(status).toBeVisible();
   await expect(status.locator('option[value="todo"]')).toHaveCount(0);
   await expect(status.locator('option[value="needs_you"]')).toHaveCount(0);
-  await expect(status.locator('option[value="completed"]')).toHaveCount(0);
+  await expect(status.locator('option[value="completed"]')).toHaveText("Done…");
   await expect(status.locator('option[value="backlog"]')).toHaveText("Backlog for 1 day");
   await expect(card.locator(".dyna-row-status")).toHaveText("In Codex");
   await status.selectOption("backlog");
@@ -2905,7 +3008,9 @@ test("keeps linked Codex lifecycle read-only while allowing temporary Backlog", 
   expect(calls.some((call) => call.name === "dyna_begin_task_sync")).toBe(false);
 });
 
-test("keeps Queue linked Codex lifecycle read-only while exposing Backlog", async ({ page }) => {
+test("exposes linked Done and Backlog without overriding native status in Queue", async ({
+  page,
+}) => {
   await page.goto("/dyna?pipeline=1");
   await openFullDashboard(page);
 
@@ -2918,10 +3023,113 @@ test("keeps Queue linked Codex lifecycle read-only while exposing Backlog", asyn
   await status.focus();
   await expect(status.locator('option[value="todo"]')).toHaveCount(0);
   await expect(status.locator('option[value="needs_you"]')).toHaveCount(0);
-  await expect(status.locator('option[value="completed"]')).toHaveCount(0);
+  await expect(status.locator('option[value="completed"]')).toHaveText("Done…");
   await expect(status.locator('option[value="backlog"]')).toHaveText("Backlog for 1 day");
   await expect(queueCard.locator(".dyna-row-status")).toHaveText("In Codex");
 });
+
+test("moves linked work to Done through Progress drag or the touch status menu", async ({
+  page,
+}) => {
+  await page.goto("/dyna?pipeline=1");
+  await openFullDashboard(page);
+  await page.getByRole("tab", { name: "Progress pipeline" }).click();
+  const title = "Additional priority 2";
+  const card = page
+    .locator('.dyna-pipeline-stage[data-workflow-stage="needs_you"] .dyna-card')
+    .filter({ hasText: title });
+  const done = page.locator('.dyna-pipeline-stage[data-workflow-stage="completed"]');
+  const touch = await page.evaluate(() => window.matchMedia("(pointer: coarse)").matches);
+  if (touch) {
+    await card
+      .getByRole("combobox", { name: `Change status for ${title}` })
+      .selectOption("completed");
+  } else {
+    await card.getByRole("button", { name: `Drag ${title} to another status` }).dragTo(done);
+  }
+  const dialog = page.getByRole("dialog", { name: "Mark Item Done" });
+  await expect(dialog).toBeVisible();
+  await expect(card).toBeVisible();
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(card.locator(".dyna-row-status")).toHaveText("Needs You");
+  await card
+    .getByRole("combobox", { name: `Change status for ${title}` })
+    .selectOption("completed");
+  const outcome = "Resolved the decision and recorded the accepted tradeoff.";
+  const input = dialog.getByRole("textbox", { name: "Outcome" });
+  await input.fill(outcome);
+  await input.press("Enter");
+  await expect(done.locator(".dyna-card").filter({ hasText: title })).toContainText(outcome);
+});
+
+for (const theme of ["light", "dark"] as const) {
+  for (const task of [
+    { title: "Additional priority 1", state: "Running" },
+    { title: "Additional priority 2", state: "Waiting" },
+  ]) {
+    test(`completes linked ${task.state} Dyna work without certifying native success in ${theme} theme`, async ({
+      page,
+    }) => {
+      await page.goto(`/dyna?pipeline=1&theme=${theme}&task-sync-controller=updated`);
+      await openFullDashboard(page);
+      const queueCard = page
+        .locator('.dyna-card[data-presentation="queue"]')
+        .filter({ hasText: task.title });
+      const queueStatus = queueCard.getByRole("combobox", {
+        name: `Change status for ${task.title}`,
+      });
+      await queueStatus.focus();
+      await expect(queueStatus.locator('option[value="completed"]')).toHaveText("Done…");
+      await openDetails(page, task.title);
+      const inspector = page.locator(".dyna-inspector");
+      const inspectorStatus = inspector.getByRole("combobox", {
+        name: `Change status for ${task.title}`,
+      });
+      await expect(inspectorStatus.locator('option[value="completed"]')).toHaveText("Done…");
+
+      if (theme === "light") {
+        await inspectorStatus.selectOption("completed");
+      } else {
+        await closeDetails(page);
+        await queueStatus.focus();
+        await queueStatus.selectOption("completed");
+      }
+      const dialog = page.getByRole("dialog", { name: "Mark Item Done" });
+      await expect(dialog).toContainText("This completes only the Dyna item.");
+      const outcome = `Verified ${task.title} and recorded the decision.`;
+      const input = dialog.getByRole("textbox", { name: "Outcome" });
+      await expect(dialog.getByRole("button", { name: "Mark Done" })).toBeDisabled();
+      await input.fill(outcome);
+      await input.press("Enter");
+      await expect(dialog).toBeHidden();
+      await expect(page.locator(".dyna-inspector-layer")).toBeHidden();
+      await expect(page.getByRole("tab", { name: "Progress pipeline" })).toBeVisible();
+      if (await inspector.isVisible()) await closeDetails(page);
+      await page.getByRole("tab", { name: "Progress pipeline" }).click();
+      const completed = page
+        .locator('.dyna-pipeline-stage[data-workflow-stage="completed"] .dyna-card')
+        .filter({ hasText: task.title });
+      await expect(completed).toBeVisible();
+      await expect(completed.locator(".dyna-row-attention")).toHaveText(outcome);
+      await openDetails(page, task.title);
+      await expect(inspector.locator(".dyna-outcome")).toContainText(outcome);
+      await expect(
+        inspector.locator(".dyna-task").getByText(task.state, { exact: true }),
+      ).toBeVisible();
+      await closeDetails(page);
+
+      await awaitInitialDynaSnapshot(page);
+      await page.locator('[data-dyna-refresh="true"]:visible').click();
+      await expect(page.getByRole("status").filter({ hasText: /^Updated /u })).toBeVisible();
+      await expect(completed).toBeVisible();
+      await expect(completed.locator(".dyna-row-attention")).toHaveText(outcome);
+      await openDetails(page, task.title);
+      await expect(
+        inspector.locator(".dyna-task").getByText("Running", { exact: true }),
+      ).toBeVisible();
+    });
+  }
+}
 
 for (const theme of ["light", "dark"] as const) {
   test(`renders cross-session work activity and safe lifecycle projections in ${theme} theme`, async ({
@@ -3043,6 +3251,11 @@ for (const theme of ["light", "dark"] as const) {
       "https://gitlab.com/team/project/-/pipelines/8842",
     );
     await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "1");
+    await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "1");
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-dyna-last-external-link",
+      "https://gitlab.com/team/project/-/pipelines/8842",
+    );
 
     const modifiedClickDispatched = await artifact.evaluate((node) =>
       node.dispatchEvent(
@@ -3055,6 +3268,7 @@ for (const theme of ["light", "dark"] as const) {
     );
     expect(modifiedClickDispatched).toBe(true);
     await expect(page.locator("html")).toHaveAttribute("data-dyna-anchor-interceptor-count", "1");
+    await expect(page.locator("html")).toHaveAttribute("data-dyna-external-link-count", "1");
     if (!testInfo.project.name.startsWith("mobile-")) {
       const selectedContextMenu = await artifact.evaluate((node) => {
         const text = node.querySelector("span")?.firstChild;

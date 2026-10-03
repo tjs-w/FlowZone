@@ -255,6 +255,7 @@ interface DynaUiController {
   setWorkflowFilter(value: WorkflowFilter): void;
   setView(value: DashboardView): void;
   openExternal(url: string): Promise<void>;
+  openCodexSession(taskId: string): Promise<void>;
   expand(trigger?: HTMLElement): Promise<void>;
 }
 
@@ -298,9 +299,25 @@ function ExternalResourceLink({
   artifactLinkId,
   children,
 }: ExternalResourceLinkProps) {
+  const controller = useController();
   const handleClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {
     event.stopPropagation();
-    if (selectionIntersects(event.currentTarget)) event.preventDefault();
+    if (selectionIntersects(event.currentTarget)) {
+      event.preventDefault();
+      return;
+    }
+    if (
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey ||
+      !controller.externalLinks
+    ) {
+      return;
+    }
+    event.preventDefault();
+    void controller.openExternal(url);
   };
   const handleAuxClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {
     event.stopPropagation();
@@ -1371,11 +1388,13 @@ function StatusSelect({ card }: { readonly card: CardViewProps }) {
               <option value="return_from_backlog">
                 Return to {workflowStageLabel(card.workflowStage)}
               </option>
+              <option value="completed">Done…</option>
             </>
           ) : linked ? (
             <>
               <option value={card.workflowStage}>{workflowStageLabel(card.workflowStage)}</option>
               <option value="backlog">Backlog for 1 day</option>
+              <option value="completed">Done…</option>
             </>
           ) : (
             <>
@@ -2207,6 +2226,7 @@ function CodexSessionLink({
   readonly children?: ReactNode;
   readonly onActivate?: () => void;
 }) {
+  const controller = useController();
   const href = codexThreadUrl(task.taskId);
   if (!href) return null;
   const label = `Open ${task.title} in Codex`;
@@ -2222,6 +2242,19 @@ function CodexSessionLink({
         if (selectionIntersects(event.currentTarget)) {
           event.preventDefault();
           return;
+        }
+        if (
+          event.button !== 0 ||
+          event.metaKey ||
+          event.ctrlKey ||
+          event.shiftKey ||
+          event.altKey
+        ) {
+          return;
+        }
+        if (controller.externalLinks) {
+          event.preventDefault();
+          void controller.openCodexSession(task.taskId);
         }
         onActivate?.();
       }}
@@ -3160,9 +3193,12 @@ const dynaComponents: DynaComponentCatalog = {
         : props.sourceLabel;
     const summaryNeedsDisclosure = props.summary.length > INLINE_SUMMARY_MAX_LENGTH;
     const matchedActivity = controller.query.trim() ? props.matchedActivity?.trim() : undefined;
-    const rowDetail = matchedActivity
-      ? `Matched activity: ${compactLine(matchedActivity)}`
-      : compactLine(props.workflowSummary ?? props.attention ?? props.priorityReason);
+    const rowDetail =
+      props.workflowStage === "completed"
+        ? compactLine(props.outcome ?? "Completed · outcome not recorded.")
+        : matchedActivity
+          ? `Matched activity: ${compactLine(matchedActivity)}`
+          : compactLine(props.workflowSummary ?? props.attention ?? props.priorityReason);
     const showPriority = presentation !== "queue" || controller.condenseInline;
     const showQueueMove =
       controller.view === "queue" &&
@@ -4493,7 +4529,8 @@ function buildExecutiveSummary(
   locale: string,
 ): ExecutiveSummaryModel {
   const sorted = [...cards].sort((left, right) => compareCardsForQuery(left, right, query));
-  const unfinished = sorted.filter((card) => card.workflowState !== "completed");
+  const unfinished = sorted.filter((card) => card.workflowState !== "completed" && !card.backlog);
+  const deferred = sorted.filter((card) => card.workflowState !== "completed" && card.backlog);
   const completed = sorted
     .filter((card) => card.workflowState === "completed")
     .sort((left, right) => (right.completedAt ?? "").localeCompare(left.completedAt ?? ""));
@@ -4637,29 +4674,41 @@ function buildExecutiveSummary(
   }
 
   const coverage = executiveSummaryCoverage(snapshot.schedules, snapshot.cards, locale);
+  const searched = query.trim().length > 0;
   if (points.length === 0) {
     points.push({
       kind: "empty",
-      label: "Current State",
+      label: deferred.length > 0 ? "Backlog" : "Current State",
       headline:
-        coverage.coverage === "current"
-          ? "No action signals were found in the latest complete refresh."
-          : coverage.coverage === "manual"
-            ? "No active commitments."
-            : "No actionable items are present in the available data.",
-      sources: [],
+        deferred.length > 0
+          ? `${String(deferred.length)} ${deferred.length === 1 ? "item is" : "items are"} deferred to Backlog.`
+          : searched
+            ? filtersApplied
+              ? "No items match this search and filters."
+              : "No items match this search."
+            : filtersApplied
+              ? "No items match these filters."
+              : coverage.coverage === "current"
+                ? "No action signals were found in the latest complete refresh."
+                : coverage.coverage === "manual"
+                  ? "No active commitments."
+                  : "No actionable items are present in the available data.",
+      ...(deferred.length > 0
+        ? { detail: "Deferred work stays out of Act Now until resumed." }
+        : {}),
+      sources: executiveSummarySources(deferred),
     });
   }
 
   const bounded = snapshot.counts.total > snapshot.cards.length;
-  const searched = query.trim().length > 0;
-  const scope = bounded
+  const baseScope = bounded
     ? `${filtersApplied ? `${String(cards.length)} filtered within ` : ""}highest-priority ${String(snapshot.cards.length)} of ${String(snapshot.counts.total)}${searched ? " matches" : " active items"}`
     : searched
       ? `${String(cards.length)} ${filtersApplied ? "filtered search" : "search"} ${cards.length === 1 ? "match" : "matches"}`
       : filtersApplied
         ? `${String(cards.length)} filtered ${cards.length === 1 ? "item" : "items"}`
         : `All ${String(snapshot.counts.total)} active ${snapshot.counts.total === 1 ? "item" : "items"}`;
+  const scope = `${baseScope}${deferred.length > 0 ? ` · ${String(deferred.length)} in Backlog` : ""}`;
   const fixedPoints = points.filter((point) => point.kind !== "theme");
   const themePoints = points.filter((point) => point.kind === "theme");
   const themeLimit = Math.max(0, 4 - fixedPoints.length);
@@ -4886,7 +4935,7 @@ function SnapshotDashboard({ snapshot }: { readonly snapshot: DynaSnapshot }) {
     controller.leadershipOnly;
   const executiveSummary = buildExecutiveSummary(
     snapshot,
-    summaryCards.filter((card) => !card.backlog),
+    summaryCards,
     controller.query,
     summaryFiltersApplied,
     controller.locale,
@@ -6215,6 +6264,23 @@ function DynaApp({ app }: { readonly app: App }) {
     [app],
   );
 
+  const openCodexSession = useCallback(
+    async (taskId: string) => {
+      const url = codexThreadUrl(taskId);
+      if (!url) {
+        setToast("This Codex session link is invalid.");
+        return;
+      }
+      try {
+        const result = await app.openLink({ url });
+        if (result.isError) throw new Error("The host could not open this Codex session.");
+      } catch {
+        setToast("The host could not open this Codex session. Copy the link to open it manually.");
+      }
+    },
+    [app],
+  );
+
   const clearBulkSelection = useCallback(() => {
     setBulkSelectedIds([]);
     setBulkModeState(false);
@@ -6452,12 +6518,22 @@ function DynaApp({ app }: { readonly app: App }) {
         statusRequestIds.current.delete(itemId);
         setCompletionTarget(undefined);
         setCompletionOutcome("");
+        if (targetStage === "done") {
+          // Queue no longer renders this card after completion. Clear its
+          // inspector selection too, so narrow layouts do not hide the board
+          // behind a detail view that has just unmounted.
+          selectedItemRef.current = undefined;
+          setSelectedItemId(undefined);
+        }
         await refresh(true);
         window.setTimeout(() => {
           const status = document.querySelector<HTMLElement>(
             `[data-dyna-status-item="${CSS.escape(itemId)}"]`,
           );
-          (status ?? trigger).focus();
+          const fallback = trigger.isConnected
+            ? trigger
+            : document.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+          (status ?? fallback)?.focus();
         }, 0);
         setToast(
           targetStage === "todo"
@@ -6881,6 +6957,7 @@ function DynaApp({ app }: { readonly app: App }) {
       setView,
       refreshLatest,
       openExternal,
+      openCodexSession,
       loadActivity,
       closeDetails,
       openDetails,
@@ -7162,15 +7239,6 @@ function DynaApp({ app }: { readonly app: App }) {
           return;
         }
 
-        const linked = card.linkedTasks.length > 0;
-        if (linked) {
-          setOperationError("Statuses for linked Codex tasks are read-only in Dyna.");
-          return;
-        }
-        if (target === "executing") {
-          setOperationError("Codex task sessions cannot be launched from the Dyna dashboard.");
-          return;
-        }
         if (target === "completed") {
           statusTrigger.current = trigger;
           setCompletionOutcome("");
@@ -7180,6 +7248,17 @@ function DynaApp({ app }: { readonly app: App }) {
             title: card.title,
             linkedTaskCount: card.linkedTasks.length,
           });
+          return;
+        }
+        const linked = card.linkedTasks.length > 0;
+        if (linked) {
+          setOperationError(
+            "To Do and Needs You follow the linked Codex task. Mark Done with an outcome to close the Dyna item.",
+          );
+          return;
+        }
+        if (target === "executing") {
+          setOperationError("Codex task sessions cannot be launched from the Dyna dashboard.");
           return;
         }
         await executeStatusChange(itemId, fingerprint, target, trigger);
@@ -7308,6 +7387,7 @@ function DynaApp({ app }: { readonly app: App }) {
       syncTask,
       openDetails,
       openExternal,
+      openCodexSession,
       loadActivity,
       waitForAction,
       setQuery,
